@@ -108,6 +108,59 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
     }),
+    /**
+     * **Client-fulfilled tool.** The agent author declares the tool fully
+     * inline (id + description + args_schema); the connecting client
+     * (browser dock, IDE MCP host, etc.) advertises which ids it can
+     * fulfill at session start via `client.handles[]`. The runner
+     * reconciles:
+     *
+     *   - In spec AND in `client.handles[]` → exposed to the model.
+     *   - In spec, NOT handled, `required: false` (default) → hidden
+     *     from the model surface; the agent.md should be written to
+     *     degrade gracefully (text-only narration).
+     *   - In spec, NOT handled, `required: true` → session open fails
+     *     with `client_tool_unsupported`.
+     *
+     * Dispatch path: when the model calls the tool, the runner emits a
+     * `client_tool_call` session event carrying the args + a call_id;
+     * the client executes locally and POSTs the result to
+     * `/sessions/<id>/client_tool_result`. See
+     * docs/agent-platform/plans/agent-console-website.md §8.
+     */
+    z.object({
+        kind: z.literal('client'),
+        /**
+         * Tool id the model sees. Author-chosen; must not collide with
+         * other tools in the same spec. Convention: short snake_case
+         * names (`focus`, `toast`, `get_context`) — no required prefix.
+         */
+        id: z.string().min(1),
+        /**
+         * Human-readable + model-readable description. Same as native
+         * tool descriptions; this is the primary signal the model uses
+         * to decide when to call the tool.
+         */
+        description: z.string().min(1),
+        /**
+         * JSON Schema for the tool's args. Held as a free-form object
+         * because spec authors define their own shape per tool — the
+         * runner doesn't introspect it.
+         */
+        args_schema: z.record(z.string(), z.unknown()).default({}),
+        /**
+         * When false (the default), missing client support → tool hidden,
+         * session proceeds. When true, missing client support → session
+         * open fails.
+         */
+        required: z.boolean().default(false),
+        /**
+         * Per-call timeout in ms. Default 5s — UI tools should answer in
+         * <100ms; if they don't, the user closed the tab or follow-mode
+         * is off. Author may raise for slower client operations.
+         */
+        timeout_ms: z.number().int().positive().max(60_000).default(5_000),
+    }),
 ])
 
 export const McpRefSchema = z.discriminatedUnion('kind', [

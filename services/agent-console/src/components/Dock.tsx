@@ -3,11 +3,13 @@
  *
  * Two runners, picked by mode:
  *   - **Playground** → `useRealRunner` against `context.agent.slug`,
- *     talking to agent-ingress over SSE. The dock is now actually
- *     chatting with the real agent.
- *   - **Concierge** → still `useFakeRunner` for now. The concierge
- *     agent isn't deployed in dev yet; once it is, this mode also
- *     switches to `useRealRunner` against a configured slug.
+ *     talking to agent-ingress over SSE.
+ *   - **Concierge** → `useRealRunner` against the slug declared by
+ *     the route layout via `useSetDockConciergeAgent({ slug })`. If
+ *     the agent isn't deployed (yet) or the slug doesn't resolve
+ *     against the project, we fall back to `useFakeRunner` with
+ *     the canned concierge scripts so the dock still has something
+ *     to show.
  *
  * Owns the `@posthog/ui/focus` handler — pure URL mapper. The agent
  * calls focus, the handler pushes the matching route, and the
@@ -33,6 +35,7 @@ import type {
 import { conciergeScripts, fallbackScript, waitingSession } from '@posthog/agent-chat/fixtures'
 
 import { IngressError } from '@/lib/agentIngressClient'
+import { ApiError, getAgent } from '@/lib/apiClient'
 import { bumpReload } from '@/lib/reloadSignal'
 
 import { useDockStore } from './dock-context'
@@ -123,7 +126,7 @@ function useFocusHandler(context: ChatContext): ClientToolHandler<FocusArgs, Foc
     const router = useRouter()
     return useMemo(
         () => ({
-            id: '@posthog/ui/focus',
+            id: 'focus',
             handle: (args) => {
                 if (!focus.enabled) {
                     return { focused: false, reason: 'user_paused_follow' }
@@ -151,7 +154,7 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
     const focusHandler = useFocusHandler(context)
     const toastHandler = useMemo<ClientToolHandler<ToastArgs, ToastResult>>(
         () => ({
-            id: '@posthog/ui/toast',
+            id: 'toast',
             handle: (args) => {
                 // eslint-disable-next-line no-console
                 console.info('[dock toast]', args)
@@ -160,9 +163,36 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
         }),
         []
     )
+    // get_context returns the host's current view info — same shape as the
+    // Phase A envelope plus follow-mode + client kind so the agent can
+    // resolve "this agent" / "this session" mid-conversation. Built fresh
+    // on each call (reads from the dock store + URL each time), so a user
+    // navigating between agents won't get stale answers.
+    const focusEnabled = useFocusStore().enabled
+    const getContextHandler = useMemo<ClientToolHandler>(
+        () => ({
+            id: 'get_context',
+            handle: () => {
+                const page = context.mode === 'concierge' ? context.page : { kind: 'unknown' as const }
+                const agent =
+                    'agent' in page ? { slug: page.agent.slug, id: page.agent.id, name: page.agent.name } : undefined
+                const sessionId = page.kind === 'agent-session' ? page.sessionId : undefined
+                const url = typeof window !== 'undefined' ? window.location.pathname : undefined
+                return {
+                    page: page.kind,
+                    agent,
+                    session_id: sessionId ?? null,
+                    url,
+                    follow_enabled: focusEnabled,
+                    client: { kind: 'agent-console', version: '1' },
+                }
+            },
+        }),
+        [context, focusEnabled]
+    )
     return useMemo<ClientToolHandler[]>(
-        () => [focusHandler, toastHandler] as unknown as ClientToolHandler[],
-        [focusHandler, toastHandler]
+        () => [focusHandler, toastHandler, getContextHandler] as unknown as ClientToolHandler[],
+        [focusHandler, toastHandler, getContextHandler]
     )
 }
 
@@ -220,6 +250,7 @@ function PlaygroundDock({
         principal,
         teamId: info?.teamId ?? undefined,
         preview,
+        handlers,
     })
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
@@ -248,20 +279,172 @@ function PlaygroundDock({
     )
 }
 
+/**
+ * Resolves the configured concierge slug to a real agent ref, then
+ * renders either the real-runner variant (when resolved) or the
+ * fixture variant (when the slug isn't deployed in this project).
+ *
+ * We use a mount-key on the real variant so the runner hooks tear
+ * down cleanly when the slug or team changes — same trick the
+ * top-level `Dock` uses for mode/agent swaps.
+ */
 function ConciergeDock(): React.ReactElement {
-    const { context, conciergeAgent } = useDockStore()
+    const { conciergeAgent } = useDockStore()
+    const { info } = useSession()
+    const teamId = info?.teamId ?? null
+    const slug = conciergeAgent?.slug ?? null
+    const [resolved, setResolved] = useState<AgentApplicationRef | null>(null)
+    const [resolveError, setResolveError] = useState<boolean>(false)
+
+    useEffect(() => {
+        if (!slug || teamId == null) {
+            setResolved(null)
+            setResolveError(false)
+            return
+        }
+        let cancelled = false
+        setResolveError(false)
+        getAgent(teamId, slug).then(
+            (agent) => {
+                if (!cancelled) {
+                    setResolved({ id: agent.id, slug: agent.slug, name: agent.name })
+                }
+            },
+            (err) => {
+                if (cancelled) {
+                    return
+                }
+                // 404 means the slug isn't deployed in this project —
+                // expected for areas whose concierge isn't shipped yet
+                // (e.g. `/billing` referencing `billing-bot`). Fall back
+                // to the fixture runner silently.
+                const is404 = err instanceof ApiError && err.status === 404
+                if (!is404) {
+                    // eslint-disable-next-line no-console
+                    console.warn('[concierge] failed to resolve agent', slug, err)
+                }
+                setResolved(null)
+                setResolveError(true)
+            }
+        )
+        return () => {
+            cancelled = true
+        }
+    }, [slug, teamId])
+
+    if (resolved && teamId != null) {
+        return <RealConciergeDock key={`${teamId}:${resolved.slug}`} agentRef={resolved} teamId={teamId} />
+    }
+    // While resolving (resolved == null AND no error), or when the
+    // slug genuinely doesn't exist in this project (resolveError), we
+    // show the fixture dock so the surface always has something useful.
+    void resolveError
+    return <FixtureConciergeDock />
+}
+
+/**
+ * Build a small JSON envelope describing the user's current view. Sent as
+ * a prefix on the FIRST user message of each new session so the concierge
+ * knows which agent / session / page the user is referring to ("this agent"
+ * → resolves to the slug), without having to ask. The envelope uses a
+ * `[console-context]` delimiter so the agent.md can teach the model to
+ * extract + suppress it in its own output.
+ *
+ * Phase A: zero platform changes — the envelope rides as part of the user
+ * message text. Phase B (client-tool dispatch) replaces this with a proper
+ * `@posthog/ui/get_context` tool call the model can re-fire at any time.
+ */
+function buildContextEnvelope(context: ChatContext, currentUrl: string | null): string | null {
+    if (context.mode !== 'concierge') {
+        return null
+    }
+    const page = context.page
+    const data: Record<string, unknown> = { page: page.kind, url: currentUrl ?? undefined }
+    if ('agent' in page) {
+        data.agent = { slug: page.agent.slug, name: page.agent.name, id: page.agent.id }
+    }
+    if (page.kind === 'agent-session') {
+        data.session_id = page.sessionId
+    }
+    if (page.kind === 'agent-bundle' && page.revisionLabel) {
+        data.revision_label = page.revisionLabel
+    }
+    return `[console-context]\n${JSON.stringify(data)}\n[/console-context]\n\n`
+}
+
+function RealConciergeDock({
+    agentRef,
+    teamId,
+}: {
+    agentRef: AgentApplicationRef
+    teamId: number
+}): React.ReactElement {
+    const { context } = useDockStore()
+    const focus = useFocusStore()
+    const { info } = useSession()
+    const handlers = useDockHandlers(context)
+    const router = useRouter()
+
+    const principal: SessionPrincipal = useMemo(() => {
+        const profile = (info?.profile ?? null) as { email?: string; first_name?: string; uuid?: string } | null
+        const displayName = profile?.first_name || profile?.email || 'You'
+        return { kind: 'human', userId: profile?.uuid ?? 'you', displayName }
+    }, [info])
+
+    const runner = useRealRunner({
+        agentSlug: agentRef.slug,
+        agentRef,
+        principal,
+        teamId,
+        handlers,
+    })
+    const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
+    const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
+
+    // Wrap send to prepend the context envelope on the first user message
+    // of each session. Subsequent messages don't repeat it — the model
+    // carries the context through conversation history, and bloating
+    // every turn with the envelope distorts the transcript.
+    const send = useCallback(
+        (text: string) => {
+            const isFirstTurn = runner.session.turns.length === 0
+            if (!isFirstTurn) {
+                void runner.send(text)
+                return
+            }
+            const url = typeof window !== 'undefined' ? window.location.pathname : null
+            const envelope = buildContextEnvelope(context, url)
+            void runner.send(envelope ? envelope + text : text)
+        },
+        [context, runner]
+    )
+
+    return (
+        <AgentChat
+            context={context}
+            session={runner.session}
+            handlers={handlers}
+            followingEnabled={focus.enabled}
+            onFollowingChange={focus.setEnabled}
+            onNewSession={() => void runner.reset()}
+            onSend={send}
+            onStop={runner.stop}
+            onOpenSession={(sessionId) => router.push(`/agents/${agentRef.slug}/sessions/${sessionId}`)}
+            transportError={transportError}
+            onDismissTransportError={runner.clearError}
+            reconnectAttempt={runner.reconnectAttempt}
+            renderMarkdown={renderMarkdown}
+            onRenderMarkdownChange={setRenderMarkdown}
+        />
+    )
+}
+
+function FixtureConciergeDock(): React.ReactElement {
+    const { context } = useDockStore()
     const focus = useFocusStore()
     const handlers = useDockHandlers(context)
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
 
-    // Each top-level area declares its concierge agent via
-    // `useSetDockConciergeAgent({ slug })` in its route layout (e.g.
-    // `/agents` → `agent-concierge`, `/billing` → `billing-bot`). When
-    // those agents land, switch on `conciergeAgent` here: resolve the
-    // ref via `getAgent` and run through `useRealRunner` instead of
-    // the fixture runner. Until then, the slug is observed but unused
-    // — the fake runner keeps the dock populated.
-    void conciergeAgent
     const runner = useFakeRunner({
         initialSession: waitingSession,
         scripts: conciergeScripts,

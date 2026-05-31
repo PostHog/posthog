@@ -19,16 +19,26 @@ PostHog's primary org and is the best-in-class operator / author /
 debugger for **every other agent on the platform**. One concierge,
 many surfaces:
 
-| Surface           | How it's reached                                                                                            | Principal                                                                                   |
-| ----------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **Agent console** | The `<AgentChat />` dock embeds it on every page; opens a chat session against the concierge's chat trigger | The signed-in user (OAuth-derived session principal, per `per-session-access-elevation.md`) |
-| **MCP (direct)**  | `https://<concierge-slug>.agents.posthog.com/mcp` — paste the snippet into Claude Code / Cursor / Inspector | A PostHog PAT the user attaches in their MCP client config                                  |
-| **Slack (later)** | `@concierge what's wrong with weekly-digest?` — when the integration is configured for a workspace          | The Slack user resolved through the `slack` integration                                     |
+| Surface           | How it's reached                                                                                            | Auth mode                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Agent console** | The `<AgentChat />` dock embeds it on every page; opens a chat session against the concierge's chat trigger | `posthog_internal` — console mints a short-lived session-principal token from the user's OAuth session |
+| **MCP (IDE)**     | `https://<concierge-slug>.agents.posthog.com/mcp` — paste the snippet into Claude Code / Cursor / Inspector | `oauth` (preferred) — MCP client walks PostHog OAuth on first connect. `pat` fallback for scripts / CI |
+| **Slack (later)** | `@concierge what's wrong with weekly-digest?` — when the integration is configured for a workspace          | Slack-resolved identity, mapped to a PostHog user via the integration                                  |
 
 It is **a regular agent on the platform**. Same revision lifecycle,
 same bundle layout, same MCP-served authoring surface. PostHog ships
 and maintains the canonical revision; customers who want to extend it
-(extra review steps, custom internal links) fork the bundle.
+fork the bundle.
+
+**Source-of-truth model.** The reference bundle is the **seed** for
+the initial promote into PostHog's org. After first promote, the
+live revision evolves through the concierge's own MCP surface — it
+can edit any agent on the platform, itself included. The repo
+bundle stays as the regression-test target and the
+rollback-of-last-resort; engineers update it when a substantive
+change should propagate to future re-seeds or downstream forks.
+Drift between the repo seed and the prod live revision is expected
+and is the feature, not a bug.
 
 ## 2. Why a single agent (not one per surface)
 
@@ -46,33 +56,54 @@ opt-in handshake in [`agent-console-website.md`](agent-console-website.md)
 §8.3) — when a client doesn't handle `@posthog/ui/focus` it falls back
 to spelling out where it went in text. Same agent, different render.
 
-## 3. Auth model — PostHog OAuth all the way down
+## 3. Auth model — three modes on one revision
 
-Both entry points resolve to the same thing: the agent runs **as the
-user**, not as PostHog's org. This is non-negotiable for audit and
-blast-radius reasons.
+All three entry points resolve to the same effective principal: the
+agent runs **as the user**, not as PostHog's org. Non-negotiable for
+audit and blast-radius reasons.
+
+The revision declares **all three accepted auth modes on a single
+spec** (`spec.auth.modes: ["oauth", "pat", "posthog_internal"]`) —
+the trigger picks the right one per request. This is a small spec
+extension over today's single-mode field, tracked in §8.
+
+| Mode               | Used by                 | Token shape                                 | Where it comes from                                                              |
+| ------------------ | ----------------------- | ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `oauth`            | MCP clients (IDE)       | Standard MCP OAuth bearer                   | Claude Code / Cursor walk PostHog's OAuth dance on first connect — server-issued |
+| `pat`              | Scripts, fallback IDE   | `Authorization: Bearer phx_*`               | The user's PostHog PAT, pasted into MCP client config                            |
+| `posthog_internal` | Agent console (browser) | Short-lived (15min) session-principal token | Console mints it from the user's OAuth session and attaches at chat-trigger open |
 
 ### 3.1 Console flow
 
-1. User logs into `console.agents.posthog.com` via PostHog OAuth (the
-   existing `services/oauth-proxy/` flow).
-2. The console opens an `<AgentChat />` session against
-   `agents.posthog.com/agents/agent-concierge/chat` and attaches a
-   `principalToken` minted from the OAuth session.
-3. The runner threads the user-principal through every MCP / tool
-   call the concierge makes. Activity log shows the **user** acting,
-   not the concierge.
+1. User logs into `console.agents.posthog.com` via PostHog OAuth
+   (existing `services/oauth-proxy/` flow).
+2. The console mints a session-principal token from the OAuth
+   session (15min TTL, refreshable).
+3. The console opens an `<AgentChat />` session against
+   `agents.posthog.com/agents/agent-concierge/chat`; the token rides
+   along as the chat-trigger principal.
+4. The runner threads the user-principal through every MCP / tool
+   call the concierge makes.
 
-### 3.2 MCP flow
+### 3.2 MCP flow — OAuth
 
-1. User runs `GET /agents/agent-concierge/mcp/connect-info` (or asks
-   the agent console for the snippet) and pastes the config into
-   Claude Code / Cursor.
-2. The MCP transport requires `Authorization: Bearer phx_*` against
-   `spec.auth.mode: pat`. The user's PostHog PAT carries their
-   identity + scopes.
-3. The runner resolves the PAT to a principal once at session start
-   and threads it through identically to the console flow.
+1. User pastes the connect snippet from
+   `GET /agents/agent-concierge/mcp/connect-info` into Claude Code /
+   Cursor.
+2. First connect: the MCP transport returns 401 +
+   `WWW-Authenticate` pointing at PostHog's OAuth discovery. The
+   client walks the standard MCP OAuth flow against
+   `oauth.posthog.com`, the user approves the scopes
+   (`agent_application:read|write`, `agent_session:read`), the
+   client stores the resulting token.
+3. Subsequent JSON-RPC calls send the OAuth bearer; the runner
+   resolves it to a principal once at session start.
+
+### 3.3 MCP flow — PAT (fallback)
+
+For scripted / CI use, the user attaches a PostHog PAT in the MCP
+client config. The runner accepts both `pat` and `oauth` bearer
+tokens at the same endpoint — discriminates by token shape.
 
 ### 3.3 What the concierge sees
 
@@ -211,29 +242,54 @@ custom tool schema" lives in skills, not in `agent.md`. We pay for
 Ordered roughly by blast-radius (top = biggest unlock per unit of
 work).
 
-### 8.1 Client-fulfilled tools (`kind: "client"`)
+### 8.1 Client-fulfilled tools (`kind: "client"`) — **shipped**
 
-**Status:** designed in [`agent-console-website.md`](agent-console-website.md)
-§8, not implemented.
+**Status:** **shipped** as a general-purpose primitive. Differs
+from the original design in
+[`agent-console-website.md`](agent-console-website.md) §8 in two
+ways:
 
-**Why it matters:** without `@posthog/ui/focus` the concierge is a
-text-only chat box that talks about navigating but can't drive the
-view. The whole "the agent shows you what it's looking at" UX
-disappears.
+1. **No well-known registry.** The platform doesn't bless specific
+   ids like `@posthog/ui/focus`. Each agent author declares tools
+   inline (`{ kind: "client", id, description, args_schema, timeout_ms }`).
+   `focus` / `toast` / `get_context` are conventions the concierge
+   bundle uses, not platform constants. Another agent (or another
+   client) can pick any id.
+2. **No upfront capability handshake** (`client.handles[]`). Runner
+   always exposes spec-declared client tools to the model; dispatch
+   either round-trips through a connected client or times out (per
+   `timeout_ms`) and returns an error the model adapts to. The
+   handshake-based reconciliation can land later as a polish layer
+   — keeping the protocol simple for v0.
 
-**What's needed:**
+Shipped pieces:
 
-- Add `kind: "client"` to `ToolRefSchema` (and `from_native` /
-  inline-id variants).
-- Build the runner-side dispatch path: `client_tool_call` SSE event
-  - `/sessions/<id>/client_tool_result` POST + per-call timeout +
-    16 KiB cap on args/result.
-- Build the well-known registry for `@posthog/ui/*` tools (`focus`,
-  `toast` for v0). Schema lookup parallels the native tool catalog.
-- Build the client handshake — `client.handles[]` reconciliation
-  with spec at session open.
-- Ship the React handlers in `@posthog/agent-chat` for the
-  well-known set.
+- `kind: "client"` in `ToolRefSchema`
+  ([`services/agent-shared/src/spec/spec.ts`](../../../services/agent-shared/src/spec/spec.ts))
+  and Django mirror
+  ([`products/agent_stack/backend/spec_schema.py`](../../../products/agent_stack/backend/spec_schema.py)).
+- `client_tool_call` + `client_tool_result` event kinds on the bus
+  ([`services/agent-shared/src/runtime/bus.ts`](../../../services/agent-shared/src/runtime/bus.ts)).
+- Runner dispatcher: `makeClientTool` in `build-agent-tools.ts`
+  plus a per-session bus subscriber in `driver.ts` that resolves
+  the matching pending promise. Wrapped in try/finally so the
+  subscription tears down on all return paths.
+- Ingress endpoint:
+  `POST /agents/<slug>/client_tool_result` body
+  `{ session_id, call_id, result | error }` → publishes the result
+  event on the bus.
+- Console-side dispatch in `useRealRunner` — intercepts
+  `client_tool_call` SSE events, runs the matching handler, POSTs
+  the result back.
+- E2E coverage in
+  [`services/agent-tests/src/cases/client-tool.test.ts`](../../../services/agent-tests/src/cases/client-tool.test.ts):
+  round-trip, timeout, ordering.
+
+**Pending polish (not blocking v0 use):**
+
+- 16 KiB cap on args/result (only `timeout_ms` enforced today).
+- `client.handles[]` reconciliation if we want to hide unsupported
+  tools from the model surface rather than letting them time out.
 
 ### 8.2 Runtime MCP support (`spec.mcps[]`)
 
@@ -276,19 +332,20 @@ custody risk we explicitly want to avoid.
 
 ### 8.4 The `agent-applications-revisions-validate` endpoint
 
-**Status:** listed as `enabled: true` in
-[`agent_stack.yaml`](../../../services/mcp/definitions/agent_stack.yaml)
-but the underlying Django action is a stub.
+**Status:** **shipped.** Janitor-side validator at
+[`services/agent-janitor/src/validate-spec.ts`](../../../services/agent-janitor/src/validate-spec.ts)
+covers `no_triggers`, `missing_entrypoint`, `unknown_native_tool`,
+`missing_custom_tool_compiled`, `missing_custom_tool_schema`,
+`missing_skill`. Django layers a `missing_secret` check on top
+([`products/agent_stack/backend/api.py`](../../../products/agent_stack/backend/api.py)
+`validate` action). Spec-shape validation is guaranteed by
+`PgRevisionStore` running `AgentSpecSchema.parse` on every read.
 
-**Why it matters:** the concierge would gate every freeze on a
-validate call. Without it, freezes go out broken and the user finds
-out at runtime — exactly the loop the authoring flow promises to
-remove.
-
-**What's needed:** wire the validator to actually parse spec against
-`AgentSpecSchema`, walk skill / tool references, surface a
-structured `{ ok, errors, warnings }`. See
-[`agent-authoring-flow.md`](agent-authoring-flow.md) §3 phase 4.
+**Concierge implication:** none — the concierge can call validate
+today and trust the report. The only enhancement still needed is
+**warning-level** signal (today everything is error-or-silent): unused
+skills, dangling references, unreachable spec branches. Tracked as a
+small follow-up, not a v0 blocker.
 
 ### 8.5 Test runs (`agent-applications-revisions-test-run` + results)
 
@@ -356,6 +413,76 @@ every concierge install reinvents grading.
 calling it from the concierge ("here's a test run id, grade it
 against rubric R"). The judge could itself be a deployed agent,
 which is the nicest dogfooding.
+
+### 8.10 Multi-mode auth on a single revision
+
+**Status:** today's `spec.auth.mode` is a single enum
+(`public` | `pat` | `posthog_internal` | `shared_secret`).
+
+**Why it matters:** the concierge needs to serve console
+(`posthog_internal`), IDE (`oauth`), and scripts (`pat`) at the
+same time — without a multi-mode shape, one revision can serve
+only one surface and we'd need multiple deployments.
+
+**What's needed:**
+
+- `spec.auth.modes: string[]` (or `spec.auth: AuthModeSchema | AuthModeSchema[]`).
+- New `oauth` mode + `oauth` config (`{ provider, scopes[] }`).
+- The ingress trigger handler discriminates by request shape
+  (Bearer token type / presence of MCP OAuth headers).
+- `oauth-proxy` mints MCP-OAuth-shaped tokens; the runner
+  validates against the same provider.
+
+### 8.11 MCP-tool-level approval policies
+
+**Status:** today's `ToolRefSchema` carries
+`requires_approval` + `approval_policy` for `native` and `custom`
+tools. `McpRefSchema` has no equivalent — every MCP-routed tool
+call dispatches unblocked.
+
+**Why it matters:** the concierge's destructive writes
+(`agent-applications-revisions-promote-create`, `set-env-create`,
+`destroy`) all flow through the PostHog MCP. Without
+platform-level gating, the only thing standing between the model
+and a prod promote is a prompt rule. We want the platform — not
+the prompt — to enforce these.
+
+**What's needed:**
+
+- Extend `McpRefSchema` with `approval_policies: { [tool_name]: ApprovalPolicy }`
+  (the seed bundle already declares the shape).
+- Runner's dispatch path for MCP tools consults the policy and
+  routes through the existing approval machinery
+  ([`approval-gated-tools.md`](approval-gated-tools.md)).
+- The session-principal approver ("the human currently driving
+  this session") works for concierge — adds a `session_principal`
+  approver kind to `ApprovalPolicySchema` (today only
+  `team_admins` is supported).
+- Console renders the approval prompt inline in the chat dock;
+  MCP clients get a structured tool error with a URL.
+
+### 8.12 Cross-org runtime-MCP principal passthrough
+
+**Status:** [`runtime-mcps.md`](runtime-mcps.md) doesn't specify
+how a per-session principal flows into outbound MCP requests.
+
+**Why it matters:** the concierge lives in PostHog's org but its
+runtime-MCP target (the PostHog authoring API) is scoped to the
+user's project. Whatever the session principal is needs to ride
+along on every outbound MCP request, or the MCP server can't
+authorize the call.
+
+**What's needed:**
+
+- The runner's MCP client wrapper accepts a `principalToken`
+  alongside the endpoint config, attaches as `Authorization: Bearer`.
+- The token comes from the session principal — same one the
+  ingress validated at trigger time. No spec-side config needed
+  (the runner derives it from the session).
+- For non-PostHog MCPs in `spec.mcps[]` (a customer's third-party
+  MCP), the existing `secrets[]` mechanism stays — token-passthrough
+  is opt-in per MCP via a new `auth: { mode: "principal_passthrough" }`
+  field.
 
 ## 9. Ideas that aren't in v0 but should be on the roadmap
 
@@ -440,15 +567,17 @@ The reference bundle in `services/agent-tests/src/examples/agent-concierge/`
 is shippable **today** (faux-tested in `agent-tests`) but its
 production deployment depends on the gaps in §8.
 
-| Slice                                                  | Lands when                                                                                                                                                    |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **v0 — read-only concierge in the console**            | §8.1 (client tools), §8.2 (runtime MCPs), §8.3 (OAuth principal threading). Concierge can inspect any agent, narrate, drive `ui/focus`. No writes.            |
-| **v0.1 — edit through the concierge**                  | §8.4 (validate) + §8.6 (secrets punch-out). Concierge can branch a draft, surface a validate report, freeze + promote. No tests yet — high-trust path only.   |
-| **v0.2 — tested edits**                                | §8.5 (test runs). Concierge gates every promote on a test run.                                                                                                |
-| **v1 — MCP surface**                                   | `spec.mcp.tools[]` v1 lands in [`agent-as-mcp-server.md`](agent-as-mcp-server.md). Concierge exposes `inspect_agent` / `debug_session` / `audit_team_agents`. |
-| **v1.1 — debugging power**                             | §8.7 (revision diff) + §8.8 (SSE tail over MCP). Concierge moves from polling to streaming.                                                                   |
-| **v2 — judge mode**                                    | §8.9. Self-evaluation closes the authoring loop.                                                                                                              |
-| **v2+ — roadmap items in §9** as the platform matures. |                                                                                                                                                               |
+| Slice                                                  | Lands when                                                                                                                                                                                                     |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **v0 — deployable shell (chat trigger, no writes)**    | §8.2 (runtime MCPs) + §8.3 (principal threading) + §8.12 (principal passthrough). Concierge can inspect any agent via the console chat, narrate via text. No writes, single auth mode.                         |
+| **~~v0.1~~ — console UI integration**                  | **shipped.** §8.1 client tools live; the concierge spec declares `focus` / `toast` / `get_context`; the console dock implements handlers + dispatches via the new SSE event + ingress POST round-trip.         |
+| **v0.2 — MCP entry (OAuth)**                           | §8.10 (multi-mode auth) + ingress OAuth wiring. IDE clients can connect via Claude Code / Cursor with OAuth dance. PAT fallback shipped together since it's nearly free.                                       |
+| **v0.3 — edit through the concierge**                  | §8.6 (secrets punch-out) + §8.11 (MCP-tool approvals). Concierge can branch a draft, validate (already shipped per §8.4), freeze, promote — every destructive write platform-gated as an inline approval card. |
+| **v0.4 — tested edits**                                | §8.5 (test runs). Concierge gates every promote on a test run.                                                                                                                                                 |
+| **v1 — curated MCP surface**                           | `spec.mcp.tools[]` v1 lands in [`agent-as-mcp-server.md`](agent-as-mcp-server.md). Concierge exposes `inspect_agent` / `debug_session` / `audit_team_agents` (if `ask` routing proves inadequate).             |
+| **v1.1 — debugging power**                             | §8.7 (revision diff) + §8.8 (SSE tail over MCP). Concierge moves from polling to streaming.                                                                                                                    |
+| **v2 — judge mode**                                    | §8.9. Self-evaluation closes the authoring loop.                                                                                                                                                               |
+| **v2+ — roadmap items in §9** as the platform matures. |                                                                                                                                                                                                                |
 
 ## 11. Why this is worth front-loading
 

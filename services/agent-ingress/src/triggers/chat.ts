@@ -15,7 +15,13 @@ import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER 
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
-import { ChatCancelBodySchema, ChatListenQuerySchema, ChatRunBodySchema, ChatSendBodySchema } from './chat.schemas'
+import {
+    ChatCancelBodySchema,
+    ChatClientToolResultBodySchema,
+    ChatListenQuerySchema,
+    ChatRunBodySchema,
+    ChatSendBodySchema,
+} from './chat.schemas'
 import { hasTrigger, resolveAgent } from './resolve'
 import type { TriggerModule } from './types'
 
@@ -225,6 +231,37 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
         })
     )
 
+    /**
+     * Receive a client-tool result the connecting client computed in
+     * response to a runner-emitted `client_tool_call` event. Publishes
+     * a `client_tool_result` bus event with the same `call_id`; the
+     * runner's per-session subscriber (set up in `loop/driver.ts`)
+     * resolves the matching pending promise so the model turn unblocks.
+     */
+    r.post(
+        '/client_tool_result',
+        asyncHandler(async (req: Request, res: Response) => {
+            const parsed = ChatClientToolResultBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                badRequest(res, parsed.error)
+                return
+            }
+            const { session_id: sessionId, call_id, result, error } = parsed.data
+            const existing = await deps.queue.get(sessionId)
+            if (!existing) {
+                res.status(404).json({ error: 'no_session' })
+                return
+            }
+            await deps.bus.publish({
+                session_id: sessionId,
+                kind: 'client_tool_result',
+                data: error ? { call_id, error } : { call_id, result },
+                ts: new Date().toISOString(),
+            })
+            res.json({ ok: true })
+        })
+    )
+
     return r
 }
 
@@ -259,6 +296,12 @@ export const chatTrigger: TriggerModule = {
             method: 'GET',
             path: '/listen',
             querySchema: z.toJSONSchema(ChatListenQuerySchema),
+            auth: 'agent_spec',
+        },
+        {
+            method: 'POST',
+            path: '/client_tool_result',
+            bodySchema: z.toJSONSchema(ChatClientToolResultBodySchema),
             auth: 'agent_spec',
         },
     ],

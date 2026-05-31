@@ -75,6 +75,19 @@ export type RealToolExecute = (
     args: Record<string, unknown>
 ) => Promise<AgentToolResult<ToolResultDetails>>
 
+/**
+ * Dispatcher for `kind: "client"` tools. Resolves with the client's
+ * returned `result`; rejects with `Error('client_tool_timeout')` if the
+ * client doesn't post a result within `timeoutMs`, or
+ * `Error('client_disconnected')` if the session is sealed mid-call.
+ * The driver constructs this from the session-event bus.
+ */
+export type ClientToolDispatcher = (
+    toolId: string,
+    args: Record<string, unknown>,
+    timeoutMs: number
+) => Promise<unknown>
+
 /** Per-session context the tool `execute` closures need. Supplied by the driver. */
 export interface AgentToolDeps {
     rev: AgentRevision
@@ -91,6 +104,16 @@ export interface AgentToolDeps {
      * `memory_store_unavailable` to the model.
      */
     memoryStore?: MemoryStore
+    /**
+     * Dispatcher for `kind: "client"` tools. The driver wires this up
+     * over the session event bus: `execute` publishes a
+     * `client_tool_call` event and blocks on a matching
+     * `client_tool_result`. When `undefined`, client-tool refs in the
+     * spec are skipped (build time falls back to no tool — model sees
+     * nothing). Production-wired by the driver; the harness can leave
+     * unset for tests that don't exercise client tools.
+     */
+    dispatchClientTool?: ClientToolDispatcher
 }
 
 export interface BuiltAgentTools {
@@ -131,6 +154,18 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                 continue
             }
             tools.push(makeNativeTool(t.id, deps))
+            continue
+        }
+        if (t.kind === 'client') {
+            // Always exposed when dispatcher is wired. No upfront capability
+            // handshake: if the connecting client doesn't handle the id, the
+            // dispatcher's await times out and the model gets an error
+            // tool_result it can adapt to. Keeps the protocol simple +
+            // matches the agent.md degradation rules.
+            if (!deps.dispatchClientTool) {
+                continue
+            }
+            tools.push(makeClientTool(t, deps))
             continue
         }
         // custom — schema + description from the bundle, dispatched via sandbox.
@@ -205,6 +240,33 @@ function makeCustomTool(
                 throw new Error(`${r.error.code}: ${r.error.message}`)
             }
             return { content: [{ type: 'text', text: JSON.stringify(r.result) }], details: { output: r.result } }
+        },
+    }
+}
+
+/**
+ * Build an AgentTool for a `kind: "client"` spec entry. The execute
+ * publishes a `client_tool_call` event over the session bus and waits
+ * for a matching `client_tool_result` event (delivered by the ingress
+ * `/sessions/<id>/client_tool_result` endpoint). If no client responds
+ * within `timeout_ms`, the dispatcher rejects and the loop renders the
+ * error as a tool_result for the model to adapt to.
+ */
+function makeClientTool(
+    spec: { id: string; description: string; args_schema: Record<string, unknown>; timeout_ms: number },
+    deps: AgentToolDeps
+): AgentTool<TSchema, ToolResultDetails> {
+    return {
+        name: spec.id,
+        label: spec.id,
+        description: spec.description,
+        parameters: spec.args_schema as unknown as TSchema,
+        execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            if (!deps.dispatchClientTool) {
+                throw new Error(`client tool ${spec.id} dispatcher not wired on this driver`)
+            }
+            const result = await deps.dispatchClientTool(spec.id, args as Record<string, unknown>, spec.timeout_ms)
+            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
         },
     }
 }

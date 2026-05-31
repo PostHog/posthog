@@ -20,7 +20,7 @@ interface TwoPaneTabProps {
 export function TwoPaneTab({ left, right, leftWidth = 320 }: TwoPaneTabProps): React.ReactElement {
     return (
         <div
-            className="grid h-full flex-1 divide-x divide-border overflow-hidden"
+            className="grid min-h-0 flex-1 divide-x divide-border overflow-hidden"
             style={{ gridTemplateColumns: `${leftWidth}px 1fr` }}
         >
             <aside className="flex flex-col overflow-hidden">{left}</aside>

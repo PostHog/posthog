@@ -28,3 +28,22 @@ export const ChatCancelBodySchema = z.object({
 export const ChatListenQuerySchema = z.object({
     session_id: z.string().uuid('session_id must be a UUID'),
 })
+
+/**
+ * Body for `POST /agents/<slug>/client_tool_result`. Fired by the
+ * connecting client (browser dock, IDE MCP host) to answer a
+ * `client_tool_call` event the runner emitted. Exactly one of
+ * `result` / `error` must be set. The runner side awaits a matching
+ * `client_tool_result` bus event with the same `call_id`.
+ */
+export const ChatClientToolResultBodySchema = z
+    .object({
+        session_id: z.string().uuid('session_id must be a UUID'),
+        call_id: z.string().min(1, 'call_id is required'),
+        result: z.unknown().optional(),
+        error: z.string().optional(),
+    })
+    .refine((v) => v.result !== undefined || typeof v.error === 'string', {
+        message: 'exactly one of `result` or `error` must be set',
+        path: ['result'],
+    })

@@ -158,6 +158,29 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "required": ["kind", "id", "path"],
                         "additionalProperties": False,
                     },
+                    {
+                        # Client-fulfilled tool — implementation lives in the
+                        # connecting client (browser dock, IDE MCP host), not
+                        # in the runner. See `AgentSpecSchema.tools.client`
+                        # in services/agent-shared/src/spec/spec.ts for the
+                        # full contract + dispatch model.
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "client"},
+                            "id": {"type": "string", "minLength": 1},
+                            "description": {"type": "string", "minLength": 1},
+                            "args_schema": {"type": "object", "default": {}},
+                            "required": {"type": "boolean", "default": False},
+                            "timeout_ms": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "maximum": 60000,
+                                "default": 5000,
+                            },
+                        },
+                        "required": ["kind", "id", "description"],
+                        "additionalProperties": False,
+                    },
                 ]
             },
         },

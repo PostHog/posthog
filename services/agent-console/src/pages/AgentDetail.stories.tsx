@@ -53,6 +53,13 @@ export const Configuration: Story = {
     },
 }
 
+export const Memory: Story = {
+    args: {
+        ...sharedArgs,
+        urlState: { ...overviewUrlState, tab: 'memory' },
+    },
+}
+
 export const NoLiveYet: Story = {
     args: {
         ...sharedArgs,

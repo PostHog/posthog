@@ -96,6 +96,11 @@ describe('AgentSpecSchema', () => {
                 tools: [{ kind: 'native', id: '@posthog/query' }],
             })
             const t = spec.tools[0]
+            // Narrow off the new `kind: "client"` variant; this test
+            // covers native/custom approval defaults.
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
             expect(t.requires_approval).toBe(false)
             expect(t.approval_policy.approvers).toEqual(['team_admins'])
             expect(t.approval_policy.allow_edit).toBe(false)
@@ -116,6 +121,9 @@ describe('AgentSpecSchema', () => {
                 ],
             })
             const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
             expect(t.requires_approval).toBe(true)
             expect(t.approval_policy.allow_edit).toBe(true)
             expect(t.approval_policy.ttl_ms).toBe(60 * 60 * 1000)

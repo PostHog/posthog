@@ -21,12 +21,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentApplicationRef, ChatSession, SessionPrincipal } from '@posthog/agent-chat'
+import type { AgentApplicationRef, ChatSession, ClientToolHandler, SessionPrincipal } from '@posthog/agent-chat'
 
 import {
     cancelSession,
     IngressError,
     listen,
+    postClientToolResult,
     type PreviewOpts,
     sendMessage,
     startRun,
@@ -57,6 +58,15 @@ export interface UseRealRunnerOpts {
      * internally — callers only pass the (teamId, revisionId) tuple.
      */
     preview?: { teamId: number; revisionId: string }
+    /**
+     * Client-fulfilled tool handlers. When the SSE stream delivers a
+     * `client_tool_call` event whose `tool_id` matches an entry's `id`,
+     * the runner invokes the handler and POSTs the result back to
+     * `/client_tool_result`. Unmatched ids → an error is posted so the
+     * runner-side awaiter unblocks cleanly with `unhandled` instead of
+     * waiting for the timeout.
+     */
+    handlers?: ClientToolHandler[]
 }
 
 export interface RealRunnerControls {
@@ -145,6 +155,7 @@ export function useRealRunner({
     principal,
     teamId,
     preview,
+    handlers,
 }: UseRealRunnerOpts): RealRunnerControls {
     const [session, setSession] = useState<ChatSession>(() => emptySession(agentRef, principal))
     const [playing, setPlaying] = useState(false)
@@ -248,11 +259,53 @@ export function useRealRunner({
         return opts
     }, [preview, agentSlug])
 
+    // Handlers go through a ref so onEvent doesn't re-bind every time the
+    // dock rebuilds them (dependencies of useCallback would otherwise
+    // tear the SSE subscription down + back up on every render).
+    const handlersRef = useRef<ClientToolHandler[]>(handlers ?? [])
+    useEffect(() => {
+        handlersRef.current = handlers ?? []
+    }, [handlers])
+
+    const dispatchClientToolCall = useCallback(
+        async (event: SessionEvent) => {
+            const data = event.data as { call_id?: string; tool_id?: string; args?: Record<string, unknown> }
+            const sessionId = sessionIdRef.current
+            if (!data.call_id || !data.tool_id || !sessionId) {
+                return
+            }
+            const handler = handlersRef.current.find((h) => h.id === data.tool_id)
+            if (!handler) {
+                // Unhandled id — POST an error so the runner unblocks
+                // immediately instead of waiting for the per-tool timeout.
+                await postClientToolResult(agentSlug, sessionId, data.call_id, {
+                    error: `unhandled_client_tool: ${data.tool_id}`,
+                }).catch(() => undefined)
+                return
+            }
+            try {
+                const result = await handler.handle(data.args ?? {})
+                await postClientToolResult(agentSlug, sessionId, data.call_id, { result })
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err)
+                await postClientToolResult(agentSlug, sessionId, data.call_id, { error: msg }).catch(() => undefined)
+            }
+        },
+        [agentSlug]
+    )
+
     const onEvent = useCallback(
         (event: SessionEvent) => {
             // Any event means the stream is healthy — clear the
             // "Reconnecting…" indicator if it was up.
             setReconnectAttempt(0)
+            // client_tool_call short-circuits the session reducer: we run
+            // the local handler + POST a result back to ingress (which
+            // publishes a client_tool_result on the bus → runner unblocks).
+            if (event.kind === 'client_tool_call') {
+                void dispatchClientToolCall(event)
+                return
+            }
             setSession((prev) => applyEvent(prev, event))
             if (event.kind === 'completed' || event.kind === 'failed') {
                 setPlaying(false)
@@ -265,7 +318,7 @@ export function useRealRunner({
                 clearStoredSessionId(agentSlug, previewRevisionId)
             }
         },
-        [agentSlug, previewRevisionId]
+        [agentSlug, previewRevisionId, dispatchClientToolCall]
     )
 
     // Held in a ref so the resume effect can call the latest closure

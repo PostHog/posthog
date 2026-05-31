@@ -46,9 +46,16 @@
  * (--color-posthog-3000-50 + --color-posthog-brand-*).
  * ───────────────────────────────────────────────────────────────── */
 :root {
-    /* Surface tint — matches `hsl(75deg 14% 95%)` (PostHog 3000-50). */
-    --theme-hue: 75;
-    --theme-tint: 0.013;
+    /*
+     * Surface tint — target PostHog 3000-50 (`#f3f4ef` ≈ `hsl(75deg 14% 95%)`).
+     *
+     * `--theme-hue` is an *OKLCH* hue, not HSL. HSL 75° (yellow-green) maps
+     * to OKLCH ≈ 115° — pinning it at HSL 75 produced a warm cream instead
+     * of the PostHog yellow-green bg. The numeric values below are tuned to
+     * land near `#f3f4ef` for `--background`.
+     */
+    --theme-hue: 115;
+    --theme-tint: 0.012;
 
     /* Brand orange `hsl(19 100% 48%)` → equivalent oklch. */
     --primary-light: oklch(0.644 0.234 31deg);

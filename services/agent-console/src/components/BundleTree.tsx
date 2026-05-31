@@ -1,13 +1,10 @@
 /**
  * `<BundleTree />` — filesystem-style viewer for an agent's bundle.
  *
- * Left: collapsible tree of paths derived from the flat file list.
- * Right: content viewer for the selected file, language-aware:
- *
- *   .md   → rendered as soft-wrapped prose with monospace headings
- *   .ts   → monospace code block
- *   .json → uses `<JsonView />` (tree by default, raw-toggle available)
- *   other → monospace text
+ * Wraps the shared `<FileExplorer>` with bundle-specific right-pane
+ * content: language-aware rendering for the selected file (`.md` →
+ * soft-wrapped prose, `.ts` → monospace, `.json` → JSON tree, else
+ * preformatted text).
  *
  * Selection state is internal — first file in the bundle is selected
  * on mount. Parent doesn't need to track it.
@@ -15,19 +12,13 @@
 
 'use client'
 
-import {
-    ChevronDownIcon,
-    ChevronRightIcon,
-    FileIcon,
-    FileJsonIcon,
-    FileTextIcon,
-    FolderIcon,
-    FolderOpenIcon,
-} from 'lucide-react'
+import { FileIcon, FileJsonIcon, FileTextIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
 import type { BundleFile, BundleFileLanguage } from '@posthog/agent-chat/fixtures'
+
+import { FileExplorer, type FileTreeNode } from './FileExplorer'
 
 export interface BundleTreeProps {
     files: BundleFile[]
@@ -54,176 +45,90 @@ export function BundleTree({ files, selectedPath, onSelectPath }: BundleTreeProp
     const tree = useMemo(() => buildTree(files), [files])
     const selectedFile = files.find((f) => f.path === selected) ?? null
 
-    if (files.length === 0) {
-        return (
-            <div className="rounded-md border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                This revision has no bundle files yet.
-            </div>
-        )
-    }
-
     return (
-        <div className="grid grid-cols-[220px_minmax(0,1fr)] overflow-hidden rounded-md border border-border bg-card">
-            <div className="overflow-y-auto border-r border-border bg-muted/20 py-1.5">
-                <TreeView node={tree} selected={selected} onSelect={handleSelect} depth={0} />
-            </div>
-            <div className="min-w-0">{selectedFile ? <FileViewer file={selectedFile} /> : <EmptyViewer />}</div>
-        </div>
+        <FileExplorer
+            storageKey="file-explorer:bundle"
+            tree={tree}
+            selectedPath={selected}
+            onSelectPath={handleSelect}
+            emptyMessage="This revision has no bundle files yet."
+        >
+            {selectedFile ? <FileViewer file={selectedFile} /> : <EmptyViewer />}
+        </FileExplorer>
     )
 }
 
 /* ── Tree model + builder ─────────────────────────────────────────── */
 
-interface DirNode {
-    kind: 'dir'
+interface InternalNode {
+    type: 'file' | 'folder'
     name: string
-    path: string
-    children: TreeNode[]
+    path?: string
+    language?: BundleFileLanguage
+    children?: InternalNode[]
 }
-interface FileNode {
-    kind: 'file'
-    name: string
-    path: string
-    language: BundleFileLanguage
-}
-type TreeNode = DirNode | FileNode
 
-function buildTree(files: BundleFile[]): DirNode {
-    const root: DirNode = { kind: 'dir', name: '', path: '', children: [] }
+function buildTree(files: BundleFile[]): FileTreeNode {
+    const root: InternalNode = { type: 'folder', name: '', children: [] }
     for (const file of files) {
         const parts = file.path.split('/')
-        let cursor: DirNode = root
+        let cursor: InternalNode = root
         for (let i = 0; i < parts.length - 1; i++) {
             const dirName = parts[i]
-            const dirPath = parts.slice(0, i + 1).join('/')
-            let existing = cursor.children.find((c): c is DirNode => c.kind === 'dir' && c.name === dirName)
+            cursor.children ??= []
+            let existing = cursor.children.find((c) => c.type === 'folder' && c.name === dirName)
             if (!existing) {
-                existing = { kind: 'dir', name: dirName, path: dirPath, children: [] }
+                existing = { type: 'folder', name: dirName, children: [] }
                 cursor.children.push(existing)
             }
             cursor = existing
         }
+        cursor.children ??= []
         cursor.children.push({
-            kind: 'file',
+            type: 'file',
             name: parts[parts.length - 1],
             path: file.path,
             language: file.language,
         })
     }
     sortTree(root)
-    return root
+    return toFileTreeNode(root)
 }
 
-function sortTree(dir: DirNode, depth = 0): void {
+function sortTree(dir: InternalNode, depth = 0): void {
+    if (!dir.children) {
+        return
+    }
     dir.children.sort((a, b) => {
         // Root only: `agent.md` always wins — it's the system prompt and
         // the highest-importance file in any bundle.
-        if (depth === 0 && a.kind === 'file' && a.name === 'agent.md') {
+        if (depth === 0 && a.type === 'file' && a.name === 'agent.md') {
             return -1
         }
-        if (depth === 0 && b.kind === 'file' && b.name === 'agent.md') {
+        if (depth === 0 && b.type === 'file' && b.name === 'agent.md') {
             return 1
         }
         // Folders before files, then alphabetical.
-        if (a.kind !== b.kind) {
-            return a.kind === 'dir' ? -1 : 1
+        if (a.type !== b.type) {
+            return a.type === 'folder' ? -1 : 1
         }
         return a.name.localeCompare(b.name)
     })
     for (const c of dir.children) {
-        if (c.kind === 'dir') {
+        if (c.type === 'folder') {
             sortTree(c, depth + 1)
         }
     }
 }
 
-/* ── Tree view ────────────────────────────────────────────────────── */
-
-interface TreeViewProps {
-    node: DirNode
-    selected: string
-    onSelect: (path: string) => void
-    depth: number
-}
-
-function TreeView({ node, selected, onSelect, depth }: TreeViewProps): React.ReactElement {
-    return (
-        <ul className="text-xs">
-            {node.children.map((child) =>
-                child.kind === 'dir' ? (
-                    <DirRow key={child.path} dir={child} selected={selected} onSelect={onSelect} depth={depth} />
-                ) : (
-                    <FileRow
-                        key={child.path}
-                        file={child}
-                        selected={selected === child.path}
-                        onSelect={onSelect}
-                        depth={depth}
-                    />
-                )
-            )}
-        </ul>
-    )
-}
-
-function DirRow({
-    dir,
-    selected,
-    onSelect,
-    depth,
-}: {
-    dir: DirNode
-    selected: string
-    onSelect: (path: string) => void
-    depth: number
-}): React.ReactElement {
-    const [open, setOpen] = useState(true)
-    return (
-        <li>
-            <button
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                className="flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-                style={{ paddingLeft: `${8 + depth * 12}px` }}
-            >
-                {open ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
-                {open ? <FolderOpenIcon className="h-3.5 w-3.5" /> : <FolderIcon className="h-3.5 w-3.5" />}
-                <span>{dir.name}</span>
-            </button>
-            {open ? <TreeView node={dir} selected={selected} onSelect={onSelect} depth={depth + 1} /> : null}
-        </li>
-    )
-}
-
-function FileRow({
-    file,
-    selected,
-    onSelect,
-    depth,
-}: {
-    file: FileNode
-    selected: boolean
-    onSelect: (path: string) => void
-    depth: number
-}): React.ReactElement {
-    return (
-        <li>
-            <button
-                type="button"
-                onClick={() => onSelect(file.path)}
-                aria-current={selected ? 'true' : undefined}
-                className={
-                    selected
-                        ? 'flex w-full cursor-pointer items-center gap-1 bg-accent px-2 py-1 text-left text-foreground'
-                        : 'flex w-full cursor-pointer items-center gap-1 px-2 py-1 text-left text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground'
-                }
-                style={{ paddingLeft: `${8 + depth * 12 + 16}px` }}
-            >
-                <FileIconFor language={file.language} />
-                <span className="truncate">{file.name}</span>
-            </button>
-        </li>
-    )
+function toFileTreeNode(n: InternalNode): FileTreeNode {
+    return {
+        type: n.type,
+        name: n.name,
+        path: n.path,
+        icon: n.type === 'file' && n.language ? <FileIconFor language={n.language} /> : undefined,
+        children: n.children?.map(toFileTreeNode),
+    }
 }
 
 function FileIconFor({ language }: { language: BundleFileLanguage }): React.ReactElement {
@@ -249,7 +154,7 @@ function FileViewer({ file }: { file: BundleFile }): React.ReactElement {
                     {file.language}
                 </span>
             </div>
-            <div className="overflow-auto p-3">
+            <div className="min-h-0 flex-1 overflow-auto p-3">
                 <FileBody file={file} />
             </div>
         </div>

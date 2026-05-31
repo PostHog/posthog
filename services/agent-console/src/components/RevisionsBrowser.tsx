@@ -20,11 +20,12 @@
 
 'use client'
 
-import { PlayIcon } from 'lucide-react'
+import { ChevronDownIcon, PlayIcon, SearchIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
+import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, archiveRevision, freezeRevision, getBundle, promoteRevision } from '@/lib/apiClient'
@@ -33,6 +34,55 @@ import { useResource } from '@/lib/useResource'
 import { BundleTree } from './BundleTree'
 import { ConfigPanel, KNOWN_SPEC_KEYS, UnstructuredFields } from './ConfigPanel'
 import { ConfirmDialog } from './ConfirmDialog'
+
+/** State chip values — multi-select; archived is off by default. */
+const STATE_FILTERS = ['live', 'ready', 'draft', 'archived'] as const
+type StateFilter = (typeof STATE_FILTERS)[number]
+const DEFAULT_STATE_FILTERS: ReadonlySet<StateFilter> = new Set(['live', 'ready', 'draft'])
+
+/* ── Helpers (hoisted; some bundlers misbehave with same-file fn decls
+ * declared below their JSX consumers — keep these above the components). */
+
+function shortId(id: string): string {
+    return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
+}
+
+function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dotClass: string; label: string } {
+    // Saturated `-foreground` variants for visibility on the light surface.
+    if (isLive) {
+        return { dotClass: 'bg-success-foreground', label: 'live' }
+    }
+    switch (state) {
+        case 'draft':
+            return { dotClass: 'bg-warning-foreground', label: 'draft' }
+        case 'ready':
+            return { dotClass: 'bg-info-foreground', label: 'ready' }
+        case 'archived':
+            return { dotClass: 'bg-muted-foreground/40', label: 'archived' }
+        case 'live':
+            return { dotClass: 'bg-success-foreground', label: 'live' }
+        default:
+            return { dotClass: 'bg-muted-foreground/40', label: state }
+    }
+}
+
+function formatRelative(iso: string): string {
+    const ts = new Date(iso).getTime()
+    if (!ts) {
+        return '—'
+    }
+    const diff = Math.max(0, Date.now() - ts)
+    const minute = 60 * 1000
+    const hour = 60 * minute
+    const day = 24 * hour
+    if (diff < hour) {
+        return `${Math.max(1, Math.floor(diff / minute))}m ago`
+    }
+    if (diff < day) {
+        return `${Math.floor(diff / hour)}h ago`
+    }
+    return `${Math.floor(diff / day)}d ago`
+}
 
 type ConfigView = 'structured' | 'raw'
 
@@ -79,6 +129,9 @@ export function RevisionsBrowser({
     const [pending, setPending] = useState<PendingAction | null>(null)
     const [running, setRunning] = useState(false)
     const [actionError, setActionError] = useState<string | null>(null)
+    const [query, setQuery] = useState('')
+    const [activeFilters, setActiveFilters] = useState<Set<StateFilter>>(() => new Set(DEFAULT_STATE_FILTERS))
+    const [pickerOpen, setPickerOpen] = useState(false)
 
     const sortedRevisions = useMemo(() => {
         const live = revisions.find((r) => r.id === agent.live_revision)
@@ -88,7 +141,42 @@ export function RevisionsBrowser({
         return live ? [live, ...others] : others
     }, [revisions, agent.live_revision])
 
+    /**
+     * Filtered + searched view of `sortedRevisions`. State chips are
+     * multi-select with a sensible default (hides archived). The live
+     * row keeps showing whenever "live" is on.
+     */
+    const visibleRevisions = useMemo(() => {
+        const q = query.trim().toLowerCase()
+        return sortedRevisions.filter((r) => {
+            const isLive = r.id === agent.live_revision
+            const state: StateFilter = isLive ? 'live' : (r.state as StateFilter)
+            if (!activeFilters.has(state)) {
+                return false
+            }
+            if (!q) {
+                return true
+            }
+            const hay = [r.id, r.bundle_sha256 ?? '', r.created_by.first_name, r.created_by.email ?? '']
+                .join(' ')
+                .toLowerCase()
+            return hay.includes(q)
+        })
+    }, [sortedRevisions, activeFilters, query, agent.live_revision])
+
     const selected = revisions.find((r) => r.id === selectedRevisionId) ?? sortedRevisions[0] ?? null
+
+    const toggleFilter = (k: StateFilter): void => {
+        setActiveFilters((prev) => {
+            const next = new Set(prev)
+            if (next.has(k)) {
+                next.delete(k)
+            } else {
+                next.add(k)
+            }
+            return next
+        })
+    }
     // SessionGate (in AppShell) blocks rendering until teamId resolves.
     const teamId = useSessionTeamId()!
 
@@ -144,83 +232,102 @@ export function RevisionsBrowser({
         )
     }
 
+    const onPickRevision = (id: string): void => {
+        onSelectRevision(id)
+        setPickerOpen(false)
+    }
+
     return (
         <>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-[220px_minmax(0,1fr)]">
-                <ul
-                    className="divide-y divide-border overflow-hidden rounded-md border border-border bg-card"
-                    aria-label="Revisions"
-                >
-                    {sortedRevisions.map((r) => (
-                        <li key={r.id}>
-                            <RevisionListItem
-                                revision={r}
-                                isLive={r.id === agent.live_revision}
-                                isSelected={selected?.id === r.id}
-                                onClick={() => onSelectRevision(r.id)}
+            <div className="min-w-0 space-y-4">
+                {selected ? (
+                    <>
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                                <PopoverTrigger
+                                    render={
+                                        <button
+                                            type="button"
+                                            className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-accent"
+                                        />
+                                    }
+                                >
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <span
+                                            className={`inline-flex h-1.5 w-1.5 rounded-full ${stateTone(selected.state, selected.id === agent.live_revision).dotClass}`}
+                                            aria-hidden
+                                        />
+                                        <span className="font-medium text-foreground">
+                                            {selected.id === agent.live_revision ? 'live' : selected.state}
+                                        </span>
+                                    </span>
+                                    <span className="text-muted-foreground/60">·</span>
+                                    <code className="text-[0.6875rem] text-muted-foreground">
+                                        {shortId(selected.id)}
+                                    </code>
+                                    <ChevronDownIcon className="ml-1 h-3 w-3 text-muted-foreground" />
+                                </PopoverTrigger>
+                                <PopoverContent side="bottom" align="start" sideOffset={6} className="w-80 p-0">
+                                    <RevisionPicker
+                                        agent={agent}
+                                        visibleRevisions={visibleRevisions}
+                                        totalCount={sortedRevisions.length}
+                                        selectedId={selected.id}
+                                        query={query}
+                                        onQueryChange={setQuery}
+                                        activeFilters={activeFilters}
+                                        onToggleFilter={toggleFilter}
+                                        onPick={onPickRevision}
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                            <RevisionActions
+                                revision={selected}
+                                isLive={selected.id === agent.live_revision}
+                                hasLiveRevision={!!agent.live_revision}
+                                onAction={(action) => requestAction(action, selected)}
+                                onTryDraft={onTryDraft ? () => onTryDraft(selected.id) : undefined}
                             />
-                        </li>
-                    ))}
-                </ul>
+                        </div>
 
-                <div className="min-w-0 space-y-4">
-                    {selected ? (
-                        <>
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <RevisionMetaRow revision={selected} isLive={selected.id === agent.live_revision} />
-                                <RevisionActions
-                                    revision={selected}
-                                    isLive={selected.id === agent.live_revision}
-                                    hasLiveRevision={!!agent.live_revision}
-                                    onAction={(action) => requestAction(action, selected)}
-                                    onTryDraft={onTryDraft ? () => onTryDraft(selected.id) : undefined}
-                                />
-                            </div>
+                        <Section title="Config" right={<ConfigViewToggle view={configView} onChange={setConfigView} />}>
+                            {configView === 'structured' ? (
+                                <>
+                                    <ConfigPanel
+                                        spec={selected.spec as Record<string, unknown>}
+                                        highlightedSection={highlightedSection}
+                                    />
+                                    <UnstructuredFields
+                                        spec={selected.spec as Record<string, unknown>}
+                                        knownKeys={KNOWN_SPEC_KEYS}
+                                    />
+                                </>
+                            ) : (
+                                <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
+                            )}
+                        </Section>
 
-                            <Section
-                                title="Config"
-                                right={<ConfigViewToggle view={configView} onChange={setConfigView} />}
-                            >
-                                {configView === 'structured' ? (
-                                    <>
-                                        <ConfigPanel
-                                            spec={selected.spec as Record<string, unknown>}
-                                            highlightedSection={highlightedSection}
-                                        />
-                                        <UnstructuredFields
-                                            spec={selected.spec as Record<string, unknown>}
-                                            knownKeys={KNOWN_SPEC_KEYS}
-                                        />
-                                    </>
-                                ) : (
-                                    <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
-                                )}
-                            </Section>
-
-                            <Section title="Bundle">
-                                <div className="h-[480px]">
-                                    {bundleError ? (
-                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive-foreground">
-                                            Failed to load bundle: {bundleError.message}
-                                        </div>
-                                    ) : bundleLoading ? (
-                                        <div className="flex h-full items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
-                                            Loading bundle…
-                                        </div>
-                                    ) : (
-                                        <BundleTree
-                                            files={bundle}
-                                            selectedPath={focusedBundlePath ?? null}
-                                            onSelectPath={onSelectBundleFile}
-                                        />
-                                    )}
+                        <Section title="Bundle">
+                            {bundleError ? (
+                                <div className="flex h-[600px] items-center justify-center rounded-md border border-dashed border-border text-sm text-destructive-foreground">
+                                    Failed to load bundle: {bundleError.message}
                                 </div>
-                            </Section>
-                        </>
-                    ) : (
-                        <EmptyDetail />
-                    )}
-                </div>
+                            ) : bundleLoading ? (
+                                <div className="flex h-[600px] items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+                                    Loading bundle…
+                                </div>
+                            ) : (
+                                <BundleTree
+                                    files={bundle}
+                                    selectedPath={focusedBundlePath ?? null}
+                                    onSelectPath={onSelectBundleFile}
+                                />
+                            )}
+                        </Section>
+                    </>
+                ) : (
+                    <EmptyDetail />
+                )}
             </div>
             {pending ? (
                 <ConfirmDialog
@@ -243,11 +350,102 @@ export function RevisionsBrowser({
     )
 }
 
+/* ── Popover-mounted revision picker ────────────────────────────── */
+
+function RevisionPicker({
+    agent,
+    visibleRevisions,
+    totalCount,
+    selectedId,
+    query,
+    onQueryChange,
+    activeFilters,
+    onToggleFilter,
+    onPick,
+}: {
+    agent: AgentApplicationFixture
+    visibleRevisions: AgentRevisionFixture[]
+    totalCount: number
+    selectedId: string | null
+    query: string
+    onQueryChange: (q: string) => void
+    activeFilters: Set<StateFilter>
+    onToggleFilter: (f: StateFilter) => void
+    onPick: (id: string) => void
+}): React.ReactElement {
+    return (
+        <div className="flex max-h-[70vh] flex-col overflow-hidden">
+            <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2">
+                <span className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+                    Revisions
+                </span>
+                <span className="text-[0.625rem] text-muted-foreground/70 tabular-nums">
+                    {visibleRevisions.length} / {totalCount}
+                </span>
+            </div>
+            <div className="space-y-2 border-b border-border bg-muted/10 px-2 py-2">
+                <div className="relative">
+                    <SearchIcon className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={(e) => onQueryChange(e.currentTarget.value)}
+                        placeholder="Search id, sha, author…"
+                        autoFocus
+                        className="h-7 w-full rounded border border-input bg-background pl-7 pr-2 text-xs"
+                    />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                    {STATE_FILTERS.map((f) => {
+                        const active = activeFilters.has(f)
+                        return (
+                            <button
+                                key={f}
+                                type="button"
+                                onClick={() => onToggleFilter(f)}
+                                aria-pressed={active}
+                                className={
+                                    'inline-flex h-5 cursor-pointer items-center gap-1 rounded-full border px-2 text-[0.625rem] uppercase tracking-wide transition-colors ' +
+                                    (active
+                                        ? 'border-foreground/20 bg-accent text-foreground'
+                                        : 'border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground')
+                                }
+                            >
+                                <span
+                                    className={`inline-flex h-1 w-1 rounded-full ${stateTone(f, f === 'live').dotClass}`}
+                                    aria-hidden
+                                />
+                                {f}
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
+            <ul className="flex-1 divide-y divide-border overflow-auto" aria-label="Revisions">
+                {visibleRevisions.length === 0 ? (
+                    <li className="px-3 py-3 text-xs text-muted-foreground">No matching revisions.</li>
+                ) : (
+                    visibleRevisions.map((r) => (
+                        <li key={r.id}>
+                            <RevisionListItem
+                                revision={r}
+                                isLive={r.id === agent.live_revision}
+                                isSelected={selectedId === r.id}
+                                onClick={() => onPick(r.id)}
+                            />
+                        </li>
+                    ))
+                )}
+            </ul>
+        </div>
+    )
+}
+
 function dialogCopy(
     pending: PendingAction,
     agent: AgentApplicationFixture
 ): { title: string; description: React.ReactNode; confirmLabel: string } {
-    const id = short(pending.revision.id)
+    const id = shortId(pending.revision.id)
     if (pending.action === 'freeze') {
         return {
             title: `Freeze revision ${id}`,
@@ -402,47 +600,13 @@ function RevisionListItem({
             <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-1.5 text-xs">
                     <span className="font-medium">{tone.label}</span>
-                    <code className="truncate text-[0.6875rem] text-muted-foreground">{short(revision.id)}</code>
+                    <code className="truncate text-[0.6875rem] text-muted-foreground">{shortId(revision.id)}</code>
                 </div>
                 <div className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                     {formatRelative(revision.updated_at)} · {revision.created_by.first_name}
                 </div>
             </div>
         </button>
-    )
-}
-
-function RevisionMetaRow({
-    revision,
-    isLive,
-}: {
-    revision: AgentRevisionFixture
-    isLive: boolean
-}): React.ReactElement {
-    return (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-                <span
-                    className={`inline-flex h-1.5 w-1.5 rounded-full ${stateTone(revision.state, isLive).dotClass}`}
-                    aria-hidden
-                />
-                <span className="font-medium text-foreground">{isLive ? 'live' : revision.state}</span>
-            </span>
-            <span>·</span>
-            <code className="text-[0.6875rem]">{short(revision.id)}</code>
-            {revision.bundle_sha256 ? (
-                <>
-                    <span>·</span>
-                    <code className="text-[0.6875rem] text-muted-foreground/70">
-                        {revision.bundle_sha256.split(':').at(-1)?.slice(0, 8)}
-                    </code>
-                </>
-            ) : null}
-            <span>·</span>
-            <span>by {revision.created_by.first_name}</span>
-            <span>·</span>
-            <span>updated {formatRelative(revision.updated_at)}</span>
-        </div>
     )
 }
 
@@ -507,45 +671,4 @@ function EmptyDetail(): React.ReactElement {
             Pick a revision to view its config and bundle.
         </div>
     )
-}
-
-function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dotClass: string; label: string } {
-    // Saturated `-foreground` variants for visibility on the light surface.
-    if (isLive) {
-        return { dotClass: 'bg-success-foreground', label: 'live' }
-    }
-    switch (state) {
-        case 'draft':
-            return { dotClass: 'bg-warning-foreground', label: 'draft' }
-        case 'ready':
-            return { dotClass: 'bg-info-foreground', label: 'ready' }
-        case 'archived':
-            return { dotClass: 'bg-muted-foreground/40', label: 'archived' }
-        case 'live':
-            return { dotClass: 'bg-success-foreground', label: 'live' }
-        default:
-            return { dotClass: 'bg-muted-foreground/40', label: state }
-    }
-}
-
-function short(id: string): string {
-    return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
-}
-
-function formatRelative(iso: string): string {
-    const ts = new Date(iso).getTime()
-    if (!ts) {
-        return '—'
-    }
-    const diff = Math.max(0, Date.now() - ts)
-    const minute = 60 * 1000
-    const hour = 60 * minute
-    const day = 24 * hour
-    if (diff < hour) {
-        return `${Math.max(1, Math.floor(diff / minute))}m ago`
-    }
-    if (diff < day) {
-        return `${Math.floor(diff / hour)}h ago`
-    }
-    return `${Math.floor(diff / day)}d ago`
 }

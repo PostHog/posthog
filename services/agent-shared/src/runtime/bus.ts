@@ -19,6 +19,22 @@ export type SessionEventKind =
     | 'tool_call_args_delta'
     | 'tool_result'
     /**
+     * Fired when the model calls a `kind: "client"` tool. Carries
+     * `{ call_id, tool_id, args }`. The connecting client picks this
+     * up over SSE, executes the handler locally, and POSTs the result
+     * back to `/sessions/<id>/client_tool_result`. The runner's tool
+     * `execute()` is blocked on a matching `client_tool_result` event
+     * with the same `call_id`.
+     */
+    | 'client_tool_call'
+    /**
+     * Result of a `client_tool_call`. Carries `{ call_id, result }`
+     * or `{ call_id, error }`. Published by the ingress endpoint
+     * `/sessions/<id>/client_tool_result`; the runner consumes via
+     * `bus.subscribe(session_id, …)`.
+     */
+    | 'client_tool_result'
+    /**
      * Default end-of-turn event. Fires for natural stop and meta-end-turn.
      * Session state is `completed` (open). Asking a question is just
      * "respond with text, end the turn" — no separate event.

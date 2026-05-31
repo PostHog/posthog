@@ -24,6 +24,12 @@ export interface ResourceState<T> {
     error: Error | null
     loading: boolean
     reload: () => void
+    /**
+     * Wall-clock ms at which the resource last settled (success or
+     * error). `null` until the first settle. Used by
+     * `<RefreshIndicator>` to render "updated 5s ago".
+     */
+    lastFetchedAt: number | null
 }
 
 export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []): ResourceState<T> {
@@ -31,6 +37,7 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
     const [data, setData] = useState<T | null>(null)
     const [error, setError] = useState<Error | null>(null)
     const [loading, setLoading] = useState(true)
+    const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null)
     const [manualReloadKey, setManualReloadKey] = useState(0)
     const reqIdRef = useRef(0)
     const factoryRef = useRef(factory)
@@ -58,6 +65,7 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
                 setData(result)
                 setError(null)
                 setLoading(false)
+                setLastFetchedAt(Date.now())
             })
             .catch((err) => {
                 release()
@@ -66,6 +74,7 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
                 }
                 setError(err instanceof Error ? err : new Error(String(err)))
                 setLoading(false)
+                setLastFetchedAt(Date.now())
             })
         // Stale-effect cleanup: a deps change before settle should still
         // decrement the counter so it doesn't stick high.
@@ -75,5 +84,5 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
 
     const reload = useCallback(() => setManualReloadKey((k) => k + 1), [])
 
-    return { data, error, loading, reload }
+    return { data, error, loading, reload, lastFetchedAt }
 }

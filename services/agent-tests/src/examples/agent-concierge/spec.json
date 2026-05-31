@@ -20,8 +20,54 @@
         { "kind": "native", "id": "@posthog/query" },
         { "kind": "native", "id": "@posthog/web-fetch" },
         { "kind": "native", "id": "@posthog/web-search" },
-        { "kind": "client", "from_native": "@posthog/ui/focus" },
-        { "kind": "client", "from_native": "@posthog/ui/toast" }
+        {
+            "kind": "client",
+            "id": "focus",
+            "description": "Navigate the host console's read panel to a specific resource. Call before you start operating on something so the user sees what you see. The client returns { focused: true, kind } on success, or { focused: false, reason } if the user paused follow-mode. Returns an `unhandled_client_tool` / `client_tool_timeout` error in clients that can't render — fall back to spelling out paths in text.",
+            "args_schema": {
+                "type": "object",
+                "oneOf": [
+                    {
+                        "properties": {
+                            "kind": { "const": "tab" },
+                            "tab": { "enum": ["overview", "configuration", "sessions"] }
+                        },
+                        "required": ["kind", "tab"]
+                    },
+                    {
+                        "properties": { "kind": { "const": "file" }, "path": { "type": "string" } },
+                        "required": ["kind", "path"]
+                    },
+                    {
+                        "properties": { "kind": { "const": "revision" }, "revisionId": { "type": "string" } },
+                        "required": ["kind", "revisionId"]
+                    },
+                    {
+                        "properties": { "kind": { "const": "session" }, "sessionId": { "type": "string" } },
+                        "required": ["kind", "sessionId"]
+                    }
+                ]
+            }
+        },
+        {
+            "kind": "client",
+            "id": "toast",
+            "description": "Surface a short status notification in the host UI. Use sparingly — for long-running work the user should know about, or for state changes outside their current view. Don't toast for things that fit naturally in chat.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "level": { "enum": ["info", "warn", "error"] },
+                    "message": { "type": "string" }
+                },
+                "required": ["message"]
+            }
+        },
+        {
+            "kind": "client",
+            "id": "get_context",
+            "description": "Returns the user's current view in the host app — page, agent, session id, URL, follow-mode state, client identification. Call when you need to resolve deictic references like 'this agent' or 'this session', or after the user has navigated and your prior context envelope is stale. Free — no side effects.",
+            "args_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+        }
     ],
     "mcps": [
         {
@@ -59,7 +105,33 @@
                 "agent-applications-set-env-create",
                 "agent-native-tools-list"
             ],
-            "secrets": []
+            "secrets": [],
+            "approval_policies": {
+                "agent-applications-revisions-promote-create": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-applications-revisions-archive-create": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-applications-set-env-create": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-applications-destroy": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-applications-revisions-bundle-update": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-applications-revisions-file-destroy": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                }
+            }
         }
     ],
     "skills": [
@@ -131,5 +203,15 @@
         "max_tool_calls": 300,
         "max_wall_seconds": 1800
     },
-    "auth": { "mode": "posthog_internal" }
+    "auth": {
+        "modes": ["oauth", "pat", "posthog_internal"],
+        "oauth": {
+            "provider": "posthog",
+            "scopes": ["agent_application:read", "agent_application:write", "agent_session:read"]
+        }
+    },
+    "resume": {
+        "enabled": true,
+        "max_completed_age_ms": 604800000
+    }
 }

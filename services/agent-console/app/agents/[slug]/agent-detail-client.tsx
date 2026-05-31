@@ -50,7 +50,11 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
             params.set('file', merged.filePath)
         }
         const qs = params.toString()
-        router.push(`/agents/${slug}${qs ? `?${qs}` : ''}`)
+        // `scroll: false` — the route segment never changes here, only the
+        // search params. Letting Next.js's default scroll-to-top run makes
+        // tree-row clicks (bundle file, revision selection) snap the page
+        // back to the breadcrumb.
+        router.push(`/agents/${slug}${qs ? `?${qs}` : ''}`, { scroll: false })
     }
 
     return (
@@ -62,7 +66,6 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
             onChangeUrlState={onChangeUrlState}
             onBackToList={() => router.push('/')}
             onOpenSession={(sessionId) => router.push(`/agents/${slug}/sessions/${sessionId}`)}
-            onOpenMemory={() => router.push(`/agents/${slug}/memory`)}
         />
     )
 }
@@ -75,7 +78,6 @@ function AgentDetailInner({
     onChangeUrlState,
     onBackToList,
     onOpenSession,
-    onOpenMemory,
 }: {
     slug: string
     teamId: number
@@ -84,7 +86,6 @@ function AgentDetailInner({
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
     onBackToList: () => void
     onOpenSession: (sessionId: string) => void
-    onOpenMemory: () => void
 }): React.ReactElement {
     const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
     useSetDockPage({ kind: 'agent', agent: agentRef })
@@ -112,9 +113,6 @@ function AgentDetailInner({
             </div>
         )
     }
-    // Only block on the very first load. After we have data, refetches
-    // (e.g. from bumpReload after promote) render stale-while-revalidate
-    // so the page doesn't flash back to "Loading…".
     if (!revisions.data) {
         return <AgentDetailSkeleton />
     }
@@ -139,7 +137,6 @@ function AgentDetailInner({
             onTryAgent={(opts) => enterPlayground(agentRef, { previewRevisionId: opts?.revisionId })}
             onBackToList={onBackToList}
             onOpenSession={onOpenSession}
-            onOpenMemory={onOpenMemory}
             onRevisionsMutated={bumpReload}
         />
     )

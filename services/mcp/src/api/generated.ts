@@ -32,6 +32,160 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `A` - absorbed
+    * `B` - internal_overage
+    * `C` - external_prepay
+     */
+    export type ProfileEnum = typeof ProfileEnum[keyof typeof ProfileEnum];
+
+
+    export const ProfileEnum = {
+      A: 'A',
+      B: 'B',
+      C: 'C',
+    } as const;
+
+    export interface AIGatewayAccount {
+      /** Billing profile: A=absorbed, B=internal overage, C=external prepay.
+
+      * `A` - absorbed
+      * `B` - internal_overage
+      * `C` - external_prepay */
+      profile: ProfileEnum;
+      /** USD overage allowance above the prepaid balance (decimal string). */
+      overage_allowance_usd: string;
+      /** Billing period identifier — e.g. 'monthly'. */
+      period: string;
+      /** RFC3339 timestamp the billing period rolls over from. */
+      period_anchor: string;
+      /**
+         * Optional rate card identifier.
+         * @nullable
+         */
+      rate_card_id?: string | null;
+    }
+
+    export interface AIGatewayKillSwitch {
+      /** Whether the rolling-hour kill switch has fired. */
+      tripped: boolean;
+      /**
+         * USD spend threshold that trips the switch (decimal string).
+         * @nullable
+         */
+      threshold_usd?: string | null;
+      /**
+         * RFC3339 timestamp the switch last tripped.
+         * @nullable
+         */
+      tripped_at?: string | null;
+    }
+
+    /**
+     * * `debit` - debit
+    * `topup` - topup
+    * `refund` - refund
+    * `adjustment` - adjustment
+     */
+    export type TransactionTypeEnum = typeof TransactionTypeEnum[keyof typeof TransactionTypeEnum];
+
+
+    export const TransactionTypeEnum = {
+      Debit: 'debit',
+      Topup: 'topup',
+      Refund: 'refund',
+      Adjustment: 'adjustment',
+    } as const;
+
+    export interface AIGatewayLedgerEntry {
+      /** Ledger entry uuid. */
+      id: string;
+      /** Kind of ledger movement.
+
+      * `debit` - debit
+      * `topup` - topup
+      * `refund` - refund
+      * `adjustment` - adjustment */
+      transaction_type: TransactionTypeEnum;
+      /** Source bucket (funding | prepaid | revenue | adjustment). */
+      source: string;
+      /** Destination bucket. */
+      destination: string;
+      /** USD amount of the movement (decimal string). */
+      amount_usd: string;
+      /**
+         * List price for a usage debit before any discount.
+         * @nullable
+         */
+      list_cost_usd?: string | null;
+      /**
+         * Idempotency key. Runner format: 'agent:<session_id>:<turn>'.
+         * @nullable
+         */
+      reference_id?: string | null;
+      /**
+         * Provider-prefixed model id.
+         * @nullable
+         */
+      model?: string | null;
+      /**
+         * Provider key (anthropic | openai | ...).
+         * @nullable
+         */
+      provider?: string | null;
+      /**
+         * Input token count.
+         * @nullable
+         */
+      input_tokens?: number | null;
+      /**
+         * Output token count.
+         * @nullable
+         */
+      output_tokens?: number | null;
+      /**
+         * End-user identifier from X-PostHog-Distinct-Id.
+         * @nullable
+         */
+      distinct_id?: string | null;
+      /** RFC3339 timestamp the entry was settled. */
+      created_at: string;
+    }
+
+    export interface AIGatewayLedgerList {
+      /** Ledger entries in newest-first order. */
+      results: AIGatewayLedgerEntry[];
+      /**
+         * Opaque cursor for the next page. Absent when there are no more rows.
+         * @nullable
+         */
+      next_cursor?: string | null;
+    }
+
+    export interface AIGatewayWallet {
+      /** PostHog team id this wallet belongs to. */
+      team_id: number;
+      /** USD available to spend right now: balance minus pending holds (decimal string). */
+      available_usd: string;
+      /** USD reserved by in-flight session holds (decimal string). */
+      pending_usd: string;
+      /** Raw ledger balance in USD before subtracting holds (decimal string). */
+      balance_usd: string;
+      /** balance_usd plus the account's overage_allowance (decimal string). */
+      spendable_usd: string;
+      /** ISO currency code. Always 'USD' at v0. */
+      currency: string;
+      /** Account policy: profile, overage, period. */
+      account: AIGatewayAccount;
+      /**
+         * Rolling-hour spend that feeds the kill switch. Omitted when billing has not computed it yet.
+         * @nullable
+         */
+      rolling_hour_usd?: string | null;
+      /** Kill-switch state — tripped/threshold/tripped_at. */
+      kill_switch: AIGatewayKillSwitch;
+    }
+
+    /**
      * * `read_write` - read_write
     * `read` - read
     * `none` - none
@@ -4336,6 +4490,19 @@ export namespace Schemas {
       kind: 'custom';
       id: string;
       path: string;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 60000
+         */
+      timeout_ms?: number;
     };
 
     export type AgentRevisionSpecMcpsItem = {
@@ -27469,6 +27636,19 @@ export namespace Schemas {
       kind: 'custom';
       id: string;
       path: string;
+    } | {
+      kind: 'client';
+      /** @minLength 1 */
+      id: string;
+      /** @minLength 1 */
+      description: string;
+      args_schema?: { [key: string]: unknown };
+      required?: boolean;
+      /**
+         * @minimum 1
+         * @maximum 60000
+         */
+      timeout_ms?: number;
     };
 
     export type PatchedAgentRevisionSpecMcpsItem = {
@@ -44693,6 +44873,35 @@ export namespace Schemas {
      */
     since?: string;
     };
+
+    export type AiGatewayLedgerListParams = {
+    /**
+     * Opaque keyset cursor returned by a prior request.
+     */
+    cursor?: string;
+    /**
+     * Page size (default 50, max 200).
+     */
+    limit?: number;
+    /**
+     * Filter to entries whose reference_id starts with this prefix. Use 'agent:<session_id>:' to scope to one session.
+     */
+    reference_id_prefix?: string;
+    /**
+     * Filter to entries of a single transaction type.
+     */
+    transaction_type?: AiGatewayLedgerListTransactionType;
+    };
+
+    export type AiGatewayLedgerListTransactionType = typeof AiGatewayLedgerListTransactionType[keyof typeof AiGatewayLedgerListTransactionType];
+
+
+    export const AiGatewayLedgerListTransactionType = {
+      Adjustment: 'adjustment',
+      Debit: 'debit',
+      Refund: 'refund',
+      Topup: 'topup',
+    } as const;
 
     export type AlertsListParams = {
     /**

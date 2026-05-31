@@ -24,6 +24,9 @@ import {
     DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
+    ResizableHandle,
+    ResizablePanel,
+    ResizablePanelGroup,
     type Theme,
     ThemeProvider,
     Tooltip,
@@ -40,8 +43,6 @@ import { PostHogMark } from './PostHogMark'
 import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionUser } from './session-context'
 import { TopLoadingBar } from './TopLoadingBar'
 
-const DOCK_WIDTH = 360
-
 export function AppShell({ children }: { children: React.ReactNode }): React.ReactElement {
     return (
         <ThemeProvider>
@@ -52,12 +53,23 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                             <TopLoadingBar />
                             <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
                                 <Sidebar />
-                                <main className="flex-1 overflow-y-auto">
-                                    <SessionGate>{children}</SessionGate>
-                                </main>
-                                <aside className="shrink-0 border-l border-border" style={{ width: DOCK_WIDTH }}>
-                                    <Dock />
-                                </aside>
+                                <ResizablePanelGroup
+                                    orientation="horizontal"
+                                    defaultLayout={{ main: 70, dock: 30 }}
+                                    className="flex-1"
+                                >
+                                    <ResizablePanel id="main" minSize="520px">
+                                        <main className="h-full overflow-y-auto">
+                                            <SessionGate>{children}</SessionGate>
+                                        </main>
+                                    </ResizablePanel>
+                                    <ResizableHandle withHandle />
+                                    <ResizablePanel id="dock" minSize="360px" maxSize="720px">
+                                        <div className="h-full border-l border-border">
+                                            <Dock />
+                                        </div>
+                                    </ResizablePanel>
+                                </ResizablePanelGroup>
                             </div>
                         </FocusContextProvider>
                     </DockContextProvider>

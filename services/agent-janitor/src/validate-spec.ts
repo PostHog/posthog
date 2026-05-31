@@ -78,6 +78,13 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
             }
             continue
         }
+        if (tool.kind === 'client') {
+            // Client tools live entirely in the spec — no bundle artifacts
+            // to validate, no runtime registry to check. Whether the call
+            // succeeds depends on whether the connecting client implements
+            // the id, which we can't know at freeze time.
+            continue
+        }
         const base = tool.path.replace(/\/$/, '')
         const compiled = `${base}/compiled.js`
         const schema = `${base}/schema.json`

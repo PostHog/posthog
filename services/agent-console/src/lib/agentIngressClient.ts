@@ -45,7 +45,7 @@ export interface PreviewOpts {
  */
 function buildUrl(
     slug: string,
-    rest: 'run' | 'send' | 'cancel' | 'listen',
+    rest: 'run' | 'send' | 'cancel' | 'listen' | 'client_tool_result',
     preview: PreviewOpts | undefined,
     query: string | undefined,
     embedTokenInQuery: boolean
@@ -158,6 +158,30 @@ export async function cancelSession(
     return postJson<{ session_id: string }, { ok: true; idempotent?: boolean; state?: string }>(
         buildUrl(slug, 'cancel', opts.preview, undefined, false),
         { session_id: sessionId },
+        previewHeaders(opts.preview)
+    )
+}
+
+/**
+ * Post the result of a client-fulfilled tool call back to ingress. The
+ * runner is awaiting a matching `client_tool_result` bus event keyed by
+ * `call_id`; this POST publishes it. Exactly one of `result` / `error`
+ * must be set.
+ */
+export async function postClientToolResult(
+    slug: string,
+    sessionId: string,
+    callId: string,
+    body: { result: unknown } | { error: string },
+    opts: { preview?: PreviewOpts } = {}
+): Promise<{ ok: true }> {
+    const payload =
+        'error' in body
+            ? { session_id: sessionId, call_id: callId, error: body.error }
+            : { session_id: sessionId, call_id: callId, result: body.result }
+    return postJson<typeof payload, { ok: true }>(
+        buildUrl(slug, 'client_tool_result', opts.preview, undefined, false),
+        payload,
         previewHeaders(opts.preview)
     )
 }

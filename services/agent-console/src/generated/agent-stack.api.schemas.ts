@@ -216,6 +216,20 @@ export type AgentRevisionApiSpecToolsItem =
           id: string
           path: string
       }
+    | {
+          kind: 'client'
+          /** @minLength 1 */
+          id: string
+          /** @minLength 1 */
+          description: string
+          args_schema?: { [key: string]: unknown }
+          required?: boolean
+          /**
+           * @minimum 1
+           * @maximum 60000
+           */
+          timeout_ms?: number
+      }
 
 export type AgentRevisionApiSpecMcpsItem =
     | {
@@ -343,6 +357,20 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           kind: 'custom'
           id: string
           path: string
+      }
+    | {
+          kind: 'client'
+          /** @minLength 1 */
+          id: string
+          /** @minLength 1 */
+          description: string
+          args_schema?: { [key: string]: unknown }
+          required?: boolean
+          /**
+           * @minimum 1
+           * @maximum 60000
+           */
+          timeout_ms?: number
       }
 
 export type PatchedAgentRevisionApiSpecMcpsItem =

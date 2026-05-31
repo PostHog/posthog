@@ -25,14 +25,33 @@ const AGENT_STACK_YAML = resolve(__dirname, '../../../mcp/definitions/agent_stac
 interface ConciergeSpec {
     model: string
     triggers: Array<{ type: string }>
-    tools: Array<{ kind: string; id?: string; from_native?: string }>
-    mcps: Array<{ id: string; endpoint: string; tools: string[]; secrets: string[] }>
+    tools: Array<{
+        kind: string
+        id?: string
+        from_native?: string
+        description?: string
+        args_schema?: Record<string, unknown>
+        required?: boolean
+        timeout_ms?: number
+    }>
+    mcps: Array<{
+        id: string
+        endpoint: string
+        tools: string[]
+        secrets: string[]
+        approval_policies?: Record<string, { approvers: string[]; ttl_ms: number }>
+    }>
     skills: Array<{ id: string; path: string; description: string }>
     integrations: string[]
     secrets: string[]
     limits: { max_turns: number; max_tool_calls: number; max_wall_seconds: number }
-    auth: { mode: string }
+    auth: {
+        modes?: string[]
+        mode?: string
+        oauth?: { provider: string; scopes: string[] }
+    }
     reasoning?: string
+    resume?: { enabled: boolean; max_completed_age_ms: number }
 }
 
 async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string, string> }> {
@@ -93,17 +112,85 @@ describe('example: agent-concierge bundle', () => {
         expect(triggerTypes).toContain('mcp')
     })
 
-    it('declares client tools for the console UI surface', async () => {
+    it('declares the three client tools the agent-console implements', async () => {
         const { spec } = await loadBundle()
-        // The concierge MUST reference the well-known UI client tools so the
-        // console handshake reconciles them — see plan §8.1.
-        const clientTools = spec.tools.filter((t) => t.kind === 'client').map((t) => t.from_native)
-        expect(clientTools).toContain('@posthog/ui/focus')
-        expect(clientTools).toContain('@posthog/ui/toast')
+        // Author-defined inline shape (id, description, args_schema) —
+        // the platform doesn't ship a registry of well-known UI tools.
+        // Console dock's handlers register against these ids; runner
+        // dispatches via the bus + ingress POST round-trip.
+        const clientTools = spec.tools.filter((t) => t.kind === 'client')
+        const ids = clientTools.map((t) => t.id).sort()
+        expect(ids).toEqual(['focus', 'get_context', 'toast'])
+        for (const t of clientTools) {
+            expect(t.id, `${t.id}: id`).toBeTruthy()
+            expect(t.description, `${t.id}: description`).toBeTruthy()
+            expect((t.description ?? '').length, `${t.id}: description length`).toBeGreaterThan(40)
+            expect(t.args_schema, `${t.id}: args_schema`).toBeTruthy()
+            expect(typeof t.args_schema, `${t.id}: args_schema is object`).toBe('object')
+        }
     })
 
-    it('uses posthog_internal auth (no public exposure)', async () => {
+    it('accepts oauth + pat + posthog_internal on the same revision', async () => {
         const { spec } = await loadBundle()
-        expect(spec.auth.mode).toBe('posthog_internal')
+        // Shared deployment serves console (posthog_internal), MCP clients (oauth),
+        // and scripted access (pat) — see plan §3 + §8 multi-mode auth gap.
+        expect(spec.auth.modes).toEqual(expect.arrayContaining(['oauth', 'pat', 'posthog_internal']))
+        expect(spec.auth.oauth?.provider).toBe('posthog')
+    })
+
+    it('enables resume so multi-step flows can span days', async () => {
+        const { spec } = await loadBundle()
+        // Real edit-debug flows are multi-turn over hours. Default 24h sweep
+        // would close them mid-thought.
+        expect(spec.resume?.enabled).toBe(true)
+        expect(spec.resume?.max_completed_age_ms).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000)
+    })
+
+    it('declares approval policies for destructive MCP tools', async () => {
+        const { spec } = await loadBundle()
+        // Promote / set-env / destroy are gated at the platform layer, not just
+        // in the prompt — see plan §8 (MCP-tool-level approvals gap).
+        const posthog = spec.mcps.find((m) => m.id === 'posthog')
+        const policies = posthog?.approval_policies ?? {}
+        expect(Object.keys(policies)).toEqual(
+            expect.arrayContaining([
+                'agent-applications-revisions-promote-create',
+                'agent-applications-set-env-create',
+                'agent-applications-destroy',
+            ])
+        )
+    })
+
+    it('every bundle/tests/*.json case parses and declares the required fields', async () => {
+        const testsDir = join(BUNDLE_ROOT, 'tests')
+        const entries = await readdir(testsDir)
+        const jsonFiles = entries.filter((f) => f.endsWith('.json'))
+        // Insurance against a future commit dropping all the cases by mistake.
+        expect(jsonFiles.length).toBeGreaterThanOrEqual(5)
+        for (const f of jsonFiles) {
+            const body = JSON.parse(await readFile(join(testsDir, f), 'utf-8')) as {
+                name?: string
+                description?: string
+                trigger?: { type: string; messages?: Array<{ role: string; content: string }> }
+                expected?: Record<string, unknown>
+            }
+            expect(body.name, `${f}: name`).toBeTruthy()
+            expect(body.description, `${f}: description`).toBeTruthy()
+            expect(body.trigger?.type, `${f}: trigger.type`).toBeTruthy()
+            expect(body.expected, `${f}: expected`).toBeTruthy()
+        }
+    })
+
+    it('seed.py script exists and is executable as Python', async () => {
+        const scriptPath = join(BUNDLE_ROOT, 'scripts', 'seed.py')
+        const src = await readFile(scriptPath, 'utf-8')
+        // Three things that would silently break the deploy if removed:
+        // - shebang for direct exec
+        // - load_v0_spec strips spec features the current platform rejects
+        // - per_file_sha256 powers the no-op idempotency check
+        expect(src.startsWith('#!/usr/bin/env python3')).toBe(true)
+        expect(src).toContain('def load_v0_spec()')
+        expect(src).toContain('def per_file_sha256(')
+        expect(src).toContain('spec["mcps"] = []')
     })
 })

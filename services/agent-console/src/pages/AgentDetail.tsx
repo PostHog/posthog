@@ -1,17 +1,19 @@
 /**
- * Agent detail — read panel for one agent. The chat dock lives in the
- * app shell; its `@posthog/ui/focus` handler navigates by pushing URL
- * changes — this page reads its entire view state from `?tab=...` and
- * friends so deep-linking, browser back/forward, and agent-driven
- * navigation all share the same surface.
+ * Agent detail — read panel for one agent.
  *
- * Three tabs:
+ * The chat dock lives in the app shell; its `@posthog/ui/focus` handler
+ * navigates by pushing URL changes — this page reads its entire view
+ * state from `?tab=...` and friends so deep-linking, browser back/forward,
+ * and agent-driven navigation all share the same surface.
+ *
+ * Four tabs:
  *   - **Overview** — landing summary (stats + recent activity + trigger synopsis).
  *   - **Configuration** — app-level settings + revisions browser (master-detail).
  *   - **Sessions** — per-agent session list with filter chips.
+ *   - **Memory** — file explorer over the agent's S3-backed memory store.
  *
  * URL params honored:
- *   `?tab=overview|configuration|sessions`
+ *   `?tab=overview|configuration|sessions|memory`
  *   `?revision=<id>`          (configuration tab — selected revision)
  *   `?section=<spec section>` (configuration tab — highlighted spec row)
  *   `?file=<path>`            (configuration tab — selected bundle file)
@@ -26,14 +28,17 @@ import type { ChatSession } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats } from '@posthog/agent-chat/fixtures'
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { AgentDescription } from '@/components/AgentDescription'
 import { AgentOverview } from '@/components/AgentOverview'
 import { ApplicationSettings } from '@/components/ApplicationSettings'
+import { ConnectionsTab } from '@/components/ConnectionsTab'
+import { MemoryClassic } from '@/components/MemoryClassic'
 import { RevisionsBrowser } from '@/components/RevisionsBrowser'
 import { SessionsList } from '@/components/SessionsList'
 
-type TabKey = 'overview' | 'configuration' | 'sessions'
+type TabKey = 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory'
 
-const TABS: TabKey[] = ['overview', 'configuration', 'sessions']
+const TABS: TabKey[] = ['overview', 'configuration', 'connections', 'sessions', 'memory']
 
 export type AgentDetailUrlState = {
     tab: TabKey
@@ -65,23 +70,10 @@ export interface AgentDetailProps {
     stats: AgentStats
     sessions: ChatSession[]
     urlState: AgentDetailUrlState
-    /**
-     * Push a URL-state change. Implementations wrap `router.push(...)`
-     * but the page doesn't know about Next.js — the wrapper handles
-     * serializing the partial state onto whichever route owns the agent.
-     */
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
-    /**
-     * Open the dock playground. With `revisionId`, talks to that
-     * specific non-live revision via the preview-proxy; without, the
-     * live revision via the public ingress URL.
-     */
     onTryAgent?: (opts?: { revisionId?: string }) => void
     onOpenSession?: (sessionId: string) => void
     onBackToList?: () => void
-    /** Open the agent's memory file explorer (`/agents/<slug>/memory`). */
-    onOpenMemory?: () => void
-    /** Called after a successful freeze/promote/archive — parent refetches. */
     onRevisionsMutated?: () => void
 }
 
@@ -95,7 +87,6 @@ export function AgentDetail({
     onTryAgent,
     onOpenSession,
     onBackToList,
-    onOpenMemory,
     onRevisionsMutated,
 }: AgentDetailProps): React.ReactElement {
     const sortedRevisions = useMemo(
@@ -125,7 +116,7 @@ export function AgentDetail({
             <header className="mt-3 flex items-start justify-between gap-4">
                 <div className="min-w-0 space-y-1">
                     <h1 className="text-xl font-medium tracking-tight">{agent.name}</h1>
-                    <p className="text-sm text-muted-foreground">{agent.description}</p>
+                    <AgentDescription description={agent.description} />
                 </div>
                 <TryInPlaygroundButton
                     enabled={canPlayground}
@@ -144,26 +135,18 @@ export function AgentDetail({
             ) : null}
 
             <Tabs value={tab} onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })} className="mt-5">
-                <div className="flex items-end justify-between gap-2">
-                    <TabsList variant="line">
-                        <TabsTrigger value="overview">Overview</TabsTrigger>
-                        <TabsTrigger value="configuration">Configuration</TabsTrigger>
-                        <TabsTrigger value="sessions">
-                            Sessions
-                            {sessions.length > 0 ? (
-                                <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
-                            ) : null}
-                        </TabsTrigger>
-                    </TabsList>
-                    {onOpenMemory ? (
-                        <button
-                            onClick={onOpenMemory}
-                            className="mb-1 rounded border border-border bg-card px-3 py-1 text-sm hover:bg-muted"
-                        >
-                            Memory →
-                        </button>
-                    ) : null}
-                </div>
+                <TabsList variant="line">
+                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="configuration">Configuration</TabsTrigger>
+                    <TabsTrigger value="connections">Connections</TabsTrigger>
+                    <TabsTrigger value="sessions">
+                        Sessions
+                        {sessions.length > 0 ? (
+                            <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
+                        ) : null}
+                    </TabsTrigger>
+                    <TabsTrigger value="memory">Memory</TabsTrigger>
+                </TabsList>
 
                 <TabsContent value="overview" className="mt-4">
                     <AgentOverview
@@ -177,35 +160,31 @@ export function AgentDetail({
                     />
                 </TabsContent>
 
-                <TabsContent value="configuration" className="mt-4 space-y-6">
-                    <Section title="Settings">
-                        <ApplicationSettings agent={agent} referenceRevision={referenceRevision} />
-                    </Section>
+                <TabsContent value="configuration" className="mt-4 space-y-4">
+                    <ApplicationSettings agent={agent} referenceRevision={referenceRevision} />
+                    <RevisionsBrowser
+                        agent={agent}
+                        revisions={revisions}
+                        selectedRevisionId={selectedRevId}
+                        onSelectRevision={(id) => onChangeUrlState({ revisionId: id })}
+                        highlightedSection={urlState.section}
+                        focusedBundlePath={urlState.filePath}
+                        onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
+                        onMutated={onRevisionsMutated}
+                        onTryDraft={(revisionId) => onTryAgent?.({ revisionId })}
+                    />
+                </TabsContent>
 
-                    <Section
-                        title="Revisions"
-                        right={
-                            revisions.length > 0 ? (
-                                <span className="text-[0.6875rem] text-muted-foreground">{revisions.length} total</span>
-                            ) : null
-                        }
-                    >
-                        <RevisionsBrowser
-                            agent={agent}
-                            revisions={revisions}
-                            selectedRevisionId={selectedRevId}
-                            onSelectRevision={(id) => onChangeUrlState({ revisionId: id })}
-                            highlightedSection={urlState.section}
-                            focusedBundlePath={urlState.filePath}
-                            onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
-                            onMutated={onRevisionsMutated}
-                            onTryDraft={(revisionId) => onTryAgent?.({ revisionId })}
-                        />
-                    </Section>
+                <TabsContent value="connections" className="mt-4">
+                    <ConnectionsTab agent={agent} revisions={revisions} />
                 </TabsContent>
 
                 <TabsContent value="sessions" className="mt-4">
                     <SessionsList sessions={sessions} onOpenSession={onOpenSession} />
+                </TabsContent>
+
+                <TabsContent value="memory" className="mt-4">
+                    <MemoryClassic slug={agent.slug} />
                 </TabsContent>
             </Tabs>
         </div>
@@ -323,25 +302,5 @@ function Breadcrumb({ name, onBackToList }: { name: string; onBackToList?: () =>
             <ChevronRightIcon className="h-3 w-3" />
             <span className="text-foreground">{name}</span>
         </div>
-    )
-}
-
-function Section({
-    title,
-    right,
-    children,
-}: {
-    title: string
-    right?: React.ReactNode
-    children: React.ReactNode
-}): React.ReactElement {
-    return (
-        <section className="space-y-3">
-            <div className="flex h-7 items-end justify-between">
-                <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h2>
-                {right ? <div>{right}</div> : null}
-            </div>
-            {children}
-        </section>
     )
 }

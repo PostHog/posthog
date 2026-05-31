@@ -99,6 +99,12 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
+
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax = 60000
+
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
@@ -195,6 +201,22 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             id: zod.string(),
                             path: zod.string(),
                         }),
+                        zod.object({
+                            kind: zod.literal('client'),
+                            id: zod.string().min(1),
+                            description: zod.string().min(1),
+                            args_schema: zod
+                                .looseObject({})
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault),
+                            required: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault),
+                            timeout_ms: zod
+                                .number()
+                                .min(1)
+                                .max(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax)
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault),
+                        }),
                     ])
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecToolsDefault),
@@ -272,6 +294,12 @@ export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecTriggersDefault = []
+
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault = false
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+
 export const agentApplicationsRevisionsUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
@@ -367,6 +395,22 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom'),
                             id: zod.string(),
                             path: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('client'),
+                            id: zod.string().min(1),
+                            description: zod.string().min(1),
+                            args_schema: zod
+                                .looseObject({})
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault),
+                            required: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault),
+                            timeout_ms: zod
+                                .number()
+                                .min(1)
+                                .max(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax)
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -468,6 +512,12 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
@@ -563,6 +613,24 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             kind: zod.literal('custom'),
                             id: zod.string(),
                             path: zod.string(),
+                        }),
+                        zod.object({
+                            kind: zod.literal('client'),
+                            id: zod.string().min(1),
+                            description: zod.string().min(1),
+                            args_schema: zod
+                                .looseObject({})
+                                .default(
+                                    agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault
+                                ),
+                            required: zod
+                                .boolean()
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault),
+                            timeout_ms: zod
+                                .number()
+                                .min(1)
+                                .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax)
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault),
                         }),
                     ])
                 )
