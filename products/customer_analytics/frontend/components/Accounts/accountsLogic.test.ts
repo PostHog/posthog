@@ -6,7 +6,7 @@ import type { AccountsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { UserBasicType } from '~/types'
 
-import { accountsList, accountsPartialUpdate } from 'products/customer_analytics/frontend/generated/api'
+import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
@@ -14,18 +14,18 @@ import {
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
-import { ACCOUNTS_PAGE_SIZE, accountsLogic, savingRoleKey } from './accountsLogic'
+import { accountsLogic, savingRoleKey } from './accountsLogic'
 
 // `hogqlQuery.source` is typed as the full DataTableNode source union; this logic
 // always produces an AccountsQuery, so narrow once for the orderBy assertions.
 const orderByOf = (source: unknown): AccountsQuery['orderBy'] => (source as AccountsQuery).orderBy
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
-    accountsList: jest.fn(),
+    accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
 }))
 
-const mockAccountsList = accountsList as jest.MockedFunction<typeof accountsList>
+const mockAccountsRetrieve = accountsRetrieve as jest.MockedFunction<typeof accountsRetrieve>
 const mockAccountsPartialUpdate = accountsPartialUpdate as jest.MockedFunction<typeof accountsPartialUpdate>
 
 const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
@@ -60,12 +60,6 @@ describe('accountsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
-        mockAccountsList.mockResolvedValue({
-            count: 0,
-            next: null,
-            previous: null,
-            results: [],
-        })
         logic = accountsLogic()
         logic.mount()
     })
@@ -81,52 +75,16 @@ describe('accountsLogic', () => {
         expect(logic.values.csmFilter).toBeNull()
         expect(logic.values.accountExecutiveFilter).toBeNull()
         expect(logic.values.accountOwnerFilter).toBeNull()
-        expect(logic.values.currentPage).toBe(1)
     })
 
-    it('loads accounts on mount with default pagination', async () => {
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockAccountsList).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            limit: ACCOUNTS_PAGE_SIZE,
-            offset: 0,
-        })
-    })
-
-    it('setTagsFilter updates the reducer and resets to page 1', async () => {
-        logic.actions.setCurrentPage(3)
+    it('setTagsFilter updates the reducer', () => {
         logic.actions.setTagsFilter(['enterprise'])
-        await expectLogic(logic).toMatchValues({
-            tagsFilter: ['enterprise'],
-            currentPage: 1,
-        })
+        expect(logic.values.tagsFilter).toEqual(['enterprise'])
     })
 
-    it('setSearchQuery updates the reducer and resets to page 1', async () => {
-        logic.actions.setCurrentPage(3)
+    it('setSearchQuery updates the reducer', () => {
         logic.actions.setSearchQuery('acme')
-        await expectLogic(logic).toMatchValues({
-            searchQuery: 'acme',
-            currentPage: 1,
-        })
-    })
-
-    it('loadAccounts sends a trimmed search param', async () => {
-        logic.actions.setSearchQuery('  acme  ')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ search: 'acme' })
-        )
-    })
-
-    it('loadAccounts omits the search param when the query is blank', async () => {
-        logic.actions.setSearchQuery('   ')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.not.objectContaining({ search: expect.anything() })
-        )
+        expect(logic.values.searchQuery).toBe('acme')
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {
@@ -141,36 +99,19 @@ describe('accountsLogic', () => {
         expect(logic.values.csmFilter).toBeNull()
     })
 
-    it('loadAccounts sends tags as a JSON-encoded array string', async () => {
-        logic.actions.setTagsFilter(['a', 'b'])
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ tags: '["a","b"]' })
-        )
-    })
-
     it('setting a role filter clears the all_roles_unassigned flag', async () => {
         logic.actions.setAllRolesUnassigned(true)
-        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setCsmFilter(7)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.allRolesUnassigned).toBe(false)
         expect(logic.values.csmFilter).toBe(7)
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ csm: '7', limit: ACCOUNTS_PAGE_SIZE, offset: 0 })
-        )
-        expect(mockAccountsList.mock.calls.at(-1)?.[1]).not.toHaveProperty('all_roles_unassigned')
     })
 
     it('enabling all_roles_unassigned clears any active role filters', async () => {
         logic.actions.setCsmFilter(7)
         logic.actions.setAccountExecutiveFilter(9)
         logic.actions.setAccountOwnerFilter(11)
-        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setAllRolesUnassigned(true)
         await expectLogic(logic).toFinishAllListeners()
 
@@ -178,14 +119,6 @@ describe('accountsLogic', () => {
         expect(logic.values.csmFilter).toBeNull()
         expect(logic.values.accountExecutiveFilter).toBeNull()
         expect(logic.values.accountOwnerFilter).toBeNull()
-
-        const lastParams = mockAccountsList.mock.calls.at(-1)?.[1]
-        expect(lastParams).toEqual(
-            expect.objectContaining({ all_roles_unassigned: true, limit: ACCOUNTS_PAGE_SIZE, offset: 0 })
-        )
-        expect(lastParams).not.toHaveProperty('csm')
-        expect(lastParams).not.toHaveProperty('account_executive')
-        expect(lastParams).not.toHaveProperty('account_owner')
     })
 
     describe('sortOrder', () => {
@@ -241,12 +174,6 @@ describe('accountsLogic', () => {
             logic.actions.toggleSort('name')
             expect(orderByOf(logic.values.hogqlQuery.source)).toEqual(['name DESC'])
         })
-
-        it('toggleSort resets pagination to page 1', async () => {
-            logic.actions.setCurrentPage(3)
-            logic.actions.toggleSort('notebook_count')
-            await expectLogic(logic).toMatchValues({ currentPage: 1 })
-        })
     })
 
     describe('selectColumns', () => {
@@ -281,40 +208,11 @@ describe('accountsLogic', () => {
         })
     })
 
-    it('setCurrentPage updates the offset in the next request', async () => {
-        logic.actions.setCurrentPage(3)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ limit: ACCOUNTS_PAGE_SIZE, offset: 2 * ACCOUNTS_PAGE_SIZE })
-        )
-    })
-
-    it('refresh triggers a fresh request with current filters', async () => {
-        logic.actions.setTagsFilter(['priority'])
-        await expectLogic(logic).toFinishAllListeners()
-        mockAccountsList.mockClear()
-        logic.actions.refresh()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(mockAccountsList).toHaveBeenCalledTimes(1)
-        expect(mockAccountsList).toHaveBeenLastCalledWith(
-            String(MOCK_DEFAULT_TEAM.id),
-            expect.objectContaining({ tags: '["priority"]' })
-        )
-    })
-
     describe('updateAccountRole', () => {
         const existingAccount = buildAccount()
 
-        beforeEach(async () => {
-            mockAccountsList.mockResolvedValue({
-                count: 1,
-                next: null,
-                previous: null,
-                results: [existingAccount],
-            })
-            logic.actions.refresh()
-            await expectLogic(logic).toFinishAllListeners()
+        beforeEach(() => {
+            mockAccountsRetrieve.mockResolvedValue(existingAccount)
         })
 
         it('PATCHes the merged properties payload with the new assignment', async () => {
@@ -330,13 +228,14 @@ describe('accountsLogic', () => {
             logic.actions.updateAccountRole('acc-1', 'csm', user)
             await expectLogic(logic).toFinishAllListeners()
 
+            expect(mockAccountsRetrieve).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1')
             expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
                 properties: {
                     csm: { id: user.id, email: user.email },
                     stripe_customer_id: 'cus_123',
                 },
             })
-            expect(logic.values.results[0].properties?.csm).toEqual({ id: user.id, email: user.email })
+            expect(logic.values.accountOverrides['acc-1']).toEqual(updated)
         })
 
         it('sends null when clearing an assignment', async () => {
@@ -376,13 +275,13 @@ describe('accountsLogic', () => {
             expect(logic.values.isRoleSaving('acc-1', 'account_executive')).toBe(false)
         })
 
-        it('leaves the row untouched on failure', async () => {
+        it('leaves overrides untouched on failure', async () => {
             mockAccountsPartialUpdate.mockRejectedValueOnce(new Error('boom'))
 
             logic.actions.updateAccountRole('acc-1', 'account_owner', buildUser())
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(logic.values.results[0]).toEqual(existingAccount)
+            expect(logic.values.accountOverrides['acc-1']).toBeUndefined()
             expect(logic.values.isRoleSaving('acc-1', 'account_owner')).toBe(false)
         })
 

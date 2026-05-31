@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo } from 'react'
 
-import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../core/canvas-renderer'
-import type { DrawContext } from '../core/canvas-renderer'
-import { Chart } from '../core/Chart'
-import { ChartErrorBoundary } from '../core/ChartErrorBoundary'
+import { drawArea, drawGrid, drawHighlightPoint, drawLine, drawPoints } from '../../core/canvas-renderer'
+import type { DrawContext } from '../../core/canvas-renderer'
+import { Chart } from '../../core/Chart'
+import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,
     buildStackedPositionValue,
@@ -12,9 +12,9 @@ import {
     createScales as createLineScales,
     resolveYScaleForSeries,
     yTickCountForHeight,
-} from '../core/scales'
-import type { ScaleSet, StackedBand } from '../core/scales'
-import { DEFAULT_Y_AXIS_ID } from '../core/types'
+} from '../../core/scales'
+import type { ScaleSet, StackedBand } from '../../core/scales'
+import { DEFAULT_Y_AXIS_ID } from '../../core/types'
 import type {
     ChartDimensions,
     ChartDrawArgs,
@@ -27,7 +27,7 @@ import type {
     Series,
     TooltipContext,
     YAxisScale,
-} from '../core/types'
+} from '../../core/types'
 
 // Brand for the private ChartScales._private slot used by LineChart. The base Chart
 // and other chart types treat this as opaque; LineChart's drawStatic narrows back to it.
