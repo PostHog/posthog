@@ -8,6 +8,33 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+// The refresh endpoint itself only ever returns 400/401/500/502 (see ToolbarOAuthRefreshView).
+// A 408 (and other 5xx/429) therefore reflects an upstream timeout or momentary gateway blip — a
+// transient condition we retry rather than surfacing as an error-tracking exception. Network
+// failures (fetch rejecting) are treated the same way.
+const TRANSIENT_REFRESH_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
+const MAX_REFRESH_ATTEMPTS = 2
+
+/**
+ * Error thrown when an OAuth token refresh fails. `transient` flags gateway/network blips that
+ * aren't actionable auth failures, so callers can skip exception capture for them.
+ */
+export class ToolbarRefreshError extends Error {
+    status: number
+    transient: boolean
+
+    constructor(status: number, transient: boolean) {
+        super(`Refresh failed: ${status}`)
+        this.name = 'ToolbarRefreshError'
+        this.status = status
+        this.transient = transient
+    }
+}
+
+export function isTransientRefreshError(error: unknown): boolean {
+    return error instanceof ToolbarRefreshError && error.transient
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -22,29 +49,62 @@ export async function refreshOAuthTokens(
     refreshPromise = (async () => {
         const startTime = performance.now()
         try {
-            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
-            })
+            for (let attempt = 1; attempt <= MAX_REFRESH_ATTEMPTS; attempt++) {
+                let response: Response
+                try {
+                    response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
+                    })
+                } catch {
+                    // fetch only rejects on a network failure, which is always transient.
+                    if (attempt < MAX_REFRESH_ATTEMPTS) {
+                        continue
+                    }
+                    toolbarPosthogJS.capture('toolbar token refresh', {
+                        status: 'error',
+                        http_status: 0,
+                        transient: true,
+                        attempts: attempt,
+                        duration_ms: Math.round(performance.now() - startTime),
+                    })
+                    throw new ToolbarRefreshError(0, true)
+                }
 
-            if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                if (response.ok) {
+                    const data = await response.json()
+                    toolbarPosthogJS.capture('toolbar token refresh', {
+                        status: 'success',
+                        attempts: attempt,
+                        duration_ms: Math.round(performance.now() - startTime),
+                    })
+                    return data
+                }
+
+                const transient = TRANSIENT_REFRESH_STATUSES.has(response.status)
+                if (transient && attempt < MAX_REFRESH_ATTEMPTS) {
+                    continue
+                }
+
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
+                    transient,
+                    attempts: attempt,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                const err = new ToolbarRefreshError(response.status, transient)
+                // Transient gateway/network conditions (e.g. a momentary 408) aren't actionable
+                // auth failures — keep the analytics event for visibility but don't create
+                // error-tracking issues for them.
+                if (!transient) {
+                    captureToolbarException(err, 'token_refresh')
+                }
                 throw err
             }
-
-            const data = await response.json()
-            toolbarPosthogJS.capture('toolbar token refresh', {
-                status: 'success',
-                duration_ms: Math.round(performance.now() - startTime),
-            })
-            return data
+            // Unreachable: the loop returns on success or throws on the final attempt.
+            throw new ToolbarRefreshError(0, true)
         } finally {
             refreshPromise = null
         }
@@ -90,8 +150,15 @@ export async function withTokenRefresh(
         toolbarConfigLogic.actions.setOAuthTokens(access, refresh, clientId)
         return await retryRequest(access)
     } catch (e) {
-        toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        const transient = isTransientRefreshError(e)
+        // Transient gateway/network blips aren't actionable auth failures — log at warn level and
+        // skip exception capture so they don't create error-tracking issues.
+        if (transient) {
+            toolbarLogger.warn('auth', 'Token refresh retry failed (transient)', { status: response.status })
+        } else {
+            toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
