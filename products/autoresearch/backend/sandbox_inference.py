@@ -17,8 +17,14 @@ Train run and predict run are different run types with different data contracts:
 Unlike the in-process recipe path (inference._score_via_anchors), the model runs
 as the agent-authored scripts inside a NOTEBOOK_BASE Tasks sandbox. The framework
 owns everything around the scripts: materializing the leak-free feature matrices
-(via labeling.py), serialization to CSV, sandbox lifecycle, and emitting. The
+(via labeling.py), serialization to parquet, sandbox lifecycle, and emitting. The
 bundle never receives credentials or network egress.
+
+The framework<->bundle interchange is parquet (typed, columnar, compressed) — the
+sandbox image ships pyarrow, so the 23k+-row feature matrices move far faster and
+smaller than CSV. This is a contract change: bundles authored against the old CSV
+contract will fail loudly here (parquet read of a CSV path errors) and must be
+re-trained.
 
 Failure is loud: any materialization or sandbox error raises, the sandbox is
 destroyed, and the caller fails the run. There is deliberately no stub fallback
@@ -29,13 +35,13 @@ realized-AUC gold-standard gate.
 from __future__ import annotations
 
 import io
-import csv
 import json
 import base64
 import binascii
 from dataclasses import dataclass, field
 from typing import Any
 
+import pandas as pd
 import structlog
 
 from posthog.schema import HogQLQuery
@@ -70,7 +76,7 @@ _PREDICT_TIMEOUT_S = 120
 # a tiny, high-variance sample. Mirror inference.FEATURE_QUERY_LIMIT and bound explicitly.
 _MATERIALIZE_ROW_LIMIT = 50_000
 _OUTPUT_JSON = "data/output.json"
-_SCORES_CSV = "data/scores.csv"
+_SCORES_PARQUET = "data/scores.parquet"
 # The fitted model the train run produces and the predict run loads (relative to _WORKDIR).
 _MODEL_PKL = "model.pkl"
 _FILE_BEGIN = "<<<AUTORESEARCH_FILE_BEGIN>>>"
@@ -308,17 +314,15 @@ def _run_train_in_sandbox(
     with Sandbox.create(_sandbox_config(pipeline, "train")) as sandbox:
         for name, content in bundle.as_files().items():
             sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
-        sandbox.write_file(f"{_WORKDIR}/data/train_features.csv", _features_csv(data.train_rows, cols).encode("utf-8"))
-        sandbox.write_file(f"{_WORKDIR}/data/train_labels.csv", _labels_csv(data.train_rows).encode("utf-8"))
-        sandbox.write_file(
-            f"{_WORKDIR}/data/holdout_features.csv", _features_csv(data.holdout_rows, cols).encode("utf-8")
-        )
-        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.csv", _labels_csv(data.holdout_rows).encode("utf-8"))
+        sandbox.write_file(f"{_WORKDIR}/data/train_features.parquet", _features_parquet(data.train_rows, cols))
+        sandbox.write_file(f"{_WORKDIR}/data/train_labels.parquet", _labels_parquet(data.train_rows))
+        sandbox.write_file(f"{_WORKDIR}/data/holdout_features.parquet", _features_parquet(data.holdout_rows, cols))
+        sandbox.write_file(f"{_WORKDIR}/data/holdout_labels.parquet", _labels_parquet(data.holdout_rows))
 
         train_cmd = (
             f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/train.py "
-            f"data/train_features.csv data/train_labels.csv {_MODEL_PKL} {_OUTPUT_JSON} "
-            "data/holdout_features.csv data/holdout_labels.csv --random-state 42"
+            f"data/train_features.parquet data/train_labels.parquet {_MODEL_PKL} {_OUTPUT_JSON} "
+            "data/holdout_features.parquet data/holdout_labels.parquet --random-state 42"
         )
         train_result = sandbox.execute(train_cmd, timeout_seconds=_TRAIN_TIMEOUT_S)
         if train_result.exit_code != 0:
@@ -344,12 +348,11 @@ def _run_predict_in_sandbox(
         for name, content in bundle.as_files().items():
             sandbox.write_file(f"{_WORKDIR}/bundle/{name}", content.encode("utf-8"))
         sandbox.write_file(f"{_WORKDIR}/{_MODEL_PKL}", model_bytes)
-        sandbox.write_file(
-            f"{_WORKDIR}/data/score_features.csv", _features_csv(score_rows, feature_cols).encode("utf-8")
-        )
+        sandbox.write_file(f"{_WORKDIR}/data/score_features.parquet", _features_parquet(score_rows, feature_cols))
 
         predict_cmd = (
-            f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/predict.py data/score_features.csv {_MODEL_PKL} {_SCORES_CSV}"
+            f"cd {_WORKDIR} && {_SANDBOX_PYTHON} bundle/predict.py "
+            f"data/score_features.parquet {_MODEL_PKL} {_SCORES_PARQUET}"
         )
         predict_result = sandbox.execute(predict_cmd, timeout_seconds=_PREDICT_TIMEOUT_S)
         if predict_result.exit_code != 0:
@@ -361,22 +364,29 @@ def _run_predict_in_sandbox(
     return _join_scores(score_rows=score_rows, scores=scores)
 
 
-def _features_csv(rows: list[dict[str, Any]], feature_cols: list[str]) -> str:
-    out = io.StringIO()
-    writer = csv.writer(out)
-    writer.writerow(["distinct_id", *feature_cols])
-    for r in rows:
-        writer.writerow([r.get("distinct_id", ""), *[_num(r.get(c)) for c in feature_cols]])
-    return out.getvalue()
+def _features_parquet(rows: list[dict[str, Any]], feature_cols: list[str]) -> bytes:
+    """Serialize the feature matrix to parquet bytes: string `distinct_id` + float feature columns."""
+    data: dict[str, list[Any]] = {"distinct_id": [str(r.get("distinct_id", "")) for r in rows]}
+    for col in feature_cols:
+        data[col] = [_num(r.get(col)) for r in rows]
+    return _to_parquet_bytes(pd.DataFrame(data))
 
 
-def _labels_csv(rows: list[dict[str, Any]]) -> str:
-    out = io.StringIO()
-    writer = csv.writer(out)
-    writer.writerow(["distinct_id", _LABEL_COL])
-    for r in rows:
-        writer.writerow([r.get("distinct_id", ""), int(r.get(_LABEL_COL) or 0)])
-    return out.getvalue()
+def _labels_parquet(rows: list[dict[str, Any]]) -> bytes:
+    """Serialize the label vector to parquet bytes: string `distinct_id` + int `__label`."""
+    df = pd.DataFrame(
+        {
+            "distinct_id": [str(r.get("distinct_id", "")) for r in rows],
+            _LABEL_COL: [int(r.get(_LABEL_COL) or 0) for r in rows],
+        }
+    )
+    return _to_parquet_bytes(df)
+
+
+def _to_parquet_bytes(df: pd.DataFrame) -> bytes:
+    buf = io.BytesIO()
+    df.to_parquet(buf, index=False)
+    return buf.getvalue()
 
 
 def _num(value: Any) -> float:
@@ -402,19 +412,25 @@ def _read_metrics(sandbox: Sandbox) -> dict[str, Any]:
 
 
 def _read_scores(sandbox: Sandbox) -> dict[str, float]:
-    """Read scores.csv back, returning {distinct_id: p_y}."""
-    body = _read_file(sandbox, _SCORES_CSV)
+    """Read scores.parquet back (binary, base64 over the sentinel cat), returning {distinct_id: p_y}."""
+    raw = _read_binary_file(sandbox, _SCORES_PARQUET)
+    try:
+        df = pd.read_parquet(io.BytesIO(raw))
+    except Exception as exc:
+        raise SandboxInferenceError(f"scores.parquet was not readable: {exc}") from exc
+    if "distinct_id" not in df.columns or "p_y" not in df.columns:
+        raise SandboxInferenceError("scores.parquet must have columns distinct_id, p_y")
     scores: dict[str, float] = {}
-    for row in csv.DictReader(io.StringIO(body)):
-        distinct_id = (row.get("distinct_id") or "").strip()
-        if not distinct_id:
+    for distinct_id, p_y in zip(df["distinct_id"], df["p_y"]):
+        did = str(distinct_id).strip()
+        if not did:
             continue
         try:
-            scores[distinct_id] = float(row["p_y"])
-        except (KeyError, TypeError, ValueError):
+            scores[did] = float(p_y)
+        except (TypeError, ValueError):
             continue
     if not scores:
-        raise SandboxInferenceError("scores.csv produced no parseable rows")
+        raise SandboxInferenceError("scores.parquet produced no parseable rows")
     return scores
 
 

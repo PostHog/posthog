@@ -3,11 +3,11 @@
 Reference autoresearch training script (fixture bundle, slice 1).
 
 Contract with the framework:
-    python train.py <train_features.csv> <train_labels.csv> <model.pkl> <output.json> \
-                    [<holdout_features.csv> <holdout_labels.csv>] [--random-state N]
+    python train.py <train_features.parquet> <train_labels.parquet> <model.pkl> <output.json> \
+                    [<holdout_features.parquet> <holdout_labels.parquet>] [--random-state N]
 
-  - Features CSVs: first column `distinct_id`, remaining columns numeric features.
-  - Labels CSVs:  columns `distinct_id`, `__label` (0/1).
+  - Features parquet: first column `distinct_id`, remaining columns numeric features.
+  - Labels parquet:  columns `distinct_id`, `__label` (0/1).
   - Fits a sklearn pipeline on (train features ⋈ train labels), pickles it to <model.pkl>.
   - If holdout files are given and the holdout has >=2 label classes, computes holdout AUC.
   - Writes a structured metrics file to <output.json>:
@@ -34,8 +34,8 @@ MIN_PER_CLASS = 5
 
 
 def _load_xy(features_path: str, labels_path: str) -> tuple[pd.DataFrame, pd.Series, list[str]]:
-    features = pd.read_csv(features_path)
-    labels = pd.read_csv(labels_path)
+    features = pd.read_parquet(features_path)
+    labels = pd.read_parquet(labels_path)
     merged = features.merge(labels[["distinct_id", "__label"]], on="distinct_id", how="inner")
     feature_cols = [c for c in features.columns if c != "distinct_id"]
     x = pd.DataFrame(merged[feature_cols]).fillna(0).astype(float)

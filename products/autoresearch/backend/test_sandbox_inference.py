@@ -1,6 +1,9 @@
+import io
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 from parameterized import parameterized
 
 from products.autoresearch.backend import sandbox_inference
@@ -12,9 +15,9 @@ from products.autoresearch.backend.sandbox_inference import (
     SandboxInferenceError,
     SandboxScoreResult,
     _between_sentinels,
-    _features_csv,
+    _features_parquet,
     _join_scores,
-    _labels_csv,
+    _labels_parquet,
     _materialize_score_data,
     _materialize_training_data,
     _numeric_feature_cols,
@@ -24,6 +27,14 @@ from products.autoresearch.backend.sandbox_inference import (
     score_via_sandbox,
 )
 from products.tasks.backend.services.sandbox import ExecutionResult
+
+
+def _scores_parquet(rows: list[tuple[str, float]]) -> bytes:
+    """Build a scores.parquet payload (distinct_id, p_y) the way an agent's predict.py would."""
+    buf = io.BytesIO()
+    pd.DataFrame({"distinct_id": [r[0] for r in rows], "p_y": [r[1] for r in rows]}).to_parquet(buf, index=False)
+    return buf.getvalue()
+
 
 _TRAINING_ROWS = [
     {"distinct_id": "p1", "events_total": 10, "pageviews": 5, "__label": 1, "__fold": 1},
@@ -54,14 +65,14 @@ class _FakeSandbox:
     def __init__(
         self,
         *,
-        scores_csv: str = "",
+        scores_parquet: bytes = b"",
         metrics_json: str = "",
         model_bytes: bytes = b"PICKLE",
         train_exit: int = 0,
         predict_exit: int = 0,
     ):
         self.written: dict[str, bytes] = {}
-        self._scores_csv = scores_csv
+        self._scores_parquet = scores_parquet
         self._metrics_json = metrics_json
         self._model_bytes = model_bytes
         self._train_exit = train_exit
@@ -80,14 +91,15 @@ class _FakeSandbox:
 
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
         if _FILE_BEGIN in command:  # a sentinel-bracketed readback
-            if "base64" in command:  # binary model.pkl readback
+            if "base64" in command:  # binary readback (model.pkl or scores.parquet), base64-encoded
                 import base64
 
-                payload = base64.b64encode(self._model_bytes).decode()
+                raw = self._scores_parquet if "scores.parquet" in command else self._model_bytes
+                payload = base64.b64encode(raw).decode()
             elif "output.json" in command:
                 payload = self._metrics_json
             else:
-                payload = self._scores_csv
+                payload = ""
             return ExecutionResult(stdout=f"{_FILE_BEGIN}\n{payload}\n{_FILE_END}\n", stderr="", exit_code=0)
         if "train.py" in command:
             return ExecutionResult(stdout="", stderr="boom" if self._train_exit else "", exit_code=self._train_exit)
@@ -149,24 +161,31 @@ class TestMaterializeData(BaseTest):
         assert captured["query"].rstrip().endswith(f"LIMIT {sandbox_inference._MATERIALIZE_ROW_LIMIT}")
 
 
-class TestCsvSerialization(BaseTest):
-    def test_features_csv_header_and_rows(self):
-        csv_text = _features_csv(_SCORE_ROWS, ["events_total", "pageviews"])
-        lines = csv_text.strip().splitlines()
-        assert lines[0] == "distinct_id,events_total,pageviews"
-        assert lines[1] == "s1,7.0,2.0"
+class TestParquetSerialization(BaseTest):
+    def test_features_parquet_columns_and_rows(self):
+        df = pd.read_parquet(io.BytesIO(_features_parquet(_SCORE_ROWS, ["events_total", "pageviews"])))
+        assert list(df.columns) == ["distinct_id", "events_total", "pageviews"]
+        assert df.iloc[0]["distinct_id"] == "s1"
+        assert df.iloc[0]["events_total"] == 7.0
+        assert df.iloc[0]["pageviews"] == 2.0
 
-    def test_labels_csv_header_and_rows(self):
-        csv_text = _labels_csv(_TRAINING_ROWS)
-        lines = csv_text.strip().splitlines()
-        assert lines[0] == "distinct_id,__label"
-        assert lines[1] == "p1,1"
+    def test_labels_parquet_columns_and_rows(self):
+        df = pd.read_parquet(io.BytesIO(_labels_parquet(_TRAINING_ROWS)))
+        assert list(df.columns) == ["distinct_id", "__label"]
+        assert df.iloc[0]["distinct_id"] == "p1"
+        assert int(df.iloc[0]["__label"]) == 1
 
-    def test_features_csv_missing_value_becomes_zero(self):
+    def test_features_parquet_missing_value_becomes_zero(self):
         rows = [{"distinct_id": "x", "events_total": None}]
-        csv_text = _features_csv(rows, ["events_total", "pageviews"])
+        df = pd.read_parquet(io.BytesIO(_features_parquet(rows, ["events_total", "pageviews"])))
         # both feature cols present; missing/None coerced to 0.0
-        assert csv_text.strip().splitlines()[1] == "x,0.0,0.0"
+        assert df.iloc[0]["events_total"] == 0.0
+        assert df.iloc[0]["pageviews"] == 0.0
+
+    def test_features_parquet_distinct_id_is_string(self):
+        rows = [{"distinct_id": 12345, "events_total": 1}]
+        df = pd.read_parquet(io.BytesIO(_features_parquet(rows, ["events_total"])))
+        assert df.iloc[0]["distinct_id"] == "12345"
 
 
 class TestFileReadback(BaseTest):
@@ -200,13 +219,13 @@ class TestFileReadback(BaseTest):
         with self.assertRaises(SandboxInferenceError):
             _read_metrics(fake)
 
-    def test_read_scores_parses_csv(self):
-        fake = _FakeSandbox(scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2")
+    def test_read_scores_parses_parquet(self):
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", 0.8), ("s2", 0.2)]))
         scores = _read_scores(fake)
         assert scores == {"s1": 0.8, "s2": 0.2}
 
     def test_read_scores_raises_when_empty(self):
-        fake = _FakeSandbox(scores_csv="distinct_id,p_y")
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([]))
         with self.assertRaises(SandboxInferenceError):
             _read_scores(fake)
 
@@ -242,7 +261,7 @@ class TestScoreViaSandbox(BaseTest):
 
     def test_predict_run_uses_persisted_model_and_does_not_train(self):
         pipeline, model = self._pipeline_and_model()
-        fake = _FakeSandbox(scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2")
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", 0.8), ("s2", 0.2)]))
         model.holdout_score = 0.73
         model.metrics = {"n_train": 5}
         model.save(update_fields=["holdout_score", "metrics"])
@@ -260,12 +279,12 @@ class TestScoreViaSandbox(BaseTest):
         assert fake.destroyed is True
         # the persisted model + score features were uploaded; predict ran, train.py did NOT
         assert any(p.endswith("model.pkl") for p in fake.written)
-        assert any(p.endswith("data/score_features.csv") for p in fake.written)
-        assert not any(p.endswith("data/train_features.csv") for p in fake.written)
+        assert any(p.endswith("data/score_features.parquet") for p in fake.written)
+        assert not any(p.endswith("data/train_features.parquet") for p in fake.written)
 
     def test_missing_model_self_heals_by_fitting_once(self):
         pipeline, model = self._pipeline_and_model()
-        fake = _FakeSandbox(scores_csv="distinct_id,p_y\ns1,0.8\ns2,0.2")
+        fake = _FakeSandbox(scores_parquet=_scores_parquet([("s1", 0.8), ("s2", 0.2)]))
         fit = MagicMock()
         # read_model: absent first (triggers fit), present after the fit
         with (
@@ -327,8 +346,8 @@ class TestScoreViaSandbox(BaseTest):
 
         assert metrics["holdout_auc"] == 0.73
         assert stored["model"] == b"FITTED"  # the fitted model.pkl read back + persisted
-        assert any(p.endswith("data/train_features.csv") for p in fake.written)  # train run materializes training data
-        assert not any(p.endswith("data/score_features.csv") for p in fake.written)
+        assert any(p.endswith("data/train_features.parquet") for p in fake.written)  # train run materializes training
+        assert not any(p.endswith("data/score_features.parquet") for p in fake.written)
 
 
 class TestInferenceRouting(BaseTest):

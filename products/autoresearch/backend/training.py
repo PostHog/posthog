@@ -289,14 +289,17 @@ def build_agent_description(
         contracts, then upload each with `autoresearch-training-runs-artifacts-upload-create`
         (`pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, `path`, `content_base64`).
 
+        Data is exchanged as **parquet** (the sandbox ships pyarrow) — use
+        `pd.read_parquet` / `DataFrame.to_parquet`, never `read_csv` / `to_csv`.
+
         **train.py** — invoked as:
 
         ```
-        python train.py <train_features.csv> <train_labels.csv> <model.pkl> <output.json> \\
-                        <holdout_features.csv> <holdout_labels.csv> --random-state 42
+        python train.py <train_features.parquet> <train_labels.parquet> <model.pkl> <output.json> \\
+                        <holdout_features.parquet> <holdout_labels.parquet> --random-state 42
         ```
 
-        - Features CSVs: first column `distinct_id`, rest numeric. Labels CSVs: `distinct_id`, `__label` (0/1).
+        - Features parquet: first column `distinct_id`, rest numeric. Labels parquet: `distinct_id`, `__label` (0/1).
         - Merge features⋈labels on `distinct_id`, fit your model on train, pickle
           `{{"model": ..., "feature_cols": [...]}}` to `<model.pkl>` (pin `random_state` from the arg).
         - Write `<output.json>`: `{{"holdout_auc": <float|null>, "n_train": <int>, "n_features": <int>}}`.
@@ -305,11 +308,11 @@ def build_agent_description(
         **predict.py** — invoked as:
 
         ```
-        python predict.py <score_features.csv> <model.pkl> <scores.csv>
+        python predict.py <score_features.parquet> <model.pkl> <scores.parquet>
         ```
 
-        - Load the pickle, align score features to `feature_cols` (missing → 0), write `<scores.csv>`
-          with header `distinct_id,p_y`. Print NOTHING to stdout — the framework reads scores.csv back.
+        - Load the pickle, align score features to `feature_cols` (missing → 0), write `<scores.parquet>`
+          with columns `distinct_id,p_y`. Print NOTHING to stdout — the framework reads scores.parquet back.
 
         **Reference `train.py`** (edit the model; keep the I/O contract exactly):
 
@@ -320,7 +323,7 @@ def build_agent_description(
         from sklearn.metrics import roc_auc_score
 
         def load_xy(fpath, lpath):
-            f = pd.read_csv(fpath); l = pd.read_csv(lpath)
+            f = pd.read_parquet(fpath); l = pd.read_parquet(lpath)
             m = f.merge(l[["distinct_id", "__label"]], on="distinct_id", how="inner")
             cols = [c for c in f.columns if c != "distinct_id"]
             return pd.DataFrame(m[cols]).fillna(0).astype(float), pd.Series(m["__label"]).fillna(0).astype(int), cols
@@ -355,10 +358,10 @@ def build_agent_description(
         import pandas as pd
         score_path, model_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
         b = pickle.load(open(model_path, "rb"))
-        f = pd.read_csv(score_path)
+        f = pd.read_parquet(score_path)
         X = f.reindex(columns=b["feature_cols"], fill_value=0).fillna(0).astype(float)
         p = b["model"].predict_proba(X.to_numpy())[:, 1]
-        pd.DataFrame({{"distinct_id": f["distinct_id"], "p_y": p.round(6)}}).to_csv(out_path, index=False)
+        pd.DataFrame({{"distinct_id": f["distinct_id"], "p_y": p.round(6)}}).to_parquet(out_path, index=False)
         ```
 
         **recipe.yml** — informational metadata for the model card. Example:
