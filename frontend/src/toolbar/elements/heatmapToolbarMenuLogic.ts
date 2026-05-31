@@ -9,13 +9,14 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { elementToSelector } from 'lib/actionUtils'
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createVersionChecker } from 'lib/utils/semver'
 
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
@@ -76,6 +77,36 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
     results: [],
+}
+
+// Pull a human-readable reason out of a failed element-stats response, whether the body is a
+// DRF `{detail: ...}` payload, a serializer error map, or a non-JSON page (e.g. an HTML proxy error).
+async function parseElementStatsErrorMessage(response: Response): Promise<string> {
+    try {
+        const body = await response.clone().json()
+        if (typeof body?.detail === 'string' && body.detail.length > 0) {
+            return body.detail
+        }
+        for (const value of Object.values(body ?? {})) {
+            if (Array.isArray(value) && typeof value[0] === 'string') {
+                return value[0]
+            }
+            if (typeof value === 'string' && value.length > 0) {
+                return value
+            }
+        }
+    } catch {
+        // body wasn't JSON — fall through to the raw text below
+    }
+    try {
+        const text = (await response.clone().text()).trim()
+        if (text.length > 0) {
+            return text.slice(0, 200)
+        }
+    } catch {
+        // ignore — nothing useful in the body
+    }
+    return `request failed (status ${response.status})`
 }
 
 export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
@@ -275,10 +306,24 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         return emptyElementsStatsPages
                     }
 
+                    if (!response.ok) {
+                        const message = await parseElementStatsErrorMessage(response)
+                        lemonToast.error(`Failed to load heatmap data: ${message}`)
+                        captureToolbarException(new Error(`Error loading HeatMap data: ${message}`), 'getElementStats', {
+                            status: response.status,
+                        })
+                        return emptyElementsStatsPages
+                    }
+
                     const paginatedResults = await response.json()
 
                     if (!Array.isArray(paginatedResults.results)) {
-                        throw new Error('Error loading HeatMap data!')
+                        const message = `unexpected response shape (status ${response.status})`
+                        lemonToast.error(`Failed to load heatmap data: ${message}`)
+                        captureToolbarException(new Error(`Error loading HeatMap data: ${message}`), 'getElementStats', {
+                            status: response.status,
+                        })
+                        return emptyElementsStatsPages
                     }
 
                     return {
