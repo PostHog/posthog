@@ -25,8 +25,9 @@ class SourceRegistry:
         if cls._loaded:
             return
         with cls._load_lock:
+            # another thread may have loaded while we waited for the lock; mypy can't model that
             if cls._loaded:
-                return
+                return  # type: ignore[unreachable]
             from posthog.temporal.data_imports.sources import load_all_sources  # noqa: PLC0415
 
             load_all_sources()
