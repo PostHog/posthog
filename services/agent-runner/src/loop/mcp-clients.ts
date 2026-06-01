@@ -27,9 +27,11 @@
  * all-or-nothing contract. The caller (worker) marks the session failed.
  *
  * NOT in scope for this module: tool-name prefixing (the caller composes
- * `${prefix}__${toolName}`), allowlist filtering (the caller iterates
- * `listTools()` and skips entries not in `ref.allowlist`). Keeping those
- * concerns in `buildAgentTools` matches how native/custom tools already work.
+ * `${prefix}__${toolName}`), inclusion filtering via `ref.tools[]` (the
+ * caller iterates `listTools()` and skips entries not in the names projected
+ * from `ref.tools`), or the per-tool approval wrap (driver looks the policy
+ * up via `mcp-tool-lookup.ts`). Keeping those concerns in `buildAgentTools`
+ * + `driver` matches how native/custom tools already work.
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'

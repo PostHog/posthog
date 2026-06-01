@@ -180,6 +180,28 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
+        it('parses session_principal as an approver scope', () => {
+            // PR 7 widened the v0 enum from `['team_admins']` to add
+            // `['session_principal']` so the concierge can route gated
+            // calls back to the session owner via the per-asker fast path.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers: ['session_principal'] },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+        })
+
         it('rejects approver scopes not yet supported in v0', () => {
             expect(() =>
                 AgentSpecSchema.parse({
@@ -198,7 +220,9 @@ describe('AgentSpecSchema', () => {
     })
 
     describe('mcps[] runtime refs', () => {
-        it('parses an external MCP with all optional fields', () => {
+        it('parses an external MCP with bare-string tools[] (passthrough, no gating)', () => {
+            // Bare strings in tools[] are the post-PR-7 equivalent of the
+            // old allowlist[]: gates inclusion, no approval policy.
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 mcps: [
@@ -208,7 +232,7 @@ describe('AgentSpecSchema', () => {
                         url: 'https://mcp.linear.app/sse',
                         auth: { integration: 'linear:T01' },
                         secrets: ['LINEAR_TOKEN'],
-                        allowlist: ['create-issue', 'list-issues'],
+                        tools: ['create-issue', 'list-issues'],
                     },
                 ],
             })
@@ -220,10 +244,74 @@ describe('AgentSpecSchema', () => {
             expect(m.url).toBe('https://mcp.linear.app/sse')
             expect(m.auth?.integration).toBe('linear:T01')
             expect(m.secrets).toEqual(['LINEAR_TOKEN'])
-            expect(m.allowlist).toEqual(['create-issue', 'list-issues'])
+            expect(m.tools).toEqual(['create-issue', 'list-issues'])
         })
 
-        it('defaults secrets to [] when omitted on external', () => {
+        it('parses object-form tools[] entries with approval gating', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'posthog',
+                        url: 'https://app.posthog.com/api/mcp',
+                        tools: [
+                            'agent-applications-list',
+                            {
+                                name: 'agent-applications-revisions-promote-create',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            if (m.kind !== 'external') {
+                throw new Error('expected external mcp')
+            }
+            expect(m.tools?.[0]).toBe('agent-applications-list')
+            const gated = m.tools?.[1]
+            if (typeof gated === 'string' || gated === undefined) {
+                throw new Error('expected object-form tool entry')
+            }
+            expect(gated.name).toBe('agent-applications-revisions-promote-create')
+            expect(gated.requires_approval).toBe(true)
+            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
+            expect(gated.approval_policy.ttl_ms).toBe(900_000)
+            // Unspecified fields fall through to the approval-policy defaults.
+            expect(gated.approval_policy.allow_edit).toBe(false)
+        })
+
+        it('object-form tools[] entries default requires_approval to false', () => {
+            // Object form without explicit gating means "include this tool
+            // with no approval gate" — same effective behaviour as the
+            // bare-string form, just expressed as an object. Useful when an
+            // author wants the object slot reserved for a future config knob
+            // (e.g. description override) without flipping the gate on.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        tools: [{ name: 'create-issue' }],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            if (m.kind !== 'external') {
+                throw new Error('expected external mcp')
+            }
+            const entry = m.tools?.[0]
+            if (typeof entry === 'string' || entry === undefined) {
+                throw new Error('expected object-form tool entry')
+            }
+            expect(entry.requires_approval).toBe(false)
+        })
+
+        it('defaults secrets to [] and tools to undefined when omitted on external', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
                 mcps: [{ kind: 'external', id: 'linear', url: 'https://mcp.linear.app/sse' }],
@@ -233,15 +321,54 @@ describe('AgentSpecSchema', () => {
                 throw new Error('expected external mcp')
             }
             expect(m.secrets).toEqual([])
-            expect(m.allowlist).toBeUndefined()
+            expect(m.tools).toBeUndefined()
         })
 
         it.each([
             { label: 'missing id', mcp: { kind: 'external', url: 'https://mcp.linear.app/sse' } },
             { label: 'empty id', mcp: { kind: 'external', id: '', url: 'https://mcp.linear.app/sse' } },
             { label: 'non-URL endpoint', mcp: { kind: 'external', id: 'linear', url: 'not-a-url' } },
+            {
+                label: 'tools entry with empty name string',
+                mcp: { kind: 'external', id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
+            },
+            {
+                label: 'tools object with empty name',
+                mcp: {
+                    kind: 'external',
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: [{ name: '' }],
+                },
+            },
         ])('rejects an external entry with $label', ({ mcp }) => {
             expect(() => AgentSpecSchema.parse({ model: 'x', mcps: [mcp] })).toThrow()
+        })
+
+        it('silently drops a legacy `allowlist[]` field (zod default + PR 7 hard-break)', () => {
+            // Documents the post-PR-7 break: zod tolerates unknown fields by
+            // default, so `allowlist` parses through as no-op — the runtime
+            // behaviour changes hard (the filter is gone). Authors rebasing
+            // from pre-PR-7 see every tool surface to the model instead of
+            // their old narrowed set. This test pins the no-op so a future
+            // `.strict()` add (which would reject) is a conscious choice.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        allowlist: ['create-issue'],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            if (m.kind !== 'external') {
+                throw new Error('expected external mcp')
+            }
+            expect(m.tools).toBeUndefined()
+            expect((m as unknown as { allowlist?: string[] }).allowlist).toBeUndefined()
         })
 
         it('still parses the agent variant with just a slug', () => {
