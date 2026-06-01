@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconChevronRight, IconPulse, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconChevronRight, IconPulse, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCard,
@@ -17,7 +17,6 @@ import {
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
@@ -61,9 +60,6 @@ function statusTone(status: PulseDigestStatus): LemonTagType {
 }
 
 function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
-    const { submitFeedback } = useActions(pulseLogic)
-    const { feedbackInFlight } = useValues(pulseLogic)
-    const inFlight = !!feedbackInFlight[finding.id]
     const change = describeChange(finding.change_pct)
 
     return (
@@ -86,52 +82,7 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     </LemonButton>
                 ) : null}
             </div>
-            <p className="text-sm mb-3">{finding.narrative}</p>
-            <div className="flex flex-wrap items-center gap-2">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconThumbsUp />}
-                    onClick={() => submitFeedback(finding.id, 'up')}
-                    active={finding.feedback === 'up'}
-                    loading={inFlight}
-                    disabledReason={inFlight ? 'Saving…' : undefined}
-                    aria-pressed={finding.feedback === 'up'}
-                >
-                    Useful
-                </LemonButton>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconThumbsDown />}
-                    onClick={() => submitFeedback(finding.id, 'down')}
-                    active={finding.feedback === 'down'}
-                    disabledReason={inFlight ? 'Saving…' : undefined}
-                    aria-pressed={finding.feedback === 'down'}
-                >
-                    Not useful
-                </LemonButton>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={() => submitFeedback(finding.id, 'dismissed')}
-                    active={finding.feedback === 'dismissed'}
-                    disabledReason={inFlight ? 'Saving…' : undefined}
-                    aria-pressed={finding.feedback === 'dismissed'}
-                >
-                    Dismiss
-                </LemonButton>
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    onClick={() => submitFeedback(finding.id, 'snoozed', dayjs().add(7, 'day').toISOString())}
-                    active={finding.feedback === 'snoozed'}
-                    disabledReason={inFlight ? 'Saving…' : undefined}
-                    aria-pressed={finding.feedback === 'snoozed'}
-                >
-                    Snooze 7d
-                </LemonButton>
-            </div>
+            <p className="text-sm mb-0">{finding.narrative}</p>
         </LemonCard>
     )
 }

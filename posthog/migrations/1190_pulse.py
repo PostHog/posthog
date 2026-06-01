@@ -92,22 +92,6 @@ class Migration(migrations.Migration):
                     "chart_thumbnail_url",
                     models.URLField(blank=True, default="", max_length=2048),
                 ),
-                (
-                    "feedback",
-                    models.CharField(
-                        choices=[
-                            ("pending", "Pending"),
-                            ("up", "Thumbs Up"),
-                            ("down", "Thumbs Down"),
-                            ("dismissed", "Dismissed"),
-                            ("snoozed", "Snoozed"),
-                        ],
-                        default="pending",
-                        max_length=20,
-                    ),
-                ),
-                ("feedback_at", models.DateTimeField(blank=True, null=True)),
-                ("snoozed_until", models.DateTimeField(blank=True, null=True)),
                 ("rank", models.IntegerField(default=0)),
                 (
                     "created_by",
@@ -124,16 +108,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="findings",
                         to="posthog.pulsedigest",
-                    ),
-                ),
-                (
-                    "feedback_user",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="pulse_feedback",
-                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (
@@ -230,9 +204,5 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="pulsefinding",
             index=models.Index(fields=["digest", "rank"], name="posthog_pul_digest__5027c2_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="pulsefinding",
-            index=models.Index(fields=["digest", "feedback"], name="posthog_pul_digest__4efb79_idx"),
         ),
     ]

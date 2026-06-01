@@ -7,7 +7,7 @@ from django.db import transaction
 import structlog
 
 from posthog.models import OrganizationMembership, PulseDigest, PulseFinding, PulseSubscription, Team
-from posthog.models.pulse import PulseDigestStatus, PulseFindingFeedback
+from posthog.models.pulse import PulseDigestStatus
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding
@@ -40,7 +40,6 @@ def _persist_findings_sync(
                 robust_z=f.robust_z,
                 attribution_breakdown=f.attribution_breakdown,
                 narrative=f.narrative,
-                feedback=PulseFindingFeedback.PENDING,
                 rank=idx,
             )
             for idx, f in enumerate(findings)

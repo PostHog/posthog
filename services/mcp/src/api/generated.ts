@@ -1020,6 +1020,20 @@ export namespace Schemas {
       actionId: number;
     }
 
+    /**
+     * * `add` - add
+    * `remove` - remove
+    * `set` - set
+     */
+    export type ActionEnum = typeof ActionEnum[keyof typeof ActionEnum];
+
+
+    export const ActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Set: 'set',
+    } as const;
+
     export interface ActionReference {
       /** Resource type: insight, experiment, cohort, or hog_function */
       type: string;
@@ -6816,20 +6830,6 @@ export namespace Schemas {
       tags: string[];
     }
 
-    /**
-     * * `add` - add
-    * `remove` - remove
-    * `set` - set
-     */
-    export type BulkUpdateTagsRequestActionEnum = typeof BulkUpdateTagsRequestActionEnum[keyof typeof BulkUpdateTagsRequestActionEnum];
-
-
-    export const BulkUpdateTagsRequestActionEnum = {
-      Add: 'add',
-      Remove: 'remove',
-      Set: 'set',
-    } as const;
-
     export interface BulkUpdateTagsRequest {
       /**
          * List of object IDs to update tags on.
@@ -6841,7 +6841,7 @@ export namespace Schemas {
       * `add` - add
       * `remove` - remove
       * `set` - set */
-      action: BulkUpdateTagsRequestActionEnum;
+      action: ActionEnum;
       /** Tag names to add, remove, or set. */
       tags: string[];
     }
@@ -23957,24 +23957,6 @@ export namespace Schemas {
       results: PulseDigestList[];
     }
 
-    /**
-     * * `pending` - Pending
-    * `up` - Thumbs Up
-    * `down` - Thumbs Down
-    * `dismissed` - Dismissed
-    * `snoozed` - Snoozed
-     */
-    export type PulseFindingFeedbackEnum = typeof PulseFindingFeedbackEnum[keyof typeof PulseFindingFeedbackEnum];
-
-
-    export const PulseFindingFeedbackEnum = {
-      Pending: 'pending',
-      Up: 'up',
-      Down: 'down',
-      Dismissed: 'dismissed',
-      Snoozed: 'snoozed',
-    } as const;
-
     export interface PulseFinding {
       readonly id: string;
       readonly digest: string;
@@ -23996,19 +23978,6 @@ export namespace Schemas {
       /** LLM-generated explanation of the change. */
       readonly narrative: string;
       readonly chart_thumbnail_url: string;
-      /** User feedback state for this finding.
-
-      * `pending` - Pending
-      * `up` - Thumbs Up
-      * `down` - Thumbs Down
-      * `dismissed` - Dismissed
-      * `snoozed` - Snoozed */
-      feedback?: PulseFindingFeedbackEnum;
-      /**
-         * When a snoozed finding should resurface.
-         * @nullable
-         */
-      snoozed_until?: string | null;
       readonly rank: number;
       readonly created_at: string;
     }
@@ -33975,25 +33944,6 @@ export namespace Schemas {
       readonly created_at: string;
       readonly finding_count: number;
       readonly findings: readonly PulseFinding[];
-    }
-
-    /**
-     * Request body for submitting feedback on a single Pulse finding.
-     */
-    export interface PulseFeedback {
-      /** The feedback to record for this finding (e.g. up, down, dismissed, snoozed).
-
-      * `pending` - Pending
-      * `up` - Thumbs Up
-      * `down` - Thumbs Down
-      * `dismissed` - Dismissed
-      * `snoozed` - Snoozed */
-      action: PulseFindingFeedbackEnum;
-      /**
-         * When the finding should resurface. Only meaningful when action is 'snoozed'.
-         * @nullable
-         */
-      snoozed_until?: string | null;
     }
 
     /**

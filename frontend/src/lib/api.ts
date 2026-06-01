@@ -18,7 +18,6 @@ import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes
 import {
     PulseDigestDetail,
     PulseDigestSummary,
-    PulseFindingFeedbackAction,
     PulseFindingType,
     PulseSubscriptionType,
     PulseWatchedCandidate,
@@ -696,9 +695,6 @@ export class ApiRequest {
     }
     public pulseFindings(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('pulse_findings')
-    }
-    public pulseFinding(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.pulseFindings(teamId).addPathComponent(id)
     }
     public pulseSubscriptions(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('pulse_subscriptions')
@@ -2788,16 +2784,6 @@ const api = {
         async listFindings(digestId?: string): Promise<{ results: PulseFindingType[]; count: number }> {
             const req = new ApiRequest().pulseFindings()
             return digestId ? req.withQueryString({ digest: digestId }).get() : req.get()
-        },
-        async submitFeedback(
-            findingId: string,
-            action: PulseFindingFeedbackAction,
-            snoozed_until?: string
-        ): Promise<PulseFindingType> {
-            return new ApiRequest()
-                .pulseFinding(findingId)
-                .withAction('feedback')
-                .create({ data: { action, snoozed_until: snoozed_until ?? null } })
         },
         async currentSubscription(): Promise<PulseSubscriptionType> {
             return new ApiRequest().pulseSubscriptions().withAction('current').get()

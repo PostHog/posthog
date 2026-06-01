@@ -31,8 +31,6 @@ const FINDING = {
     attribution_breakdown: null,
     narrative: 'Pageviews doubled.',
     chart_thumbnail_url: '',
-    feedback: 'pending',
-    snoozed_until: null,
     rank: 0,
     created_at: '2026-05-26T00:00:00Z',
 }
@@ -65,9 +63,6 @@ describe('pulseLogic', () => {
                 '/api/environments/:team_id/pulse_findings/': () => [200, { count: 1, results: [FINDING] }],
                 '/api/environments/:team_id/pulse_subscriptions/current/': () => [200, SUBSCRIPTION],
                 '/api/environments/:team_id/pulse_subscriptions/watched/': () => [200, { results: [WATCHED] }],
-            },
-            post: {
-                '/api/environments/:team_id/pulse_findings/:id/feedback/': () => [200, { ...FINDING, feedback: 'up' }],
             },
             patch: {
                 '/api/environments/:team_id/pulse_subscriptions/:id/': () => [
@@ -117,18 +112,6 @@ describe('pulseLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.setExpandedDigestId('d9')
         }).toMatchValues({ expandedDigestId: 'd9' })
-    })
-
-    it('optimistically updates the targeted finding on submitFeedback', async () => {
-        await expectLogic(logic, () => logic.actions.loadFindings()).toDispatchActions(['loadFindingsSuccess'])
-
-        await expectLogic(logic, () => {
-            logic.actions.submitFeedback('f1', 'up')
-        })
-            .toMatchValues({ feedbackInFlight: { f1: true } })
-            .toDispatchActions(['submitFeedbackSuccess'])
-            .toMatchValues({ feedbackInFlight: {} })
-        expect(logic.values.findings[0].feedback).toBe('up')
     })
 
     it('sets digestsError on loadDigestsFailure', async () => {

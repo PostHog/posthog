@@ -1,5 +1,4 @@
 export type PulseDigestStatus = 'pending' | 'generating' | 'delivered' | 'failed'
-export type PulseFindingFeedbackAction = 'pending' | 'up' | 'down' | 'dismissed' | 'snoozed'
 export type PulseSubscriptionFrequency = 'weekly' | 'daily'
 export type PulseDetectionMode = 'change_v1' | 'discovery'
 export type PulseSensitivity = 'conservative' | 'balanced' | 'sensitive' | 'custom'
@@ -27,8 +26,6 @@ export interface PulseFindingType {
     attribution_breakdown: Record<string, any> | null
     narrative: string
     chart_thumbnail_url: string
-    feedback: PulseFindingFeedbackAction
-    snoozed_until: string | null
     rank: number
     created_at: string
 }

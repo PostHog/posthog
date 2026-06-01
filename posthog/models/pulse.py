@@ -12,14 +12,6 @@ class PulseDigestStatus(models.TextChoices):
     FAILED = "failed"
 
 
-class PulseFindingFeedback(models.TextChoices):
-    PENDING = "pending"
-    THUMBS_UP = "up"
-    THUMBS_DOWN = "down"
-    DISMISSED = "dismissed"
-    SNOOZED = "snoozed"
-
-
 class PulseSubscriptionFrequency(models.TextChoices):
     WEEKLY = "weekly"
     DAILY = "daily"
@@ -95,17 +87,6 @@ class PulseFinding(RootTeamMixin, CreatedMetaFields, UUIDModel):
     narrative = models.TextField()
     chart_thumbnail_url = models.URLField(max_length=2048, blank=True, default="")
 
-    feedback = models.CharField(
-        max_length=20,
-        choices=PulseFindingFeedback.choices,
-        default=PulseFindingFeedback.PENDING,
-    )
-    feedback_user = models.ForeignKey(
-        "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="pulse_feedback"
-    )
-    feedback_at = models.DateTimeField(null=True, blank=True)
-    snoozed_until = models.DateTimeField(null=True, blank=True)
-
     rank = models.IntegerField(default=0)
 
     objects = TeamScopedManager()  # type: ignore[misc]
@@ -113,7 +94,6 @@ class PulseFinding(RootTeamMixin, CreatedMetaFields, UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["digest", "rank"]),
-            models.Index(fields=["digest", "feedback"]),
         ]
         ordering = ["rank", "-created_at"]
 

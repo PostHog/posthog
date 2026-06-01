@@ -6,9 +6,8 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.pulse import PulseFeedbackSerializer
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription, Team
-from posthog.models.pulse import PulseDigestStatus, PulseFindingFeedback
+from posthog.models.pulse import PulseDigestStatus
 from posthog.models.scoping import team_scope
 from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
 
@@ -41,69 +40,6 @@ def _make_finding(digest: PulseDigest, team: Team, label: str = "Test metric", r
             narrative=f"{label} rose 25%.",
             rank=rank,
         )
-
-
-class TestPulseFeedbackSerializer(APIBaseTest):
-    def test_valid_action_passes(self) -> None:
-        serializer = PulseFeedbackSerializer(data={"action": "up"})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertEqual(serializer.validated_data["action"], PulseFindingFeedback.THUMBS_UP)
-
-    def test_invalid_action_rejected(self) -> None:
-        serializer = PulseFeedbackSerializer(data={"action": "love-it"})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("action", serializer.errors)
-
-    def test_missing_action_rejected(self) -> None:
-        serializer = PulseFeedbackSerializer(data={})
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("action", serializer.errors)
-
-    def test_snoozed_until_optional(self) -> None:
-        serializer = PulseFeedbackSerializer(data={"action": "snoozed"})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertIsNone(serializer.validated_data.get("snoozed_until"))
-
-    def test_snoozed_until_parsed(self) -> None:
-        when = (datetime.now(UTC) + timedelta(days=3)).isoformat()
-        serializer = PulseFeedbackSerializer(data={"action": "snoozed", "snoozed_until": when})
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-        self.assertIsNotNone(serializer.validated_data["snoozed_until"])
-
-
-class TestPulseSubmitFeedback(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        self.digest = _make_digest(self.team)
-        self.finding = _make_finding(self.digest, self.team, label="Signups")
-        self.base = f"/api/environments/{self.team.id}/pulse_findings"
-
-    @patch(FLAG_TARGET, return_value=True)
-    def test_feedback_records_action(self, _mock) -> None:
-        resp = self.client.post(f"{self.base}/{self.finding.id}/feedback/", {"action": "up"}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
-        self.finding.refresh_from_db()
-        self.assertEqual(self.finding.feedback, PulseFindingFeedback.THUMBS_UP)
-        self.assertEqual(self.finding.feedback_user, self.user)
-        self.assertIsNotNone(self.finding.feedback_at)
-
-    @patch(FLAG_TARGET, return_value=True)
-    def test_feedback_invalid_action_400(self, _mock) -> None:
-        resp = self.client.post(f"{self.base}/{self.finding.id}/feedback/", {"action": "nope"}, format="json")
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.json())
-
-    @patch(FLAG_TARGET, return_value=True)
-    def test_feedback_snooze_sets_until(self, _mock) -> None:
-        when = (datetime.now(UTC) + timedelta(days=5)).isoformat()
-        resp = self.client.post(
-            f"{self.base}/{self.finding.id}/feedback/",
-            {"action": "snoozed", "snoozed_until": when},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
-        self.finding.refresh_from_db()
-        self.assertEqual(self.finding.feedback, PulseFindingFeedback.SNOOZED)
-        self.assertIsNotNone(self.finding.snoozed_until)
 
 
 class TestPulseFindingSerializerFields(APIBaseTest):
@@ -264,18 +200,12 @@ class TestPulseFlagGate(APIBaseTest):
 
 class TestPulseCrossTeamIsolation(APIBaseTest):
     @patch(FLAG_TARGET, return_value=True)
-    def test_feedback_on_other_teams_finding_404(self, _mock) -> None:
+    def test_retrieve_other_teams_finding_404(self, _mock) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_digest = _make_digest(other_team)
         other_finding = _make_finding(other_digest, other_team, label="X")
-        resp = self.client.post(
-            f"/api/environments/{self.team.id}/pulse_findings/{other_finding.id}/feedback/",
-            {"action": "up"},
-            format="json",
-        )
+        resp = self.client.get(f"/api/environments/{self.team.id}/pulse_findings/{other_finding.id}/")
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
-        other_finding.refresh_from_db()
-        self.assertEqual(other_finding.feedback, PulseFindingFeedback.PENDING)
 
 
 class TestPulseWatchedEndpoint(APIBaseTest):

@@ -8,7 +8,6 @@ import type { pulseLogicType } from './pulseLogicType'
 import {
     PulseDigestDetail,
     PulseDigestSummary,
-    PulseFindingFeedbackAction,
     PulseFindingType,
     PulseSubscriptionType,
     PulseWatchedCandidate,
@@ -37,11 +36,6 @@ export const pulseLogic = kea<pulseLogicType>([
         loadSubscription: true,
         loadWatched: true,
         getDigest: (id: string) => ({ id }),
-        submitFeedback: (findingId: string, action: PulseFindingFeedbackAction, snoozedUntil?: string) => ({
-            findingId,
-            action,
-            snoozedUntil,
-        }),
         setExpandedDigestId: (id: string | null) => ({ id }),
         updateSubscriptionLocal: (patch: Partial<PulseSubscriptionType>) => ({ patch }),
         saveSubscription: true,
@@ -68,10 +62,6 @@ export const pulseLogic = kea<pulseLogicType>([
                 loadFindings: async () => {
                     const response = await api.pulse.listFindings()
                     return response.results || []
-                },
-                submitFeedback: async ({ findingId, action, snoozedUntil }) => {
-                    const updated = await api.pulse.submitFeedback(findingId, action, snoozedUntil)
-                    return values.findings.map((f) => (f.id === findingId ? updated : f))
                 },
             },
         ],
@@ -133,27 +123,6 @@ export const pulseLogic = kea<pulseLogicType>([
                     state ? { ...state, ...patch } : { ...DEFAULT_SUBSCRIPTION, ...patch },
             },
         ],
-        feedbackInFlight: [
-            {} as Record<string, boolean>,
-            {
-                submitFeedback: (state, { findingId }) => ({ ...state, [findingId]: true }),
-                submitFeedbackSuccess: (state, { payload }) => {
-                    const next = { ...state }
-                    if (payload?.findingId) {
-                        delete next[payload.findingId]
-                    }
-                    return next
-                },
-                submitFeedbackFailure: (state, { errorObject }) => {
-                    const next = { ...state }
-                    const id = errorObject?.findingId as string | undefined
-                    if (id) {
-                        delete next[id]
-                    }
-                    return next
-                },
-            },
-        ],
         digestsError: [
             false,
             {
@@ -177,12 +146,6 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         saveSubscriptionFailure: () => {
             lemonToast.error('Failed to save Pulse settings')
-        },
-        submitFeedbackSuccess: () => {
-            lemonToast.success('Feedback recorded')
-        },
-        submitFeedbackFailure: () => {
-            lemonToast.error('Failed to record feedback')
         },
         triggerScanSuccess: () => {
             lemonToast.success('Pulse scan started — new findings will appear here shortly.')

@@ -18,7 +18,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription
-from posthog.models.pulse import DetectionMode, PulseFindingFeedback, PulseSubscriptionFrequency
+from posthog.models.pulse import DetectionMode, PulseSubscriptionFrequency
 from posthog.temporal.ai.pulse.period import period_bounds, period_key
 from posthog.temporal.ai.pulse.selection import select_candidates
 from posthog.temporal.ai.pulse.workflow import PulseScanInputs
@@ -52,20 +52,6 @@ class MaxPulseFeatureFlagPermission(BasePermission):
         return True
 
 
-class PulseFeedbackSerializer(serializers.Serializer):
-    """Request body for submitting feedback on a single Pulse finding."""
-
-    action = serializers.ChoiceField(
-        choices=PulseFindingFeedback.choices,
-        help_text="The feedback to record for this finding (e.g. up, down, dismissed, snoozed).",
-    )
-    snoozed_until = serializers.DateTimeField(
-        required=False,
-        allow_null=True,
-        help_text="When the finding should resurface. Only meaningful when action is 'snoozed'.",
-    )
-
-
 class PulseFindingSerializer(serializers.ModelSerializer):
     class Meta:
         model = PulseFinding
@@ -82,8 +68,6 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             "attribution_breakdown",
             "narrative",
             "chart_thumbnail_url",
-            "feedback",
-            "snoozed_until",
             "rank",
             "created_at",
         ]
@@ -114,8 +98,6 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             },
             "impact": {"help_text": "Ranking score: abs(change_pct) * sqrt(baseline_median)."},
             "narrative": {"help_text": "LLM-generated explanation of the change."},
-            "feedback": {"help_text": "User feedback state for this finding."},
-            "snoozed_until": {"help_text": "When a snoozed finding should resurface."},
         }
 
 
@@ -322,29 +304,7 @@ class PulseFindingViewSet(
         digest_id = self.request.query_params.get("digest")
         if digest_id:
             qs = qs.filter(digest_id=digest_id)
-        feedback = self.request.query_params.get("feedback")
-        if feedback:
-            qs = qs.filter(feedback=feedback)
         return qs.order_by("rank", "-created_at")
-
-    @extend_schema(
-        request=PulseFeedbackSerializer,
-        responses={200: OpenApiResponse(response=PulseFindingSerializer)},
-    )
-    @action(detail=True, methods=["post"], url_path="feedback")
-    def submit_feedback(self, request: Request, *args, **kwargs) -> Response:
-        finding = self.get_object()
-        body = PulseFeedbackSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        normalized = body.validated_data["action"]
-
-        finding.feedback = normalized
-        finding.feedback_user = request.user
-        finding.feedback_at = datetime.now(UTC)
-        if normalized == PulseFindingFeedback.SNOOZED:
-            finding.snoozed_until = body.validated_data.get("snoozed_until")
-        finding.save(update_fields=["feedback", "feedback_user", "feedback_at", "snoozed_until"])
-        return Response(self.get_serializer(finding).data)
 
 
 class PulseSubscriptionViewSet(
