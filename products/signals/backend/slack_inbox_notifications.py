@@ -264,11 +264,11 @@ def _build_message_blocks(
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
     recipient_label = recipient.slack_mention or recipient.plain_name
-    metadata_parts = [f"For {recipient_label}"]
+    metadata_parts = [f"Matched to {recipient_label} per code"]
     if priority:
         metadata_parts.insert(0, priority)
 
-    body_parts: list[str] = [" • ".join(metadata_parts)]
+    body_parts: list[str] = [f"*{' • '.join(metadata_parts)}*"]
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
         body_parts.append(summary_text)
