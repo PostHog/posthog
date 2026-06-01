@@ -50,14 +50,12 @@ services:
 
     objectstorage:
         # SeaweedFS, S3-compatible, exposing the same objectstorage:19000 endpoint MinIO did.
-        # The shared s3.conf accepts both the legacy MinIO root credentials and any/any.
+        # Open-access mode (no -s3.config) so any credential pair our code uses just works.
         image: chrislusf/seaweedfs:4.03
         restart: on-failure
         ports:
             - '127.0.0.1:19000:19000'
             - '127.0.0.1:19001:19001'
-        volumes:
-            - ../docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
         entrypoint:
             - /bin/sh
             - -c
@@ -85,7 +83,7 @@ services:
                 wait $$WEED_PID
             - --
         command:
-            ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
+            ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.domainName=localhost', '-dir=/data']
         # See the matching healthcheck on the dev objectstorage in docker-compose.base.yml.
         healthcheck:
             test:

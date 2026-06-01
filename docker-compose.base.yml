@@ -232,11 +232,13 @@ services:
 
     objectstorage:
         # SeaweedFS, S3-compatible, exposing the same objectstorage:19000 endpoint MinIO did.
-        # The shared s3.conf accepts both the legacy MinIO root credentials and any/any.
+        # Run in default open-access mode (no -s3.config) so every legacy MinIO credential
+        # pair our test/CI/dev code uses just works — including object_storage_root_user
+        # and any/any. Identity-based auth (-s3.config) was tried first but triggers known
+        # SeaweedFS SigV4 signature failures and presigned-URL regressions; see
+        # seaweedfs/seaweedfs #6635 and discussion #3976.
         image: chrislusf/seaweedfs:4.03
         restart: on-failure
-        volumes:
-            - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
         entrypoint:
             - /bin/sh
             - -c
@@ -263,8 +265,8 @@ services:
                 done
                 wait $$WEED_PID
             - --
-        command:
-            ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
+        # -domainName keeps SigV4 host calculation consistent between client and server.
+        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.domainName=localhost', '-dir=/data']
         # Without this, bin/wait-for-docker treats the container as ready the instant
         # weed execs, which races the bucket bootstrap loop. The previous MinIO config
         # `mkdir -p ... && minio server` created buckets BEFORE the server started, so
@@ -761,9 +763,8 @@ services:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
     seaweedfs:
+        # Default open-access mode; see the `objectstorage` service above for rationale.
         image: chrislusf/seaweedfs:4.03
-        volumes:
-            - ./docker/seaweedfs/s3.conf:/etc/seaweedfs/s3.conf:ro
         entrypoint:
             - /bin/sh
             - -c
@@ -785,7 +786,7 @@ services:
                 echo "SeaweedFS ready with posthog bucket"
                 wait $$WEED_PID
             - --
-        command: ['server', '-s3', '-s3.port=8333', '-s3.config=/etc/seaweedfs/s3.conf', '-dir=/data']
+        command: ['server', '-s3', '-s3.port=8333', '-s3.domainName=localhost', '-dir=/data']
 
     duckgres:
         # DuckLake 0.4 + DuckDB 1.5.1, multi-arch (posthog/duckgres@5cfca88)
