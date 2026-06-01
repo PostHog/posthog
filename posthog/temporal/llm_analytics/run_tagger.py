@@ -14,6 +14,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.run_evaluation import extract_event_io
 
@@ -190,6 +191,7 @@ class ExecuteTaggerInputs:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     from django.utils import timezone

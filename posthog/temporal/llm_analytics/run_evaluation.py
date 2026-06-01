@@ -17,6 +17,7 @@ from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.llm_analytics.metrics import (
     increment_emit_event_outcome,
@@ -529,6 +530,7 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
 
 
 @temporalio.activity.defn
+@scoped_temporal()
 async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     """Execute LLM judge to evaluate the target event.
 
