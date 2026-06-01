@@ -709,11 +709,11 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
-    def test_cross_user_followup_falls_back_to_email_local_part_when_no_first_name(
+    def test_cross_user_followup_falls_back_to_email_when_no_full_name(
         self, mock_slack_cls, mock_resolve, mock_send, mock_token
     ):
         self._create_mapping(mentioning_user="U_ALICE")
-        bob = User.objects.create(email="bob@test.com")  # no first_name
+        bob = User.objects.create(email="bob@test.com")  # no full name
         mock_slack_cls.return_value = MagicMock()
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
         mock_send.return_value = _command_result(success=True, status_code=200)
@@ -721,7 +721,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         inputs = _make_inputs(self.integration.id)
         forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ping", "1234.5679")
 
-        mock_send.assert_called_once_with(self.task_run, "bob: ping", auth_token="jwt-token", timeout=90)
+        mock_send.assert_called_once_with(self.task_run, "bob@test.com: ping", auth_token="jwt-token", timeout=90)
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")

@@ -1344,7 +1344,7 @@ def forward_posthog_code_followup_activity(
                 actual=slack_user_id,
             )
             return True
-        actor_name = resolved.user.first_name or resolved.slack_email.split("@", 1)[0]
+        actor_name = resolved.user.get_full_name() or resolved.slack_email
         followup_user_text_prefix = f"{actor_name}: "
         logger.info(
             "posthog_code_followup_cross_user_authorized",
