@@ -1,5 +1,5 @@
 import { dashboardsRunWidgetsRetrieve } from '@posthog/products-dashboards/frontend/generated/api'
-import type { WidgetRunResult } from '@posthog/products-dashboards/frontend/types'
+import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
@@ -33,7 +33,7 @@ export async function fetchRunWidgets(
     dashboardId: number,
     tileIds: number[],
     options?: FetchRunWidgetsOptions
-): Promise<WidgetRunResult[]> {
+): Promise<DashboardWidgetRunResultApi[]> {
     if (tileIds.length === 0) {
         return []
     }

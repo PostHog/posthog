@@ -20,7 +20,7 @@ import posthog from 'posthog-js'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
-import type { WidgetRunResult } from '@posthog/products-dashboards/frontend/types'
+import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import {
     updateDashboardWidgetTileConfig,
     updateDashboardWidgetTileMetadata,
@@ -246,7 +246,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
-        setWidgetRunResults: (results: Record<number, WidgetRunResult>) => ({ results }),
+        setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
         setWidgetRefreshStatuses: (tileIds: number[], loading: boolean, error?: string | null) => ({
             tileIds,
             loading,
@@ -1184,7 +1184,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         widgetResultsByTileId: [
-            {} as Record<number, WidgetRunResult>,
+            {} as Record<number, DashboardWidgetRunResultApi>,
             {
                 setWidgetRunResults: (state, { results }) => ({ ...state, ...results }),
             },
