@@ -8,7 +8,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-DEFAULT_COLUMNS = ("id", "name", "external_id", "created_at")
+NAME_COLUMN = "name"
+
+DEFAULT_COLUMNS = (NAME_COLUMN, "created_at")
 
 DEFAULT_ORDER_BY = "created_at DESC"
 
@@ -35,21 +37,21 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if self.query.select:
-            seen: set[str] = set()
-            self.columns: list[str] = []
-            self._select_exprs: list[ast.Expr] = []
-            for col in self.query.select:
-                expr = parse_expr(col)
-                column_name = expr.alias if isinstance(expr, ast.Alias) else col
-                if column_name in seen:
-                    continue
-                seen.add(column_name)
-                self.columns.append(column_name)
-                self._select_exprs.append(expr)
-        else:
-            self.columns = list(DEFAULT_COLUMNS)
-            self._select_exprs = [parse_expr(col) for col in self.columns]
+        raw_selects = list(self.query.select) if self.query.select else list(DEFAULT_COLUMNS)
+
+        seen: set[str] = set()
+        self.columns: list[str] = []
+        self._select_exprs: list[ast.Expr] = []
+        for raw in raw_selects:
+            column_name, expr = self._resolve_column(raw)
+            if column_name in seen:
+                continue
+            seen.add(column_name)
+            self.columns.append(column_name)
+            self._select_exprs.append(expr)
+        if NAME_COLUMN not in seen:
+            self.columns.insert(0, NAME_COLUMN)
+            self._select_exprs.insert(0, self._name_tuple_expr())
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context,
@@ -62,6 +64,30 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             "customer_analytics", "viewer"
         )
 
+    def _resolve_column(self, raw: str) -> tuple[str, ast.Expr]:
+        if raw == NAME_COLUMN:
+            return NAME_COLUMN, self._name_tuple_expr()
+        expr = parse_expr(raw)
+        column_name = expr.alias if isinstance(expr, ast.Alias) else raw
+        return column_name, expr
+
+    def _name_tuple_expr(self) -> ast.Expr:
+        # Single cell carries the display name, external_id (for copy
+        # affordance) and id (for row expansion / role updates), so the
+        # frontend doesn't need to pin id and external_id as separate
+        # hidden columns. Mirrors groups_query_runner's `group_name`.
+        return ast.Alias(
+            alias=NAME_COLUMN,
+            expr=ast.Call(
+                name="tuple",
+                args=[
+                    ast.Field(chain=["name"]),
+                    ast.Field(chain=["external_id"]),
+                    ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
+                ],
+            ),
+        )
+
     def to_query(self) -> ast.SelectQuery:
         where_exprs: list[ast.Expr] = []
 
@@ -69,7 +95,7 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             pattern = f"%{self.query.search.strip()}%"
             where_exprs.append(
                 parse_expr(
-                    "name ILIKE {pattern} OR external_id ILIKE {pattern}",
+                    "accounts.name ILIKE {pattern} OR accounts.external_id ILIKE {pattern}",
                     {"pattern": ast.Constant(value=pattern)},
                 )
             )
@@ -144,10 +170,19 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             modifiers=self.modifiers,
         )
 
+        name_index = self.columns.index(NAME_COLUMN)
+        results = [
+            [
+                {"name": cell[0], "external_id": cell[1], "id": cell[2]} if index == name_index else cell
+                for index, cell in enumerate(row)
+            ]
+            for row in self.paginator.results
+        ]
+
         return AccountsQueryResponse(
             kind="AccountsQuery",
             columns=list(self.columns),
-            results=self.paginator.results,
+            results=results,
             types=[t for _, t in response.types] if response.types else [],
             hogql=response.hogql or "",
             timings=response.timings,
