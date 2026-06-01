@@ -12,7 +12,7 @@ import { useSessionTeamId } from '@/components/session-context'
 import { SessionsList } from '@/components/SessionsList'
 import { getSession, listLogsForSession, listSessionsForAgent } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
-import { SessionDetail } from '@/pages/SessionDetail'
+import { SessionDetail } from '@/screens/SessionDetail'
 
 export function SessionsSegment(): React.ReactElement {
     const agent = useAgent()

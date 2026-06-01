@@ -20,6 +20,7 @@
     },
     "include": [
         "next-env.d.ts",
+        "globals.d.ts",
         "src/**/*.ts",
         "src/**/*.tsx",
         "app/**/*.ts",

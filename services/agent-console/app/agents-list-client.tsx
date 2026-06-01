@@ -10,7 +10,7 @@ import { AgentsListSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
 import { ApiError, getFleetStats, listAgents, listLiveSessions } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
-import { AgentsList } from '@/pages/AgentsList'
+import { AgentsList } from '@/screens/AgentsList'
 
 const EMPTY_FLEET_STATS: FleetStats = {
     liveSessionCount: 0,
