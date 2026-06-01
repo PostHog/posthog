@@ -5,11 +5,11 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import TaskNotFoundError
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_refresh_session
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import TaskNotFoundError
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
