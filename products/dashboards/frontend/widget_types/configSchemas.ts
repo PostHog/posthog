@@ -62,7 +62,7 @@ const limitFieldSchema = z
     .max(25, 'Must be an integer between 1 and 25.')
 
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
-    limit: limitFieldSchema.default(25),
+    limit: limitFieldSchema.default(10),
     orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
     orderDirection: z.enum(['ASC', 'DESC']).default('DESC'),
     status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),

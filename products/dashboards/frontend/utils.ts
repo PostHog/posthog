@@ -22,7 +22,6 @@ export function isWidgetConfigValidationError(error: unknown): error is WidgetCo
 
 function parseWidgetConfigApiError(widgetType: string, error: unknown): WidgetFieldErrors | null {
     switch (widgetType) {
-        case 'error_tracking':
         case 'error_tracking_list':
             return parseErrorTrackingWidgetConfigApiError(error)
         default:

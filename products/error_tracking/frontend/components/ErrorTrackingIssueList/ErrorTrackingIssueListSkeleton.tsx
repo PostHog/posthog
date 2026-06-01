@@ -4,13 +4,13 @@ import { cn } from 'lib/utils/css-classes'
 
 import { ErrorTrackingIssueListHeader } from './ErrorTrackingIssueList'
 
-const GRID_COLS = 'grid-cols-[minmax(0,1fr)_clamp(5rem,18vw,7rem)_clamp(3.5rem,8vw,4.5rem)]'
-const LIST_MIN_WIDTH_CLASS = 'min-w-[22rem]'
-
 function ErrorTrackingIssueListSkeletonRow(): JSX.Element {
     return (
         <div
-            className={cn('grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0', GRID_COLS)}
+            className={cn(
+                'grid items-start gap-3 border-b border-primary px-3 py-2 last:border-b-0',
+                'grid-cols-[minmax(0,1fr)_clamp(5rem,18vw,7rem)_clamp(3.5rem,8vw,4.5rem)]'
+            )}
             aria-hidden
         >
             <div className="flex min-w-0 flex-col gap-1.5">
@@ -51,7 +51,7 @@ export function ErrorTrackingIssueListSkeleton({
             aria-busy
             aria-label="Loading issues"
         >
-            <div className={LIST_MIN_WIDTH_CLASS}>
+            <div className="min-w-[22rem]">
                 <ErrorTrackingIssueListHeader />
                 <div>
                     {Array.from({ length: rowCount }, (_, index) => (

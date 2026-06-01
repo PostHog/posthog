@@ -20,7 +20,6 @@ import { CustomSeparator } from '../TableColumns'
 import { VolumeSparkline } from '../VolumeSparkline/VolumeSparkline'
 
 const GRID_COLS = 'grid-cols-[minmax(0,1fr)_clamp(5rem,18vw,7rem)_clamp(3.5rem,8vw,4.5rem)]'
-const LIST_MIN_WIDTH_CLASS = 'min-w-[22rem]'
 
 export function ErrorTrackingIssueListHeader(): JSX.Element {
     return (
@@ -166,7 +165,7 @@ export function ErrorTrackingIssueList({
 }: ErrorTrackingIssueListProps): JSX.Element {
     return (
         <div className={cn('min-w-0 w-full max-w-full overflow-x-auto rounded border bg-surface-primary', className)}>
-            <div className={LIST_MIN_WIDTH_CLASS}>
+            <div className="min-w-[22rem]">
                 <ErrorTrackingIssueListHeader />
                 <div className={listClassName} data-attr="error-tracking-issue-row">
                     {issues.map((issue) => (

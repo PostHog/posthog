@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonTextArea } from '@posthog/lemon-ui'
 
@@ -20,7 +20,6 @@ import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchema
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
-    WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS,
     WidgetSettingsModalDivider,
     WidgetSettingsModalSection,
     WidgetSettingsModalSections,
@@ -31,8 +30,11 @@ import {
 } from './errorTrackingWidgetConfigValidation'
 import { canConfigureErrorTrackingWidgetIssues, ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
 
-export function EditErrorTrackingWidgetModal({
-    isOpen,
+const widgetSettingsFieldFullWidthClass = 'sm:col-span-2'
+
+type EditErrorTrackingWidgetModalFormProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
+
+function EditErrorTrackingWidgetModalForm({
     onClose,
     config,
     onSave,
@@ -40,7 +42,7 @@ export function EditErrorTrackingWidgetModal({
     defaultTitle = 'Untitled',
     description = '',
     onSaveMetadata,
-}: DashboardWidgetEditModalProps): JSX.Element {
+}: EditErrorTrackingWidgetModalFormProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { filterTestAccountsDefault } = useValues(filterTestAccountsDefaultsLogic)
     const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
@@ -59,32 +61,6 @@ export function EditErrorTrackingWidgetModal({
     )
     const [fieldErrors, setFieldErrors] = useState<ErrorTrackingWidgetFieldErrors>({})
     const [saving, setSaving] = useState(false)
-
-    useEffect(() => {
-        if (isOpen) {
-            setFieldErrors({})
-            setTileName(name)
-            setTileDescription(description)
-            setLimit((config.limit as number) ?? 10)
-            setOrderBy((config.orderBy as string) ?? 'occurrences')
-            setDateFrom((config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d')
-            setFilterTestAccounts(
-                resolveWidgetFilterTestAccounts(
-                    config.filterTestAccounts as boolean | undefined,
-                    filterTestAccountsDefault
-                )
-            )
-        }
-    }, [
-        isOpen,
-        name,
-        description,
-        config.limit,
-        config.orderBy,
-        config.dateRange,
-        config.filterTestAccounts,
-        filterTestAccountsDefault,
-    ])
 
     const validation = useMemo(
         () =>
@@ -165,7 +141,7 @@ export function EditErrorTrackingWidgetModal({
 
     return (
         <LemonModal
-            isOpen={isOpen}
+            isOpen
             onClose={onClose}
             title="Widget settings"
             description={
@@ -197,7 +173,7 @@ export function EditErrorTrackingWidgetModal({
                 {onSaveMetadata && (
                     <WidgetSettingsModalSection title="Tile details">
                         <LemonField.Pure
-                            className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}
+                            className={widgetSettingsFieldFullWidthClass}
                             label="Title"
                             help="Shown on the tile. Leave empty to use the default title."
                         >
@@ -210,7 +186,7 @@ export function EditErrorTrackingWidgetModal({
                             />
                         </LemonField.Pure>
                         <LemonField.Pure
-                            className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}
+                            className={widgetSettingsFieldFullWidthClass}
                             label="Description"
                             help="Shown under the tile title. Supports markdown. Leave empty to hide."
                         >
@@ -228,7 +204,7 @@ export function EditErrorTrackingWidgetModal({
                     <>
                         {onSaveMetadata && <WidgetSettingsModalDivider />}
                         <WidgetSettingsModalSection title="Filters">
-                            <div className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}>
+                            <div className={widgetSettingsFieldFullWidthClass}>
                                 <TestAccountFilter
                                     size="small"
                                     filters={{ filter_test_accounts: filterTestAccounts }}
@@ -274,7 +250,7 @@ export function EditErrorTrackingWidgetModal({
                                 />
                             </LemonField.Pure>
                             <LemonField.Pure
-                                className={WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS}
+                                className={widgetSettingsFieldFullWidthClass}
                                 label="Sort by"
                                 help="Order issues by this metric within the date range."
                                 error={activeFieldErrors.orderBy}
@@ -295,4 +271,16 @@ export function EditErrorTrackingWidgetModal({
             </WidgetSettingsModalSections>
         </LemonModal>
     )
+}
+
+export function EditErrorTrackingWidgetModal({
+    isOpen,
+    onClose,
+    ...formProps
+}: DashboardWidgetEditModalProps): JSX.Element | null {
+    if (!isOpen) {
+        return null
+    }
+
+    return <EditErrorTrackingWidgetModalForm onClose={onClose} {...formProps} />
 }
