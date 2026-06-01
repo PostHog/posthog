@@ -210,7 +210,7 @@ const fileDownloadBatchExportsCancelCreate = (): ToolBase<
     },
 })
 
-const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
+const FileDownloadBatchExportsCreateSchema = z.object({}).passthrough().and(FileDownloadBatchExportsCreateBody)
 
 const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
     name: 'file-download-batch-exports-create',
