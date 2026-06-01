@@ -40,7 +40,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, initia
             if (!isRetryable(error) || attempt === maxRetries) {
                 throw error
             }
-            logger.warn('[PersonHogReadRepository] Retryable gRPC error, retrying', {
+            logger.warn('[PersonHogPersonReadRepository] Retryable gRPC error, retrying', {
                 attempt: attempt + 1,
                 maxRetries,
                 error: String(error),
@@ -56,7 +56,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, initia
  * dependency — all reads go through personhog with automatic retries
  * on transient errors.
  */
-export class PersonHogReadRepository implements PersonReadRepository {
+export class PersonHogPersonReadRepository implements PersonReadRepository {
     constructor(
         private grpcClient: PersonHogClient,
         private clientLabel: string = 'unknown'

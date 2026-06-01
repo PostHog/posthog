@@ -5,7 +5,7 @@ import { PersonHogService } from '../../generated/personhog/personhog/service/v1
 import { PersonSchema } from '../../generated/personhog/personhog/types/v1/person_pb'
 import { TeamId } from '../../types'
 import { PersonHogClient } from './client'
-import { PersonHogReadRepository } from './personhog-read-repository'
+import { PersonHogPersonReadRepository } from './personhog-person-read-repository'
 
 jest.mock('../../utils/logger')
 
@@ -56,7 +56,7 @@ function createMockClientAndHandlers(): { client: PersonHogClient; handlers: Ser
     return { client, handlers }
 }
 
-describe('PersonHogReadRepository', () => {
+describe('PersonHogPersonReadRepository', () => {
     describe('fetchPerson', () => {
         it('returns person when found', async () => {
             const { client, handlers } = createMockClientAndHandlers()
@@ -64,7 +64,7 @@ describe('PersonHogReadRepository', () => {
                 results: [{ person: makeProtoPerson(), key: { teamId: BigInt(TEAM_ID), distinctId: 'user-1' } }],
             }))
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPerson(TEAM_ID, 'user-1')
 
             expect(result).toBeDefined()
@@ -74,7 +74,7 @@ describe('PersonHogReadRepository', () => {
 
         it('returns undefined when not found', async () => {
             const { client } = createMockClientAndHandlers()
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPerson(TEAM_ID, 'nonexistent')
 
             expect(result).toBeUndefined()
@@ -88,7 +88,7 @@ describe('PersonHogReadRepository', () => {
                 results: [{ person: makeProtoPerson(), key: { teamId: BigInt(TEAM_ID), distinctId: 'user-1' } }],
             }))
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPersonsByDistinctIds([{ teamId: TEAM_ID, distinctId: 'user-1' }])
 
             expect(result).toHaveLength(1)
@@ -97,7 +97,7 @@ describe('PersonHogReadRepository', () => {
 
         it('returns empty array for empty input', async () => {
             const { client, handlers } = createMockClientAndHandlers()
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPersonsByDistinctIds([])
 
             expect(result).toEqual([])
@@ -113,7 +113,7 @@ describe('PersonHogReadRepository', () => {
                 missingIds: [],
             }))
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPersonsByPersonIds([
                 { teamId: TEAM_ID, personId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' },
             ])
@@ -124,7 +124,7 @@ describe('PersonHogReadRepository', () => {
 
         it('returns empty array for empty input', async () => {
             const { client, handlers } = createMockClientAndHandlers()
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPersonsByPersonIds([])
 
             expect(result).toEqual([])
@@ -141,7 +141,7 @@ describe('PersonHogReadRepository', () => {
                 ],
             }))
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchDistinctIdsForPersons(TEAM_ID, ['42'])
 
             expect(result).toEqual({ '42': ['user-1', 'user-2'] })
@@ -149,7 +149,7 @@ describe('PersonHogReadRepository', () => {
 
         it('returns empty record for empty input', async () => {
             const { client, handlers } = createMockClientAndHandlers()
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchDistinctIdsForPersons(TEAM_ID, [])
 
             expect(result).toEqual({})
@@ -178,7 +178,7 @@ describe('PersonHogReadRepository', () => {
                 }
             })
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             const result = await repo.fetchPerson(TEAM_ID, 'user-1')
 
             expect(result).toBeDefined()
@@ -202,7 +202,7 @@ describe('PersonHogReadRepository', () => {
                 throw new ConnectError('non-retryable', code)
             })
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             await expect(repo.fetchPerson(TEAM_ID, 'user-1')).rejects.toThrow(ConnectError)
 
             expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(1)
@@ -214,7 +214,7 @@ describe('PersonHogReadRepository', () => {
                 throw new ConnectError('unavailable', Code.Unavailable)
             })
 
-            const repo = new PersonHogReadRepository(client)
+            const repo = new PersonHogPersonReadRepository(client)
             await expect(repo.fetchPerson(TEAM_ID, 'user-1')).rejects.toThrow(ConnectError)
 
             // 1 initial + 2 retries = 3 total

@@ -14,7 +14,7 @@ import {
 } from '~/generated/personhog/personhog/types/v1/person_pb'
 
 import { PersonHogClient } from '../../../ingestion/personhog/client'
-import { PersonHogReadRepository } from '../../../ingestion/personhog/personhog-read-repository'
+import { PersonHogPersonReadRepository } from '../../../ingestion/personhog/personhog-person-read-repository'
 import { PersonsManagerService } from './persons-manager.service'
 
 jest.mock('../../../utils/logger')
@@ -47,7 +47,7 @@ function makeProtoPerson(p: TestPerson) {
     })
 }
 
-function createTestPersonHogReadRepository(persons: TestPerson[]): PersonHogReadRepository {
+function createTestPersonHogPersonReadRepository(persons: TestPerson[]): PersonHogPersonReadRepository {
     const transport = createRouterTransport(({ service }) => {
         service(PersonHogService, {
             getPersonsByDistinctIds: (req) => {
@@ -99,7 +99,7 @@ function createTestPersonHogReadRepository(persons: TestPerson[]): PersonHogRead
     })
 
     const client = PersonHogClient.fromTransport(transport)
-    return new PersonHogReadRepository(client, 'test')
+    return new PersonHogPersonReadRepository(client, 'test')
 }
 
 const TEAM_1 = 1
@@ -147,12 +147,12 @@ describe('PersonsManagerService', () => {
         hasAvailableFeature: jest.fn().mockResolvedValue(true),
     } as any
 
-    let repo: PersonHogReadRepository
+    let repo: PersonHogPersonReadRepository
     let manager: PersonsManagerService
 
     beforeEach(() => {
         jest.restoreAllMocks()
-        repo = createTestPersonHogReadRepository(TEST_PERSONS)
+        repo = createTestPersonHogPersonReadRepository(TEST_PERSONS)
         manager = new PersonsManagerService(mockTeamManager, repo, 'http://localhost:8000')
     })
 
@@ -199,7 +199,7 @@ describe('PersonsManagerService', () => {
                     distinctIds: ['foo:bar:distinct_id_B_1'],
                 },
             ]
-            const colonRepo = createTestPersonHogReadRepository(personsWithColons)
+            const colonRepo = createTestPersonHogPersonReadRepository(personsWithColons)
             const colonManager = new PersonsManagerService(mockTeamManager, colonRepo, 'http://localhost:8000')
 
             const res = await Promise.all([
@@ -254,7 +254,7 @@ describe('PersonsManagerService', () => {
                     distinctIds: ['user@example.com'],
                 },
             ]
-            const emailRepo = createTestPersonHogReadRepository(personsWithEmail)
+            const emailRepo = createTestPersonHogPersonReadRepository(personsWithEmail)
             const emailManager = new PersonsManagerService(mockTeamManager, emailRepo, 'http://localhost:8000')
 
             const result = await emailManager.getCyclotronPerson(TEAM_1, 'user@example.com', 'distinct_id')
@@ -310,7 +310,7 @@ describe('PersonsManagerService', () => {
                 })
             })
             const failingClient = PersonHogClient.fromTransport(failingTransport)
-            const failingRepo = new PersonHogReadRepository(failingClient, 'test')
+            const failingRepo = new PersonHogPersonReadRepository(failingClient, 'test')
             const failingManager = new PersonsManagerService(mockTeamManager, failingRepo, 'http://localhost:8000')
 
             await expect(failingManager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id')).rejects.toThrow()

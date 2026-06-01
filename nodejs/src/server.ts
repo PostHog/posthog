@@ -31,7 +31,7 @@ import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfi
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, createPersonHogClient } from './ingestion/personhog'
-import { PersonHogReadRepository } from './ingestion/personhog/personhog-read-repository'
+import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -378,7 +378,7 @@ export class PluginServer implements NodeServer {
             throw new Error('PersonHog client is required for CDP — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR')
         }
 
-        const personRepository = new PersonHogReadRepository(personhogClient, clientLabel)
+        const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
 
         // Groups still use the old rollout-based repository for now
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
