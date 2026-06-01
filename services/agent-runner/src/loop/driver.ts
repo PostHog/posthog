@@ -74,6 +74,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
+import type { OpenedMcp } from './mcp-clients'
 import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
@@ -155,6 +156,14 @@ export interface RunSessionDeps {
         client: GatewayClient
         phc: string
     }
+    /**
+     * Opened MCP clients (one per entry in `rev.spec.mcps[]`). Forwarded
+     * straight into `AgentToolDeps`; `buildAgentTools` walks them at session
+     * start to emit one `AgentTool` per remote tool. Lifetime is owned by
+     * the worker (`openMcpClients` before `runSession`, `close` in the
+     * worker's `finally`). Absent or empty → no MCP tools surface.
+     */
+    mcpClients?: OpenedMcp[]
 }
 
 export type RunOutcome =
@@ -273,6 +282,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             memoryStore: deps.memoryStore,
             dispatchClientTool,
             credentialBroker: deps.credentialBroker,
+            mcpClients: deps.mcpClients,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 

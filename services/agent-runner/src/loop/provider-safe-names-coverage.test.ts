@@ -103,6 +103,48 @@ describe('sanitizeOutboundContext (worst-case fixture)', () => {
         expect(assistant.content.find((b) => b.type === 'toolCall')?.id).toBe('call_1')
     })
 
+    it('leaves MCP-prefixed names <prefix>__<toolname> unchanged through sanitization', () => {
+        // The runtime-mcps surface produces tool names like `linear__create-issue`.
+        // Every character in that pattern (lowercase, `_`, `-`) is already in
+        // the safe charset, so the sanitizer must be idempotent here — if a
+        // future change accidentally widens what gets rewritten, this fails
+        // and we catch it before MCP tool calls start echoing mangled names.
+        const MCP_ORIGINAL = 'linear__create-issue'
+        const out = sanitizeOutboundContext({
+            systemPrompt: 'mcp test',
+            tools: [
+                {
+                    name: MCP_ORIGINAL,
+                    description: 'create a Linear issue',
+                    parameters: { type: 'object' as const, properties: {} },
+                },
+            ],
+            messages: [
+                {
+                    role: 'assistant',
+                    content: [{ type: 'toolCall', id: 'call_m', name: MCP_ORIGINAL, arguments: {} }],
+                    api: 'openai-completions',
+                    model: 'gpt-4o',
+                    provider: 'openai',
+                    stopReason: 'toolUse',
+                    timestamp: 1,
+                } as unknown as Message,
+                {
+                    role: 'toolResult',
+                    toolCallId: 'call_m',
+                    toolName: MCP_ORIGINAL,
+                    content: [{ type: 'text', text: '{}' }],
+                    isError: false,
+                    timestamp: 2,
+                } as unknown as Message,
+            ],
+        })
+        expect(out.tools?.[0].name).toBe(MCP_ORIGINAL)
+        const call = (out.messages?.[0] as unknown as { content: Array<{ name?: string }> }).content[0]
+        expect(call.name).toBe(MCP_ORIGINAL)
+        expect((out.messages?.[1] as unknown as { toolName?: string }).toolName).toBe(MCP_ORIGINAL)
+    })
+
     it('leaves non-tool messages untouched (defensive)', () => {
         const out = sanitizeOutboundContext({
             systemPrompt: '',
@@ -140,6 +182,30 @@ describe('translateAssistantNamesBack', () => {
         )
         const call = out.content.find((b) => b.type === 'toolCall') as { name: string }
         expect(call.name).toBe('@posthog/query')
+    })
+
+    it('maps an MCP-prefixed safe name back to itself (identity)', () => {
+        // The safe form == the original for `<prefix>__<remoteName>` patterns,
+        // but the lookup is still keyed by the safe form so a future change
+        // to provider-safe-names that introduces a transform won't strand
+        // MCP tools without a mapping.
+        const MCP_ID = 'linear__create-issue'
+        const safeToOriginal = new Map([[MCP_ID, MCP_ID]])
+        const out = translateAssistantNamesBack(
+            {
+                role: 'assistant',
+                content: [{ type: 'toolCall', id: 'c', name: MCP_ID, arguments: {} } as unknown],
+                api: 'openai-completions',
+                model: 'gpt-4o',
+                provider: 'openai',
+                stopReason: 'toolUse',
+                timestamp: 0,
+                usage: { input: 0, output: 0, totalTokens: 0, cacheRead: 0, cacheWrite: 0, cost: {} },
+            } as unknown as AssistantMessage,
+            safeToOriginal
+        )
+        const call = out.content.find((b) => b.type === 'toolCall') as { name: string }
+        expect(call.name).toBe(MCP_ID)
     })
 
     it('leaves unknown names unchanged (faux provider echoes original verbatim)', () => {

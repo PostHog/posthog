@@ -6,16 +6,22 @@ import {
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
     InProcessSandboxPool,
+    McpRef,
     MemoryBundleStore,
     ToolRefSchema,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
+import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 
 type ToolRefInput = z.input<typeof ToolRefSchema>
 
-function makeRev(toolRefs: ToolRefInput[], skills: AgentRevision['spec']['skills'] = []): AgentRevision {
+function makeRev(
+    toolRefs: ToolRefInput[],
+    skills: AgentRevision['spec']['skills'] = [],
+    mcps: McpRef[] = []
+): AgentRevision {
     return {
         id: 'rev1',
         application_id: 'app1',
@@ -25,8 +31,60 @@ function makeRev(toolRefs: ToolRefInput[], skills: AgentRevision['spec']['skills
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills }),
+        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills, mcps }),
     }
+}
+
+/**
+ * Stub `OpenedMcp` over an in-process tool table — fast, deterministic, and
+ * keeps these tests focused on the adapter logic. PR 2's `mcp-clients.test.ts`
+ * already exercises the real SDK round-trip via `InMemoryTransport`.
+ */
+function makeFakeMcp(
+    prefix: string,
+    ref: McpRef,
+    handlers: Record<
+        string,
+        { description: string; inputSchema?: unknown; handler: (args: Record<string, unknown>) => Promise<unknown> }
+    >
+): OpenedMcp {
+    const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+    const opened: OpenedMcp & { calls: typeof calls } = {
+        prefix,
+        ref,
+        listTools: async () => {
+            const out: RemoteMcpTool[] = []
+            for (const [name, h] of Object.entries(handlers)) {
+                out.push({ name, description: h.description, inputSchema: h.inputSchema ?? { type: 'object' } })
+            }
+            return out
+        },
+        callTool: async (name, args) => {
+            calls.push({ name, args })
+            const h = handlers[name]
+            if (!h) {
+                return {
+                    content: [{ type: 'text' as const, text: `unknown_tool: ${name}` }],
+                    isError: true,
+                }
+            }
+            try {
+                const result = await h.handler(args)
+                return {
+                    content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+                    structuredContent: result as Record<string, unknown>,
+                }
+            } catch (err) {
+                return {
+                    content: [{ type: 'text' as const, text: (err as Error).message }],
+                    isError: true,
+                }
+            }
+        },
+        close: async () => undefined,
+        calls,
+    }
+    return opened
 }
 
 function makeSession(): AgentSession {
@@ -193,5 +251,145 @@ describe('buildAgentTools', () => {
         const tool = byId(built, 'fetch-acme')
         expect(tool.description).toBe('Fetch from Acme')
         expect(tool.parameters).toEqual({ type: 'object', properties: { name: { type: 'string' } } })
+    })
+
+    describe('mcp tools', () => {
+        it('emits one AgentTool per remote tool, name-prefixed with the client prefix', async () => {
+            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },
+                'list-issues': { description: 'List recent Linear issues.', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            const names = built.tools.map((t) => t.label).sort()
+            expect(names).toContain('linear__create-issue')
+            expect(names).toContain('linear__list-issues')
+        })
+
+        it('filters remote tools through ref.allowlist (empty/omitted = expose all)', async () => {
+            const ref: McpRef = {
+                kind: 'external',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                allowlist: ['list-issues'],
+            }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },
+                'list-issues': { description: 'List recent Linear issues.', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            const names = built.tools.map((t) => t.label)
+            expect(names).toContain('linear__list-issues')
+            expect(names).not.toContain('linear__create-issue')
+        })
+
+        it('uses the slug as the prefix for kind: agent', async () => {
+            const ref: McpRef = { kind: 'agent', slug: 'weekly-digest' }
+            const mcp = makeFakeMcp('weekly-digest', ref, {
+                ask: { description: 'Ask the weekly-digest agent.', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            expect(built.tools.map((t) => t.label)).toContain('weekly-digest__ask')
+        })
+
+        it('execute dispatches through the open client and surfaces structured output', async () => {
+            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': {
+                    description: 'Open a new Linear issue.',
+                    handler: async (args) => ({ id: 'ISS-42', title: args.title }),
+                },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            const result = await byId(built, 'linear__create-issue').execute('c1', { title: 'fix the thing' })
+            // Content stringifies the raw MCP envelope — matches the wire shape
+            // every other tool source produces.
+            expect(typeof (result.content[0] as { text?: string }).text).toBe('string')
+            // The structured envelope lives on details.output for spans/analytics.
+            const envelope = result.details.output as { structuredContent?: { id?: string; title?: string } }
+            expect(envelope.structuredContent?.id).toBe('ISS-42')
+            expect(envelope.structuredContent?.title).toBe('fix the thing')
+        })
+
+        it('execute throws when the remote returns isError so the loop renders an error tool_result', async () => {
+            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': {
+                    description: 'Open a new Linear issue.',
+                    handler: async () => {
+                        throw new Error('remote_blew_up')
+                    },
+                },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            await expect(byId(built, 'linear__create-issue').execute('c1', {})).rejects.toThrow('remote_blew_up')
+        })
+
+        it('skips a remote tool whose prefixed name collides with an already-built tool', async () => {
+            // Custom tool `linear__create-issue` plus an MCP `linear` exposing
+            // `create-issue` would collapse to the same exposed id. We keep
+            // the first one (the custom tool) and silently skip the duplicate
+            // — matches the dup-id semantics of spec.tools[].
+            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': { description: 'Open a Linear issue.', handler: async () => ({}) },
+            })
+            const rev = makeRev(
+                [{ kind: 'custom', id: 'linear__create-issue', path: 'tools/linear-create-issue/' }],
+                [],
+                [ref]
+            )
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            const matches = built.tools.filter((t) => t.label === 'linear__create-issue')
+            expect(matches).toHaveLength(1)
+            // The first registration wins — the custom one, which routes through
+            // the (absent) sandbox.
+            await expect(matches[0].execute('c1', {})).rejects.toThrow(/requires a sandbox/)
+        })
+
+        it('walks multiple opened clients and surfaces all their tools', async () => {
+            const linearRef: McpRef = {
+                kind: 'external',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+            }
+            const githubRef: McpRef = {
+                kind: 'external',
+                id: 'github',
+                url: 'https://example.com/github',
+                secrets: [],
+            }
+            const linear = makeFakeMcp('linear', linearRef, {
+                'create-issue': { description: 'd', handler: async () => ({}) },
+            })
+            const github = makeFakeMcp('github', githubRef, {
+                'create-issue': { description: 'd', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [linearRef, githubRef])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [linear, github] }))
+            const names = built.tools.map((t) => t.label).sort()
+            expect(names).toContain('linear__create-issue')
+            expect(names).toContain('github__create-issue')
+        })
+
+        it('keeps the provider-safe name map keyed by the prefixed id', async () => {
+            const ref: McpRef = { kind: 'external', id: 'linear', url: 'https://example.com/linear', secrets: [] }
+            const mcp = makeFakeMcp('linear', ref, {
+                'create-issue': { description: 'd', handler: async () => ({}) },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            // `__` and `-` are both already in the safe charset, so the safe
+            // form is identical to the original. The map still includes it so
+            // the streamFn's reverse lookup is consistent.
+            expect(built.nameToId.get('linear__create-issue')).toBe('linear__create-issue')
+        })
     })
 })
