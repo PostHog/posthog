@@ -212,14 +212,26 @@ export function isRenderHandler<A, R>(h: ClientToolHandler<A, R>): h is ClientTo
  * successful navigation the host also refetches its data so pages
  * already on the target URL pick up changes the agent just made.
  */
+/**
+ * Each variant accepts an optional `slug` so the agent can target ANY
+ * agent from anywhere (e.g. the dock is on the agent-list page, no
+ * page-level subject). When omitted, the host falls back to the dock
+ * context's current agent — convenient on per-agent pages but
+ * undefined on `agent-list` / `unknown`.
+ */
 export type FocusArgs =
-    // Tab values mirror the actual AgentDetail tab set. The host's
-    // `urlForFocus` translates each into a `?tab=…` URL.
-    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory' }
-    | { kind: 'file'; path: string }
-    | { kind: 'revision'; revisionId: string }
-    | { kind: 'session'; sessionId: string }
-    | { kind: 'spec_section'; section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' }
+    // Tab values mirror the actual agent-detail segment set under
+    // `app/agents/[slug]/`. The host's `urlForFocus` composes the
+    // matching path-based route.
+    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory'; slug?: string }
+    | { kind: 'file'; path: string; slug?: string }
+    | { kind: 'revision'; revisionId: string; slug?: string }
+    | { kind: 'session'; sessionId: string; slug?: string }
+    | {
+          kind: 'spec_section'
+          section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'
+          slug?: string
+      }
 
 export type FocusResult = { focused: true; kind: FocusArgs['kind'] } | { focused: false; reason: string }
 

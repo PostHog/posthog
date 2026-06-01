@@ -127,7 +127,10 @@ function asTransportError(err: Error | null): TransportError | null {
  * by each segment's page comment, see e.g. configuration/page.tsx.
  */
 function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string | null {
-    const slug = contextSlug
+    // The agent can override the dock's current subject by passing
+    // `args.slug` — necessary when the dock is on a page with no agent
+    // (agent-list, unknown). Dock context is the fallback.
+    const slug = args.slug ?? contextSlug
     if (!slug) {
         return null
     }
@@ -168,10 +171,11 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
             // an actionable message instead of a generic "unresolved" —
             // the previous catch-all was indistinguishable from a real
             // failure in the chat UI.
-            if (!contextSlug) {
-                return { focused: false, reason: 'no_agent_in_dock_context' }
+            const effectiveSlug = args.slug ?? contextSlug
+            if (!effectiveSlug) {
+                return { focused: false, reason: 'no_agent_target — pass `slug` or invoke from an agent page' }
             }
-            const url = urlForFocus(args, contextSlug)
+            const url = urlForFocus(args, effectiveSlug)
             if (!url) {
                 return { focused: false, reason: `unsupported_focus_kind:${args.kind}` }
             }
@@ -187,15 +191,23 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
         return [
             {
                 id: 'focus_tab',
-                handle: (a: { tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory' }) =>
-                    dispatch({ kind: 'tab', ...a }),
+                handle: (a: {
+                    tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory'
+                    slug?: string
+                }) => dispatch({ kind: 'tab', ...a }),
             },
-            { id: 'focus_file', handle: (a: { path: string }) => dispatch({ kind: 'file', ...a }) },
-            { id: 'focus_revision', handle: (a: { revisionId: string }) => dispatch({ kind: 'revision', ...a }) },
-            { id: 'focus_session', handle: (a: { sessionId: string }) => dispatch({ kind: 'session', ...a }) },
+            { id: 'focus_file', handle: (a: { path: string; slug?: string }) => dispatch({ kind: 'file', ...a }) },
+            {
+                id: 'focus_revision',
+                handle: (a: { revisionId: string; slug?: string }) => dispatch({ kind: 'revision', ...a }),
+            },
+            {
+                id: 'focus_session',
+                handle: (a: { sessionId: string; slug?: string }) => dispatch({ kind: 'session', ...a }),
+            },
             {
                 id: 'focus_spec_section',
-                handle: (a: { section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' }) =>
+                handle: (a: { section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'; slug?: string }) =>
                     dispatch({ kind: 'spec_section', ...a }),
             },
         ] as unknown as ClientToolHandler<FocusArgs, FocusResult>[]
@@ -229,7 +241,12 @@ function useToolSummaryRenderer(
             if (!target) {
                 return null
             }
-            const url = contextSlug ? urlForFocusToolId(part.toolId, part.args, contextSlug) : null
+            // Same precedence as the dispatcher — args.slug wins so the
+            // inline link points at the actual focus target even when
+            // the dock context has no current agent (e.g. agent list).
+            const argSlug = typeof part.args.slug === 'string' ? part.args.slug : null
+            const effectiveSlug = argSlug ?? contextSlug
+            const url = effectiveSlug ? urlForFocusToolId(part.toolId, part.args, effectiveSlug) : null
             const failed = part.result !== undefined && !part.result.ok
             const errorText = failed && part.result && !part.result.ok ? part.result.error : null
 

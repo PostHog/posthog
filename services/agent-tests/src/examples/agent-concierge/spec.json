@@ -30,11 +30,15 @@
         {
             "kind": "client",
             "id": "focus_tab",
-            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console — degrade to text.",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. Pass `slug` when the user isn't already on an agent page — without it the host falls back to whichever agent the dock is currently anchored to (and fails with `no_agent_target` from the agents list / unknown pages). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console — degrade to text.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "tab": { "enum": ["overview", "configuration", "connections", "sessions", "memory"] }
+                    "tab": { "enum": ["overview", "configuration", "connections", "sessions", "memory"] },
+                    "slug": {
+                        "type": "string",
+                        "description": "Optional agent slug. Required when the dock isn't already on a specific agent's page."
+                    }
                 },
                 "required": ["tab"],
                 "additionalProperties": false
@@ -43,11 +47,15 @@
         {
             "kind": "client",
             "id": "focus_file",
-            "description": "Open one bundle file in the configuration panel. Use BEFORE reading the file. Path is bundle-relative, e.g. 'agent.md' or 'skills/research.md'.",
+            "description": "Open one bundle file in the configuration panel. Use BEFORE reading the file. Path is bundle-relative, e.g. 'agent.md' or 'skills/research.md'. Pass `slug` when the user isn't already on the target agent's page.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string" }
+                    "path": { "type": "string" },
+                    "slug": {
+                        "type": "string",
+                        "description": "Optional agent slug. Required when the dock isn't already on a specific agent's page."
+                    }
                 },
                 "required": ["path"],
                 "additionalProperties": false
@@ -56,11 +64,15 @@
         {
             "kind": "client",
             "id": "focus_revision",
-            "description": "Open one revision in the configuration panel. Use BEFORE inspecting / diffing a revision. Pass the full revision UUID.",
+            "description": "Open one revision in the configuration panel. Use BEFORE inspecting / diffing a revision. Pass the full revision UUID. Pass `slug` when the user isn't already on the target agent's page.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "revisionId": { "type": "string" }
+                    "revisionId": { "type": "string" },
+                    "slug": {
+                        "type": "string",
+                        "description": "Optional agent slug. Required when the dock isn't already on a specific agent's page."
+                    }
                 },
                 "required": ["revisionId"],
                 "additionalProperties": false
@@ -69,11 +81,15 @@
         {
             "kind": "client",
             "id": "focus_session",
-            "description": "Open one session in the sessions panel. Use BEFORE fetching its conversation / event log. Pass the full session UUID — do NOT call without one.",
+            "description": "Open one session in the sessions panel. Use BEFORE fetching its conversation / event log. Pass the full session UUID — do NOT call without one. Pass `slug` when the user isn't already on the target agent's page.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "sessionId": { "type": "string" }
+                    "sessionId": { "type": "string" },
+                    "slug": {
+                        "type": "string",
+                        "description": "Optional agent slug. Required when the dock isn't already on a specific agent's page."
+                    }
                 },
                 "required": ["sessionId"],
                 "additionalProperties": false
@@ -82,11 +98,15 @@
         {
             "kind": "client",
             "id": "focus_spec_section",
-            "description": "Jump to one section of the agent's spec in the configuration panel: triggers, tools, skills, secrets, limits.",
+            "description": "Jump to one section of the agent's spec in the configuration panel: triggers, tools, skills, secrets, limits. Pass `slug` when the user isn't already on the target agent's page.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "section": { "enum": ["triggers", "tools", "skills", "secrets", "limits"] }
+                    "section": { "enum": ["triggers", "tools", "skills", "secrets", "limits"] },
+                    "slug": {
+                        "type": "string",
+                        "description": "Optional agent slug. Required when the dock isn't already on a specific agent's page."
+                    }
                 },
                 "required": ["section"],
                 "additionalProperties": false
