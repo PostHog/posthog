@@ -50,7 +50,18 @@ const INPUT_TYPE_LIST = [
     'integration',
     'email',
     'native_email',
+    'non_failure_status_codes',
 ] as const
+
+const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
+
+function isValidNonFailureStatusCode(entry: string): boolean {
+    if (/^[1-5]xx$/i.test(entry)) {
+        return true
+    }
+    const n = Number(entry)
+    return Number.isInteger(n) && n >= 100 && n <= 599
+}
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
@@ -473,6 +484,46 @@ type CyclotronJobInputProps = {
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
+function NonFailureStatusCodesField({
+    value,
+    onChange,
+    disabled,
+}: {
+    value: unknown
+    onChange: (value: Array<number | string>) => void
+    disabled?: boolean
+}): JSX.Element {
+    const current: string[] = Array.isArray(value) ? value.map((v) => String(v)) : []
+    const invalid = current.filter((v) => !isValidNonFailureStatusCode(v))
+
+    return (
+        <div className="deprecated-space-y-1">
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                value={current}
+                onChange={(next) => {
+                    const normalized: Array<number | string> = next.map((entry) => {
+                        const trimmed = entry.trim()
+                        const n = Number(trimmed)
+                        return /^[1-5]xx$/i.test(trimmed) ? trimmed.toLowerCase() : Number.isInteger(n) ? n : trimmed
+                    })
+                    onChange(normalized)
+                }}
+                options={NON_FAILURE_STATUS_CODE_SUGGESTIONS.map((v) => ({ key: v, label: v }))}
+                placeholder="e.g. 4xx, 400, 429"
+                disabled={disabled}
+            />
+            {invalid.length > 0 && (
+                <div className="text-xs text-danger">
+                    Invalid {invalid.length === 1 ? 'entry' : 'entries'}: {invalid.join(', ')}. Use a number between 100
+                    and 599 or a wildcard like <code>4xx</code>.
+                </div>
+            )}
+        </div>
+    )
+}
+
 function CyclotronJobInputRenderer({
     onChange,
     onInputChange,
@@ -588,6 +639,8 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
+        case 'non_failure_status_codes':
+            return <NonFailureStatusCodesField value={input.value} onChange={onValueChange} disabled={disabled} />
         default: {
             const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
             if (CustomRenderer) {
