@@ -165,6 +165,7 @@ class RulesCommand:
         "deprecated_default_repo",
         "project_show",
         "project_set",
+        "project_set_workspace",
     ]
     rule_text: str | None = None
     repository: str | None = None
@@ -764,6 +765,14 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
         numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
         if numbers:
             return RulesCommand(action="remove", rule_numbers=numbers)
+
+    # `project workspace <id>` sets the workspace-wide default and must be tested
+    # before the generic `project` branch. Trailing text after the id is ignored.
+    project_workspace_match = re.fullmatch(
+        r"project\s+workspace\s+(\d+)(?:\s+.*)?", cleaned, flags=re.IGNORECASE | re.DOTALL
+    )
+    if project_workspace_match is not None:
+        return RulesCommand(action="project_set_workspace", project_team_id=int(project_workspace_match.group(1)))
 
     # Trailing text after the id is tolerated but ignored — we only act on the id.
     project_match = re.fullmatch(r"project(?:\s+(\d+)(?:\s+.*)?)?", cleaned, flags=re.IGNORECASE | re.DOTALL)

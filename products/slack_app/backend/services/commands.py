@@ -20,6 +20,7 @@ def _handle_help(slack: SlackIntegration, channel: str, thread_ts: str) -> None:
             "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
             "`@PostHog project` — Show which PostHog project your mentions route to in this workspace\n"
             "`@PostHog project <id>` — Set the PostHog project your mentions route to in this workspace\n"
+            "`@PostHog project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)\n"
             "`@PostHog help` — Show this message\n\n"
             "You can also reply in an active thread to send follow-up messages to the agent."
         ),
@@ -272,6 +273,85 @@ def _handle_project_set(
     )
 
 
+def _handle_project_set_workspace(
+    slack: SlackIntegration,
+    integration: Integration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    user_id: int,
+    target_team_id: int,
+    workspace_candidates: list[Integration] | None = None,
+) -> None:
+    """Set the workspace-wide default project (the ``slack_user_id IS NULL`` row),
+    which applies to every Slack user in the workspace without a personal default.
+    Restricted to Slack workspace admins and owners.
+    """
+    from posthog.models.user import User
+
+    from products.slack_app.backend.api import _get_slack_user_info
+    from products.slack_app.backend.models import SlackSettings
+
+    user_info = _get_slack_user_info(slack, integration, slack_user_id)
+    slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
+    if not (slack_user.get("is_admin") or slack_user.get("is_owner")):
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Only Slack workspace admins or owners can set the workspace-wide default project.",
+        )
+        return
+
+    user = User.objects.get(id=user_id)
+    if not user.teams.filter(id=target_team_id).exists():
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=f"You don't have access to project `{target_team_id}`.",
+        )
+        return
+
+    if workspace_candidates is not None:
+        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
+    else:
+        target = (
+            Integration.objects.filter(
+                kind="slack",
+                integration_id=slack_workspace_id,
+                team_id=target_team_id,
+            )
+            .select_related("team", "team__organization")
+            .first()
+        )
+    if target is None:
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
+        )
+        return
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=None,
+        defaults={"default_integration": target},
+    )
+    slack.client.chat_postEphemeral(
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"Workspace-wide default set to *{target.team.organization.name} · {target.team.name}* "
+            f"(id `{target.team_id}`). Mentions from anyone without a personal default "
+            "(`@PostHog project <id>`) now route here."
+        ),
+    )
+
+
 def resolve_command_target(
     *,
     slack_team_id: str,
@@ -304,9 +384,9 @@ def resolve_command_target(
         return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])
 
     # Workspace-level commands don't act on team data: ``help`` posts static
-    # text, and ``project_show``/``project_set`` enforce access inside the
-    # handler. They run against any workspace integration as a probe.
-    if command.action in ("project_show", "project_set", "help"):
+    # text, and ``project_*`` commands enforce access inside the handler. They
+    # run against any workspace integration as a probe.
+    if command.action in ("project_show", "project_set", "project_set_workspace", "help"):
         return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
 
     # Team-scoped commands (``list``/``add``/``remove``) must go through the
@@ -376,6 +456,20 @@ def dispatch_rules_command(
             return
         _handle_project_set(
             slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            user_id,
+            command.project_team_id,
+            workspace_candidates=workspace_candidates,
+        )
+    elif command.action == "project_set_workspace":
+        if command.project_team_id is None:
+            return
+        _handle_project_set_workspace(
+            slack,
+            integration,
             channel,
             thread_ts,
             slack_user_id,
