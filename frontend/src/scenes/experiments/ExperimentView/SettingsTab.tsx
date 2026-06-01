@@ -15,19 +15,13 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
-import {
-    DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
-    getSequentialSelection,
-    resolveSequentialEnabled,
-    resolveSequentialTuningParameter,
-} from './sequential'
-import { SequentialTestingModal } from './SequentialTestingModal'
+import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
     const { updateExperimentSettings } = useActions(experimentLogic)
-    const { openStatsEngineModal, openCupedModal, openSequentialTestingModal } = useActions(modalsLogic)
+    const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
@@ -48,16 +42,9 @@ export function SettingsTab(): JSX.Element {
     )
 
     const teamDefaultSequentialEnabled = experimentsConfig?.default_sequential_testing_enabled ?? false
-    const teamDefaultSequentialTuningParameter = experimentsConfig?.default_sequential_tuning_parameter ?? null
-    const sequentialExplicitlySet = getSequentialSelection(experiment.stats_config?.frequentist) !== 'default'
     const sequentialEnabled = resolveSequentialEnabled(
         experiment.stats_config?.frequentist,
         teamDefaultSequentialEnabled
-    )
-    const sequentialTuningParameter = resolveSequentialTuningParameter(
-        experiment.stats_config?.frequentist,
-        teamDefaultSequentialTuningParameter,
-        DEFAULT_SEQUENTIAL_TUNING_PARAMETER
     )
 
     const returnTo = urls.experiment(experiment.id)
@@ -72,6 +59,7 @@ export function SettingsTab(): JSX.Element {
                 <div className="flex items-center gap-2">
                     <span>
                         {isBayesian ? 'Bayesian' : 'Frequentist'} / {confidenceDisplay}
+                        {!isBayesian && sequentialEnabled && ' · Sequential testing'}
                     </span>
                     <LemonButton type="secondary" size="xsmall" icon={<IconPencil />} onClick={openStatsEngineModal} />
                 </div>
@@ -106,42 +94,6 @@ export function SettingsTab(): JSX.Element {
                         )}
                     </p>
                     <CupedModal />
-                </div>
-            )}
-            {!isBayesian && (
-                <div>
-                    <h2 className="font-semibold text-lg">Sequential testing</h2>
-                    <div className="flex items-center gap-2">
-                        <LemonTag type={sequentialEnabled ? 'success' : 'default'}>
-                            {sequentialEnabled ? 'Enabled' : 'Disabled'}
-                        </LemonTag>
-                        {sequentialEnabled && <span>Tuning parameter: {sequentialTuningParameter}</span>}
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconPencil />}
-                            onClick={openSequentialTestingModal}
-                        />
-                    </div>
-                    <p className="text-muted text-xs mt-1">
-                        Always-valid p-values that are robust to peeking. Intervals are wider, but you can check the
-                        experiment as often as you want.{' '}
-                        {!sequentialExplicitlySet && (
-                            <>
-                                Default is set in{' '}
-                                <Link
-                                    to={urls.settings(
-                                        'environment-experiments',
-                                        'environment-experiment-sequential-testing-enabled'
-                                    )}
-                                >
-                                    environment settings
-                                </Link>
-                                .
-                            </>
-                        )}
-                    </p>
-                    <SequentialTestingModal />
                 </div>
             )}
             <div>
