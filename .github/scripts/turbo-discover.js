@@ -14,11 +14,15 @@
 // Durations come from .test_durations (maintained by pytest-split).
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
+//         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
+//         is false, schema-impact.js narrows the matrix to products that
+//         depend on the affected posthog.schema types.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
+const { analyzeSchemaImpact } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -314,6 +318,7 @@ function buildMatrix(products, durations) {
 // --- Main ---
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
+const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
 
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
@@ -375,6 +380,30 @@ if (legacyChanged) {
         console.error('No product changes detected')
         products = []
         runLegacy = false
+    }
+
+    if (schemaChanged) {
+        const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
+        console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
+        if (impact.kind === 'fallback') {
+            console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
+            products = allProducts
+            runLegacy = true
+        } else {
+            if (impact.kind === 'impacting') {
+                console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+                    console.error(
+                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+                    )
+                }
+                products = [...new Set([...products, ...impact.affectedProducts])].sort()
+            } else {
+                console.error('Schema change is purely additive — no extra products needed')
+            }
+            // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
+            runLegacy = true
+        }
     }
 }
 

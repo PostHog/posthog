@@ -3025,16 +3025,16 @@ wheels = [
 
 [[package]]
 name = "hogql-parser-rs"
-version = "1.3.81"
+version = "1.3.82"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/c6/63/fd42a45e67192ee549753522974b07ed0b379db6a7f618089a11be812279/hogql_parser_rs-1.3.81.tar.gz", hash = "sha256:8480ea04f3a36539540c4ec0ae454908874881b54aa9ed8d7f1734bc64c20afb", size = 280808, upload-time = "2026-05-29T09:42:04.978Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/3f/d9bea06219775097b1dbde1885c6089ce9c9c7c6e6f0c1e30aed6cc3f3d7/hogql_parser_rs-1.3.82.tar.gz", hash = "sha256:b5e13d1467060ffd4a26430177a9abfeb760fd2cabef19641960f3c5d9191296", size = 280827, upload-time = "2026-05-29T14:42:51.978Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/37/72fe3743427d19353c242c40f17a5bf56723e4f145a6ef0d44d12ac75e74/hogql_parser_rs-1.3.81-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f609d9e80c5644062b2c0cf810801d323fc1ffcee57d1603fc015b50d49580a9", size = 727518, upload-time = "2026-05-29T09:41:54.677Z" },
-    { url = "https://files.pythonhosted.org/packages/1e/05/3c485befaaa3f6faecd9c9669c56b31e95a662fd896c789c215ed8cadfa2/hogql_parser_rs-1.3.81-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:2c46e57150a77887e9598fb558b06953f307f08692833222c48935d9c79947ac", size = 685509, upload-time = "2026-05-29T09:41:56.439Z" },
-    { url = "https://files.pythonhosted.org/packages/a7/d5/1dda7641f13c1144ac6c8bb8041adb97ca9e100c07bf57bd08ad2208a4de/hogql_parser_rs-1.3.81-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:12f8c4ce20f3ce6f5fbb7b07b635c80a71cc9146bc6e959aa979c6eb563b3eef", size = 2474357, upload-time = "2026-05-29T09:41:58.016Z" },
-    { url = "https://files.pythonhosted.org/packages/51/00/2b822a49f6078251ab290c08123541dc56e884f83f5ee8a4bd7486dd994c/hogql_parser_rs-1.3.81-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:edbc88076ce9cc97f744fffba36c4eee32f67e2f9bae6d334d62730d6738bb94", size = 2734306, upload-time = "2026-05-29T09:41:59.838Z" },
-    { url = "https://files.pythonhosted.org/packages/4d/ef/4ff4db6253f18b6398adf68296a59cc88f09e0a3cfd295f534e24dcf02d5/hogql_parser_rs-1.3.81-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:fff27c1a03433bf18ac6d8e317a7a8aaee1f428833bd2a6bc2021b42d17a1a66", size = 2646821, upload-time = "2026-05-29T09:42:01.612Z" },
-    { url = "https://files.pythonhosted.org/packages/96/13/43861d5b1bd04bf74400de33b639f09c518844439fdbed4f370d2815b40c/hogql_parser_rs-1.3.81-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:c0c064123b39773e9a5591c5f3c9f275238471404a76a9eeb9560e567eb24b91", size = 2697834, upload-time = "2026-05-29T09:42:03.375Z" },
+    { url = "https://files.pythonhosted.org/packages/79/92/1b03ed83090b947046978bee27e4cd9e34419a5f3eb6024d82f8a685e3f4/hogql_parser_rs-1.3.82-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:7d1417a6d4714d92e691a2e20d5a1486d61a34dddc45265fd0fd3fb9a1400397", size = 727516, upload-time = "2026-05-29T14:42:42.372Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/a2/3a04eba078a02aacf9351825b837e64b68449fcde0568ae3b05e0156b885/hogql_parser_rs-1.3.82-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:1d21ad7cefb74cfadbafd8daa1de72cd774704100e20ec2253fd5aeb24b7d7ba", size = 685383, upload-time = "2026-05-29T14:42:43.941Z" },
+    { url = "https://files.pythonhosted.org/packages/01/46/64b408c7e1021a73656b335983836d45e2e5ad9a072fbaa4fba863d7336f/hogql_parser_rs-1.3.82-cp312-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:dbe6d6680ee528d27f0f6a1374973f7ae9ddd10cab4972f1e9aede68460501e5", size = 2475166, upload-time = "2026-05-29T14:42:45.701Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/ec/42df4f4e9fefbd1dbe8874fb3df9e7328e3bf4e2beb0f3d05a82bf5cb1a7/hogql_parser_rs-1.3.82-cp312-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:63f571fa4a7629133e84e4e5ff22b7f02e85f830cf5520b6f9cdb743410c49f9", size = 2734482, upload-time = "2026-05-29T14:42:47.215Z" },
+    { url = "https://files.pythonhosted.org/packages/80/50/7a4c2dd611414c7fe17e1b6c77bc31bee1583d852c25594906141cc91527/hogql_parser_rs-1.3.82-cp312-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:68298628f3bcccb1ef5557f455af0005f7f6628677f17c9cf23c950acd1264fa", size = 2647339, upload-time = "2026-05-29T14:42:48.965Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/f3/39f0e6ea25221780371fb5a452c7e1a53f4e959e5d997819b4c1bc8ad907/hogql_parser_rs-1.3.82-cp312-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:f62790bb62b0846a0ea421c772f69759d71e4480f1965144f202aaccbd302b62", size = 2696915, upload-time = "2026-05-29T14:42:50.49Z" },
 ]
 
 [[package]]
@@ -5131,21 +5131,21 @@ wheels = [
 
 [[package]]
 name = "playwright"
-version = "1.54.0"
+version = "1.60.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "greenlet" },
     { name = "pyee" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f3/09/33d5bfe393a582d8dac72165a9e88b274143c9df411b65ece1cc13f42988/playwright-1.54.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:bf3b845af744370f1bd2286c2a9536f474cc8a88dc995b72ea9a5be714c9a77d", size = 40439034, upload-time = "2025-07-22T13:58:04.816Z" },
-    { url = "https://files.pythonhosted.org/packages/e1/7b/51882dc584f7aa59f446f2bb34e33c0e5f015de4e31949e5b7c2c10e54f0/playwright-1.54.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:780928b3ca2077aea90414b37e54edd0c4bbb57d1aafc42f7aa0b3fd2c2fac02", size = 38702308, upload-time = "2025-07-22T13:58:08.211Z" },
-    { url = "https://files.pythonhosted.org/packages/73/a1/7aa8ae175b240c0ec8849fcf000e078f3c693f9aa2ffd992da6550ea0dff/playwright-1.54.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:81d0b6f28843b27f288cfe438af0a12a4851de57998009a519ea84cee6fbbfb9", size = 40439037, upload-time = "2025-07-22T13:58:11.37Z" },
-    { url = "https://files.pythonhosted.org/packages/34/a9/45084fd23b6206f954198296ce39b0acf50debfdf3ec83a593e4d73c9c8a/playwright-1.54.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:09919f45cc74c64afb5432646d7fef0d19fff50990c862cb8d9b0577093f40cc", size = 45920135, upload-time = "2025-07-22T13:58:14.494Z" },
-    { url = "https://files.pythonhosted.org/packages/02/d4/6a692f4c6db223adc50a6e53af405b45308db39270957a6afebddaa80ea2/playwright-1.54.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:13ae206c55737e8e3eae51fb385d61c0312eeef31535643bb6232741b41b6fdc", size = 45302695, upload-time = "2025-07-22T13:58:18.901Z" },
-    { url = "https://files.pythonhosted.org/packages/72/7a/4ee60a1c3714321db187bebbc40d52cea5b41a856925156325058b5fca5a/playwright-1.54.0-py3-none-win32.whl", hash = "sha256:0b108622ffb6906e28566f3f31721cd57dda637d7e41c430287804ac01911f56", size = 35469309, upload-time = "2025-07-22T13:58:21.917Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/77/8f8fae05a242ef639de963d7ae70a69d0da61d6d72f1207b8bbf74ffd3e7/playwright-1.54.0-py3-none-win_amd64.whl", hash = "sha256:9e5aee9ae5ab1fdd44cd64153313a2045b136fcbcfb2541cc0a3d909132671a2", size = 35469311, upload-time = "2025-07-22T13:58:24.707Z" },
-    { url = "https://files.pythonhosted.org/packages/33/ff/99a6f4292a90504f2927d34032a4baf6adb498dc3f7cf0f3e0e22899e310/playwright-1.54.0-py3-none-win_arm64.whl", hash = "sha256:a975815971f7b8dca505c441a4c56de1aeb56a211290f8cc214eeef5524e8d75", size = 31239119, upload-time = "2025-07-22T13:58:27.56Z" },
+    { url = "https://files.pythonhosted.org/packages/21/f0/832bd9677194908da118064eef20082f2791e3d18215cc6d9391ee2c5a67/playwright-1.60.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:6a8cd0fec171fb3089e95e898c8bc8a6f35dea0b78b399e12fcc19427e91b1d7", size = 43474635, upload-time = "2026-05-18T12:00:31.969Z" },
+    { url = "https://files.pythonhosted.org/packages/59/7b/e1d32ae8a3ed937ec2be3721c5f728b13d731a0b7c6442e0b3bec5094ac0/playwright-1.60.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:39b5420ba6145045b69ced4c5c47d4d9fe5bddfc8ff816c518913afcb25ec7a5", size = 42261327, upload-time = "2026-05-18T12:00:35.638Z" },
+    { url = "https://files.pythonhosted.org/packages/d7/bc/23de499ded6411c188a20c5a0dea6f0cd4ed5d2b3cc6042a5dbd3ed609aa/playwright-1.60.0-py3-none-macosx_11_0_universal2.whl", hash = "sha256:2581d0e6a3392c71f91b27460c7fd093356818dc430f48153896c8aeeaef7705", size = 43474636, upload-time = "2026-05-18T12:00:39.294Z" },
+    { url = "https://files.pythonhosted.org/packages/22/7b/1d679f4fced4ea94efadd17103856d8c565384f68382a1681264e46f5925/playwright-1.60.0-py3-none-manylinux1_x86_64.whl", hash = "sha256:1c2bfae7884fb3fb05b853290eab8f343d524e5016f2f1def702acbbdf14c93e", size = 47467220, upload-time = "2026-05-18T12:00:43.179Z" },
+    { url = "https://files.pythonhosted.org/packages/84/c2/1528d267d4442bd2c6b8eaeab819dd52c2030bf80e89293f0ba1f687473b/playwright-1.60.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:43e66564125ee31b07a58cefb21e256d62d67d8d1713e6858df7a3019d8ed353", size = 47154856, upload-time = "2026-05-18T12:00:46.715Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/4e/b008b6440a7a1624378041da94829956d4b8f7ab9ef5aad22d0dc3f2e26d/playwright-1.60.0-py3-none-win32.whl", hash = "sha256:ec94e416ea320711e0ad4bf185dcbf41833672961e90773e1885255d7db7b7e7", size = 37902157, upload-time = "2026-05-18T12:00:50.374Z" },
+    { url = "https://files.pythonhosted.org/packages/55/f0/0541524133104f9cc20bf900870ff4a736b76a23483f3a55295ddfa58409/playwright-1.60.0-py3-none-win_amd64.whl", hash = "sha256:9566821ce6030a1f9e7146a24e19355ab0d98805fd0f9be50bb3d8fef1750c02", size = 37902159, upload-time = "2026-05-18T12:00:53.728Z" },
+    { url = "https://files.pythonhosted.org/packages/80/c8/210f282d278e4709cdd71b12a31af45a30a22ab3207b387e29b37e478713/playwright-1.60.0-py3-none-win_arm64.whl", hash = "sha256:6e4f6700a4c2250efff8e690a81d66e3855754fb587b6b87cf5c784014f91537", size = 34037981, upload-time = "2026-05-18T12:00:57.584Z" },
 ]
 
 [[package]]
@@ -5440,6 +5440,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pytest-django" },
+    { name = "pytest-durations" },
     { name = "pytest-env" },
     { name = "pytest-icdiff" },
     { name = "pytest-mock" },
@@ -5566,7 +5567,7 @@ requires-dist = [
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
     { name = "hogql-parser", specifier = "==1.3.69" },
-    { name = "hogql-parser-rs", specifier = "==1.3.81" },
+    { name = "hogql-parser-rs", specifier = "==1.3.82" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
     { name = "jsonref", specifier = "==1.1.0" },
@@ -5609,7 +5610,7 @@ requires-dist = [
     { name = "paramiko", specifier = "~=3.5.0" },
     { name = "pillow", specifier = "==12.2.0" },
     { name = "pixelhog", specifier = "~=1.2.0" },
-    { name = "playwright", specifier = "~=1.54.0" },
+    { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthoganalytics", specifier = "==7.13.0" },
     { name = "protobuf", specifier = "~=5.29.6" },
@@ -5706,6 +5707,7 @@ dev = [
     { name = "pytest-asyncio", specifier = "~=1.3.0" },
     { name = "pytest-cov", specifier = "~=7.0.0" },
     { name = "pytest-django", specifier = "~=4.11.1" },
+    { name = "pytest-durations", specifier = "~=1.6.2" },
     { name = "pytest-env", specifier = "~=1.2.0" },
     { name = "pytest-icdiff", specifier = "~=0.9" },
     { name = "pytest-mock", specifier = "~=3.15.1" },
@@ -6420,6 +6422,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/fb/55d580352db26eb3d59ad50c64321ddfe228d3d8ac107db05387a2fadf3a/pytest_django-4.11.1.tar.gz", hash = "sha256:a949141a1ee103cb0e7a20f1451d355f83f5e4a5d07bdd4dcfdd1fd0ff227991", size = 86202, upload-time = "2025-04-03T18:56:09.338Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/ac/bd0608d229ec808e51a21044f3f2f27b9a37e7a0ebaca7247882e67876af/pytest_django-4.11.1-py3-none-any.whl", hash = "sha256:1b63773f648aa3d8541000c26929c1ea63934be1cfa674c76436966d73fe6a10", size = 25281, upload-time = "2025-04-03T18:56:07.678Z" },
+]
+
+[[package]]
+name = "pytest-durations"
+version = "1.6.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/90/fc7a8b7ed69ab4f8b9f08940afcc909085b7f5ae8530335829ad7e45814e/pytest_durations-1.6.2.tar.gz", hash = "sha256:7b197199251b16da06f6facd1ed66922438e732e555b7528e9bfa94a5f361d02", size = 12829, upload-time = "2026-03-13T15:30:30.851Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/8c/470f3732de17b99519abedc71b127e1c10f85a7ac1a62332f61d4f908cc2/pytest_durations-1.6.2-py3-none-any.whl", hash = "sha256:4f5c05367858be9251f170a627695f56680456aa583ce041e6246977b55a89b6", size = 14423, upload-time = "2026-03-13T15:30:29.703Z" },
 ]
 
 [[package]]

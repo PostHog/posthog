@@ -134,6 +134,13 @@ jobs:
                               continue;
                           }
                           const email = (c.commit?.author?.email || '').toLowerCase();
+                          // Skip GitHub noreply addresses (`id+user@users.noreply.github.com`):
+                          // the commit stays attributable to a real account, and it's a
+                          // deliberate "keep my email private" choice on this public repo —
+                          // not a misconfiguration worth nudging about.
+                          if (email.endsWith('@users.noreply.github.com')) {
+                              continue;
+                          }
                           if (email && !email.endsWith('@posthog.com')) {
                               offendingEmails.add(email);
                           }

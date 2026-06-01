@@ -1,7 +1,7 @@
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 import litellm
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 from llm_gateway.api.handler import (
@@ -14,6 +14,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.dependencies import RateLimitedUser
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
+from llm_gateway.request_context import apply_posthog_context_from_headers
 
 openai_router = APIRouter()
 
@@ -67,7 +68,9 @@ async def _handle_responses(
 async def chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
+    apply_posthog_context_from_headers(request)
     return await _handle_chat_completions(body, user)
 
 
@@ -76,8 +79,10 @@ async def chat_completions_with_product(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
+    apply_posthog_context_from_headers(request)
     return await _handle_chat_completions(body, user, product=product)
 
 
@@ -85,7 +90,9 @@ async def chat_completions_with_product(
 async def responses_v1(
     body: ResponsesRequest,
     user: RateLimitedUser,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
+    apply_posthog_context_from_headers(request)
     return await _handle_responses(body, user)
 
 
@@ -94,8 +101,10 @@ async def responses_v1_with_product(
     body: ResponsesRequest,
     user: RateLimitedUser,
     product: str,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
+    apply_posthog_context_from_headers(request)
     return await _handle_responses(body, user, product=product)
 
 
@@ -103,7 +112,9 @@ async def responses_v1_with_product(
 async def responses(
     body: ResponsesRequest,
     user: RateLimitedUser,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
+    apply_posthog_context_from_headers(request)
     return await _handle_responses(body, user)
 
 
@@ -112,8 +123,10 @@ async def responses_with_product(
     body: ResponsesRequest,
     user: RateLimitedUser,
     product: str,
+    request: Request,
 ) -> dict[str, Any] | StreamingResponse:
     validate_product(product)
+    apply_posthog_context_from_headers(request)
     return await _handle_responses(body, user, product=product)
 
 
@@ -148,24 +161,30 @@ async def _handle_transcription(
 
     request = TranscriptionRequest(model=normalized_model, file=file_tuple, language=language)
 
-    return await handle_llm_request(
-        request_data=request.model_dump(exclude_none=True),
-        user=user,
-        model=normalized_model,
-        is_streaming=False,
-        provider_config=OPENAI_TRANSCRIPTION_CONFIG,
-        llm_call=litellm.atranscription,
-        product=product,
+    # is_streaming=False, so handle_llm_request always returns a dict here, never a StreamingResponse.
+    return cast(
+        dict[str, Any],
+        await handle_llm_request(
+            request_data=request.model_dump(exclude_none=True),
+            user=user,
+            model=normalized_model,
+            is_streaming=False,
+            provider_config=OPENAI_TRANSCRIPTION_CONFIG,
+            llm_call=litellm.atranscription,
+            product=product,
+        ),
     )
 
 
 @openai_router.post("/v1/audio/transcriptions", response_model=None)
 async def audio_transcriptions(
     user: RateLimitedUser,
+    request: Request,
     file: Annotated[UploadFile, File()],
     model: Annotated[str, Form()] = "gpt-4o-transcribe",
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
+    apply_posthog_context_from_headers(request)
     return await _handle_transcription(file, model, user, language)
 
 
@@ -173,9 +192,11 @@ async def audio_transcriptions(
 async def audio_transcriptions_with_product(
     user: RateLimitedUser,
     product: str,
+    request: Request,
     file: Annotated[UploadFile, File()],
     model: Annotated[str, Form()] = "gpt-4o-transcribe",
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:
     validate_product(product)
+    apply_posthog_context_from_headers(request)
     return await _handle_transcription(file, model, user, language, product=product)

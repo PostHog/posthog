@@ -101,6 +101,15 @@ export interface TriggerState {
     open: boolean
 }
 
+/** Dropdown-menu options users can pick, for the option-click event. */
+type MenuOption = 'new' | 'recent' | 'pinned' | 'dwh' | 'hogql'
+
+// Module-level so a quick close→reopen is detectable even though the
+// component unmounts between opens (consumers lazily mount it on the
+// first trigger click). Heuristic only — shared across all triggers.
+let lastMenuClosedAtMs: number | null = null
+const QUICK_REOPEN_MS = 3000
+
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
@@ -127,12 +136,18 @@ export function TaxonomicFilterMenu({
         const previous = lastStateKindRef.current
         const next = state.kind
         if (previous === 'closed' && next !== 'closed') {
-            openedAtRef.current = Date.now()
+            const now = Date.now()
+            const msSinceLastClose = lastMenuClosedAtMs != null ? now - lastMenuClosedAtMs : null
+            openedAtRef.current = now
             hadCommitRef.current = false
             posthog.capture('taxonomic filter menu opened', {
                 openedTo: next,
                 hadSelection: !!selected,
                 triggerLabel,
+                // Reopen funnel — `null` on the first open of the session;
+                // a small value means the user bounced and came right back.
+                msSinceLastClose,
+                reopenedQuickly: msSinceLastClose != null && msSinceLastClose < QUICK_REOPEN_MS,
             })
         } else if (previous !== 'closed' && next !== 'closed' && previous !== next) {
             posthog.capture('taxonomic filter menu drilled', {
@@ -140,11 +155,13 @@ export function TaxonomicFilterMenu({
                 toState: next,
             })
         } else if (previous !== 'closed' && next === 'closed') {
+            const closedAt = Date.now()
             posthog.capture('taxonomic filter menu closed', {
-                dwellMs: openedAtRef.current ? Date.now() - openedAtRef.current : null,
+                dwellMs: openedAtRef.current ? closedAt - openedAtRef.current : null,
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
             })
+            lastMenuClosedAtMs = closedAt
             openedAtRef.current = null
         }
         lastStateKindRef.current = next
@@ -166,6 +183,14 @@ export function TaxonomicFilterMenu({
         []
     )
     const openHogql = useCallback(() => setState({ kind: 'hogql-edit' }), [])
+
+    // Capture which dropdown-menu option the user picked, then run its
+    // transition. Lets us see the relative pull of New / Recent / Pinned /
+    // DWH / HogQL rather than just a generic menu→panel `drilled` event.
+    const selectMenuOption = useCallback((option: MenuOption, action: () => void): void => {
+        posthog.capture('taxonomic filter menu option clicked', { option })
+        action()
+    }, [])
 
     /**
      * Resolve the initial state when the trigger opens. If `selected` is
@@ -259,6 +284,9 @@ export function TaxonomicFilterMenu({
                 query: searchQuery || undefined,
                 hadExtras: !!extra,
                 fromState: lastStateKindRef.current,
+                // Time-to-select — how long from opening the menu to
+                // committing this item.
+                msSinceOpen: openedAtRef.current ? Date.now() - openedAtRef.current : null,
             })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
@@ -531,34 +559,43 @@ export function TaxonomicFilterMenu({
                 />
             )}
             <DropdownMenuContent align="start" className="min-w-[240px]">
-                <DropdownMenuItem onClick={() => openCombobox('all')} data-attr="taxonomic-filter-menu-new">
+                <DropdownMenuItem
+                    onClick={() => selectMenuOption('new', () => openCombobox('all'))}
+                    data-attr="taxonomic-filter-menu-new"
+                >
                     New filter…
                     <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                 </DropdownMenuItem>
                 {recentEntries.length > 0 && (
                     <>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => openCombobox('recent')}>
+                        <DropdownMenuItem onClick={() => selectMenuOption('recent', () => openCombobox('recent'))}>
                             Recent
                             <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                         </DropdownMenuItem>
                     </>
                 )}
                 {pinnedEntries.length > 0 && (
-                    <DropdownMenuItem onClick={() => openCombobox('pinned')}>
+                    <DropdownMenuItem onClick={() => selectMenuOption('pinned', () => openCombobox('pinned'))}>
                         Pinned
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {(hasDwh || hasHogql) && <DropdownMenuSeparator />}
                 {hasDwh && (
-                    <DropdownMenuItem onClick={openDwhPick} data-attr="taxonomic-filter-menu-dwh">
+                    <DropdownMenuItem
+                        onClick={() => selectMenuOption('dwh', openDwhPick)}
+                        data-attr="taxonomic-filter-menu-dwh"
+                    >
                         Data warehouse tables
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
                 )}
                 {hasHogql && (
-                    <DropdownMenuItem onClick={openHogql} data-attr="taxonomic-filter-menu-hogql">
+                    <DropdownMenuItem
+                        onClick={() => selectMenuOption('hogql', openHogql)}
+                        data-attr="taxonomic-filter-menu-hogql"
+                    >
                         HogQL expression
                         <IconChevronRight className="ml-auto size-3.5 text-tertiary" />
                     </DropdownMenuItem>
