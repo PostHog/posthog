@@ -15,6 +15,7 @@ class DashboardWidgetVisitor(
     kind="DashboardWidget",
     excluded_fields=["last_modified_at"],
     friendly_name="Dashboard widget",
+    user_facing=False,
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:

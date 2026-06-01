@@ -133,13 +133,13 @@ class TestResourceTransferPreview(APIBaseTest):
 
         user_facing_kinds = {r["resource_kind"] for r in resources if r["user_facing"]}
         assert "Dashboard" in user_facing_kinds
-        assert "DashboardWidget" in user_facing_kinds
+        assert "DashboardWidget" not in user_facing_kinds
         assert "DashboardTile" not in user_facing_kinds
 
         widget_resource = next(r for r in resources if r["resource_kind"] == "DashboardWidget")
         assert widget_resource["display_name"] == "Top errors"
         assert widget_resource["friendly_kind"] == "Dashboard widget"
-        assert widget_resource["user_facing"] is True
+        assert widget_resource["user_facing"] is False
 
     def test_preview_dashboard_widget_uses_catalog_label_without_custom_name(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Widget dashboard")
@@ -680,6 +680,17 @@ class TestResourceTransferSearch(APIBaseTest):
             {
                 "team_id": self.dest_team.pk,
                 "resource_kind": "Team",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_search_rejects_non_user_facing_kind(self) -> None:
+        response = self.client.post(
+            self._search_url(),
+            {
+                "team_id": self.dest_team.pk,
+                "resource_kind": "DashboardWidget",
             },
         )
 
