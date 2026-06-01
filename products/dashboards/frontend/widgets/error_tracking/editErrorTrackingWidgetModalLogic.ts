@@ -156,7 +156,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 return undefined
             },
         ],
-        defaultTitle: [(_state, props) => props.defaultTitle ?? 'Untitled'],
+        defaultTitle: [(_, props) => [props.defaultTitle], (defaultTitle): string => defaultTitle ?? 'Untitled'],
     }),
 
     defaults(({ props, values }) => {

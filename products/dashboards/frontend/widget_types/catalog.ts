@@ -74,7 +74,7 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
 
 export function resolveDashboardWidgetCatalogKey(widgetType: string): DashboardWidgetCatalogKey | undefined {
     if (widgetType in DASHBOARD_WIDGET_CATALOG) {
-        return widgetType
+        return widgetType as DashboardWidgetCatalogKey
     }
     return DASHBOARD_WIDGET_TYPE_ALIASES[widgetType]
 }
@@ -108,7 +108,7 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
             groupOrder.push(entry.groupId)
         }
 
-        group.widgets.push({ widgetType, entry })
+        group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
     return groupOrder.map((groupId) => groupsById.get(groupId)!)

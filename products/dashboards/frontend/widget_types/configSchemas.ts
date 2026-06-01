@@ -56,7 +56,7 @@ export const widgetDateRangeSchema = widgetDateRangeObjectSchema.optional()
 
 // New widget types: add per-type schemas here — CONTRIBUTING.md
 const limitFieldSchema = z
-    .number({ invalid_type_error: 'Must be an integer between 1 and 25.' })
+    .number({ error: 'Must be an integer between 1 and 25.' })
     .int('Must be an integer between 1 and 25.')
     .min(1, 'Must be an integer between 1 and 25.')
     .max(25, 'Must be an integer between 1 and 25.')

@@ -1,5 +1,4 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import type { TeamType } from '~/types'
 
 export type ErrorTrackingWidgetResult = {
     results?: ErrorTrackingIssue[]
@@ -20,7 +19,7 @@ export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
 
 /** True when the project can query error tracking issues (matches tile setup prompt gating). */
 export function canConfigureErrorTrackingWidgetIssues(
-    team: Pick<TeamType, 'autocapture_exceptions_opt_in'> | null | undefined,
+    team: { autocapture_exceptions_opt_in?: boolean | null } | null | undefined,
     hasSentExceptionEvent: boolean | undefined
 ): boolean {
     if (!team) {
