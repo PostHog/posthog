@@ -251,6 +251,17 @@ class Table(FieldOrTable):
     workload: Optional[Workload] = None
     model_config = ConfigDict(extra="forbid")
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        # Reject attribute writes on a frozen catalog singleton (its fields mapping is _FrozenFields),
+        # the same guarantee _FrozenFields gives for fields[...] edits. Clones carry a plain dict, so
+        # they stay writable. model_copy sets __dict__ directly and never routes through here.
+        if type(self.__dict__.get("fields")) is _FrozenFields:
+            raise TypeError(
+                "HogQL catalog table is frozen (shared process-wide singleton); "
+                "take a mutable copy via Database.get_table(...) before editing."
+            )
+        super().__setattr__(name, value)
+
     def has_field(self, name: str | int) -> bool:
         return str(name) in self.fields
 

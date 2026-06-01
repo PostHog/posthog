@@ -325,6 +325,22 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with self.assertRaises(TypeError):
             poe.fields["__should_not_write__"] = StringDatabaseField(name="__should_not_write__")
 
+    def test_frozen_catalog_singletons_reject_attribute_writes(self):
+        frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert frozen_events is not None
+
+        with self.assertRaises(TypeError):
+            frozen_events.name = "renamed"
+        with self.assertRaises(TypeError):
+            frozen_events.fields = {}
+
+        # a materialized clone can be freely reassigned
+        database = Database()
+        clone = database.get_table("events")
+        clone.name = "renamed"
+        assert clone.name == "renamed"
+        assert ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.name != "renamed"
+
     def test_materialized_table_is_mutable_including_nested_tables(self):
         database = Database()
         events = database.get_table("events")
