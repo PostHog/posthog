@@ -701,8 +701,10 @@ mod tests {
         let path_a = format!("rust/{}/src/lib.rs", a.source().workspace_path().unwrap());
         let path_b = format!("rust/{}/src/lib.rs", b.source().workspace_path().unwrap());
 
-        let result_a = compute_affected(std::slice::from_ref(&path_a), None, &graph, &images).unwrap();
-        let result_b = compute_affected(std::slice::from_ref(&path_b), None, &graph, &images).unwrap();
+        let result_a =
+            compute_affected(std::slice::from_ref(&path_a), None, &graph, &images).unwrap();
+        let result_b =
+            compute_affected(std::slice::from_ref(&path_b), None, &graph, &images).unwrap();
         let result_both = compute_affected(&[path_a, path_b], None, &graph, &images).unwrap();
 
         let union: HashSet<&str> = result_a
