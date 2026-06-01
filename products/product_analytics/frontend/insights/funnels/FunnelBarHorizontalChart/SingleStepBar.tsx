@@ -1,4 +1,4 @@
-import { type ErrorInfo, useMemo } from 'react'
+import { type ErrorInfo } from 'react'
 
 import {
     BarChart,
@@ -50,18 +50,14 @@ export function SingleStepBar({
     renderTooltip,
     onError,
 }: SingleStepBarProps): JSX.Element {
-    const onPointClick = useMemo(
-        () =>
-            interactive
-                ? (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
-                      const meta = clickData.series.meta
-                      if (meta) {
-                          onSegmentClick(meta)
-                      }
-                  }
-                : undefined,
-        [interactive, onSegmentClick]
-    )
+    const onPointClick = interactive
+        ? (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
+              const meta = clickData.series.meta
+              if (meta) {
+                  onSegmentClick(meta)
+              }
+          }
+        : undefined
 
     return (
         <div className="flex flex-col h-8 my-1">

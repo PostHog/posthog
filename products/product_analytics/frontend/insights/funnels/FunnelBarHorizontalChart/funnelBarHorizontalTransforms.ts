@@ -7,9 +7,8 @@ import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/typ
 export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
 export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
 
-/** Every step's bar is its own single-band chart, so they only line up if they share this
- *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
- *  percentages, so the axis is `0–100`. */
+/** Shared `bars.valueDomain` so each step's separate chart lines up. Data are basis-step
+ *  percentages, hence `0–100`. */
 export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: [number, number] = [0, 100]
 
 const RATE_TO_PERCENT = 100

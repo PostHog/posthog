@@ -232,10 +232,8 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
-    /** Fix the value-axis domain instead of deriving it from the data. Opt-in — when set, the
-     *  value scale spans exactly this `[min, max]` with no `d3.nice()` rounding, so independent
-     *  charts that share a logical scale (e.g. one single-bar chart per funnel step, all `0–100`)
-     *  stay visually comparable. Ignored for `barLayout: 'percent'`, which is already `[0, 1]`. */
+    /** Fix the value-axis domain (no data-derived range, no `d3.nice()`) so independent charts
+     *  sharing a logical scale stay comparable. Ignored for `barLayout: 'percent'`. */
     valueDomain?: [number, number]
 }
 
