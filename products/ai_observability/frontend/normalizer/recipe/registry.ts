@@ -6,13 +6,11 @@ import cajole from './default_recipes/cajole.yaml?raw'
 import compatArray from './default_recipes/compat_array.yaml?raw'
 import dispatcherEntry from './default_recipes/dispatcher_entry.yaml?raw'
 import langchain from './default_recipes/langchain.yaml?raw'
-import langchainEnvelope from './default_recipes/langchain_envelope.yaml?raw'
 import litellm from './default_recipes/litellm.yaml?raw'
 import openaiChat from './default_recipes/openai_chat.yaml?raw'
 import openaiResponses from './default_recipes/openai_responses.yaml?raw'
 import otel from './default_recipes/otel.yaml?raw'
 import vercelSdk from './default_recipes/vercel_sdk.yaml?raw'
-import wrappers from './default_recipes/wrappers.yaml?raw'
 import { Recipe } from './spec/recipe'
 
 const RECIPE_SOURCES = {
@@ -21,13 +19,11 @@ const RECIPE_SOURCES = {
     compatArray,
     dispatcherEntry,
     langchain,
-    langchainEnvelope,
     litellm,
     openaiChat,
     openaiResponses,
     otel,
     vercelSdk,
-    wrappers,
 }
 
 const RECIPES: Recipe[] = Object.entries(RECIPE_SOURCES).map(([name, source]) => {
