@@ -168,15 +168,17 @@ Product teams own their definitions and control which operations are exposed as 
 
 1. **Scaffold** a starter YAML with all operations disabled.
    `--product` discovers endpoints in two ways (same priority as frontend type generation):
-   1. **`x-explicit-tags`** — matches endpoints whose OpenAPI tag equals the product name.
-      ViewSets in `products/<name>/backend/` are auto-tagged.
-      ViewSets elsewhere (e.g. `posthog/api/`) need `@extend_schema(tags=["<product>"])`.
+   1. **`x-product`** — matches endpoints whose product attribution equals the product name.
+      ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
+      ViewSets elsewhere (e.g. `posthog/api/`, `ee/`) need
+      `@extend_schema(extensions={"x-product": "<product>"})`.
    2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
       (hyphens normalized to underscores).
 
    If your product's API routes use a different slug than the product folder name
    (e.g. `workflows` product with `/hog_flows/` routes),
-   add `@extend_schema(tags=["workflows"])` to the ViewSet so the scaffold can find them.
+   add `@extend_schema(extensions={"x-product": "workflows"})` to the ViewSet so
+   the scaffold can find them.
 
    ```sh
    pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product

@@ -18,6 +18,7 @@ import type {
     PaginatedAlertListApi,
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
+    ThresholdWithAlertApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -203,6 +204,22 @@ export const insightsThresholdsList = async (
     options?: RequestInit
 ): Promise<PaginatedThresholdWithAlertListApi> => {
     return apiMutator<PaginatedThresholdWithAlertListApi>(getInsightsThresholdsListUrl(projectId, insightId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInsightsThresholdsRetrieveUrl = (projectId: string, insightId: number, id: string) => {
+    return `/api/projects/${projectId}/insights/${insightId}/thresholds/${id}/`
+}
+
+export const insightsThresholdsRetrieve = async (
+    projectId: string,
+    insightId: number,
+    id: string,
+    options?: RequestInit
+): Promise<ThresholdWithAlertApi> => {
+    return apiMutator<ThresholdWithAlertApi>(getInsightsThresholdsRetrieveUrl(projectId, insightId, id), {
         ...options,
         method: 'GET',
     })

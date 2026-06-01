@@ -105,6 +105,11 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
             raise ValidationError("data interval range too big")
 
+        if data["data_interval_end"] > dt.datetime.now(dt.UTC):
+            raise ValidationError(
+                f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
+            )
+
         return data
 
     def create(self, validated_data: dict) -> BatchExportRun:
@@ -281,6 +286,8 @@ class FileDownloadBatchExportOnDemandViewSet(
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
                 max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
+                include_events=instance.batch_export_on_demand.destination.config.get("include_events", None),
+                exclude_events=instance.batch_export_on_demand.destination.config.get("exclude_events", None),
             )
         except Exception:
             LOGGER.exception("batch_export_on_demand.fail_to_start")

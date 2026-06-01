@@ -4,8 +4,6 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.models import ErrorTrackingSpikeDetectionConfig
@@ -32,7 +30,6 @@ class ErrorTrackingSpikeDetectionConfigSerializer(serializers.ModelSerializer):
         fields = ["snooze_duration_minutes", "multiplier", "threshold"]
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSpikeDetectionConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
