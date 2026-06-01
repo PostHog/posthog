@@ -53,7 +53,7 @@ import {
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { makePerAskerAuth } from './loop/per-asker-auth'
-import { aiGatewaySkuFor, posthogAiGatewayModel } from './models/ai-gateway-model'
+import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { Worker } from './workers/worker'
@@ -205,13 +205,12 @@ async function main(): Promise<void> {
         resolveIntegrations,
         resolveSecrets,
         resolveModel: config.useAiGateway
-            ? // Route every model through PostHog's ai-gateway. The gateway's
-              // admission layer keys on **provider-native SKUs** (e.g. `gpt-4o`,
-              // `claude-sonnet-4-5`), not on the canonical "<provider>/<model>"
-              // form spec.model uses — strip the prefix before sending.
+            ? // Route every model through PostHog's ai-gateway as a drop-in proxy.
+              // pi-ai picks the right api shape per provider; we override baseUrl
+              // (per shape: openai keeps /v1, anthropic strips it) + provider tag.
               (specModel) =>
                   posthogAiGatewayModel({
-                      modelId: aiGatewaySkuFor(specModel),
+                      specModel,
                       baseUrl: config.aiGatewayUrl,
                   })
             : undefined,

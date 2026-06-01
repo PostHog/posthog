@@ -126,19 +126,25 @@ To turn it on:
 4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
    in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
 
-Known limitations of the local gateway today:
+How model routing works:
 
-- The gateway's model table only includes `openai/gpt-4` and
-  `openai/gpt-4o` for the OpenAI chat-completions shape. Anthropic
-  models (`anthropic/claude-sonnet-4-6`, etc.) return
-  `router rejected request` because the runner speaks
-  openai-completions; the gateway routes Anthropic SKUs through the
-  anthropic-messages shape only.
-- The runner strips the `<provider>/` prefix from `spec.model` before
-  sending to the gateway (admission keys on the bare SKU, not on the
-  canonical `<provider>/<model>` form). See
-  [`services/agent-runner/src/models/ai-gateway-model.ts`](../../../services/agent-runner/src/models/ai-gateway-model.ts)
-  (`aiGatewaySkuFor`).
+The gateway is a drop-in proxy — point an existing provider SDK at
+`<gateway>/v1` and send the provider-native SKU as `model`. The
+runner mirrors that contract: pi-ai resolves `spec.model` to a Model
+with the correct api shape per provider (`openai-completions` /
+`openai-responses` / `anthropic-messages`), and
+[`posthogAiGatewayModel`](../../../services/agent-runner/src/models/ai-gateway-model.ts)
+overrides only `baseUrl` (with the shape-appropriate suffix) and the
+`provider` tag. OpenAI agents hit `/v1/chat/completions` or
+`/v1/responses`; Anthropic agents hit `/v1/messages` — all on the
+same gateway.
+
+If the gateway returns `unknown model` for a model that works direct,
+the gateway's `modelTable` (`ai-gateway/internal/router/chain.go`)
+needs a SKU alias for pi-ai's name (e.g. pi-ai says
+`claude-sonnet-4-6`, the gateway's primary SKU for the same model
+is `claude-sonnet-4-5`). Ping the ai-gateway team — it's a one-line
+addition.
 
 ## Driving the stack: three paths
 
