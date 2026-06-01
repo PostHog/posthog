@@ -57,7 +57,7 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             body,
         })
         return result
@@ -73,7 +73,7 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -93,7 +93,7 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
                 account_executive: params.account_executive,
                 account_owner: params.account_owner,
@@ -131,7 +131,7 @@ const accountsNotebooksCreate = (): ToolBase<typeof AccountsNotebooksCreateSchem
         }
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             body,
         })
         return result
@@ -147,7 +147,7 @@ const accountsNotebooksDestroy = (): ToolBase<typeof AccountsNotebooksDestroySch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -168,7 +168,7 @@ const accountsNotebooksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -188,7 +188,7 @@ const accountsNotebooksRetrieve = (): ToolBase<typeof AccountsNotebooksRetrieveS
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.AccountNotebook>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -225,7 +225,7 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -242,7 +242,7 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Account>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },

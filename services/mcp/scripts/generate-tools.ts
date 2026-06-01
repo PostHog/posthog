@@ -72,6 +72,8 @@ interface OpenApiSchema {
     required?: string[]
     $ref?: string
     allOf?: Array<OpenApiSchema | { $ref: string }>
+    anyOf?: Array<OpenApiSchema | { $ref: string }>
+    oneOf?: Array<OpenApiSchema | { $ref: string }>
     enum?: string[]
     maxLength?: number
     default?: unknown
@@ -229,6 +231,88 @@ function resolveSchema(spec: OpenApiSpec, schemaOrRef: OpenApiSchema | { $ref: s
 }
 
 /**
+ * Flatten body schema properties across the three composition keywords that
+ * can hide fields from a naive ``schema.properties`` read:
+ *
+ *  - ``properties``: own fields on the schema
+ *  - ``allOf``: composition / inheritance — every member must hold, so fields
+ *    are merged and required sets are unioned
+ *  - ``anyOf`` / ``oneOf``: discriminated unions (e.g. polymorphic Python
+ *    serializers) — at least one variant must hold, so fields are merged
+ *    while required is the intersection across variants
+ *
+ * Returns:
+ *  - ``properties``: the union of properties across all branches
+ *  - ``required``: fields that are required on every reachable branch
+ *  - ``variantSpecific``: fields only some union variants declare — the handler
+ *    must guard access with ``'X' in params`` to satisfy TypeScript narrowing
+ *    on the resulting Zod union type
+ *
+ * Without this flattening, the generated handler can silently omit fields and
+ * POST an empty (or partial) body — the same class of bug that exists when
+ * ``anyOf`` / ``oneOf`` is unhandled.
+ */
+function flattenBodySchemaProperties(
+    spec: OpenApiSpec,
+    schema: OpenApiSchema | undefined
+): { properties: Map<string, OpenApiSchema>; required: Set<string>; variantSpecific: Set<string> } {
+    if (!schema) {
+        return { properties: new Map(), required: new Set(), variantSpecific: new Set() }
+    }
+
+    // Start with own properties, then fold every allOf member in. Fields are
+    // merged (first writer wins on collision); required sets are unioned.
+    const baseProperties = new Map<string, OpenApiSchema>(Object.entries(schema.properties ?? {}))
+    const baseRequired = new Set<string>(schema.required ?? [])
+    for (const member of schema.allOf ?? []) {
+        const sub = flattenBodySchemaProperties(spec, resolveSchema(spec, member))
+        for (const [name, prop] of sub.properties) {
+            if (!baseProperties.has(name)) {
+                baseProperties.set(name, prop)
+            }
+        }
+        for (const r of sub.required) {
+            baseRequired.add(r)
+        }
+    }
+
+    const variantRefs = [...(schema.anyOf ?? []), ...(schema.oneOf ?? [])]
+    if (variantRefs.length === 0) {
+        return { properties: baseProperties, required: baseRequired, variantSpecific: new Set() }
+    }
+
+    const variants = variantRefs
+        .map((v) => resolveSchema(spec, v))
+        .filter((v): v is OpenApiSchema => !!v)
+        .map((v) => flattenBodySchemaProperties(spec, v))
+    const merged = new Map(baseProperties)
+    for (const v of variants) {
+        for (const [name, prop] of v.properties) {
+            if (!merged.has(name)) {
+                merged.set(name, prop)
+            }
+        }
+    }
+    const required = new Set(baseRequired)
+    const variantSpecific = new Set<string>()
+    for (const name of merged.keys()) {
+        // Locally-declared / allOf-composed fields are always present, so they
+        // are never variant-specific regardless of what each variant says.
+        if (baseProperties.has(name)) {
+            continue
+        }
+        if (variants.every((v) => v.properties.has(name))) {
+            if (variants.every((v) => v.required.has(name))) {
+                required.add(name)
+            }
+        } else {
+            variantSpecific.add(name)
+        }
+    }
+    return { properties: merged, required, variantSpecific }
+}
+
+/**
  * Resolve the response type name from an operation's success response.
  * Returns the Schemas.* type name if the $ref maps to a type that exists
  * in generated.ts, undefined otherwise.
@@ -325,6 +409,13 @@ interface SchemaComposition {
     pathParamNames: string[]
     queryParamNames: string[]
     bodyFieldNames: string[]
+    /**
+     * Body fields that only appear in some variants of a union (anyOf/oneOf) body schema.
+     * The handler emits `'X' in params && params.X !== undefined` for these to satisfy
+     * TypeScript's union narrowing — referencing `params.X` directly fails type-checking
+     * because variant types that lack the field have no such property.
+     */
+    variantSpecificBodyFieldNames: Set<string>
     /** Maps alias → original field name for renamed params */
     renamedFields: Record<string, string>
     /** Maps param name → fallback key for optional params with state fallbacks */
@@ -343,6 +434,7 @@ function composeToolSchema(
     const pathParamNames: string[] = []
     const queryParamNames: string[] = []
     const bodyFieldNames: string[] = []
+    const variantSpecificBodyFieldNames = new Set<string>()
     /**
      * Params whose underlying Orval shape is `.optional()` (or `.nullish()`).
      * Used by the cast branch in `param_overrides`: `z.preprocess(fn, source)`
@@ -432,44 +524,49 @@ function composeToolSchema(
             const bodySchema = resolveSchema(spec, bodySchemaRef)
             // PATCH bodies are partial — Orval emits every field as `.optional()`.
             // For POST/PUT, optionality follows the body schema's `required` list.
-            const bodyRequiredSet = new Set(bodySchema?.required ?? [])
+            const {
+                properties: bodyProperties,
+                required: bodyRequiredSet,
+                variantSpecific: bodyVariantSpecific,
+            } = flattenBodySchemaProperties(spec, bodySchema)
             const bodyAllOptional = resolved.method === 'PATCH'
 
-            if (bodySchema?.properties) {
-                for (const [name, prop] of Object.entries(bodySchema.properties)) {
-                    // Orval excludes readOnly fields from Body schemas — skip them
-                    // so we don't try to .omit() keys that don't exist
-                    if (prop.readOnly) {
-                        continue
-                    }
+            for (const [name, prop] of bodyProperties) {
+                // Orval excludes readOnly fields from Body schemas — skip them
+                // so we don't try to .omit() keys that don't exist
+                if (prop.readOnly) {
+                    continue
+                }
 
-                    // exclude_params are removed at the Orval schema level by
-                    // applyNestedExclusions in generate-orval-schemas.mjs, so
-                    // they won't exist in the Zod schema. Skip them here to
-                    // avoid generating .omit() calls for nonexistent fields.
-                    if (excludeSet.has(name)) {
-                        continue
-                    }
+                // exclude_params are removed at the Orval schema level by
+                // applyNestedExclusions in generate-orval-schemas.mjs, so
+                // they won't exist in the Zod schema. Skip them here to
+                // avoid generating .omit() calls for nonexistent fields.
+                if (excludeSet.has(name)) {
+                    continue
+                }
 
-                    // Auto-exclude underscore-prefixed fields
-                    if (name.startsWith('_')) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
-                    if (includeSet && !includeSet.has(name)) {
-                        bodyOmitFields.add(name)
-                        continue
-                    }
+                // Auto-exclude underscore-prefixed fields
+                if (name.startsWith('_')) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
+                if (includeSet && !includeSet.has(name)) {
+                    bodyOmitFields.add(name)
+                    continue
+                }
 
-                    // If this field is renamed, store the alias instead so the
-                    // handler references params.<alias>. The original→alias
-                    // mapping is tracked in renamedFields for body-building.
-                    const alias = renameMap.get(name)
-                    const fieldKey = alias ?? name
-                    bodyFieldNames.push(fieldKey)
-                    if (bodyAllOptional || !bodyRequiredSet.has(name)) {
-                        optionalParamNames.add(fieldKey)
-                    }
+                // If this field is renamed, store the alias instead so the
+                // handler references params.<alias>. The original→alias
+                // mapping is tracked in renamedFields for body-building.
+                const alias = renameMap.get(name)
+                const fieldKey = alias ?? name
+                bodyFieldNames.push(fieldKey)
+                if (bodyVariantSpecific.has(name)) {
+                    variantSpecificBodyFieldNames.add(fieldKey)
+                }
+                if (bodyAllOptional || !bodyRequiredSet.has(name)) {
+                    optionalParamNames.add(fieldKey)
                 }
             }
 
@@ -635,6 +732,7 @@ function composeToolSchema(
         pathParamNames,
         queryParamNames,
         bodyFieldNames,
+        variantSpecificBodyFieldNames,
         renamedFields,
         paramFallbacks,
     }
@@ -847,7 +945,12 @@ function generateToolCode(
             // If the field was renamed, bf is the alias (used for params access)
             // and bodyKey is the original name (used as the HTTP body key).
             const bodyKey = composition.renamedFields[bf] ?? bf
-            handlerBody += `        if (params.${bf} !== undefined) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
+            // Variant-specific fields (only in some union variants) need an `in`
+            // narrowing guard — TypeScript rejects bare `params.X` access otherwise.
+            const guard = composition.variantSpecificBodyFieldNames.has(bf)
+                ? `'${bf}' in params && params.${bf} !== undefined`
+                : `params.${bf} !== undefined`
+            handlerBody += `        if (${guard}) body[${JSON.stringify(bodyKey)}] = params.${bf}\n`
         }
         // inject_body: hardcoded values that always override caller-supplied params.
         // Emitted last so they overwrite anything set above.
@@ -1379,6 +1482,7 @@ function generateDefinitionsJson(
                 ...(toolConfig.feature_flag_behavior
                     ? { feature_flag_behavior: toolConfig.feature_flag_behavior }
                     : {}),
+                ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
                 ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
             }
         }
@@ -1401,6 +1505,9 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.feature_flag ? { feature_flag: wrapperConfig.feature_flag } : {}),
                 ...(wrapperConfig.feature_flag_behavior
                     ? { feature_flag_behavior: wrapperConfig.feature_flag_behavior }
+                    : {}),
+                ...(wrapperConfig.feature_flag_variant
+                    ? { feature_flag_variant: wrapperConfig.feature_flag_variant }
                     : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
             }
@@ -1579,6 +1686,7 @@ function generateQueryWrapperDefinitionsJson(
             },
             ...(toolConfig.feature_flag ? { feature_flag: toolConfig.feature_flag } : {}),
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
+            ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
         }
     }

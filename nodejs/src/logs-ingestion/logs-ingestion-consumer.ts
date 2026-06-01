@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
@@ -40,6 +40,16 @@ export interface LogsIngestionConsumerDeps {
     outputs: IngestionOutputs<LogsOutput | LogsDlqOutput | AppMetricsOutput>
 }
 
+/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
+export const DEFAULT_LOGS_RETENTION_DAYS = 14
+
+/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
+const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
+
+function retentionBytesMetricName(retentionDays: number): string | null {
+    return RETENTION_USAGE_TIERS.has(retentionDays) ? `bytes_ingested_retention_${retentionDays}d` : null
+}
+
 export type UsageStats = {
     bytesReceived: number
     recordsReceived: number
@@ -48,6 +58,7 @@ export type UsageStats = {
     bytesDropped: number
     recordsDropped: number
     piiReplacements: number
+    retentionDays: number
 }
 
 const DEFAULT_USAGE_STATS: UsageStats = {
@@ -58,12 +69,10 @@ const DEFAULT_USAGE_STATS: UsageStats = {
     bytesDropped: 0,
     recordsDropped: 0,
     piiReplacements: 0,
+    retentionDays: DEFAULT_LOGS_RETENTION_DAYS,
 }
 
 export type UsageStatsByTeam = Map<number, UsageStats>
-
-/** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
-export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
 /** Cap concurrent per-message processing within a single kafka batch. */
 const MAX_CONCURRENT_MESSAGE_PROCESSES = 50
@@ -126,6 +135,9 @@ export const logsBytesDroppedByRuleCounter = new Counter({
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
+    // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
+    protected quotaResource: QuotaResource = 'logs_mb_ingested'
+    protected appSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -389,7 +401,7 @@ export class LogsIngestionConsumer {
             (
                 await Promise.all(
                     uniqueTokens.map(async (token) =>
-                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested'))
+                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, this.quotaResource))
                             ? token
                             : null
                     )
@@ -447,6 +459,12 @@ export class LogsIngestionConsumer {
                         // Extract settings with defaults
                         const jsonParse = logsSettings.json_parse_logs ?? false
                         const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
+
+                        // Retention is uniform per team; stash for retention-bucketed usage emit
+                        const teamStats = usageStats.get(message.teamId)
+                        if (teamStats) {
+                            teamStats.retentionDays = retentionDays
+                        }
 
                         // ignore empty messages
                         if (message.message.value === null) {
@@ -548,6 +566,11 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped)
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
             this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
+
+            const retentionMetric = retentionBytesMetricName(stats.retentionDays)
+            if (retentionMetric) {
+                this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
+            }
         }
 
         // Best-effort: don't let metric failures block ingestion
@@ -564,7 +587,7 @@ export class LogsIngestionConsumer {
         }
         this.appMetricsAggregator.queue({
             team_id: teamId,
-            app_source: 'logs',
+            app_source: this.appSource,
             app_source_id: '',
             instance_id: '',
             metric_kind: 'usage',
@@ -584,7 +607,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',
@@ -605,7 +628,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',

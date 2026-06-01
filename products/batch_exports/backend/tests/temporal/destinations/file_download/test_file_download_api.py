@@ -360,6 +360,45 @@ async def test_file_download_create_rejects_when_concurrency_limit_reached(
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_file_download_create_rejects_future_data_interval_end(
+    async_client: AsyncClient,
+    team,
+    user,
+):
+    now = dt.datetime.now(dt.UTC)
+
+    await async_client.aforce_login(user)
+
+    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+        data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
+        response = await async_client.post(
+            f"/api/projects/{team.pk}/file_download_batch_exports",
+            {
+                "file": {
+                    "format": "Parquet",
+                    "compression": "zstd",
+                },
+                "model": "events",
+                "data_interval_start": (now - dt.timedelta(hours=1)).isoformat(),
+                "data_interval_end": data_interval_end_iso,
+            },
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == f"The provided 'data_interval_end' ({data_interval_end_iso}) is in the future"
+
+    mock_start.assert_not_called()
+    assert (
+        await BatchExportRun.objects.filter(
+            batch_export_on_demand__team_id=team.pk,
+            batch_export_on_demand__destination__type=BatchExportDestination.Destination.FILE_DOWNLOAD,
+        ).acount()
+        == 0
+    )
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_file_download_list_returns_run_ids_and_statuses(
     async_client: AsyncClient,
     team,

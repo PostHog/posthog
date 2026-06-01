@@ -65,11 +65,33 @@ See [serializer-fields.md](references/serializer-fields.md) for patterns and exa
 12. **Error responses are typed** — use `OpenApiResponse(response=ErrorSerializer)`, not `OpenApiTypes.OBJECT`
 13. **List endpoints declare pagination** — reset with `pagination_class=None` on custom actions that don't paginate
 14. **Prefer `@validated_request`** over manual `serializer.is_valid()` + `@extend_schema` — it handles both in one decorator
-15. **ViewSets outside `products/` need `@extend_schema(tags=["<product>"])`** — ViewSets in `products/<name>/backend/` are auto-tagged via module path, but ViewSets in `posthog/api/` or `ee/` are not. Without the tag, the MCP scaffold and frontend type generator can't route the endpoint to the right product
+15. **ViewSets outside `products/` need `@extend_schema(extensions={"x-product": "<product>"})`** — ViewSets in `products/<name>/backend/` are auto-attributed via module path; ViewSets in `posthog/api/` or `ee/` aren't and must declare attribution explicitly via the `x-product` extension. Accepts a plain string (`"product_analytics"`) or `ProductKey.X` enum (kebab values are normalized). Don't use `tags=["<product>"]` to influence codegen routing — `tags` is for Swagger UI display only. Without `x-product`, the MCP scaffold and frontend type generator can't route the endpoint to the right product
 
 **Streaming endpoints:** For SSE or streaming responses, use `@extend_schema(request=InputSerializer, responses={(200, "text/event-stream"): OpenApiTypes.STR})` to document the request schema even though the response can't be fully typed.
 
 See [viewset-annotations.md](references/viewset-annotations.md) for patterns and examples.
+
+### URL routing — where to register new team-nested endpoints
+
+PostHog briefly split projects and environments as separate concepts then rolled
+the split back. **`/api/projects/:team_id/...` is the canonical path** for any
+team-nested endpoint. `/api/environments/:team_id/...` is a backward-compat alias
+preserved only for clients that integrated against it during the split.
+
+For a **new** team-nested endpoint, register directly under `projects_router` in
+`posthog/api/__init__.py`:
+
+```python
+projects_router.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])
+```
+
+Do **not** register new endpoints under `environments_router`. Do **not** use
+`register_grandfathered_environment_nested_viewset` — it exists only for
+endpoints that were already exposed on both routes before the rollback.
+
+If existing clients need `/api/environments/...` too, the OpenAPI postprocess
+hook at `posthog.api.documentation.preprocess_exclude_path_format` auto-marks
+the env-side path as `deprecated: true` whenever both routes exist.
 
 ### Facade products (DataclassSerializer)
 

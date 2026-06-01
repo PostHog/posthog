@@ -21,6 +21,7 @@ import type { ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { readFixedTags, readFreeformTags, readModelOutput, readTags, readVerdict } from '../utils/observation'
 import type { replayScannerLogicType } from './replayScannerLogicType'
+import { findScannerTemplate } from './scannerTemplates'
 import {
     DEFAULT_MODEL,
     DEFAULT_PROVIDER,
@@ -51,9 +52,14 @@ function quantile(sorted: number[], q: number): number {
     return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
 }
 
+function currentTemplateKey(): string | null {
+    const value = router.values.searchParams.template
+    return typeof value === 'string' ? value : null
+}
+
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
-        return { prompt: '', length: 'medium' }
+        return { prompt: '', length: 'medium', emits_embeddings: false }
     }
     if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }
@@ -69,11 +75,9 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
-function newScanner(): ReplayScanner {
-    return {
+function newScanner(templateKey?: string | null): ReplayScanner {
+    const base = {
         id: 'new',
-        name: '',
-        description: '',
         enabled: true,
         sampling_rate: 1,
         query: { kind: NodeKind.RecordingsQuery },
@@ -85,6 +89,22 @@ function newScanner(): ReplayScanner {
         created_at: dayjs().toISOString(),
         updated_at: dayjs().toISOString(),
         created_by: null,
+    } as const
+
+    const template = findScannerTemplate(templateKey ?? undefined)
+    if (template) {
+        return {
+            ...base,
+            name: template.scanner_name,
+            description: template.scanner_description,
+            scanner_type: template.scanner_type,
+            scanner_config: template.scanner_config,
+        } as ReplayScanner
+    }
+    return {
+        ...base,
+        name: '',
+        description: '',
         scanner_type: 'monitor',
         scanner_config: { prompt: '' },
     }
@@ -114,7 +134,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     forms(({ props }) => ({
         scanner: {
-            defaults: newScanner(),
+            defaults: newScanner(props.id === 'new' ? currentTemplateKey() : null),
             errors: (scanner: ReplayScanner) => {
                 const configErrors: Record<string, string | undefined> = {}
                 if (!scanner.scanner_config?.prompt?.trim()) {
@@ -455,7 +475,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     listeners(({ actions, props, values, cache }) => ({
         loadScanner: async () => {
             if (props.id === 'new') {
-                actions.loadScannerSuccess(newScanner())
+                actions.loadScannerSuccess(newScanner(currentTemplateKey()))
                 return
             }
             const teamId = teamLogic.values.currentTeamId
