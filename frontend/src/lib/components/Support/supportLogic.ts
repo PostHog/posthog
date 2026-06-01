@@ -52,23 +52,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
-// Returns the public, externally-resolvable replay URL for the current session, or null if unavailable.
-export function getPublicSessionReplayUrl(): string | null {
-    return posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 }) || null
-}
-
-// `useInternalGolink` rewrites the public /replay/ URL into the staff-only http://go/session/ golink.
-// Only enable it for contexts consumed by PostHog staff (e.g. Zendesk tickets) — external users
-// cannot resolve the golink.
-function getSessionReplayLink(useInternalGolink = false): string {
-    const publicUrl = getPublicSessionReplayUrl()
-    if (!publicUrl) {
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
+function getSessionReplayLink(): string {
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
         return ''
     }
-    const replayUrl = useInternalGolink
-        ? publicUrl.replace(window.location.origin + '/replay/', 'http://go/session/')
-        : publicUrl
-    return `\nSession: ${replayUrl}`
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -692,7 +684,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
-                            getSessionReplayLink(true) +
+                            getSessionReplayLink() +
                             getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(

@@ -9,7 +9,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { getPublicSessionReplayUrl, getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
+import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -91,29 +91,22 @@ function DebugInfoPanel(): JSX.Element | null {
         return null
     }
 
-    const sessionReplayUrl = getPublicSessionReplayUrl()
-
     return (
         <div className="flex-1 max-w-full">
             <h3 id="debug-info" className="min-w-[25rem]">
                 Debug information
             </h3>
-            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            <p>
+                Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
+                admin links inside it are internal references the PostHog team uses to look into your report — they
+                won't open for you.
+            </p>
             {anyLoading ? (
                 <LemonSkeleton repeat={2} active={true} />
             ) : (
-                <>
-                    <CodeSnippet compact thing="debug info">
-                        {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
-                    </CodeSnippet>
-                    {sessionReplayUrl && (
-                        <p className="mt-2 mb-0">
-                            <Link to={sessionReplayUrl} target="_blank">
-                                View this session recording
-                            </Link>
-                        </p>
-                    )}
-                </>
+                <CodeSnippet compact thing="debug info">
+                    {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
+                </CodeSnippet>
             )}
         </div>
     )
