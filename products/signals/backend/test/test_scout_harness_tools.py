@@ -463,7 +463,7 @@ async def arun_emit(ateam_emit):
 async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_source_id(ateam_emit, arun_emit):
     evidence = [EvidenceEntry(source_product="error_tracking", summary="500s spike on /checkout")]
 
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         result = await emit_finding(
             team=ateam_emit,
             run=arun_emit,
@@ -496,7 +496,7 @@ async def test_emit_finding_happy_path_calls_emit_signal_with_deterministic_sour
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_finding_validation_error_does_not_emit(ateam_emit, arun_emit):
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         with pytest.raises(InvalidEmitError):
             await emit_finding(
                 team=ateam_emit,
@@ -517,7 +517,7 @@ async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_em
     # does NOT dedupe on source_id — a failed downstream emit surfaces back to the
     # caller, and a retry with the same finding_id would emit a second signal.
     boom = AsyncMock(side_effect=RuntimeError("temporal exploded"))
-    with patch("products.signals.backend.api.emit_signal", new=boom):
+    with patch("products.signals.backend.facade.api.emit_signal", new=boom):
         with pytest.raises(RuntimeError, match="temporal"):
             await emit_finding(
                 team=ateam_emit,
@@ -533,7 +533,7 @@ async def test_emit_finding_propagates_emit_signal_exception(ateam_emit, arun_em
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_emit_finding_auto_generates_finding_id_when_not_provided(ateam_emit, arun_emit):
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()):
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()):
         result = await emit_finding(
             team=ateam_emit,
             run=arun_emit,
@@ -559,7 +559,7 @@ async def test_emit_finding_returns_skipped_when_ai_processing_not_approved(arun
     org.is_ai_data_processing_approved = False
     await database_sync_to_async(org.save)()
 
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         result = await emit_finding(
             team=ateam_emit,
             run=arun_emit,
@@ -587,7 +587,7 @@ async def test_emit_finding_returns_skipped_when_source_disabled(arun_emit, atea
         ).update
     )(enabled=False)
 
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         result = await emit_finding(
             team=ateam_emit,
             run=arun_emit,
@@ -619,7 +619,7 @@ async def test_emit_finding_rejects_team_run_mismatch(aorganization_emit, ateam_
 
     other_team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="other-team")
 
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         with pytest.raises(RuntimeError, match="does not own run"):
             await emit_finding(
                 team=other_team,
@@ -650,7 +650,7 @@ def test_emit_finding_sync_rejects_team_run_mismatch(db) -> None:
             skill_version=1,
         )
 
-    with patch("products.signals.backend.api.emit_signal", new=AsyncMock()) as mock_emit:
+    with patch("products.signals.backend.facade.api.emit_signal", new=AsyncMock()) as mock_emit:
         with pytest.raises(RuntimeError, match="does not own run"):
             emit_finding_sync(
                 team=other_team,
