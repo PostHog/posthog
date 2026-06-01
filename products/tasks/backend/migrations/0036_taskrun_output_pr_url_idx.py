@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             index=models.Index(
                 django.db.models.fields.json.KeyTransform("pr_url", "output"),
                 name="task_run_output_pr_url_idx",
+                condition=models.Q(output__pr_url__isnull=False),
             ),
         ),
     ]

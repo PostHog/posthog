@@ -595,7 +595,16 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
-            models.Index(KeyTransform("pr_url", "output"), name="task_run_output_pr_url_idx"),
+            # Partial functional index backing the per-PR-webhook lookup
+            # `filter(output__pr_url=...)`. The equality lookup implies the key is
+            # present, so the `IS NOT NULL` condition keeps the index off the many
+            # runs without a PR URL (queued/in-progress/failed) while still serving
+            # the query.
+            models.Index(
+                KeyTransform("pr_url", "output"),
+                name="task_run_output_pr_url_idx",
+                condition=models.Q(output__pr_url__isnull=False),
+            ),
         ]
 
     def __str__(self):
