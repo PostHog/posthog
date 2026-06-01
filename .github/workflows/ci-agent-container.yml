@@ -85,17 +85,14 @@ jobs:
                     - image: posthog-agents
                       dockerfile: services/agents/Dockerfile
                       context: .
-                      # TODO: replace placeholder with the project id once
-                      # the Depot project for posthog-agents is created.
-                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
+                      depot_project: 6gmww256q5
                     - image: posthog-agent-console
                       dockerfile: services/agent-console/Dockerfile
                       context: .
-                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
-                    - image: posthog-agent-sandbox-host
-                      dockerfile: services/agent-sandbox-host/Dockerfile
-                      context: services/agent-sandbox-host
-                      depot_project: REPLACE_WITH_DEPOT_PROJECT_ID
+                      depot_project: 5gr3vfft7g
+                    # posthog-agent-sandbox-host is intentionally excluded for
+                    # now — prod sandbox topology (Modal vs in-cluster) is not
+                    # decided yet; revisit once that's settled.
 
         steps:
             - name: Check out
@@ -201,8 +198,8 @@ jobs:
                       image: posthog-agents
                     - release: agent-console
                       image: posthog-agent-console
-                    - release: agent-sandbox-host
-                      image: posthog-agent-sandbox-host
+                    # agent-sandbox-host deploy is intentionally excluded for
+                    # now — see the build matrix above.
 
         steps:
             - name: Check out
