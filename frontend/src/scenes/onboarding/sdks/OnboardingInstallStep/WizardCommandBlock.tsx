@@ -1,8 +1,12 @@
 import './WizardCommandBlock.scss'
 
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { ComponentType, useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import androidImage from '../logos/android.svg'
@@ -45,7 +49,8 @@ const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
 const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
 
 export function WizardCommandBlock(): JSX.Element {
-    const { wizardCommand, isCloudOrDev } = useWizardCommand()
+    const { wizardCommand, isCloudOrDev, region } = useWizardCommand()
+    const { featureFlags } = useValues(featureFlagLogic)
     const [castKey, setCastKey] = useState(0)
 
     // The `npx @posthog/wizard` CLI only targets cloud (US/EU) and dev instances —
@@ -53,6 +58,19 @@ export function WizardCommandBlock(): JSX.Element {
     // entirely rather than show a command that can't work. Matches SetupWizardBanner.
     if (!isCloudOrDev) {
         return <></>
+    }
+
+    // First interaction in the onboarding install flow — clicking/copying the wizard
+    // CLI command. `copyCount` distinguishes a single decisive copy from repeated
+    // re-clicks (a confusion/hesitation signal). `variant` ties it to the
+    // ONBOARDING_WIZARD_PROMINENCE experiment arm so drop-off can be compared per layout.
+    const handleCopy = (copyCount: number): void => {
+        setCastKey(copyCount)
+        posthog.capture('onboarding wizard command copied', {
+            copy_count: copyCount,
+            variant: featureFlags[FEATURE_FLAGS.ONBOARDING_WIZARD_PROMINENCE] ?? 'control',
+            region,
+        })
     }
 
     return (
@@ -75,7 +93,7 @@ export function WizardCommandBlock(): JSX.Element {
                         size="md"
                         decoration="rainbow"
                         className="bg-bg-light border border-border hover:border-primary"
-                        onCopy={(key) => setCastKey(key)}
+                        onCopy={handleCopy}
                     />
 
                     <p className="text-xs text-muted mb-0">
