@@ -148,6 +148,32 @@ export interface SandboxEnvironmentApi {
     readonly updated_at: string
 }
 
+export interface PatchedSandboxEnvironmentApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    network_access_level?: NetworkAccessLevelEnumApi
+    /** List of allowed domains for custom network access */
+    allowed_domains?: string[]
+    /** Whether to include default trusted domains (GitHub, npm, PyPI) */
+    include_default_domains?: boolean
+    /** List of repositories this environment applies to (format: org/repo) */
+    repositories?: string[]
+    /** Encrypted environment variables (write-only, never returned in responses) */
+    environment_variables?: unknown
+    /** Whether this environment has any environment variables set */
+    readonly has_environment_variables?: boolean
+    /** If true, only the creator can see this environment. Otherwise visible to whole team. */
+    private?: boolean
+    /** If true, this environment is for internal use (e.g. signals pipeline) and should not be exposed to end users. */
+    readonly internal?: boolean
+    /** Computed domain allowlist based on network_access_level and allowed_domains */
+    readonly effective_domains?: readonly string[]
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 export interface TaskAutomationApi {
     readonly id: string
     /** @maxLength 255 */
@@ -190,6 +216,39 @@ export interface PaginatedTaskAutomationListApi {
     results: TaskAutomationApi[]
 }
 
+export interface PatchedTaskAutomationApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    prompt?: string
+    /** @maxLength 255 */
+    repository?: string
+    /** @nullable */
+    github_integration?: number | null
+    /** @maxLength 100 */
+    cron_expression?: string
+    /** @maxLength 128 */
+    timezone?: string
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    template_id?: string | null
+    enabled?: boolean
+    /** @nullable */
+    readonly last_run_at?: string | null
+    /** @nullable */
+    readonly last_run_status?: string | null
+    /** @nullable */
+    readonly last_task_id?: string | null
+    /** @nullable */
+    readonly last_task_run_id?: string | null
+    /** @nullable */
+    readonly last_error?: string | null
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
 /**
  * * `error_tracking` - Error Tracking
  * `eval_clusters` - Eval Clusters
@@ -199,6 +258,7 @@ export interface PaginatedTaskAutomationListApi {
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  * `signal_report` - Signal Report
+ * `signals_scout` - Signals Scout
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -211,6 +271,7 @@ export const OriginProductEnumApi = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
+    SignalsScout: 'signals_scout',
 } as const
 
 /**

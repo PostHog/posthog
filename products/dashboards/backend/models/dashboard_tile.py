@@ -128,6 +128,11 @@ class DashboardTile(models.Model):
                 name="unique_dashboard_button_tile",
                 condition=Q(("button_tile__isnull", False)),
             ),
+            UniqueConstraint(
+                fields=["dashboard", "widget"],
+                name="unique_dashboard_widget",
+                condition=Q(("widget__isnull", False)),
+            ),
             models.CheckConstraint(
                 condition=build_unique_relationship_check(("insight", "text", "button_tile", "widget")),
                 name="dash_tile_exactly_one_related_object",

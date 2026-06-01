@@ -433,7 +433,7 @@ class HogFlowFilterSet(FilterSet):
         fields = ["id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["workflows"])
+@extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
