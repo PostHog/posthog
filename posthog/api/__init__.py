@@ -3,6 +3,7 @@ from rest_framework_extensions.routers import NestedRegistryItem
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
+from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
@@ -11,6 +12,7 @@ from posthog.api.sdk_doctor import SdkDoctorViewSet
 from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
+
 import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
@@ -33,13 +35,6 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
-from products.annotations.backend.api import annotation
-from products.batch_exports.backend.api import (
-    batch_export as batch_exports,
-    file_download,
-)
-from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
-from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -68,6 +63,12 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.annotations.backend.api import annotation
+from products.batch_exports.backend.api import (
+    batch_export as batch_exports,
+    file_download,
+)
+from products.batch_exports.backend.api.batch_imports import BatchImportViewSet
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet

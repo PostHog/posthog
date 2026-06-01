@@ -12,18 +12,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Cohort, Group, GroupTypeMapping, GroupUsageMetric, Organization, Team
-from posthog.models import (
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    Group,
-    GroupTypeMapping,
-    GroupUsageMetric,
-    Organization,
-    Tag,
-    Team,
-)
+from posthog.models import Cohort, Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.project import Project
