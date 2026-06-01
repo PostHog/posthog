@@ -9,11 +9,12 @@ lazily on every user query, while re-runs are cheap because already-fresh
 windows are skipped.
 
 Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
-team selection: the audience is an explicit allowlist from the
-`WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs). Unset
-or empty means the job is a no-op, so it ships dark and is opt-in per team — we
-turn it on for a couple of internal teams first to compare against v2 before
-widening. There is no dependency on the v2 team-selection dictionary or flag.
+team selection. The audience defaults to a small built-in rollout list
+(`DEFAULT_ROLLOUT_TEAM_IDS`) on PostHog Cloud, and is fully overridable via the
+`WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs; set it
+to empty to disable the job). Self-hosted instances default to no teams so the
+job never precomputes for unrelated teams that happen to share those IDs. There
+is no dependency on the v2 team-selection dictionary or flag.
 
 The write path is not yet wired into any query runner — this job only populates
 the tables (so the new output can be compared with v2's side by side).
@@ -26,6 +27,7 @@ import dagster
 import structlog
 from prometheus_client import Counter
 
+from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners
 from posthog.models import Team
 
@@ -53,19 +55,28 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
 PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
-# Comma-separated team IDs to precompute. Empty/unset → the job is a no-op.
+# Built-in rollout audience used when the env var is unset: PostHog's internal
+# dogfood project plus one high-volume pilot team, for the v2 side-by-side. Applied
+# on PostHog Cloud only (see get_selected_team_ids).
+DEFAULT_ROLLOUT_TEAM_IDS = [2, 55348]
+
+# Comma-separated team IDs to precompute. Overrides DEFAULT_ROLLOUT_TEAM_IDS;
+# set to empty to disable the job entirely.
 SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
 
 
 def get_selected_team_ids() -> list[int]:
-    """Parse the team allowlist from the env var. Invalid/blank entries are skipped."""
-    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR, "")
-    ids = []
-    for part in raw.split(","):
-        part = part.strip()
-        if part.isdigit():
-            ids.append(int(part))
-    return ids
+    """Resolve the team allowlist.
+
+    The env var wins if set (even to empty): a comma-separated list, blank/invalid
+    entries skipped. If unset, fall back to DEFAULT_ROLLOUT_TEAM_IDS — but only on
+    PostHog Cloud; self-hosted defaults to none so the job never runs for unrelated
+    teams that happen to share those IDs.
+    """
+    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
+    if raw is None:
+        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
+    return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
 
 
 def chunk_ranges(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:

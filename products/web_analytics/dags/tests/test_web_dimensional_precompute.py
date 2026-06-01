@@ -9,6 +9,7 @@ import dagster
 from posthog.models import Organization, Team
 
 from products.web_analytics.dags.web_dimensional_precompute import (
+    DEFAULT_ROLLOUT_TEAM_IDS,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
@@ -17,6 +18,8 @@ from products.web_analytics.dags.web_dimensional_precompute import (
     get_selected_team_ids,
     web_dimensional_precompute_job,
 )
+
+_IS_CLOUD = "products.web_analytics.dags.web_dimensional_precompute.is_cloud"
 
 # Patch chunking to a single chunk so call counts are deterministic in the op tests.
 _SINGLE_CHUNK = "products.web_analytics.dags.web_dimensional_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -46,16 +49,26 @@ class TestChunkRanges:
 
 
 class TestGetSelectedTeamIds:
-    def test_parses_comma_separated_ids(self):
+    def test_env_override_parses_comma_separated_ids(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "2, 47074 ,55348"}):
             assert get_selected_team_ids() == [2, 47074, 55348]
 
-    def test_empty_or_invalid_entries_skipped(self):
+    def test_env_override_skips_blank_and_invalid(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: " , abc, 2 ,"}):
             assert get_selected_team_ids() == [2]
 
-    def test_unset_is_empty(self):
-        with patch.dict(os.environ, {}, clear=False):
+    def test_env_set_empty_disables(self):
+        # An explicit empty value disables the job even on cloud.
+        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
+            assert get_selected_team_ids() == []
+
+    def test_unset_uses_default_rollout_on_cloud(self):
+        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS
+
+    def test_unset_is_empty_off_cloud(self):
+        with patch(_IS_CLOUD, return_value=False), patch.dict(os.environ, {}, clear=False):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
             assert get_selected_team_ids() == []
 
