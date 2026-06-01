@@ -129,18 +129,25 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 
-def _tile_rects_overlap(a: dict, b: dict) -> bool:
+def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
     return not (
-        a["x"] + a["w"] <= b["x"] or b["x"] + b["w"] <= a["x"] or a["y"] + a["h"] <= b["y"] or b["y"] + b["h"] <= a["y"]
+        rect_a["x"] + rect_a["w"] <= rect_b["x"]
+        or rect_b["x"] + rect_b["w"] <= rect_a["x"]
+        or rect_a["y"] + rect_a["h"] <= rect_b["y"]
+        or rect_b["y"] + rect_b["h"] <= rect_a["y"]
     )
 
 
-def compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
+def _compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
     """Vertically compact tile layouts in place, mirroring the dashboard grid's default
     react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
     independently: tiles keep their x/w/h and are pulled up to the lowest free row.
     Returns the ids of tiles whose layouts changed.
     """
+    for tile in tiles:
+        if isinstance(tile.layouts, str):
+            tile.layouts = json.loads(tile.layouts)
+
     changed: set[int] = set()
     breakpoints: set[str] = set()
     for tile in tiles:
@@ -151,14 +158,12 @@ def compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
         entries = [
             tile for tile in tiles if isinstance(tile.layouts, dict) and isinstance(tile.layouts.get(breakpoint), dict)
         ]
-        placed: list[dict] = []
-        for tile in sorted(
-            entries, key=lambda t: (t.layouts[breakpoint].get("y", 0), t.layouts[breakpoint].get("x", 0))
-        ):
+        placed: list[dict[str, int]] = []
+        for tile in DashboardTile.sort_tiles_by_layout(entries, breakpoint):
             layout = tile.layouts[breakpoint]
             rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
             new_y = 0
-            while any(_tile_rects_overlap({**rect, "y": new_y}, p) for p in placed):
+            while any(_tile_rects_overlap({**rect, "y": new_y}, placed_rect) for placed_rect in placed):
                 new_y += 1
             placed.append({**rect, "y": new_y})
             if new_y != layout.get("y", 0):
@@ -1978,21 +1983,19 @@ class DashboardsViewSet(
             dashboard=dashboard,
             dashboard__team__project_id=self.team.project_id,
         )
-        tile.deleted = True
-        tile.save(update_fields=["deleted"])
-
         # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
         # (react-grid-layout compacts upward on render but never persists it).
-        remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
-        for remaining_tile in remaining:
-            if isinstance(remaining_tile.layouts, str):
-                remaining_tile.layouts = json.loads(remaining_tile.layouts)
-        changed_ids = compact_tile_layouts(remaining)
-        if changed_ids:
-            DashboardTile.objects.bulk_update(
-                [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
-                ["layouts"],
-            )
+        with transaction.atomic():
+            tile.deleted = True
+            tile.save(update_fields=["deleted"])
+
+            remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
+            changed_ids = _compact_tile_layouts(remaining)
+            if changed_ids:
+                DashboardTile.objects.bulk_update(
+                    [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
+                    ["layouts"],
+                )
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 

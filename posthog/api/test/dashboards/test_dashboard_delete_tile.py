@@ -36,7 +36,6 @@ class TestDashboardDeleteTile(APIBaseTest):
         assert len(remaining) == 1
         assert remaining[0]["id"] != tile_to_delete["id"]
 
-        # The text record itself is preserved — only the tile row is soft-deleted.
         tile = DashboardTile.objects_including_soft_deleted.get(id=tile_to_delete["id"])
         assert tile.deleted is True
         assert tile.text is not None
@@ -51,7 +50,6 @@ class TestDashboardDeleteTile(APIBaseTest):
 
         self._delete_tile(dashboard_id, tile_id)
 
-        # Tile is gone from the dashboard but the underlying insight still exists.
         assert self.dashboard_api.get_dashboard(dashboard_id)["tiles"] == []
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}")
         assert insight_response.status_code == status.HTTP_200_OK
@@ -118,6 +116,52 @@ class TestDashboardDeleteTile(APIBaseTest):
 
         top = DashboardTile.objects.get(id=tile_ids[0])
         bottom = DashboardTile.objects.get(id=tile_ids[2])
-        assert top.layouts["sm"]["y"] == 0
-        assert bottom.layouts["sm"]["y"] == 5
-        assert bottom.layouts["xs"]["y"] == 5
+        assert top.layouts["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
+        # Compaction preserves x/w/h and only pulls y up to close the gap (10 -> 5).
+        assert bottom.layouts["sm"] == {"x": 0, "y": 5, "w": 6, "h": 5}
+        assert bottom.layouts["xs"] == {"x": 0, "y": 5, "w": 6, "h": 5}
+
+    def test_delete_tile_compacts_per_column_without_disturbing_other_columns(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="left top")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="right top")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="left middle")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="right gapped")
+
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+        layouts = [
+            {"x": 0, "y": 0, "w": 6, "h": 5},  # left top
+            {"x": 6, "y": 0, "w": 6, "h": 5},  # right top
+            {"x": 0, "y": 5, "w": 6, "h": 5},  # left middle (to be deleted)
+            {"x": 6, "y": 10, "w": 6, "h": 5},  # right column, with a gap at rows 5-9
+        ]
+        for tile_id, layout in zip(tile_ids, layouts):
+            DashboardTile.objects.filter(id=tile_id).update(layouts={"sm": layout, "xs": {**layout, "x": 0, "w": 1}})
+
+        self._delete_tile(dashboard_id, tile_ids[2])
+
+        left_top = DashboardTile.objects.get(id=tile_ids[0])
+        right_top = DashboardTile.objects.get(id=tile_ids[1])
+        right_gapped = DashboardTile.objects.get(id=tile_ids[3])
+        # Untouched tiles keep their exact positions; the right column's gap closes (10 -> 5),
+        # which is only correct if the overlap check keeps it in its own column (x stays 6).
+        assert left_top.layouts["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
+        assert right_top.layouts["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}
+        assert right_gapped.layouts["sm"] == {"x": 6, "y": 5, "w": 6, "h": 5}
+
+    def test_delete_tile_leaves_tiles_without_layouts_alone(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="positioned")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="unpositioned")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="to delete")
+
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+        DashboardTile.objects.filter(id=tile_ids[0]).update(layouts={"sm": {"x": 0, "y": 10, "w": 6, "h": 5}})
+        DashboardTile.objects.filter(id=tile_ids[1]).update(layouts={})
+
+        self._delete_tile(dashboard_id, tile_ids[2])
+
+        positioned = DashboardTile.objects.get(id=tile_ids[0])
+        unpositioned = DashboardTile.objects.get(id=tile_ids[1])
+        assert positioned.layouts["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
+        assert unpositioned.layouts == {}
