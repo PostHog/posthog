@@ -247,9 +247,17 @@ class TestRankByImpact:
         assert narrative.enrich_findings.__module__ == "posthog.temporal.ai.pulse.narrative"
 
 
-class TestNarrativeModelConstant:
-    def test_model_constant_is_gpt5_mini(self):
-        assert NARRATIVE_MODEL == "gpt-5-mini"
+class TestFallbackNarrative:
+    def test_includes_attribution_segment_when_present(self):
+        finding = _finding(impact=10.0, robust_z=4.0, label="purchase_completed")
+        line = _fallback_narrative(finding, {"property": "$browser", "value": "Safari"})
+        assert "Safari" in line
+        assert "$browser" in line
+
+    def test_omits_segment_clause_without_attribution(self):
+        finding = _finding(impact=10.0, robust_z=4.0, label="purchase_completed")
+        line = _fallback_narrative(finding)
+        assert "concentrated in" not in line
 
 
 class TestGenerateNarrativeRoutesThroughMaxChatOpenAI:

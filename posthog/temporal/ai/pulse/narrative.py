@@ -40,7 +40,9 @@ ENRICHMENT_CONCURRENCY = 5
 ATTRIBUTION_CONCURRENCY = 5
 
 # Narrative-only LLM: deterministic backbone does detection, the model just writes prose.
-NARRATIVE_MODEL = "gpt-5-mini"
+# Non-reasoning model on purpose — short factual prose with a hard max_tokens cap. A reasoning
+# model (e.g. gpt-5-mini) spends the token budget thinking and returns an empty completion here.
+NARRATIVE_MODEL = "gpt-4.1"
 NARRATIVE_MAX_TOKENS = 200
 NARRATIVE_TIMEOUT_SECONDS = 45.0
 
@@ -195,12 +197,23 @@ async def _generate_narrative(team: Team, user: User, finding: Finding, attribut
     return result.strip()
 
 
-def _fallback_narrative(finding: Finding) -> str:
+def _fallback_narrative(finding: Finding, attribution: dict[str, Any] | None = None) -> str:
+    """Deterministic narrative used when the LLM is unavailable or returns nothing.
+
+    Folds in the attribution segment when we have one, so the line still points at a likely driver
+    instead of just restating the headline number.
+    """
     direction = "up" if finding.change_pct > 0 else "down"
-    return (
+    base = (
         f"{finding.descriptor.label} is {direction} {abs(finding.change_pct):.0%} this week "
-        f"({finding.current_value:.0f} vs {finding.baseline_value:.0f} baseline)."
+        f"({finding.current_value:.0f} vs {finding.baseline_value:.0f}/week baseline)."
     )
+    if attribution and attribution.get("value"):
+        segment = attribution["value"]
+        prop = attribution.get("property")
+        prop_clause = f" ({prop})" if prop else ""
+        base += f" The shift is concentrated in {segment}{prop_clause} — the biggest mover, worth a look."
+    return base
 
 
 REPLAY_EVIDENCE_LIMIT = 3
@@ -301,8 +314,8 @@ async def _enrich_one(
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
             session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
             narrative = await _generate_narrative(team, user, finding, attribution)
-            if not narrative:  # empty LLM response (e.g. no model configured) — keep a useful line
-                narrative = _fallback_narrative(finding)
+            if not narrative:  # empty LLM response — keep a useful, attribution-aware line
+                narrative = _fallback_narrative(finding, attribution)
         except Exception as exc:
             logger.exception(
                 "pulse_enrich_finding_failed",
@@ -310,7 +323,7 @@ async def _enrich_one(
                 metric=finding.descriptor.label,
                 error=str(exc),
             )
-            narrative = _fallback_narrative(finding)
+            narrative = _fallback_narrative(finding, attribution)
         return EnrichedFinding(
             descriptor=finding.descriptor,
             current_value=finding.current_value,
