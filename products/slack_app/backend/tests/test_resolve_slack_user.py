@@ -23,7 +23,7 @@ class TestResolveSlackUser:
 
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -143,7 +143,7 @@ class TestLookupSlackUserIdByEmail:
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )

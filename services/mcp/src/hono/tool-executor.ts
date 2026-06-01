@@ -47,18 +47,16 @@ export class ToolExecutor {
         }
 
         const nameSet = new Set(state.allTools.map((t) => t.name))
-        let filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
+        const filteredTools = this.catalog.getPreBuiltEntries().filter((e) => nameSet.has(e.name))
 
-        if (state.version === 2) {
-            filteredTools = filteredTools.map((entry) => {
-                if (entry.name === 'execute-sql') {
-                    return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
-                }
-                return entry
-            })
-        }
+        const withSqlDescription = filteredTools.map((entry) => {
+            if (entry.name === 'execute-sql') {
+                return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
+            }
+            return entry
+        })
 
-        return { tools: filteredTools }
+        return { tools: withSqlDescription }
     }
 
     async handleToolCall(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {

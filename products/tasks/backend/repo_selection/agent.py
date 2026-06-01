@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
@@ -304,6 +305,7 @@ async def select_repository(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    on_research_session: Callable[[str, str], None] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -373,6 +375,9 @@ async def select_repository(
         origin_product=origin_product,
         internal=True,
     )
+    # Track repo discovery execution (for example, for Slack)
+    if on_research_session is not None:
+        on_research_session(str(session.task.id), str(session.task_run.id))
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

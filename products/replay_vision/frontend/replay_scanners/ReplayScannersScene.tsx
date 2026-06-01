@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCopy, IconEye, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -185,7 +185,7 @@ export function ReplayScannersScene(): JSX.Element {
                 description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
                 secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
                 customHog={XRayHog}
-                action={() => push(urls.replayVision('new'))}
+                action={() => push(urls.replayVisionTemplates())}
             />
 
             <SceneSection
@@ -198,7 +198,7 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={() => push(urls.replayVision('new'))}
+                            to={urls.replayVisionTemplates()}
                             data-attr="create-replay-scanner"
                         >
                             New scanner
@@ -249,13 +249,8 @@ export function ReplayScannersScene(): JSX.Element {
                     emptyState={
                         scanners.length === 0 ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
-                                <IconEye className="text-3xl text-muted" />
                                 <div className="text-muted">No scanners yet.</div>
-                                <LemonButton
-                                    type="primary"
-                                    icon={<IconPlus />}
-                                    onClick={() => push(urls.replayVision('new'))}
-                                >
+                                <LemonButton type="primary" icon={<IconPlus />} to={urls.replayVisionTemplates()}>
                                     Create your first scanner
                                 </LemonButton>
                             </div>
