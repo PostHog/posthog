@@ -20,15 +20,13 @@ import {
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { Experiment, InsightType } from '~/types'
-
-import { experimentLogic } from '../../experimentLogic'
-import { isLaunched } from '../../experimentsLogic'
-import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
-import { ChartEmptyState } from '../shared/ChartEmptyState'
-import { ChartLoadingState } from '../shared/ChartLoadingState'
-import { useChartColors } from '../shared/colors'
-import { MetricHeader } from '../shared/MetricHeader'
+import { experimentLogic } from '~/scenes/experiments/experimentLogic'
+import { isLaunched } from '~/scenes/experiments/experimentsLogic'
+import { useColumnWidthSync } from '~/scenes/experiments/MetricsView/hooks/useColumnWidthSync'
+import { ChartEmptyState } from '~/scenes/experiments/MetricsView/shared/ChartEmptyState'
+import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
+import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
+import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
@@ -42,7 +40,9 @@ import {
     isDeltaPositive,
     isSignificant,
     isWinning,
-} from '../shared/utils'
+} from '~/scenes/experiments/MetricsView/shared/utils'
+import { Experiment, InsightType } from '~/types'
+
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -744,8 +744,7 @@ export function MetricRowGroup({
     // At this point, we know result is defined, so we can safely access its properties
     const baselineResult = result.baseline
     const variantResults = result.variant_results || []
-    const totalRows = 1 + variantResults.length
-    const totalRowsHeightStyle = getScaledHeightStyle(totalRows)
+    const totalRowsHeightStyle = getScaledHeightStyle(variantResults.length + 1)
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
@@ -802,7 +801,7 @@ export function MetricRowGroup({
                 {/* Metric column - with rowspan */}
                 <td
                     className={`w-1/5 border-r p-3 align-top text-left relative overflow-hidden ${!isLastMetric ? 'border-b' : ''} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalRows}
+                    rowSpan={variantResults.length + 1}
                     style={totalRowsHeightStyle}
                 >
                     <MetricHeader
@@ -865,7 +864,7 @@ export function MetricRowGroup({
                     className={`w-20 pt-3 align-top relative overflow-hidden ${
                         !isLastMetric ? 'border-b' : ''
                     } ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}
-                    rowSpan={totalRows}
+                    rowSpan={variantResults.length + 1}
                     style={totalRowsHeightStyle}
                 >
                     {showDetailsModal && (

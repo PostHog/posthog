@@ -10,7 +10,6 @@ class ScannerType(models.TextChoices):
     CLASSIFIER = "classifier", "Classifier"
     SCORER = "scorer", "Scorer"
     SUMMARIZER = "summarizer", "Summarizer"
-    INDEXER = "indexer", "Indexer"
 
 
 class ScannerProvider(models.TextChoices):
