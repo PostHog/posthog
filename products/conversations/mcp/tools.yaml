@@ -24,6 +24,9 @@ tools:
     conversations-list:
         operation: conversations_list
         enabled: false
+    conversations-permission-create:
+        operation: conversations_permission_create
+        enabled: false
     conversations-queue-clear-create:
         operation: conversations_queue_clear_create
         enabled: false
@@ -41,6 +44,9 @@ tools:
         enabled: false
     conversations-retrieve:
         operation: conversations_retrieve
+        enabled: false
+    conversations-sandbox-create:
+        operation: conversations_sandbox_create
         enabled: false
     conversations-tickets-bulk-update-tags-create:
         operation: conversations_tickets_bulk_update_tags_create
