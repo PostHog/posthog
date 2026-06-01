@@ -185,14 +185,38 @@ tools:
     customer-journeys-create:
         operation: customer_journeys_create
         enabled: false
+    customer-journeys-destroy:
+        operation: customer_journeys_destroy
+        enabled: false
     customer-journeys-list:
         operation: customer_journeys_list
+        enabled: false
+    customer-journeys-partial-update:
+        operation: customer_journeys_partial_update
+        enabled: false
+    customer-journeys-retrieve:
+        operation: customer_journeys_retrieve
+        enabled: false
+    customer-journeys-update:
+        operation: customer_journeys_update
         enabled: false
     customer-profile-configs-create:
         operation: customer_profile_configs_create
         enabled: false
+    customer-profile-configs-destroy:
+        operation: customer_profile_configs_destroy
+        enabled: false
     customer-profile-configs-list:
         operation: customer_profile_configs_list
+        enabled: false
+    customer-profile-configs-partial-update:
+        operation: customer_profile_configs_partial_update
+        enabled: false
+    customer-profile-configs-retrieve:
+        operation: customer_profile_configs_retrieve
+        enabled: false
+    customer-profile-configs-update:
+        operation: customer_profile_configs_update
         enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create

@@ -13,9 +13,9 @@ the environment and prints a single-line `Decision` JSON on stdout:
 The two booleans are orthogonal so each downstream workflow job gates on
 exactly the question it owns: the `dismiss` job reads `dismiss_approval`,
 the `review` job reads `run_review`. Decisions are constructed only via
-`Decision.retain`, `Decision.dismiss_and_review`, `Decision.no_op`, and
-`Decision.error` — together they cover every legitimate combination, and
-the impossible "dismiss the approval but skip re-review" case is
+`Decision.retain`, `Decision.review_only`, `Decision.dismiss_and_review`,
+and `Decision.error` — together they cover every legitimate combination,
+and the impossible "dismiss the approval but skip re-review" case is
 unrepresentable.
 
 Anything ambiguous (force-push, mixed paths, fetch error, foreign-branch
@@ -84,12 +84,13 @@ class Decision:
         return cls(dismiss_approval=True, run_review=True, reason=str(reason))
 
     @classmethod
-    def no_op(cls, reason: Reason) -> "Decision":
-        """No prior approval to act on — nothing to do; the original `labeled`
-        event already fired a review, and the label-strip on non-APPROVED is
-        the canonical kill-switch. If a human dismissed the bot approval and
-        kept the label, they can re-label to request a fresh review."""
-        return cls(dismiss_approval=False, run_review=False, reason=reason)
+    def review_only(cls, reason: Reason) -> "Decision":
+        """No prior bot approval to dismiss, but the label is still on and the
+        agent hasn't approved yet — re-run the review on this push. Covers the
+        first-run ERROR case (LLM backend was down, so the label was retained
+        without an approval): the push actually retries the review instead of
+        leaving the PR labeled but stuck until someone re-applies the label."""
+        return cls(dismiss_approval=False, run_review=True, reason=reason)
 
     @classmethod
     def error(cls, exc: Exception) -> "Decision":
@@ -201,7 +202,7 @@ def evaluate_delta(last_approved_sha: str, head_sha: str, cwd: Path, base_ref: s
 def decide(repo: str, pr_number: int, head_sha: str, cwd: Path, base_ref: str = "origin/master") -> Decision:
     last_approved_sha = find_last_approved_sha(repo, pr_number)
     if last_approved_sha is None:
-        return Decision.no_op(Reason.NO_PRIOR_APPROVAL)
+        return Decision.review_only(Reason.NO_PRIOR_APPROVAL)
     return replace(
         evaluate_delta(last_approved_sha, head_sha, cwd, base_ref),
         last_approved_sha=last_approved_sha,

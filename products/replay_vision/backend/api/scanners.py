@@ -22,10 +22,10 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
@@ -35,6 +35,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import estimate_scanner_session_volume
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
@@ -61,12 +62,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="What the scanner does: monitor, classifier, scorer, summarizer, or indexer.",
+        help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; "
-            "classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`."
+            "Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, "
+            "scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -223,7 +224,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
     scanner_type = django_filters.ChoiceFilter(
         field_name="scanner_type",
         choices=ScannerType.choices,
-        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).",
+        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer).",
     )
     emits_signals = django_filters.BooleanFilter(
         field_name="emits_signals",
@@ -312,7 +313,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[VISION_TAG])
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 
@@ -345,6 +345,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
+        if snapshot.exhausted:
+            raise QuotaLimitExceeded(
+                detail=(
+                    f"Monthly Replay Vision quota of {snapshot.monthly_quota} observations reached; "
+                    f"resets at {snapshot.period_end.isoformat()}."
+                )
+            )
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)

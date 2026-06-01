@@ -1,5 +1,6 @@
-from collections.abc import Collection
-from typing import cast
+import asyncio
+from collections.abc import Collection, Iterable
+from typing import Any, cast
 
 import pytest
 import unittest.mock
@@ -8,6 +9,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import pyarrow as pa
+import deltalake
 import pytest_asyncio
 
 from posthog.sync import database_sync_to_async
@@ -23,7 +25,10 @@ from posthog.temporal.data_modeling.activities import (
     prepare_queryable_table_activity,
     succeed_materialization_activity,
 )
-from posthog.temporal.data_modeling.activities.materialize_view import InvalidNodeTypeException
+from posthog.temporal.data_modeling.activities.materialize_view import (
+    InvalidNodeTypeException,
+    _get_aws_storage_options,
+)
 
 from products.data_modeling.backend.models import DAG, Node, NodeType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
@@ -587,3 +592,180 @@ class TestMaterializeViewActivity:
             assert ajob.rows_expected == 5
             assert ajob.rows_materialized == 5
             assert result.row_count == 5
+
+    async def test_preserves_column_casing_across_multiple_batches(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+    ):
+        # regression: multiple batches with case-sensitive columns must materialize cleanly.
+        #
+        # per-batch mode="append" writes route through delta-rs's DataFusion-backed
+        # writer, which lowercases identifiers and fails with
+        # "Generic DeltaTable error: Schema error: No field named personid. ...
+        # Did you mean 'personId'?" on tables whose column names contain uppercase
+        # characters. the activity streams every batch through a single mode="overwrite"
+        # transaction to take the case-safe create path; this test guards both invariants:
+        #   - all rows from every batch are written and column casing is preserved;
+        #   - the delta history contains a single version (i.e. one commit), which would
+        #     regress to N versions if someone reintroduced per-batch append.
+        camel_case_names = ["Event", "DistinctId", "personId", "CamelCaseColumn"]
+
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+            batches = [
+                pa.RecordBatch.from_arrays(
+                    [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in camel_case_names],
+                    names=camel_case_names,
+                )
+                for i in range(3)
+            ]
+
+            async def async_generator():
+                for batch in batches:
+                    yield batch, [(name, "String") for name in camel_case_names]
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
+                return_value=6,
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            result = await activity_environment.run(materialize_view_activity, inputs)
+
+            assert result.row_count == 6
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            materialized = delta_table.to_pyarrow_table()
+            assert materialized.column_names == camel_case_names
+            assert materialized.num_rows == 6
+            # one commit per materialization — guards against reintroducing per-batch
+            # append, which would record N+ versions and route through the broken
+            # DataFusion-backed writer.
+            assert len(delta_table.history()) == 1
+
+    async def test_zero_row_materialization_writes_empty_parquet(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        # regression: a zero-row query must still produce a queryable empty table.
+        #
+        # delta-rs writes no parquet data file for an empty batch, so the activity
+        # synthesizes one carrying the schema and returns it as file_uris. without
+        # this, prepare_queryable_table_activity would later list a never-created
+        # S3 folder and raise FileNotFoundError.
+        fields: Iterable[pa.Field[Any]] = [pa.field("id", pa.int64()), pa.field("name", pa.string())]
+        empty_schema = pa.schema(fields)
+
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+            empty_batch = pa.RecordBatch.from_arrays(
+                [pa.array([], type=f.type) for f in empty_schema], schema=empty_schema
+            )
+
+            async def async_generator():
+                yield empty_batch, [("id", "Int64"), ("name", "String")]
+
+            return async_generator()
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
+                return_value=0,
+            ),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            result = await activity_environment.run(materialize_view_activity, inputs)
+            assert result.row_count == 0
+            assert len(result.file_uris) == 1
+            assert result.file_uris[0].endswith(".parquet")
+            # delta log carries the schema so deltaLake() reads in get_columns succeed
+            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=_get_aws_storage_options())
+            pyarrow_table = delta_table.to_pyarrow_table()
+            assert pyarrow_table.num_rows == 0
+            assert set(pyarrow_table.column_names) == {"id", "name"}
+
+    async def test_aborted_write_releases_producer_parked_on_full_queue(
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag
+    ):
+        # regression: when the consumer (write) aborts while the producer is still
+        # streaming, the producer must not be orphaned. its queue ops run in a thread
+        # via asyncio.to_thread (not cancellable), so a plain blocking put against the
+        # bounded queue would park that thread forever once the consumer stops draining,
+        # and the cleanup join (await producer_task) would hang with it. the producer's
+        # _put/_get poll a stop_event that cleanup sets, so the parked op returns and the
+        # task is reaped. we yield far more batches than the queue holds (maxsize=2) and
+        # make write_deltalake raise without draining, guaranteeing the producer parks;
+        # the activity must surface the write error promptly instead of hanging.
+        names = ["a", "b"]
+
+        def mock_hogql_table(*args, **kwargs):
+            del args, kwargs
+
+            async def async_generator():
+                for i in range(8):
+                    batch = pa.RecordBatch.from_arrays(
+                        [pa.array([f"b{i}r0", f"b{i}r1"], type=pa.string()) for _ in names],
+                        names=names,
+                    )
+                    yield batch, [(name, "String") for name in names]
+
+            return async_generator()
+
+        def raising_write(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("boom")
+
+        with (
+            override_settings(
+                BUCKET_URL=f"s3://{bucket_name}",
+                DATAWAREHOUSE_LOCAL_ACCESS_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                DATAWAREHOUSE_LOCAL_ACCESS_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_query_row_count",
+                return_value=16,
+            ),
+            unittest.mock.patch("deltalake.write_deltalake", side_effect=raising_write),
+        ):
+            inputs = MaterializeViewInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                node_id=str(anode.id),
+                job_id=str(ajob.id),
+            )
+            # wait_for fails the test rather than hanging the suite if the producer is
+            # orphaned and the cleanup join blocks forever.
+            with pytest.raises(RuntimeError, match="boom"):
+                await asyncio.wait_for(activity_environment.run(materialize_view_activity, inputs), timeout=10)

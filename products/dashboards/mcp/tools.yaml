@@ -221,20 +221,32 @@ tools:
         enrich_url: '{id}'
         title: Reorder dashboard tiles
         description: >
-            Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a
-            2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile
-            IDs.
+            Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use
+            dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the
+            layout parameter to force a 2-column or full-width grid instead.
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false
     dashboard-templates-create:
         operation: dashboard_templates_create
         enabled: false
+    dashboard-templates-destroy:
+        operation: dashboard_templates_destroy
+        enabled: false
     dashboard-templates-json-schema-retrieve:
         operation: dashboard_templates_json_schema_retrieve
         enabled: false
     dashboard-templates-list:
         operation: dashboard_templates_list
+        enabled: false
+    dashboard-templates-partial-update:
+        operation: dashboard_templates_partial_update
+        enabled: false
+    dashboard-templates-retrieve:
+        operation: dashboard_templates_retrieve
+        enabled: false
+    dashboard-templates-update:
+        operation: dashboard_templates_update
         enabled: false
     dashboard-update:
         operation: dashboards_partial_update

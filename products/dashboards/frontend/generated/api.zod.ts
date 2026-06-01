@@ -43,6 +43,74 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
+export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+export const dashboardTemplatesPartialUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesPartialUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
 /**
  * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
  * @summary Copy a team template to this project
@@ -100,21 +168,6 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
             '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
         ),
     user_uuid: zod.uuid(),
-})
-
-/**
- * Create a new password for the sharing configuration.
- */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
 })
 
 export const dashboardsUpdateBodyNameMax = 400
@@ -342,11 +395,20 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
+
 export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
+    layout: zod
+        .enum(['preserve', 'two_column', 'full_width'])
+        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
+        .default(dashboardsReorderTilesCreateBodyLayoutDefault)
+        .describe(
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+        ),
 })
 
 /**
