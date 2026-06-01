@@ -14,6 +14,8 @@ FORBIDDEN_AT_SETUP = [
     "chdb",  # embedded ClickHouse
     "posthog.temporal.ai_observability",  # eval/clustering workers (pulls scipy, etc.)
     "scipy",  # only reached via ai_observability clustering — must not be at startup
+    "posthog.session_recordings.session_recording_api",  # pulls the session_summary workflow
+    "google.genai",  # Gemini SDK — only reached via the session-summary video workflow
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot

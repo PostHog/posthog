@@ -15,7 +15,6 @@ from posthog.api.file_system.deletion import (
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.user import User
-from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
@@ -164,6 +163,11 @@ def _link_post_delete(context: DeletionContext, link: Any) -> None:
 
 
 def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
+    # Deferred: session_recording_playlist_api pulls session_recording_api -> the session_summary
+    # temporal workflow (-> google-genai). This module is imported from AppConfig.ready(), so a
+    # module-level import would drag all of that onto every process's startup path.
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
@@ -199,6 +203,8 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
 
 
 def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
