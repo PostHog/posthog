@@ -384,10 +384,8 @@ describe('the authorized urls list logic', () => {
             { url: 'not-a-url', safe: false },
         ]
 
-        testCases.forEach(({ url, safe }) => {
-            it(`treats "${url}" as ${safe ? 'safe' : 'unsafe'} to frame`, () => {
-                expect(checkUrlIsSafeToFrame(url, authorizedUrls)).toBe(safe)
-            })
+        it.each(testCases)('treats "$url" as safe=$safe to frame', ({ url, safe }) => {
+            expect(checkUrlIsSafeToFrame(url, authorizedUrls)).toBe(safe)
         })
 
         it('is unsafe when no URLs are authorized', () => {
