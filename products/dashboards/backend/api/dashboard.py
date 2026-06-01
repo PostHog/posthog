@@ -465,12 +465,12 @@ class DeleteTileRequestSerializer(serializers.Serializer):
 
 
 class MoveTileTileSerializer(serializers.Serializer):
-    id = serializers.IntegerField(help_text="Dashboard tile ID to move.")
+    id = serializers.IntegerField(required=True, help_text="Dashboard tile ID to move.")
 
 
 class MoveTileRequestSerializer(serializers.Serializer):
-    to_dashboard = serializers.IntegerField(help_text="Destination dashboard ID.")
-    tile = MoveTileTileSerializer(help_text="Tile to move, identified by its dashboard tile ID.")
+    to_dashboard = serializers.IntegerField(required=True, help_text="Destination dashboard ID.")
+    tile = MoveTileTileSerializer(required=True, help_text="Tile to move, identified by its dashboard tile ID.")
 
 
 class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
@@ -2198,7 +2198,7 @@ class DashboardsViewSet(
         return layout_size
 
     @extend_schema(request=MoveTileRequestSerializer, responses={200: DashboardSerializer})
-    @action(methods=["PATCH"], detail=True, required_scopes=["dashboard:write"])
+    @action(methods=["PATCH", "POST"], detail=True, required_scopes=["dashboard:write"])
     def move_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # TODO could things be rearranged so this is  PATCH call on a resource and not a custom endpoint?
         from_dashboard = self.get_object()
