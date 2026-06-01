@@ -20,6 +20,8 @@ on:
         paths:
             - 'rust/**'
             - '.github/workflows/rust-docker-build.yml'
+            - '.github/workflows/_rust-build-images.yml'
+            - '.github/rust-images.yml'
         branches:
             - 'master'
 
