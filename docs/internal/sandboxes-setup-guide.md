@@ -11,6 +11,10 @@ The setup command is idempotent — re-run it anytime. It writes the dev JWT key
 to your `.env`, creates the Array OAuth application, enables the `tasks` feature
 flag for every team, and builds the agent skills bundle.
 
+> To trigger runs from Slack (`@PostHog <task>`) instead of the UI, set up a dev Slack
+> workspace and app once this guide is working — see
+> [slack-local-setup-guide.md](./slack-local-setup-guide.md).
+
 ## GitHub App
 
 Each engineer needs their own GitHub App. The setup command will print these
