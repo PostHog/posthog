@@ -278,6 +278,47 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('testFlagEvaluation person identifier selection', () => {
+        it.each([
+            {
+                description:
+                    'sends distinct_id (not person_id) when only distinct_id is set — simulates recent-tab selection',
+                formData: { distinct_id: 'user-from-recent-tab', person_id: '', timestamp: '', groups: '' },
+                expectedBody: { distinct_id: 'user-from-recent-tab' },
+                notExpectedKey: 'person_id',
+            },
+            {
+                description: 'falls back to person_id when distinct_id is empty',
+                formData: { distinct_id: '', person_id: 'uuid-abc', timestamp: '', groups: '' },
+                expectedBody: { person_id: 'uuid-abc' },
+                notExpectedKey: 'distinct_id',
+            },
+            {
+                description: 'prefers distinct_id over person_id when both are set',
+                formData: { distinct_id: 'did-123', person_id: 'uuid-abc', timestamp: '', groups: '' },
+                expectedBody: { distinct_id: 'did-123' },
+                notExpectedKey: 'person_id',
+            },
+        ])('$description', async ({ formData, expectedBody, notExpectedKey }) => {
+            let capturedBody: Record<string, any> = {}
+            useMocks({
+                post: {
+                    '/api/projects/:team/feature_flags/1/test_evaluation': async (req) => {
+                        capturedBody = await req.json()
+                        return [200, {}]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.testFlagEvaluation({ flagId: 1, formData })
+            }).toFinishAllListeners()
+
+            expect(capturedBody).toMatchObject(expectedBody)
+            expect(capturedBody).not.toHaveProperty(notExpectedKey)
+        })
+    })
+
     describe('groups validation through testFlagEvaluation', () => {
         it.each([
             { description: 'valid object succeeds', groups: '{"team": "backend"}', expectedError: null },

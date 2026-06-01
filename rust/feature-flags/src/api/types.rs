@@ -606,16 +606,15 @@ impl FlagDetails {
                         // only authorized for the flag under test, not necessarily the dependency
                         // flag, so serializing its raw value would leak it. `matched` reflects the
                         // tested flag's own condition outcome, which the caller may already see.
-                        let actual_value = None;
                         let expected = property.value.clone().unwrap_or(Value::Null);
                         let explanation = if property_matched {
                             format!(
-                                "Flag dependency '{}' evaluated to {}",
+                                "Flag dependency '{}' satisfied the required value {}",
                                 property.key, expected
                             )
                         } else {
                             format!(
-                                "Flag dependency '{}' did not evaluate to {}",
+                                "Flag dependency '{}' did not satisfy the required value {}",
                                 property.key, expected
                             )
                         };
@@ -624,7 +623,7 @@ impl FlagDetails {
                             operator: operator_str,
                             value: expected,
                             r#type: type_str,
-                            actual_value,
+                            actual_value: None,
                             matched: property_matched,
                             explanation,
                         });
@@ -1361,5 +1360,33 @@ mod tests {
             !analysis[0].properties[0].matched,
             "Flag dependency property must report matched=false"
         );
+        // The dependency flag's evaluated value must not be disclosed regardless of match outcome.
+        assert_eq!(analysis[0].properties[0].actual_value, None);
+
+        // Case 3: the dependency flag id is absent from flag_results (e.g. not yet evaluated).
+        // match_flag_value_to_flag_filter returns false when the id is missing — the analysis
+        // should reflect that rather than falling through to match_property() which rejects the
+        // FlagEvaluatesTo operator entirely.
+        let flag_match = FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+        };
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            &HashMap::new(), // empty — dependency flag 42 absent
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert!(
+            !analysis[0].properties[0].matched,
+            "Absent dependency flag must report matched=false, not error"
+        );
+        assert_eq!(analysis[0].properties[0].actual_value, None);
     }
 }
