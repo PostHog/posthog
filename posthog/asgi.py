@@ -1,4 +1,5 @@
 import os
+import threading
 
 # Django Imports
 from django.conf import settings
@@ -39,7 +40,7 @@ def _ensure_post_fork_init():
 
     start_continuous_profiling()
     initialize_otel()
-    prewarm_query_cache_cluster()
+    threading.Thread(target=prewarm_query_cache_cluster, name="prewarm-query-cache-cluster", daemon=True).start()
     _post_fork_initialized = True
 
 

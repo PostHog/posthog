@@ -69,9 +69,10 @@ def prewarm_query_cache_cluster() -> None:
 
     Discovery (COMMAND + CLUSTER SLOTS) otherwise happens lazily on the worker's
     first cacheable query, putting it on a user's query critical path. Issuing a
-    trivial read here moves it earlier: to module import under WSGI, and to the
-    first request (via the post-fork init hook) under ASGI. Safe to call when the
-    query_cache alias is not configured — it is a no-op then.
+    trivial read here moves it earlier: to module import under WSGI, and to a
+    background thread spawned from the post-fork init hook under ASGI (so it never
+    blocks the event loop). Safe to call when the query_cache alias is not
+    configured — it is a no-op then.
     """
     if QUERY_CACHE_ALIAS not in settings.CACHES:
         return
