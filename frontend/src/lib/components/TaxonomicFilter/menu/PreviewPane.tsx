@@ -21,6 +21,7 @@ import { useTaxonomicAutocompleteItemDetails } from '../headless'
 import { TaxonomicFilterGroupType } from '../types'
 import { ActionMatchGroups } from './preview/ActionMatchGroups'
 import { MenuFilterEntry } from './types'
+import { VerificationBadge } from './VerificationBadge'
 
 export interface PreviewPaneProps {
     /** Highlighted entry, or `null` when nothing is highlighted. */
@@ -59,7 +60,7 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
     return (
         <ScrollArea className="flex-1 min-h-0">
             <div className="flex flex-col gap-3 p-3 text-sm">
-                <PreviewHeader details={details} viewUrl={viewUrl} />
+                <PreviewHeader details={details} viewUrl={viewUrl} entry={entry} />
 
                 {details.description ? (
                     <p className="text-xs leading-relaxed text-secondary">{details.description}</p>
@@ -93,9 +94,11 @@ interface PreviewHeaderProps {
     details: ReturnType<typeof useTaxonomicAutocompleteItemDetails>
     /** Data management URL for the definition, or `undefined` to hide. */
     viewUrl: string | undefined
+    /** Highlighted entry — drives the verification badge. */
+    entry: MenuFilterEntry
 }
 
-function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | null {
+function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Element | null {
     if (!details) {
         return null
     }
@@ -127,6 +130,7 @@ function PreviewHeader({ details, viewUrl }: PreviewHeaderProps): JSX.Element | 
             <div className="flex flex-col gap-1">
                 <div className="text-xxs uppercase tracking-wide text-secondary">{details.groupLabel}</div>
                 <div className="text-base font-semibold leading-tight break-words">{details.title}</div>
+                <VerificationBadge entry={entry} className="mt-1 self-start" />
             </div>
             <Separator />
         </div>

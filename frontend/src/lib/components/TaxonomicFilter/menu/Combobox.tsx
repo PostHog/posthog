@@ -42,6 +42,7 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupTyp
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
+import { VerificationBadge } from './VerificationBadge'
 
 // `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
 // only override what's specific to the menu (keys + the
@@ -612,6 +613,7 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 </span>
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
+            <VerificationBadge entry={entry} />
             {isSelected && <IconCheck className="size-3.5 text-foreground shrink-0" />}
             {opensSubmenu && <IconChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>
