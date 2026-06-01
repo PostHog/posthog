@@ -809,7 +809,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
-        # Capture the name before deletion; the soft-delete path scrambles `name`.
         name = instance.name
         try:
             delete_saved_query(instance)
