@@ -86,6 +86,56 @@ describe('monitor-github-rate-limit', () => {
         expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('capture 500'))
     })
 
+    test('captures the triggering event context on each sample', async () => {
+        process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN = 'devex-key'
+        const captured = []
+        const fetchMock = jest.fn((_url, opts) => {
+            captured.push(JSON.parse(opts.body))
+            return fetchOk()
+        })
+        const github = createGithubMock({ core: snapshot({ remaining: 3000, limit: 15000 }) })
+        const core = createCore()
+        const prContext = {
+            repo: { owner: 'PostHog', repo: 'posthog' },
+            eventName: 'pull_request',
+            payload: {
+                action: 'synchronize',
+                pull_request: {
+                    number: 12345,
+                    head: { ref: 'feature/foo' },
+                    user: { login: 'octocat' },
+                    changed_files: 7,
+                    additions: 120,
+                    deletions: 4,
+                },
+            },
+        }
+
+        await monitor({ github, context: prContext, core }, { now: () => T_BASE, fetch: fetchMock })
+
+        expect(captured[0].properties).toMatchObject({
+            trigger_event: 'pull_request',
+            trigger_action: 'synchronize',
+            head_ref: 'feature/foo',
+            pr_number: 12345,
+            pr_author: 'octocat',
+            pr_changed_files: 7,
+            pr_additions: 120,
+            pr_deletions: 4,
+        })
+    })
+
+    test('buildTrigger falls back to ref and nulls PR fields for non-PR events', () => {
+        expect(monitor.buildTrigger({ eventName: 'push', payload: { ref: 'refs/heads/master' } })).toMatchObject({
+            trigger_event: 'push',
+            trigger_action: null,
+            head_ref: 'refs/heads/master',
+            pr_number: null,
+            pr_author: null,
+            pr_changed_files: null,
+        })
+    })
+
     test('skips emission when devex token is not configured', async () => {
         const fetchMock = jest.fn(fetchOk)
         const github = createGithubMock({ core: snapshot({ remaining: 1, limit: 15000 }) })

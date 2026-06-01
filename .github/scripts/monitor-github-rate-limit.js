@@ -29,7 +29,27 @@ async function captureEvent({ fetchImpl, posthogToken, event, distinctId, proper
     }
 }
 
-function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId }) {
+// The workflow runs on every PR open/synchronize and master push, so each sample
+// can be attributed to the event that triggered it. Capturing that context turns
+// the aggregate /rate_limit series into a per-trigger breakdown downstream in
+// PostHog — which event types and PR sizes precede the steepest core burn.
+function buildTrigger(context) {
+    const payload = context.payload || {}
+    const pr = payload.pull_request || null
+    const num = (value) => (typeof value === 'number' ? value : null)
+    return {
+        trigger_event: context.eventName || null,
+        trigger_action: payload.action || null,
+        head_ref: (pr && pr.head && pr.head.ref) || payload.ref || null,
+        pr_number: pr ? pr.number : null,
+        pr_author: (pr && pr.user && pr.user.login) || null,
+        pr_changed_files: pr ? num(pr.changed_files) : null,
+        pr_additions: pr ? num(pr.additions) : null,
+        pr_deletions: pr ? num(pr.deletions) : null,
+    }
+}
+
+function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
     return {
@@ -44,6 +64,7 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
         source: 'github_token',
         observed_at: observedAt,
         workflow_run_id: runId || null,
+        ...(trigger || {}),
     }
 }
 
@@ -54,6 +75,7 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } 
     const observedAtSeconds = Math.floor(observedAtDate.getTime() / 1000)
     const repo = `${context.repo.owner}/${context.repo.repo}`
     const runId = process.env.GITHUB_RUN_ID || null
+    const trigger = buildTrigger(context)
 
     const posthogToken = process.env.POSTHOG_DEVEX_PROJECT_API_TOKEN
     if (!posthogToken) {
@@ -70,7 +92,7 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } 
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
         if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') continue
-        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId })
+        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger })
         core.info(`${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
         try {
             await captureEvent({
@@ -94,4 +116,5 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } 
 }
 
 module.exports.buildProperties = buildProperties
+module.exports.buildTrigger = buildTrigger
 module.exports.captureEvent = captureEvent
