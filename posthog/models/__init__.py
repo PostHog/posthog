@@ -10,6 +10,7 @@ from ..batch_exports.models import (
     BatchExportOnDemand,
 )
 from ..session_recordings.models.session_recording import SessionRecording
+from ..session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
@@ -41,6 +42,7 @@ from .exported_asset import ExportedAsset
 from .exported_recording import ExportedRecording
 from .file_system.file_system import FileSystem
 from .file_system.file_system_view_log import FileSystemViewLog
+from .file_system.persisted_folder import PersistedFolder
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
@@ -140,6 +142,7 @@ __all__ = [
     "ExportedRecording",
     "FileSystem",
     "FileSystemViewLog",
+    "PersistedFolder",
     "Filter",
     "Group",
     "GroupUsageMetric",
@@ -188,6 +191,7 @@ __all__ = [
     "SchemaPropertyGroupProperty",
     "SessionRecording",
     "SessionRecordingPlaylist",
+    "SessionRecordingExternalReference",
     "SessionRecordingPlaylistItem",
     "SharePassword",
     "SharingConfiguration",

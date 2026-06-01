@@ -47,3 +47,43 @@ def test_django_setup_does_not_import_heavy_subsystems() -> None:
         "Something added a module-level import that drags them onto the startup path "
         "(shell, migrate, celery, CI all pay for it). Defer the offending import instead."
     )
+
+
+# Counterpart guard to the lazy API router: with the route aggregator off the startup path,
+# a model class only registers if its app's ``models/__init__`` imports it (importing the
+# class is what runs ``ModelBase.__new__`` -> ``apps.register_model``). A model reachable
+# *only* through a viewset import would silently vanish from ``apps.get_models()`` at
+# setup-time, breaking makemigrations, admin, and the django-stubs mypy plugin. This asserts
+# every model registers at app-population, so importing the router adds none.
+_ROUTER_MODEL_DIFF = """
+import os
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+django.setup()
+from django.apps import apps
+
+def labels():
+    return {f"{m._meta.app_label}.{m.__name__}" for m in apps.get_models()}
+
+before = labels()
+from posthog.api import rest_router  # noqa: F401 — building the aggregator imports ~200 viewsets
+after = labels()
+print("\\n".join(sorted(after - before)))
+"""
+
+
+def test_all_models_register_at_app_population_not_via_router() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _ROUTER_MODEL_DIFF],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"snapshot failed:\n{result.stderr[-2000:]}"
+    late = [m for m in result.stdout.splitlines() if m]
+    assert not late, (
+        f"These models only registered once the API router imported their viewsets: {late}. "
+        "A model must be imported from its app's models/__init__ (or models.py) so it registers "
+        "at app-population — Django requires this for makemigrations, admin, and mypy. Add the "
+        "missing import to the app's models package instead of relying on a viewset import."
+    )

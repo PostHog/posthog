@@ -8,7 +8,10 @@ from .assistant import (
 )
 from .dashboard_privilege import DashboardPrivilege
 from .event_definition import EnterpriseEventDefinition
+from .explicit_team_membership import ExplicitTeamMembership
+from .feature_flag_role_access import FeatureFlagRoleAccess
 from .license import License
+from .llm_traces_summaries import LLMTraceSummary
 from .property_definition import EnterprisePropertyDefinition
 from .rbac.access_control import AccessControl
 from .rbac.role import Role, RoleMembership
@@ -28,6 +31,9 @@ __all__ = [
     "Conversation",
     "EnterpriseEventDefinition",
     "EnterprisePropertyDefinition",
+    "ExplicitTeamMembership",
+    "FeatureFlagRoleAccess",
+    "LLMTraceSummary",
     "License",
     "Role",
     "RoleMembership",
