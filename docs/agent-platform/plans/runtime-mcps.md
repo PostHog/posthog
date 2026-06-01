@@ -1,6 +1,8 @@
 # Design — runtime `spec.mcps[]` support
 
-**Status:** PRs 1-6 landed; PR 7 (prod resolver + concierge unblock) pending. **Owner:** ben. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2.
+**Status:** PRs 1-6 landed (#61014); PR 7 in progress as a single PR with three
+commits (schema → dispatcher → prod resolver + concierge unblock). **Owner:**
+dylan. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2.
 
 ## Problem
 
@@ -39,16 +41,32 @@ McpRefSchema = z.discriminatedUnion('kind', [
       })
       .optional(),
     secrets: z.array(z.string()).default([]), // simple per-MCP tokens
-    allowlist: z.array(z.string()).optional(), // empty/omitted = expose all
+    // Per-tool selection AND per-tool approval policy. Bare string is a
+    // passthrough (gates inclusion, no approval); object form adds the
+    // requires_approval + approval_policy primitives from ToolRefSchema.
+    // Omitted / empty = expose every tool the server lists. Replaces the
+    // earlier `allowlist[]` field; the bare-string entry preserves its
+    // semantics. See PR 7 commit A in the rollout below.
+    tools: z
+      .array(
+        z.union([
+          z.string().min(1),
+          z.object({
+            name: z.string().min(1),
+            requires_approval: z.boolean().default(false),
+            approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+          }),
+        ])
+      )
+      .optional(),
   }),
 ])
 ```
 
 **Future migration (not blocking — track as a follow-up).** The longer-term
-shape we want is closer to what the concierge example bundle declares:
-`{ id, endpoint, tools[], secrets[] }` with no discriminator and an
-`approval_policies?: Record<toolName, ApprovalPolicy>` field for destructive
-remote tools. We're holding the union for now because:
+shape we want is closer to what the concierge example bundle originally
+declared: `{ id, endpoint, tools[], secrets[] }` with no discriminator. We're
+holding the union for now because:
 
 - the console (`ConnectionsTab.tsx`, `ConfigPanel.tsx`) already renders against
   the `kind` discriminator,
@@ -56,11 +74,12 @@ remote tools. We're holding the union for now because:
 - the `agent` variant's URL resolution + `posthog_internal` auth flow has
   enough divergence from the external case that a discriminator is honest.
 
-Flattening should happen alongside the v2 work that adds per-MCP-tool approval
-policies — the schema change is too disruptive to do in isolation. When we
-revisit, the `agent` variant becomes `{ id: slug, endpoint: '<resolved
-internal URL>', secrets: [], allowlist: undefined }` and the discriminator
-disappears.
+PR 7's tools[] change (commit A) is deliberately compatible with this future
+flatten: an `external` ref's `{ id, url, secrets, tools }` already matches the
+flat shape; the `agent` variant becomes `{ id: slug, url: '<resolved internal
+URL>', secrets: [], tools: undefined }` and the discriminator disappears.
+Approval gating piggybacks naturally on the tools[] field that's already in
+place.
 
 ## Runner integration sketch
 
@@ -77,8 +96,12 @@ for (const mcp of rev.spec.mcps) {
   mcpClients.set(prefix, client)
   const tools = await client.listTools()
   for (const tool of tools) {
-    if (mcp.kind === 'external' && mcp.allowlist?.length && !mcp.allowlist.includes(tool.name)) {
-      continue
+    if (mcp.kind === 'external' && mcp.tools?.length) {
+      const entry = mcp.tools.find((t) => (typeof t === 'string' ? t : t.name) === tool.name)
+      if (!entry) continue
+      // entry may be an object carrying requires_approval / approval_policy —
+      // looked up by the dispatcher when wrapping the tool's execute. See
+      // `mcp-tool-lookup.ts` and the approval-wrap path in `driver.ts`.
     }
     // Add to the tool list pi-ai sees, name-prefixed so callers can tell
     // which MCP a tool comes from + the runner can route the dispatch back.
@@ -182,8 +205,10 @@ each candidate IP before connect. Tracked as a follow-up.
 
 ## Testing strategy
 
-- **Unit** — name prefixing, allowlist filtering, dispatch routing
-  (`build-agent-tools.test.ts`, plus a new `mcp-clients.test.ts`).
+- **Unit** — name prefixing, tools[] filtering (with both bare-string and
+  object entries), dispatch routing, approval-wrap fallback for MCP tools
+  (`build-agent-tools.test.ts`, `driver.test.ts`, plus a new `mcp-clients.test.ts`
+  and `mcp-tool-lookup.test.ts`).
 - **Integration / e2e** — spin up a tiny `McpServer` in-process using
   `@modelcontextprotocol/sdk` (same pattern as
   `services/mcp/tests/integration/mcp-protocol-suite.ts`), point an agent's
@@ -214,16 +239,38 @@ Split across discrete PRs so each is reviewable in isolation:
    (`{ teamId, sessionId }`) so the resolver can enforce team isolation.
    Worker forwards it from the session. e2e cases prove the URL is built
    from `ctx.teamId` and that a missing resolver fails the session loudly.
-7. **Prod resolver wiring + concierge unblock.** _Pending._ The runner now
-   has the seam; the prod entrypoint needs to construct a default
-   `AgentMcpResolver` (revision lookup + ingress URL + `posthog_internal`
-   bearer) and wire it via `WorkerDeps`. Once that lands, the concierge
-   example can drop its `spec["mcps"] = []` strip — but the strip is _also_
-   load-bearing for two other gaps (the concierge spec uses the flat
-   `{ id, endpoint, tools[], secrets[] }` shape this plan tracks as a v2
-   migration, and declares `approval_policies` per-MCP-tool which the
-   schema doesn't accept yet). All three need to land together; see the
-   "Out of scope" notes below.
+7. **Prod resolver wiring + concierge unblock + per-MCP-tool approval gating.**
+   _In progress._ Lands as a single PR with three sequential commits so the
+   shape is reviewable in isolation but the concierge proves the whole
+   thing end-to-end in one merge:
+   - **Commit A — schema.** Replace `external.allowlist[]` with `tools[]`
+     (string | object, object form carrying `requires_approval` +
+     `approval_policy`). Widen `ApprovalPolicySchema.approvers` to add
+     `session_principal`. Mirror in Django `spec_schema.py`. Regen
+     OpenAPI (`api.zod.ts`, `api.schemas.ts`). Update the console's
+     hand-rolled `types/mcp.ts` + the `ConnectionsTab` / `ConfigPanel`
+     render paths. Extend `spec.test.ts`.
+   - **Commit B — dispatcher + approval-wrap fallback for MCP tools.**
+     New `loop/mcp-tool-lookup.ts` helper that decomposes
+     `<prefix>__<remoteName>` against `spec.mcps[]` to find the per-tool
+     approval policy. `build-agent-tools.ts` swaps the `allowlist`-based
+     filter for a `tools`-based one. `driver.ts:323-374` adds a
+     `lookupMcpToolApproval` fallback after the `spec.tools.find` lookup.
+     `per-asker-auth.ts` gains a `session_principal` branch that compares
+     against `session.principal` (the auth-time identity stored on the
+     row), not last-sender — so a second user posting to a resumed
+     session can't bypass the gate. Driver test + e2e in `mcp-tools.test.ts`.
+   - **Commit C — prod resolver + concierge unblock + e2e proof.** New
+     `resolvers/agent-mcp-resolver.ts` (revision lookup + ingress URL +
+     `x-posthog-internal` header from `INTERNAL_SECRET`). Wired in
+     `index.ts` behind `AGENT_INGRESS_BASE_URL` + `INTERNAL_SECRET`;
+     skipped with a warn (`agent_mcp_resolver_disabled`) when either is
+     unset so dev / CI boots cleanly. Rewrite the concierge `spec.json`
+     `mcps[]` from flat → `kind: 'external'`, with `tools[]` carrying
+     `approval_policy.approvers: ['session_principal']` on the
+     destructive tools. Delete the `spec["mcps"] = []` strip in
+     `seed.py`. E2E case proves a concierge-loaded gated MCP tool queues
+     an approval row instead of running.
 
 ## What this unblocks
 
@@ -238,41 +285,48 @@ Split across discrete PRs so each is reviewable in isolation:
   inference for now.
 - Self-hosted MCP gateway / quota management.
 
-## Open design — per-MCP-tool approval gating
+## Resolved design — per-MCP-tool approval gating
 
-**Unresolved alignment between `ToolRefSchema` and `McpRefSchema`.** Native and
-custom tools today express per-invocation approval via
+Native and custom tools today express per-invocation approval via
 `ToolRef.requires_approval` + `ToolRef.approval_policy` (see
 [`approval-gated-tools.md`](approval-gated-tools.md) §3). MCP tools don't have
 a static `ToolRef` to hang the flag on — they materialise at session start from
-`client.listTools()`. The concierge example bundle invented an
-`approval_policies: Record<remoteName, ApprovalPolicy>` field on each MCP entry;
-the schema doesn't accept it.
+`client.listTools()`. The concierge example bundle originally invented an
+`approval_policies: Record<remoteName, ApprovalPolicy>` field on each MCP
+entry, which the schema didn't accept.
 
-Two designs in play; both deferred until the concierge unblock (PR 7) forces
-a choice:
+PR 7 closes the gap with **Option A — `mcps[].tools[]` as a list of strings
+or objects.** The bare-string form is the old `allowlist[]` semantics; the
+object form `{ name, requires_approval?, approval_policy? }` reuses
+`ApprovalPolicySchema` verbatim. Concierge migration is mechanical (`spec.json`
+rewrite). The shape desugars cleanly into the eventual
+`spec.approvals.rules[]` glob form (Option C) when a second MCP-heavy use case
+(Linear / GitHub / SRE bot) lands and asks for `linear__*-delete`-shaped
+globs; tracking that as the next iteration.
 
-- **Option A — `mcps[].tools[]` as a list of objects.** Replace `allowlist[]`
-  with a `tools[]` field that accepts either a bare tool name (passthrough) or
-  an object carrying optional `requires_approval` + `approval_policy`. Reuses
-  `ApprovalPolicySchema` verbatim. Minimum disruption; doesn't unify with
-  `ToolRef`. Concierge migration is mechanical.
-- **Option C — top-level `spec.approvals.rules[]`.** Glob-matched against the
-  fully-qualified tool name (`@posthog/team-delete` for native;
-  `<prefix>__<remoteName>` for MCP). One surface for all gating. Bigger
-  schema change. `ToolRef.requires_approval` becomes sugar.
+**Locked decisions** (after PR-7 design pass):
 
-The pragmatic call (made during PR 6 design discussion) was Option A first:
-the concierge is the only customer today, the dispatcher change is contained
-to `build-agent-tools.ts:makeMcpTool`, and Option A's per-entry shape desugars
-cleanly into Option C's rules format later. Revisit Option C when a second
-MCP-heavy use case (Linear / GitHub / SRE bot) lands and starts asking for
-globs like `linear__*-delete`.
+- **A1: `external` only.** `tools[]` lands on the `external` variant. The
+  `agent` variant keeps its bare-slug shape — the target agent owns its own
+  approval gating via its own spec, so re-gating at the caller side is
+  redundant.
+- **A2: hard-break `allowlist[]`.** No deprecation shim. No production specs
+  use it today; the only callers are inside the runtime-mcps PR set + the
+  concierge bundle (rewritten in commit C).
+- **A3: no `description` override yet.** One field at a time; revisit if a
+  concrete use case shows up (e.g. concierge wants to relabel
+  `agent-applications-revisions-promote-create` as "Promote draft to live").
+- **B1: `session_principal` compares against `session.principal`** (the
+  auth-time identity stored on the session row, stable across resume) — not
+  `findLastUserSender(conversation)`. A second user posting to a resumed
+  session must not bypass the gate.
+- **C1: per-asker fast-path only for v0.** The `session_principal` approver
+  scope is wired into `per-asker-auth.ts` so the session principal's own
+  follow-up satisfies the gate without round-tripping through the approval
+  queue. Surfacing a queued approval to that specific user via
+  `/api/approvals` (so a different team admin doesn't have to ack a
+  concierge-fired tool intended for the session principal) widens in a
+  follow-up — tracked in [`approval-gated-tools.md`](approval-gated-tools.md) §6
+  as approver-scope routing.
 
-Adjacent gap: the concierge wants `approvers: ['session_principal']` — that
-scope isn't in the v0 enum at all. Approver-scope expansion is a separate
-B.2 v1 line item (see [`approval-gated-tools.md`](approval-gated-tools.md) §6)
-and PR 7 needs to pull it forward.
-
-Tracked from [`_TODO.md`](_TODO.md) "MCP tool approval gating — unresolved
-schema alignment" and [`_ROADMAP.md`](_ROADMAP.md) §C.2 / §B.2.
+Tracked from [`_TODO.md`](_TODO.md) and [`_ROADMAP.md`](_ROADMAP.md) §C.2 / §B.2.
