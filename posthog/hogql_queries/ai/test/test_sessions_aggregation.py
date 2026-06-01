@@ -4,6 +4,8 @@ from datetime import datetime
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.ai_observability.backend.queries import get_sessions_query
@@ -414,52 +416,33 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["distinct_id"], "early-user")
 
-    def test_session_aggregates_distinct_tools(self):
+    @parameterized.expand(
+        [
+            # Comma-separated and repeated within a generation, plus across generations and a tool-less one
+            (
+                "dedupes within and across generations",
+                ["search,search,read_taxonomy", "execute_sql,search", None],
+                ["execute_sql", "read_taxonomy", "search"],
+            ),
+            ("no tools returns empty list", [None], []),
+        ]
+    )
+    def test_session_tools_aggregation(self, _name, tools_per_generation, expected_tools):
         _create_person(distinct_ids=["test-user"], team=self.team)
 
-        # Comma-separated and repeated within a single generation, plus across generations
-        _create_ai_generation_event(
-            trace_id="trace-1",
-            session_id="session-1",
-            tools_called="search,search,read_taxonomy",
-            team=self.team,
-            timestamp=datetime(2025, 1, 15, 0, 0),
-        )
-        _create_ai_generation_event(
-            trace_id="trace-2",
-            session_id="session-1",
-            tools_called="execute_sql,search",
-            team=self.team,
-            timestamp=datetime(2025, 1, 15, 1, 0),
-        )
-        # Generation without tools must not introduce empty entries
-        _create_ai_generation_event(
-            trace_id="trace-3",
-            session_id="session-1",
-            team=self.team,
-            timestamp=datetime(2025, 1, 15, 2, 0),
-        )
+        for index, tools_called in enumerate(tools_per_generation):
+            _create_ai_generation_event(
+                trace_id=f"trace-{index}",
+                session_id="session-1",
+                tools_called=tools_called,
+                team=self.team,
+                timestamp=datetime(2025, 1, 15, index, 0),
+            )
 
         results = self._execute_sessions_query()
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(sorted(results[0]["tools"]), ["execute_sql", "read_taxonomy", "search"])
-
-    def test_session_with_no_tools_returns_empty_list(self):
-        _create_person(distinct_ids=["test-user"], team=self.team)
-
-        _create_ai_generation_event(
-            trace_id="trace-1",
-            session_id="session-1",
-            cost=0.1,
-            team=self.team,
-            timestamp=datetime(2025, 1, 15, 0, 0),
-        )
-
-        results = self._execute_sessions_query()
-
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["tools"], [])
+        self.assertEqual(sorted(results[0]["tools"]), expected_tools)
 
     def test_mixed_traces_with_and_without_trace_event(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
