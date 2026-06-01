@@ -51,6 +51,7 @@ export function ErrorTrackingScene(): JSX.Element {
     const { activeTab } = useValues(errorTrackingSceneLogic)
     const { setActiveTab } = useActions(errorTrackingSceneLogic)
     const hasRecommendations = useFeatureFlag('ERROR_TRACKING_RECOMMENDATIONS')
+    const hasSourceMapsBanner = useFeatureFlag('ERROR_TRACKING_SOURCE_MAPS_BANNER')
 
     useOnMountEffect(() => {
         const utmSource = new URLSearchParams(window.location.search).get('utm_source')
@@ -76,7 +77,7 @@ export function ErrorTrackingScene(): JSX.Element {
                 <ErrorTrackingSetupPrompt>
                     <ErrorTrackingIssueFilteringTool />
                     {hasSentExceptionEventLoading || hasSentExceptionEvent ? null : <IngestionStatusCheck />}
-                    {hasRecommendations ? <SourceMapsBanner /> : null}
+                    {hasSourceMapsBanner ? <SourceMapsBanner /> : null}
                     <div className="border rounded bg-surface-primary p-2">
                         <IssuesFilters />
                     </div>
