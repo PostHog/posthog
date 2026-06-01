@@ -1193,7 +1193,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
-                tryShowMCPHint('sql.execute')
+                const compactQuery = query.replace(/\s+/g, ' ').trim()
+                const truncated = compactQuery.length > 140 ? compactQuery.slice(0, 137) + '…' : compactQuery
+                tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
                 const multiDagEnabled = !!values.featureFlags[FEATURE_FLAGS.DATA_MODELING_MULTI_DAG]

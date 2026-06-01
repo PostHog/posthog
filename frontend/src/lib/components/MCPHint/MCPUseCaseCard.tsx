@@ -1,5 +1,5 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import { AgentBadgeRotator } from './AgentBadgeRotator'
 import { mcpHintLogic } from './mcpHintLogic'
 import { MCPInstallCommand } from './MCPInstallCommand'
-import { SURFACE_PROMPTS, type SurfaceKey } from './prompts'
+import { getSurfacePrompts, type SurfaceKey } from './prompts'
 
 const FIRST_SEEN_KEY_PREFIX = 'mcp-use-case-card-first-seen:'
 
@@ -42,14 +42,24 @@ export function MCPUseCaseCard({
     expiresAfterMs?: number
     forceDisplay?: boolean
 }): JSX.Element | null {
-    const { effectiveOptOut, featureEnabled } = useValues(mcpHintLogic)
+    const { effectiveOptOut, featureEnabled, userRole, topEvents, topEventsLoading } = useValues(mcpHintLogic)
+    const { loadTopEvents } = useActions(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
 
-    if (forceDisplay == false && (!featureEnabled || effectiveOptOut || expired)) {
+    const willRender = forceDisplay || (featureEnabled && !effectiveOptOut && !expired)
+
+    useEffect(() => {
+        // Only the SQL editor surface benefits from the team's real event names — keep the call narrow.
+        if (willRender && surfaceKey === 'sql.execute' && topEvents.length === 0 && !topEventsLoading) {
+            loadTopEvents()
+        }
+    }, [willRender, surfaceKey, topEvents.length, topEventsLoading, loadTopEvents])
+
+    if (!willRender) {
         return null
     }
 
-    const { examples } = SURFACE_PROMPTS[surfaceKey]
+    const { examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
 
     const isStorybook = inStorybook() || inStorybookTestRunner()
 
@@ -69,7 +79,7 @@ export function MCPUseCaseCard({
                 </h4>
             </div>
             <div className="text-sm text-default">
-                Ask <AgentBadgeRotator />:
+                Ask <AgentBadgeRotator surfaceKey={surfaceKey} />:
             </div>
             <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
                 {examples.map((example) => (

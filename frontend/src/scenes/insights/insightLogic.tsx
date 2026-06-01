@@ -609,7 +609,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-            tryShowMCPHint('insights.create')
+            const insightName = savedInsight.name || savedInsight.derived_name
+            tryShowMCPHint('insights.create', {
+                derivedPrompt: insightName ? `Build an insight called ${insightName}` : undefined,
+            })
 
             dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
 

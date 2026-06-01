@@ -1,24 +1,31 @@
+import { useValues } from 'node_modules/kea/lib'
+
 import { IconSparkles } from '@posthog/icons'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
+import { mcpHintLogic } from './mcpHintLogic'
 import { MCPInstallCommand } from './MCPInstallCommand'
-import { SURFACE_PROMPTS, type SurfaceKey, type SurfacePromptContext } from './prompts'
+import { type SurfaceKey, formatDerivedToastPrompt, getSurfacePrompts } from './prompts'
 
 export function MCPHintToast({
     surfaceKey,
-    context,
+    derivedPrompt,
 }: {
     surfaceKey: SurfaceKey
-    context?: SurfacePromptContext
+    /** If provided, replaces the per-surface default toast prompt with this action-derived string. */
+    derivedPrompt?: string
 }): JSX.Element {
-    const prompt = SURFACE_PROMPTS[surfaceKey].toast(context)
+    const { userRole } = useValues(mcpHintLogic)
+    const prompt = derivedPrompt
+        ? formatDerivedToastPrompt(derivedPrompt)
+        : getSurfacePrompts(surfaceKey, { role: userRole }).toast
 
     return (
         <div className="flex flex-col gap-1 py-1 pr-1 text-default min-w-0 items-start">
             <div className="flex items-center gap-1.5 text-sm">
                 <IconSparkles className="size-4 shrink-0" />
                 <span>
-                    Next time, ask <AgentBadgeRotator /> to do it for you:
+                    Next time, ask <AgentBadgeRotator surfaceKey={surfaceKey} /> to do it for you:
                 </span>
             </div>
             <div className="text-xs italic text-muted leading-snug">{prompt}</div>
