@@ -211,11 +211,12 @@ export function RetentionModal(): JSX.Element | null {
                                                                 personAppearances.person.properties
                                                             )}
                                                         </LemonButton>
-                                                    ) : 'distinct_ids' in personAppearances.person ? (
+                                                    ) : 'distinct_ids' in personAppearances.person &&
+                                                      personAppearances.person.distinct_ids?.[0] ? (
                                                         <LemonButton
                                                             size="small"
                                                             to={urls.personByDistinctId(
-                                                                personAppearances.person.distinct_ids?.[0]
+                                                                personAppearances.person.distinct_ids[0]
                                                             )}
                                                             data-attr="retention-person-link"
                                                         >

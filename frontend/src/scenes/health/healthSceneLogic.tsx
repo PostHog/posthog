@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
-import { unifiedHealthMenuLogic } from 'lib/components/HealthMenu/unifiedHealthMenuLogic'
+import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -220,7 +220,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     dismissed: true,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to dismiss issue')
             }
@@ -231,7 +231,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     dismissed: false,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to undismiss issue')
             }

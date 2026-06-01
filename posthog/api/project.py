@@ -432,6 +432,10 @@ class ProjectBackwardCompatSerializer(
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
 
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return TeamSerializer.validate_test_account_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -656,7 +660,7 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),

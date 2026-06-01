@@ -654,6 +654,7 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentMetrics: true,
         updateExperimentCollectionGoal: true,
         updateExposureCriteria: true,
+        updateExperimentSettings: (update: Partial<Experiment>) => ({ update }),
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
@@ -800,6 +801,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setShowNotificationOffer: (show: boolean) => ({ show }),
         setNotifyWhenResultsReady: (notify: boolean) => ({ notify }),
         toggleDebugPanel: true,
+        setVariantExcluded: (variantKey: string, excluded: boolean) => ({ variantKey, excluded }),
     }),
     reducers({
         showDebugPanel: [
@@ -1654,6 +1656,12 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             actions.refreshExperimentResults(true, 'config_change')
         },
+        updateExperimentSettings: async ({ update }) => {
+            // Settings like stats config, CUPED, and conversion-window handling change
+            // how metrics and exposures are computed, so persist then re-query.
+            await asyncActions.updateExperiment({ ...update, update_feature_flag_params: false })
+            actions.refreshExperimentResults(true, 'config_change')
+        },
         resetRunningExperiment: async () => {
             try {
                 const response: Experiment = await api.create(
@@ -2208,6 +2216,36 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.loadSecondaryMetricsResults(true)
             }
         },
+        setVariantExcluded: async ({ variantKey, excluded }, _breakpoint) => {
+            const current = values.excludedVariants
+            const next = excluded
+                ? Array.from(new Set([...current, variantKey]))
+                : current.filter((k: string) => k !== variantKey)
+
+            try {
+                await asyncActions.updateExperiment({
+                    parameters: { ...values.experiment.parameters, excluded_variants: next },
+                })
+                lemonToast.success(
+                    excluded
+                        ? `Variant ${variantKey} excluded from analysis`
+                        : `Variant ${variantKey} re-included in analysis`,
+                    {
+                        button: {
+                            label: 'Undo',
+                            action: () => actions.setVariantExcluded(variantKey, !excluded),
+                        },
+                    }
+                )
+                // Re-fetch metric and exposure results since the variant set changed.
+                actions.loadPrimaryMetricsResults(true)
+                actions.loadSecondaryMetricsResults(true)
+                actions.loadExposures(true)
+            } catch (error) {
+                lemonToast.error('Could not update variant exclusion. Please try again.')
+                throw error
+            }
+        },
         setAutoRefresh: ({ enabled, interval }) => {
             // Track when user toggles auto-refresh settings
             actions.reportExperimentAutoRefreshToggled(values.experiment, enabled, interval)
@@ -2411,6 +2449,10 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment): MultivariateFlagVariant[] => {
                 return experiment?.parameters?.feature_flag_variants || []
             },
+        ],
+        excludedVariants: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string[] => experiment?.parameters?.excluded_variants ?? [],
         ],
         experimentMathAggregationForTrends: [
             (s) => [s.experiment],

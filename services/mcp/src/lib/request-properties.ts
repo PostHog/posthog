@@ -12,7 +12,6 @@ export type RequestProperties = {
     features?: string[] | undefined
     tools?: string[] | undefined
     region?: string | undefined
-    version?: number | undefined
     organizationId?: string | undefined
     projectId?: string | undefined
     clientUserAgent?: string | undefined
@@ -20,6 +19,7 @@ export type RequestProperties = {
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
     mcpProtocolVersion?: string | undefined
+    mcpVendorClient?: string | undefined
     readOnly?: boolean | undefined
     mode?: McpMode | undefined
     transport?: Transport | undefined
@@ -67,7 +67,6 @@ export function parseRequestProperties(
         features: splitCsv(params.get('features')),
         tools: splitCsv(params.get('tools')),
         region: params.get('region') || undefined,
-        version: Number(header(request, 'x-posthog-mcp-version') || params.get('v')) || 1,
         readOnly: readOnlyRaw === 'true' || readOnlyRaw === '1' || undefined,
         clientUserAgent: sanitizeHeaderValue(header(request, 'User-Agent')),
         mcpConsumer: sanitizeHeaderValue(
@@ -76,6 +75,7 @@ export function parseRequestProperties(
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient: sanitizeHeaderValue(header(request, 'x-anthropic-client')),
         mode: parseMcpMode(header(request, 'x-posthog-mcp-mode') || params.get('mode')),
         transport,
         requestStartTime: Date.now(),

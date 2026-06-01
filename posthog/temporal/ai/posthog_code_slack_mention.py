@@ -1,14 +1,77 @@
 import re
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
+import structlog
 from slack_sdk.errors import SlackApiError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.repo_routing_rule import RepoRoutingRule
+from posthog.storage import object_storage
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.repo_selection import (
+    RepoSelectionRejectedError,
+    RepoSelectionUnavailableError,
+    select_repository,
+)
+from products.tasks.backend.services.agent_command import send_user_message
+from products.tasks.backend.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.temporal.client import execute_task_processing_workflow
+
+# Imports from `products.slack_app.backend.api` stay inline: that module imports
+# `PostHogCodeSlackMentionWorkflow*` from this one, so a top-level import would
+# create a circular dependency.
+
+logger = structlog.get_logger(__name__)
+
+
+def _block_if_team_over_quota(
+    *,
+    integration: Any,
+    slack: Any,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    context: str,
+) -> bool:
+    """Refuse a Slack-bot turn when the team is over its AI credits quota.
+
+    Tach blocks ``products.slack_app`` from importing ``ee.billing``, so the
+    quota lookup lives here (where the temporal layer can freely import ee)
+    while the user-facing denial message lives in ``slack_app.backend.api``
+    (where the Slack-posting helpers live). Returns True when the team was
+    blocked and a denial was posted.
+    """
+    from products.slack_app.backend.api import post_quota_exhausted_denial
+
+    from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
+    if not is_team_limited(
+        integration.team.api_token,
+        QuotaResource.AI_CREDITS,
+        QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+    ):
+        return False
+
+    post_quota_exhausted_denial(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context=context,
+    )
+    return True
 
 
 def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
@@ -100,14 +163,62 @@ class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
+    # Event that dispatched the workflow
+    slack_event_id: str | None = None
+
+
+def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
+    """Construct the dispatch workflow id from webhook inputs."""
+    event = inputs.event
+    if inputs.slack_event_id:
+        suffix = inputs.slack_event_id
+    else:
+        suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
+    return f"posthog-code-mention-{inputs.slack_team_id}:{suffix}"
+
+
+@dataclass
+class PostHogCodeRepoCascadeOutcome:
+    """Synchronous fast-path repo resolution before the discovery agent runs.
+
+    `auto` → use `repository` directly. `no_repo` → create a task with no repo
+    (e.g. team has no GitHub integration connected). `agent_needed` → there are
+    multiple candidates and no explicit mention.
+    """
+
+    mode: Literal["auto", "no_repo", "agent_needed"]
+    repository: str | None
+    reason: str
 
 
 @dataclass
 class PostHogCodeSlackRepoDecisionData:
+    # Return type of the legacy `select_posthog_code_repository_activity`,
+    # preserved for in-flight workflows started before the discovery-agent
+    # rollout. Delete with the patch-removal PR.
     mode: str
     repository: str | None
     reason: str
     repo_count: int
+
+
+@dataclass
+class SlackRepoSelectionOutcome:
+    """Discovery-agent result wrapped at the activity boundary.
+
+    `found` → use `repository`. `no_match` → no plausible candidate, create a
+    no-repo task. `failed` → agent crashed/timed out/hallucinated, fall back to
+    the interactive repo picker so the user can resolve manually.
+
+    `repo_research_task_id`/`repo_research_run_id` point at the internal sandbox
+    run the repo discovery agent spun up to make this call.
+    """
+
+    status: Literal["found", "no_match", "failed"]
+    repository: str | None
+    reason: str
+    repo_research_task_id: str | None = None
+    repo_research_run_id: str | None = None
 
 
 @dataclass
@@ -150,6 +261,26 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             return
 
         try:
+            # Gate every workflow entry on the team's AI-credits quota before any
+            # other activity runs. Webhook-level short-circuit catches the common
+            # case (see products/slack_app/backend/api.py); this is the defense in
+            # depth that also covers replays, manual workflow starts, and the race
+            # where the webhook saw "not limited" but Redis flipped before we got
+            # here. The patch marker is preserved via `deprecate_patch` so any
+            # straggler workflow that recorded the pre-patch path on its first
+            # task can still replay deterministically on the post-deprecation
+            # worker. Drop the `deprecate_patch` call once the next drain completes.
+            workflow.deprecate_patch("posthog-code-slack-billing-gate")
+            blocked = await _execute_posthog_code_activity(
+                enforce_posthog_code_billing_quota_activity,
+                inputs,
+                channel,
+                thread_ts,
+                slack_user_id,
+            )
+            if blocked:
+                return
+
             followup_handled = await _execute_posthog_code_activity(
                 forward_posthog_code_followup_activity,
                 inputs,
@@ -168,52 +299,60 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not user_id:
                 return
 
-            rules_result = await _execute_posthog_code_activity(
-                handle_posthog_code_rules_command_activity,
-                inputs,
-                channel,
-                thread_ts,
-                slack_user_id,
-                user_id,
-            )
-            if rules_result.status == "handled":
-                return
-            if rules_result.status == "needs_picker":
-                await _execute_posthog_code_activity(
-                    post_posthog_code_repo_picker_activity,
+            # Commands are dispatched by PostHogCodeSlackMentionCommandWorkflow,
+            # which also owns the ``rules add`` repo picker. New mention runs
+            # never reach the rules-handling branch — the patch records that.
+            # Workflows started before the patch was introduced (history with no
+            # patch marker) still need this branch on replay to remain
+            # deterministic, so we keep the original logic gated behind the
+            # patch check.
+            if not workflow.patched("posthog-code-mention-skip-rules-command"):
+                rules_result = await _execute_posthog_code_activity(
+                    handle_posthog_code_rules_command_activity,
                     inputs,
                     channel,
                     thread_ts,
                     slack_user_id,
-                    event,
-                    workflow.info().workflow_id,
-                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
-                    False,
-                )
-                try:
-                    await workflow.wait_condition(
-                        lambda: self._repo_selection_resolved,
-                        timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                    )
-                except TimeoutError:
-                    await _execute_posthog_code_activity(
-                        post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
-                    )
-                    return
-
-                if not self._selected_repo:
-                    return
-
-                await _execute_posthog_code_activity(
-                    create_posthog_code_routing_rule_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
                     user_id,
-                    rules_result.pending_rule_text,
-                    self._selected_repo,
                 )
-                return
+                if rules_result.status == "handled":
+                    return
+                if rules_result.status == "needs_picker":
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_repo_picker_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event,
+                        workflow.info().workflow_id,
+                        POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                        False,
+                    )
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                        )
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
+
+                    if not self._selected_repo:
+                        return
+
+                    await _execute_posthog_code_activity(
+                        create_posthog_code_routing_rule_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        user_id,
+                        rules_result.pending_rule_text,
+                        self._selected_repo,
+                    )
+                    return
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
@@ -224,39 +363,94 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if not thread_messages:
                 return
 
-            decision = await _execute_posthog_code_activity(
-                select_posthog_code_repository_activity,
-                inputs,
-                event.get("text", ""),
-                thread_messages,
-                user_id,
-                channel,
-            )
+            # The activity swap from `select_posthog_code_repository_activity` to
+            # `cascade_posthog_code_repository_activity` would otherwise trip a
+            # nondeterminism error on replay for workflows started before this
+            # code rolled out. Delete this gate (and the legacy stub activity)
+            # once all pre-rollout workflows have drained — they live at most
+            # ~25 minutes (activity timeouts + picker wait).
+            repository: str | None
+            # Set only on the ambiguous path that runs the discovery sandbox
+            repo_research_task_id: str | None = None
+            repo_research_run_id: str | None = None
+            if workflow.patched("posthog-code-repo-discovery-agent-2026-05"):
+                cascade = await _execute_posthog_code_activity(
+                    cascade_posthog_code_repository_activity,
+                    inputs,
+                    event.get("text", ""),
+                )
 
-            if decision.mode == "picker":
-                if decision.reason == "no_repos":
-                    # Layer 1: No GH integration, launch without repo immediately.
-                    await _execute_posthog_code_activity(
-                        create_posthog_code_task_for_repo_activity,
-                        inputs,
-                        channel,
-                        thread_ts,
-                        slack_user_id,
-                        user_id,
-                        event,
-                        thread_messages,
-                        None,
-                    )
-                    return
-
-                if decision.reason == "no_rule_match":
-                    # Layer 2: Has repos but no rule match, let's classify if task needs a repo.
+                if cascade.mode == "auto":
+                    repository = cascade.repository
+                elif cascade.mode == "no_repo":
+                    repository = None
+                else:
+                    # Multiple candidates and no explicit mention. Cheap Haiku
+                    # check first to skip the agent entirely for analytics/config
+                    # questions; otherwise hand off to the discovery agent.
                     needs_repo = await _execute_posthog_code_activity(
                         classify_posthog_code_task_needs_repo_activity,
                         event.get("text", ""),
                         thread_messages,
                     )
                     if not needs_repo:
+                        repository = None
+                    else:
+                        outcome = await _execute_posthog_code_agent_activity(
+                            discover_posthog_code_repository_via_agent_activity,
+                            inputs,
+                            channel,
+                            event,
+                            thread_messages,
+                            user_id,
+                        )
+                        repo_research_task_id = outcome.repo_research_task_id
+                        repo_research_run_id = outcome.repo_research_run_id
+
+                        if outcome.status == "found":
+                            repository = outcome.repository
+                        elif outcome.status == "no_match":
+                            repository = None
+                        else:
+                            # Agent crashed/timed out/hallucinated — italicize its reason
+                            # above the picker guidance so the user sees why.
+                            picker_guidance = f"_{outcome.reason}_\n\n{POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE}"
+                            await _execute_posthog_code_activity(
+                                post_posthog_code_repo_picker_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                event,
+                                workflow.info().workflow_id,
+                                picker_guidance,
+                                True,
+                            )
+                            try:
+                                await workflow.wait_condition(
+                                    lambda: self._repo_selection_resolved,
+                                    timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                                )
+                            except TimeoutError:
+                                await _execute_posthog_code_activity(
+                                    post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                                )
+                                return
+                            repository = self._selected_repo
+            else:
+                # Legacy pre-agent flow. Master's behavior at the time of the
+                # rollout, kept verbatim so in-flight workflows started before
+                # this code was deployed can finish their replay.
+                decision = await _execute_posthog_code_activity(
+                    select_posthog_code_repository_activity,
+                    inputs,
+                    event.get("text", ""),
+                    thread_messages,
+                    user_id,
+                    channel,
+                )
+                if decision.mode == "picker":
+                    if decision.reason == "no_repos":
                         await _execute_posthog_code_activity(
                             create_posthog_code_task_for_repo_activity,
                             inputs,
@@ -269,52 +463,66 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                             None,
                         )
                         return
-
-                await _execute_posthog_code_activity(
-                    post_posthog_code_repo_picker_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    event,
-                    workflow.info().workflow_id,
-                    POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
-                    True,
-                )
-                try:
-                    await workflow.wait_condition(
-                        lambda: self._repo_selection_resolved,
-                        timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
-                    )
-                except TimeoutError:
+                    if decision.reason == "no_rule_match":
+                        needs_repo = await _execute_posthog_code_activity(
+                            classify_posthog_code_task_needs_repo_activity,
+                            event.get("text", ""),
+                            thread_messages,
+                        )
+                        if not needs_repo:
+                            await _execute_posthog_code_activity(
+                                create_posthog_code_task_for_repo_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                slack_user_id,
+                                user_id,
+                                event,
+                                thread_messages,
+                                None,
+                            )
+                            return
                     await _execute_posthog_code_activity(
-                        post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        post_posthog_code_repo_picker_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        event,
+                        workflow.info().workflow_id,
+                        POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
+                        True,
+                    )
+                    try:
+                        await workflow.wait_condition(
+                            lambda: self._repo_selection_resolved,
+                            timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
+                        )
+                    except TimeoutError:
+                        await _execute_posthog_code_activity(
+                            post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                        )
+                        return
+
+                    if self._selected_repo and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                        return
+                    await _execute_posthog_code_activity(
+                        create_posthog_code_task_for_repo_activity,
+                        inputs,
+                        channel,
+                        thread_ts,
+                        slack_user_id,
+                        user_id,
+                        event,
+                        thread_messages,
+                        self._selected_repo,
                     )
                     return
-
-                if self._selected_repo and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
+                repository = decision.repository
+                if not repository:
                     return
-
-                await _execute_posthog_code_activity(
-                    create_posthog_code_task_for_repo_activity,
-                    inputs,
-                    channel,
-                    thread_ts,
-                    slack_user_id,
-                    user_id,
-                    event,
-                    thread_messages,
-                    self._selected_repo,
-                )
+            if repository and await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
                 return
-
-            repository = decision.repository
-            if not repository:
-                return
-
-            if await _gate_on_personal_github(inputs, channel, thread_ts, user_id):
-                return
-
             await _execute_posthog_code_activity(
                 create_posthog_code_task_for_repo_activity,
                 inputs,
@@ -325,6 +533,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 event,
                 thread_messages,
                 repository,
+                repo_research_task_id,
+                repo_research_run_id,
             )
         except Exception as exc:
             workflow.logger.exception(
@@ -377,6 +587,22 @@ async def _execute_posthog_code_activity(activity_fn: Any, *args: Any) -> Any:
     )
 
 
+async def _execute_posthog_code_agent_activity(activity_fn: Any, *args: Any) -> Any:
+    """Wrapper for the discovery-agent activity.
+
+    No retries: a hung agent shouldn't block the Slack thread for tens of
+    minutes — the activity catches its own exceptions and returns
+    `status='failed'` so the workflow falls through to the picker.
+    """
+    return await workflow.execute_activity(
+        activity_fn,
+        args=args,
+        start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS),
+        heartbeat_timeout=timedelta(minutes=5),
+        retry_policy=RetryPolicy(maximum_attempts=1),
+    )
+
+
 @activity.defn
 def resolve_posthog_code_slack_user_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs,
@@ -384,13 +610,11 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import resolve_slack_user
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -406,268 +630,33 @@ def handle_posthog_code_rules_command_activity(
     slack_user_id: str,
     user_id: int,
 ) -> PostHogCodeRulesCommandResult:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _parse_rules_command
+    from products.slack_app.backend.services.commands import dispatch_rules_command
 
     command = _parse_rules_command(inputs.event.get("text", ""))
     if not command:
         return PostHogCodeRulesCommandResult(status="not_a_command")
+    # Picker flow is unique to this workflow; the command service can't drive a
+    # workflow signal, so catch it here before delegating.
+    if command.action == "add" and not command.repository:
+        return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
-    slack = SlackIntegration(integration)
-
-    if command.action == "help":
-        _handle_help(slack, channel, thread_ts)
-    elif command.action == "list":
-        _handle_rules_list(slack, integration, channel, thread_ts)
-    elif command.action == "add":
-        if not command.repository:
-            return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
-        _handle_rules_add(slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository)
-    elif command.action == "remove":
-        _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_numbers)
-    elif command.action == "default_set":
-        _handle_default_repo_set(slack, integration, channel, thread_ts, user_id, command.repository or "")
-    elif command.action == "default_show":
-        _handle_default_repo_show(slack, integration, channel, thread_ts, user_id)
-    elif command.action == "default_clear":
-        _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
-
+    dispatch_rules_command(
+        command,
+        SlackIntegration(integration),
+        integration,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        slack_workspace_id=inputs.slack_team_id,
+        user_id=user_id,
+    )
     return PostHogCodeRulesCommandResult(status="handled")
-
-
-def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=(
-            "*Available commands:*\n\n"
-            "`@PostHog <task description>` — Create a task for the agent to work on\n"
-            "`@PostHog rules list` — Show all routing rules\n"
-            '`@PostHog rules add "description" org/repo` — Add a routing rule\n'
-            '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)\n'
-            "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
-            "`@PostHog default repo set org/repo` — Set your default repository for this channel\n"
-            "`@PostHog default repo show` — Show your default repository for this channel\n"
-            "`@PostHog default repo clear` — Clear your default repository for this channel\n"
-            "`@PostHog help` — Show this message\n\n"
-            "You can also reply in an active thread to send follow-up messages to the agent."
-        ),
-    )
-
-
-def _handle_rules_list(slack: Any, integration: Any, channel: str, thread_ts: str) -> None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
-    rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
-    if not rules:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text='No routing rules configured. Add one with `@PostHog rules add "description" [org/repo]`. Omit the repo to pick from a list.',
-        )
-        return
-
-    lines = [f"{i + 1}. {r.rule_text} → `{r.repository}`" for i, r in enumerate(rules)]
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text="*Routing rules:*\n" + "\n".join(lines),
-    )
-
-
-def _handle_rules_add(
-    slack: Any,
-    integration: Any,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-    rule_text: str,
-    repository: str,
-) -> None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
-
-    all_repos = _get_full_repo_names(integration)
-    if not all_repos:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="No connected GitHub repositories found for this project.",
-        )
-        return
-
-    matched_repo = _extract_explicit_repo(repository, all_repos)
-    if not matched_repo:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Repository `{repository}` is not connected to this project.",
-        )
-        return
-
-    current_max = (
-        RepoRoutingRule.objects.filter(team_id=integration.team_id)
-        .order_by("-priority")
-        .values_list("priority", flat=True)
-        .first()
-    )
-    max_priority = (current_max + 1) if current_max is not None else 0
-    RepoRoutingRule.objects.create(
-        team_id=integration.team_id,
-        rule_text=rule_text,
-        repository=matched_repo,
-        priority=max_priority,
-        created_by_id=user_id,
-    )
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"Added rule: {rule_text} → `{matched_repo}`",
-    )
-
-
-def _handle_rules_remove(
-    slack: Any,
-    integration: Any,
-    channel: str,
-    thread_ts: str,
-    rule_numbers: list[int] | None,
-) -> None:
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
-    if not rule_numbers or any(n < 1 for n in rule_numbers):
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Please provide valid rule number(s). Use `@PostHog rules list` to see current rules.",
-        )
-        return
-
-    rules = list(RepoRoutingRule.objects.filter(team_id=integration.team_id).order_by("priority", "id"))
-    invalid = [n for n in rule_numbers if n > len(rules)]
-    if invalid:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Rule {'number' if len(invalid) == 1 else 'numbers'} {', '.join(f'#{n}' for n in invalid)} {'does' if len(invalid) == 1 else 'do'} not exist. There are {len(rules)} rule(s). Use `@PostHog rules list` to see them.",
-        )
-        return
-
-    # Collect rules to delete (use sorted unique numbers, delete in reverse to keep indices stable)
-    to_delete = sorted(set(rule_numbers), reverse=True)
-    removed: list[str] = []
-    for n in to_delete:
-        rule = rules[n - 1]
-        removed.append(f"#{n}: {rule.rule_text}")
-        rule.delete()
-
-    removed.reverse()
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"Removed rule{'s' if len(removed) > 1 else ''} {', '.join(removed)}",
-    )
-
-
-def _handle_default_repo_set(
-    slack: Any,
-    integration: Any,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-    repository: str,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
-
-    all_repos = _get_full_repo_names(integration)
-    matched_repo = _extract_explicit_repo(repository, all_repos)
-    if not matched_repo:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Repository `{repository}` is not connected to this project.",
-        )
-        return
-
-    UserRepoPreference.set_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-        repository=matched_repo,
-    )
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=f"Default repository for this channel set to `{matched_repo}`.",
-    )
-
-
-def _handle_default_repo_show(
-    slack: Any,
-    integration: Any,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    default = UserRepoPreference.get_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-    )
-    if default:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text=f"Your default repository for this channel is `{default}`.",
-        )
-    else:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="No default repository set for this channel. Use `@PostHog default repo set org/repo` to set one.",
-        )
-
-
-def _handle_default_repo_clear(
-    slack: Any,
-    integration: Any,
-    channel: str,
-    thread_ts: str,
-    user_id: int,
-) -> None:
-    from posthog.models.user_repo_preference import UserRepoPreference
-
-    cleared = UserRepoPreference.clear_default(
-        team_id=integration.team_id,
-        user_id=user_id,
-        scope_type="slack_channel",
-        scope_id=channel,
-    )
-    if cleared:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Default repository for this channel has been cleared.",
-        )
-    else:
-        slack.client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="No default repository was set for this channel.",
-        )
 
 
 @activity.defn
@@ -676,19 +665,51 @@ def collect_posthog_code_thread_messages_activity(
     channel: str,
     thread_ts: str,
 ) -> list[dict[str, str]]:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _collect_thread_messages
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
     auth_response = slack.client.auth_test()
     our_bot_id = auth_response.get("bot_id")
     return _collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id)
+
+
+@activity.defn
+def cascade_posthog_code_repository_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    event_text: str,
+) -> PostHogCodeRepoCascadeOutcome:
+    """Synchronous fast-path before the discovery agent.
+
+    Resolves the trivial cases — no GitHub repos connected, exactly one
+    connected, or an explicit `org/repo` mentioned in the message — without
+    paying for the sandbox-backed agent. Anything else returns
+    `mode='agent_needed'` and the workflow takes over.
+    """
+    from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
+
+    integration = Integration.objects.select_related("team", "team__organization").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    all_repos = _get_full_repo_names(integration)
+
+    if not all_repos:
+        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+
+    if len(all_repos) == 1:
+        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
+
+    explicit_repo = _extract_explicit_repo(event_text, all_repos)
+    if explicit_repo:
+        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=explicit_repo, reason="explicit_mention")
+
+    return PostHogCodeRepoCascadeOutcome(mode="agent_needed", repository=None, reason="needs_agent")
 
 
 @activity.defn
@@ -699,29 +720,139 @@ def select_posthog_code_repository_activity(
     user_id: int | None = None,
     channel: str = "",
 ) -> PostHogCodeSlackRepoDecisionData:
-    from posthog.models.integration import Integration
-
-    from products.slack_app.backend.api import _get_full_repo_names, select_repository
+    # Legacy activity preserved only so workflows started before the
+    # discovery-agent rollout can finish their replay under the new worker
+    # (see `workflow.patched(...)` in the run method). Workflows that already
+    # completed this step use their recorded result; this body only executes
+    # for the narrow case of a workflow that happens to be mid-activity at
+    # deploy time, in which case it routes to the manual picker. Delete with
+    # the patch-removal PR after the rollout drains.
+    from products.slack_app.backend.api import _get_full_repo_names
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     all_repos = _get_full_repo_names(integration)
-    decision = select_repository(
-        event_text=event_text,
-        thread_messages=thread_messages,
-        integration=integration,
-        all_repos=all_repos,
-        user_id=user_id,
-        channel=channel,
-    )
     return PostHogCodeSlackRepoDecisionData(
-        mode=decision.mode,
-        repository=decision.repository,
-        reason=decision.reason,
+        mode="picker",
+        repository=None,
+        reason="no_rule_match",
         repo_count=len(all_repos),
+    )
+
+
+@activity.defn
+async def discover_posthog_code_repository_via_agent_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    event: dict[str, Any],
+    thread_messages: list[dict[str, str]],
+    user_id: int,
+) -> SlackRepoSelectionOutcome:
+    """Run the shared discovery agent and wrap its result for the workflow.
+
+    Catches all exceptions internally (timeout, sandbox crash, validation
+    reject from a hallucinated repo) and surfaces them as
+    `status='failed'` so the workflow falls back to the interactive picker.
+    The agent's legitimate "no plausible candidate" result becomes
+    `status='no_match'`, which the workflow turns into a no-repo task.
+    """
+    user_message_ts = event.get("ts")
+
+    integration = await Integration.objects.select_related("team", "team__organization").aget(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+
+    # Best-effort searching reaction so the user sees we're working before
+    # the agent (which can take ~10–60s) finishes. Offloaded to a thread since
+    # this is the only async activity in the file calling the sync Slack SDK.
+    if user_message_ts:
+        try:
+            slack = SlackIntegration(integration)
+            await asyncio.to_thread(_safe_react, slack.client, channel, user_message_ts, "mag")
+        except Exception:
+            logger.warning("posthog_code_search_reaction_failed", channel=channel)
+
+    # Render the Slack thread to a free-form context block for the generic
+    # selector. The selector is domain-agnostic; the caller serializes.
+    context_block = "\n".join(f"{msg['user']}: {msg['text']}" for msg in thread_messages)
+
+    # Captured even when select_repository later raises
+    research_ids: dict[str, str] = {}
+
+    def _capture_research_session(task_id: str, run_id: str) -> None:
+        research_ids["task_id"] = task_id
+        research_ids["run_id"] = run_id
+
+    try:
+        async with Heartbeater():
+            result = await select_repository(
+                team_id=integration.team_id,
+                user_id=user_id,
+                context=context_block,
+                origin_product=Task.OriginProduct.SLACK,
+                on_research_session=_capture_research_session,
+            )
+    except RepoSelectionRejectedError as exc:
+        logger.warning(
+            "posthog_code_repo_selection_rejected",
+            channel=channel,
+            returned_repository=exc.returned_repository,
+            reason=exc.reason,
+        )
+        return SlackRepoSelectionOutcome(
+            status="failed",
+            repository=None,
+            # Don't echo `exc.returned_repository` — it's raw LLM output and reaches Slack mrkdwn.
+            reason="Agent returned an unrecognized repository.",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
+        )
+    except RepoSelectionUnavailableError as exc:
+        logger.warning(
+            "posthog_code_repo_selection_unavailable",
+            channel=channel,
+            reason=exc.reason,
+        )
+        return SlackRepoSelectionOutcome(
+            status="failed",
+            repository=None,
+            reason=f"Repo selection unavailable: {exc.reason}",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
+        )
+    except Exception as exc:
+        logger.exception(
+            "posthog_code_repo_selection_failed",
+            channel=channel,
+            error=str(exc),
+        )
+        return SlackRepoSelectionOutcome(
+            status="failed",
+            repository=None,
+            reason=f"Agent failed: {type(exc).__name__}",
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
+        )
+
+    if result.repository is None:
+        return SlackRepoSelectionOutcome(
+            status="no_match",
+            repository=None,
+            reason=result.reason,
+            repo_research_task_id=research_ids.get("task_id"),
+            repo_research_run_id=research_ids.get("run_id"),
+        )
+    return SlackRepoSelectionOutcome(
+        status="found",
+        repository=result.repository,
+        reason=result.reason,
+        repo_research_task_id=research_ids.get("task_id"),
+        repo_research_run_id=research_ids.get("run_id"),
     )
 
 
@@ -736,14 +867,44 @@ def classify_posthog_code_task_needs_repo_activity(
 
 
 @activity.defn
+def enforce_posthog_code_billing_quota_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+) -> bool:
+    """Block the workflow when the team has exhausted its AI-credits quota.
+
+    Returns True when a denial was posted and the workflow should stop. Called
+    as the first activity in the mention workflow so the bot never proceeds to
+    Slack roundtrips, thread fetches, or billable LLM calls (the classifier,
+    notably) for an over-quota team.
+    """
+    from posthog.models.integration import Integration, SlackIntegration
+
+    integration = Integration.objects.select_related("team").get(
+        id=inputs.integration_id,
+        kind="slack",
+        integration_id=inputs.slack_team_id,
+    )
+    slack = SlackIntegration(integration)
+    return _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    )
+
+
+@activity.defn
 def post_posthog_code_no_repos_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -768,13 +929,11 @@ def post_posthog_code_repo_picker_activity(
     guidance: str,
     allow_no_repo: bool,
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _post_repo_picker_message
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -829,7 +988,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -878,24 +1037,28 @@ def create_posthog_code_task_for_repo_activity(
     event: dict[str, Any],
     thread_messages: list[dict[str, str]],
     repository: str | None,
+    repo_research_task_id: str | None = None,
+    repo_research_run_id: str | None = None,
 ) -> None:
-    import structlog
-
-    from posthog.models.integration import Integration, SlackIntegration
-
-    from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.models import Task
-    from products.tasks.backend.temporal.client import execute_task_processing_workflow
-
-    log = structlog.get_logger(__name__)
-
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
+
+    # Refuse before the :seedling: reaction or the permalink fetch: a denied
+    # mention should not first ack-react and then refuse a second later.
+    if _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return
+
     user_message_ts = event.get("ts")
     if user_message_ts:
         _safe_react(slack.client, channel, user_message_ts, "seedling")
@@ -918,7 +1081,7 @@ def create_posthog_code_task_for_repo_activity(
         if permalink_resp.get("ok"):
             slack_thread_url = permalink_resp["permalink"]
     except Exception:
-        log.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
+        logger.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
     # Slack tasks can intentionally start without an attached repository. Keep
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
@@ -942,7 +1105,7 @@ def create_posthog_code_task_for_repo_activity(
             initial_permission_mode="bypassPermissions",
         )
     except Exception as e:
-        log.exception(
+        logger.exception(
             "posthog_code_task_creation_failed",
             error=str(e),
             team_id=integration.team_id,
@@ -956,10 +1119,10 @@ def create_posthog_code_task_for_repo_activity(
                 text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
             )
         except Exception:
-            log.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
+            logger.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
         return
 
-    log.info(
+    logger.info(
         "posthog_code_task_created",
         team_id=integration.team_id,
         repository=repository,
@@ -984,6 +1147,20 @@ def create_posthog_code_task_for_repo_activity(
                     "mentioning_slack_user_id": slack_user_id,
                 },
             )
+            # Track the workflow to link Temporal jobs to Slack threads
+            state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
+            if repo_research_task_id and repo_research_run_id:
+                state_updates["repo_research_task_id"] = repo_research_task_id
+                state_updates["repo_research_run_id"] = repo_research_run_id
+            try:
+                TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+            except Exception:
+                logger.exception(
+                    "posthog_code_persist_mention_workflow_id_failed",
+                    task_run_id=str(task_run.id),
+                    channel=channel,
+                    thread_ts=thread_ts,
+                )
 
     # 3. Now start the workflow
     if task and task_run:
@@ -1007,18 +1184,11 @@ def create_posthog_code_routing_rule_activity(
     rule_text: str,
     repository: str,
 ) -> None:
-    import structlog
-
-    from posthog.models.integration import Integration, SlackIntegration
-    from posthog.models.repo_routing_rule import RepoRoutingRule
-
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
-
-    log = structlog.get_logger(__name__)
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1026,7 +1196,7 @@ def create_posthog_code_routing_rule_activity(
     all_repos = _get_full_repo_names(integration)
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        log.warning("posthog_code_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
+        logger.warning("posthog_code_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -1074,16 +1244,6 @@ def forward_posthog_code_followup_activity(
     if _parse_rules_command(event_text):
         return False
 
-    import structlog
-
-    from posthog.models.integration import Integration, SlackIntegration
-
-    from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.tasks.backend.services.agent_command import send_user_message
-    from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-
-    log = structlog.get_logger(__name__)
-
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
             integration_id=inputs.integration_id,
@@ -1091,20 +1251,20 @@ def forward_posthog_code_followup_activity(
             thread_ts=thread_ts,
         )
     except SlackThreadTaskMapping.DoesNotExist:
-        log.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
+        logger.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False
 
     task_run = mapping.task_run
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
 
     if slack_user_id != mapping.mentioning_slack_user_id:
-        log.info(
+        logger.info(
             "posthog_code_followup_unauthorized_actor",
             channel=channel,
             thread_ts=thread_ts,
@@ -1116,6 +1276,16 @@ def forward_posthog_code_followup_activity(
             thread_ts=thread_ts,
             text="Only the person who started this task can send follow-up messages to the agent.",
         )
+        return True
+
+    if _block_if_team_over_quota(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
         return True
 
     if task_run.is_terminal:
@@ -1133,7 +1303,7 @@ def forward_posthog_code_followup_activity(
 
     sandbox_url = (task_run.state or {}).get("sandbox_url")
     if not sandbox_url:
-        log.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
+        logger.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -1159,7 +1329,7 @@ def forward_posthog_code_followup_activity(
         result = send_user_message(task_run, user_text, auth_token=auth_token, timeout=90)
 
     if not result.success:
-        log.warning(
+        logger.warning(
             "posthog_code_followup_forwarding_failed",
             channel=channel,
             thread_ts=thread_ts,
@@ -1197,7 +1367,7 @@ def forward_posthog_code_followup_activity(
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
 
-    log.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
+    logger.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
 
 
@@ -1213,13 +1383,6 @@ def _resume_task_with_new_run(
     user_message_ts: str | None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
-
-    import structlog
-
-    from products.slack_app.backend.slack_thread import SlackThreadContext
-    from products.tasks.backend.temporal.client import execute_task_processing_workflow
-
-    log = structlog.get_logger(__name__)
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event_text).strip()
     if not user_text:
@@ -1267,11 +1430,12 @@ def _resume_task_with_new_run(
     extra_state["pending_user_message"] = initial_prompt_override
     if user_message_ts:
         extra_state["pending_user_message_ts"] = user_message_ts
+    extra_state["slack_mention_workflow_id"] = derive_mention_workflow_id(inputs)
 
     try:
         new_run = mapping.task.create_run(mode="interactive", extra_state=extra_state)
     except Exception:
-        log.exception(
+        logger.exception(
             "posthog_code_resume_create_run_failed",
             channel=channel,
             thread_ts=thread_ts,
@@ -1303,7 +1467,7 @@ def _resume_task_with_new_run(
             posthog_mcp_scopes="full",
         )
     except Exception:
-        log.exception(
+        logger.exception(
             "posthog_code_resume_workflow_start_failed",
             channel=channel,
             thread_ts=thread_ts,
@@ -1323,7 +1487,7 @@ def _resume_task_with_new_run(
     if user_message_ts:
         _safe_react(slack.client, channel, user_message_ts, "eyes")
 
-    log.info(
+    logger.info(
         "posthog_code_task_resumed",
         channel=channel,
         thread_ts=thread_ts,
@@ -1348,8 +1512,6 @@ def _delete_followup_progress(
     user_message_ts: str | None,
     mentioning_slack_user_id: str | None,
 ) -> None:
-    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
-
     try:
         SlackThreadHandler(
             SlackThreadContext(
@@ -1427,8 +1589,6 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
 
 
 def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
-    from posthog.storage import object_storage
-
     log_content = object_storage.read(task_run.log_url, missing_ok=True) or ""
 
     if not log_content.strip():
@@ -1515,10 +1675,7 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 def post_posthog_code_picker_timeout_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
-    from products.slack_app.backend.models import SlackThreadTaskMapping
 
     slack_user_id = inputs.event.get("user")
     if isinstance(slack_user_id, str) and slack_user_id:
@@ -1541,7 +1698,7 @@ def post_posthog_code_picker_timeout_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1556,8 +1713,6 @@ def post_posthog_code_picker_timeout_activity(
 def post_posthog_code_internal_error_activity(
     inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
-
     from products.slack_app.backend.api import _clear_pending_repo_picker
 
     slack_user_id = inputs.event.get("user")
@@ -1571,7 +1726,7 @@ def post_posthog_code_internal_error_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)

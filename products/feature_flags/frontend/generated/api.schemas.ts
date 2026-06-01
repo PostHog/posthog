@@ -638,8 +638,6 @@ export interface FeatureFlagMultivariateSchemaApi {
  */
 export type FeatureFlagFiltersSchemaApiPayloads = { [key: string]: string }
 
-export type FeatureFlagFiltersSchemaApiSuperGroupsItem = { [key: string]: unknown }
-
 export interface FeatureFlagFiltersSchemaApi {
     /** Release condition groups for the feature flag. */
     groups?: FeatureFlagConditionGroupSchemaApi[]
@@ -652,8 +650,6 @@ export interface FeatureFlagFiltersSchemaApi {
     aggregation_group_type_index?: number | null
     /** Optional payload values keyed by variant key. */
     payloads?: FeatureFlagFiltersSchemaApiPayloads
-    /** Additional super condition groups used by experiments. */
-    super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
     /**
      * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
      * @nullable
@@ -1174,6 +1170,15 @@ export interface UserBlastRadiusResponseApi {
     total: number
 }
 
+export interface FlagValueItemApi {
+    name: unknown
+}
+
+export interface FlagValueResponseApi {
+    results: FlagValueItemApi[]
+    refreshing: boolean
+}
+
 /**
  * * `FeatureFlag` - feature flag
  */
@@ -1431,6 +1436,13 @@ export type FeatureFlagsMyFlagsRetrieveParams = {
      * Groups for feature flag evaluation (JSON object string)
      */
     groups?: string
+}
+
+export type FlagValueValuesRetrieveParams = {
+    /**
+     * The flag ID
+     */
+    key?: string
 }
 
 export type ScheduledChangesListParams = {

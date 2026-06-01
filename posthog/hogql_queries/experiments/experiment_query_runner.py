@@ -29,6 +29,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY, MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import get_experiment_date_range
 from posthog.hogql_queries.experiments.cuped_config import get_cuped_config
@@ -140,9 +141,14 @@ class ExperimentQueryRunner(QueryRunner):
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
 
-        self.variants = [variant["key"] for variant in self.feature_flag.variants]
-        if self.experiment.holdout:
-            self.variants.append(f"holdout-{self.experiment.holdout.id}")
+        # Holdout is intentionally not appended: holdout users were never exposed to
+        # the experiment, so they don't belong in the metric scorecard.
+        # self.experiment.holdout is still readable for code paths that need it
+        # (e.g. the Distribution table on the Variants tab).
+        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.variants = [
+            variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
+        ]
 
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)
@@ -186,6 +192,7 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.stats_config,
             self.metric,
             team_default_enabled=self._team_experiments_config.default_cuped_enabled,
+            team_default_lookback_days=self._team_experiments_config.default_cuped_lookback_days,
         )
 
         self.clickhouse_sql: str | None = None
@@ -341,8 +348,18 @@ class ExperimentQueryRunner(QueryRunner):
                     self._is_precomputed = True
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
-            except Exception:
-                logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
+            except Exception as e:
+                # Swallowed: the direct-scan fallback below still returns results, which would
+                # otherwise hide a broken precomputation path. Report so it isn't silent.
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "tag": "exposure_lazy_computation_failed",
+                        "experiment_id": self.experiment.id,
+                        "precomputation_path": "exposure",
+                        "metric_type": self.metric.metric_type,
+                    },
+                )
 
             # Precompute metric events for ordered funnel metrics. CUPED extends the
             # funnel scan back by `lookback_days` to source the pre-exposure covariate;
@@ -360,8 +377,16 @@ class ExperimentQueryRunner(QueryRunner):
                         builder.metric_events_preaggregation_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                     else:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
-                except Exception:
-                    logger.exception("metric_events_lazy_computation_failed", experiment_id=self.experiment.id)
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        additional_properties={
+                            "tag": "metric_events_lazy_computation_failed",
+                            "experiment_id": self.experiment.id,
+                            "precomputation_path": "metric_events",
+                            "metric_type": self.metric.metric_type,
+                        },
+                    )
 
         return builder.build_query()
 
