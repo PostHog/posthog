@@ -3758,7 +3758,7 @@ export namespace Schemas {
 
     export interface AddDashboardWidgetRequest {
       /**
-         * Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;

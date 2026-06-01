@@ -108,7 +108,7 @@ class TestResourceTransferPreview(APIBaseTest):
         with team_scope(self.team.id):
             widget = DashboardWidget.objects.create(
                 team=self.team,
-                widget_type="error_tracking",
+                widget_type="error_tracking_list",
                 name="Top errors",
                 config={"limit": 10},
             )
@@ -146,7 +146,7 @@ class TestResourceTransferPreview(APIBaseTest):
         with team_scope(self.team.id):
             widget = DashboardWidget.objects.create(
                 team=self.team,
-                widget_type="error_tracking",
+                widget_type="error_tracking_list",
                 config={"limit": 10},
             )
         DashboardTile.objects.create(dashboard=dashboard, widget=widget, team=self.team)

@@ -4,7 +4,7 @@ from rest_framework import status
 
 from posthog.models.team import Team
 
-from products.dashboards.backend.widget_registry import DashboardWidgetTypeInput
+from products.dashboards.backend.widget_registry import DashboardWidgetType
 
 
 class DashboardAPI:
@@ -327,7 +327,7 @@ class DashboardAPI:
     def create_widget_tile(
         self,
         dashboard_id: int,
-        widget_type: DashboardWidgetTypeInput = "error_tracking_list",
+        widget_type: DashboardWidgetType = "error_tracking_list",
         config: dict[str, Any] | None = None,
         team_id: int | None = None,
         expected_status: int = status.HTTP_200_OK,

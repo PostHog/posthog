@@ -101,7 +101,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         with team_scope(self.team.id):
             widget = DashboardWidget.objects.create(
                 team=self.team,
-                widget_type="error_tracking",
+                widget_type="error_tracking_list",
                 name="Top errors",
                 config={"limit": 10},
             )
@@ -265,7 +265,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         with team_scope(self.team.id):
             widget = DashboardWidget.objects.create(
                 team=self.team,
-                widget_type="error_tracking",
+                widget_type="error_tracking_list",
                 name="Top errors",
                 config={"limit": 10},
             )
@@ -283,7 +283,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
 
         assert new_widgets[0].pk != widget.pk
         assert new_widgets[0].team == dest_team
-        assert new_widgets[0].widget_type == "error_tracking"
+        assert new_widgets[0].widget_type == "error_tracking_list"
         assert new_widgets[0].config == {"limit": 10}
         assert new_tiles[0].dashboard == new_dashboards[0]
         assert new_tiles[0].widget == new_widgets[0]

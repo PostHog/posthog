@@ -93,17 +93,15 @@ from products.dashboards.backend.widget_access import (
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
 from products.dashboards.backend.widget_create import prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import (
-    MAX_WIDGETS_BATCH_SIZE,
     collect_dashboard_sm_layouts_for_dashboard,
     stack_widget_layout_at_bottom,
 )
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
-    WIDGET_TYPE_ALIASES,
     get_widget_registry_entry,
-    normalize_widget_type,
     validate_widget_config,
 )
+from products.dashboards.backend.widgets.config import MAX_WIDGETS_BATCH_SIZE
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
@@ -158,7 +156,7 @@ RUN_WIDGETS_QUERY_CONCURRENCY = 4
 
 WIDGET_TYPE_API_HELP = (
     "Widget type identifier. Supported values: "
-    + ", ".join(sorted(EXPECTED_WIDGET_TYPES | set(WIDGET_TYPE_ALIASES.keys())))
+    + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
     + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
 )
 
@@ -943,6 +941,19 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         return normalized
 
 
+def _count_active_widget_tiles(dashboard: Dashboard) -> int:
+    return dashboard.tiles.filter(widget_id__isnull=False).exclude(deleted=True).count()
+
+
+def _check_dashboard_widget_count_limit(*, dashboard: Dashboard, user: User) -> None:
+    check_count_limit(
+        team=dashboard.team,
+        key=LimitKey.MAX_WIDGETS_PER_DASHBOARD,
+        current_count=_count_active_widget_tiles(dashboard),
+        user=user,
+    )
+
+
 def _report_dashboard_tile_added(
     *,
     user: User,
@@ -1200,6 +1211,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if source_tile.widget is None:
             raise serializers.ValidationError("Tile is not a widget tile.")
 
+        _check_dashboard_widget_count_limit(dashboard=destination, user=user)
+
         widget_name = source_tile.widget.name
         duplicate_name: str | None
         if append_copy_suffix and widget_name:
@@ -1361,9 +1374,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     ) -> None:
         DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
         patch_widget_type = widget_data.get("widget_type")
-        if patch_widget_type is not None and normalize_widget_type(str(patch_widget_type)) != normalize_widget_type(
-            widget.widget_type
-        ):
+        if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         widget.config = validate_widget_config(widget.widget_type, widget_data.get("config", {}))
@@ -1543,6 +1554,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     )
                 except serializers.ValidationError as exc:
                     raise DashboardSerializer._widget_tile_validation_error(exc) from exc
+
+                _check_dashboard_widget_count_limit(dashboard=instance, user=user)
 
                 widget = DashboardWidget.objects.create(
                     team_id=instance.team_id,
@@ -2770,6 +2783,7 @@ class DashboardsViewSet(
             config=config,
             user_access_control=user_access_control,
         )
+        _check_dashboard_widget_count_limit(dashboard=dashboard, user=user)
         layouts = payload.get("layouts")
         if layouts is None:
             layouts = stack_widget_layout_at_bottom(

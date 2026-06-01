@@ -9,11 +9,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import check_widget_tile_product_access
-from products.dashboards.backend.widget_registry import (
-    get_widget_registry_entry,
-    normalize_widget_type,
-    validate_widget_config,
-)
+from products.dashboards.backend.widget_registry import get_widget_registry_entry, validate_widget_config
 
 
 def prepare_widget_tile_create(
@@ -26,8 +22,7 @@ def prepare_widget_tile_create(
     if not dashboard_widgets_enabled(team_id):
         raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
 
-    normalized_widget_type = normalize_widget_type(widget_type)
-    if get_widget_registry_entry(normalized_widget_type) is None:
+    if get_widget_registry_entry(widget_type) is None:
         raise serializers.ValidationError({"widget_type": f"Unknown widget type: {widget_type}"})
 
     if not isinstance(config, dict):
@@ -35,11 +30,11 @@ def prepare_widget_tile_create(
 
     if user_access_control is not None:
         probe_widget = DashboardWidget(
-            widget_type=normalized_widget_type,
+            widget_type=widget_type,
             config=config,
             team_id=team_id,
         )
         check_widget_tile_product_access(probe_widget, user_access_control)
 
-    validated_config = validate_widget_config(normalized_widget_type, config)
-    return normalized_widget_type, validated_config
+    validated_config = validate_widget_config(widget_type, config)
+    return widget_type, validated_config

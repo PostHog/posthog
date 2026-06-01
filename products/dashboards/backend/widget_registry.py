@@ -30,11 +30,6 @@ from products.dashboards.backend.widgets.error_tracking_list import (
 EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list"})
 
 DashboardWidgetType = Literal["error_tracking_list"]
-DashboardWidgetTypeInput = Literal["error_tracking_list", "error_tracking"]
-
-WIDGET_TYPE_ALIASES: dict[str, str] = {
-    "error_tracking": "error_tracking_list",
-}
 
 
 class WidgetRegistryEntry(TypedDict):
@@ -55,12 +50,8 @@ WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
 }
 
 
-def normalize_widget_type(widget_type: str) -> str:
-    return WIDGET_TYPE_ALIASES.get(widget_type, widget_type)
-
-
 def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
-    return WIDGET_REGISTRY.get(normalize_widget_type(widget_type))
+    return WIDGET_REGISTRY.get(widget_type)
 
 
 def validate_widget_config(widget_type: str, config: dict[str, Any]) -> dict[str, Any]:

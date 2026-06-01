@@ -4,14 +4,42 @@ from typing import Any
 
 from products.dashboards.backend.widget_catalog import get_default_widget_layouts
 
-MAX_WIDGETS_BATCH_SIZE = 10
+# Keep in sync with frontend `BREAKPOINT_COLUMN_COUNTS.sm` and `DASHBOARD_GRID_COLUMN_COUNT`.
+DASHBOARD_GRID_COLUMN_COUNT = 12
 
 
-def _max_sm_layout_bottom(sm_layouts: list[dict[str, Any]]) -> int:
-    max_bottom = 0
+def _column_heights_from_sm_layouts(sm_layouts: list[dict[str, Any]]) -> list[int]:
+    column_heights = [0] * DASHBOARD_GRID_COLUMN_COUNT
     for layout in sm_layouts:
-        max_bottom = max(max_bottom, int(layout.get("y", 0)) + int(layout.get("h", 0)))
-    return max_bottom
+        x = int(layout.get("x", 0))
+        y = int(layout.get("y", 0))
+        w = max(1, min(int(layout.get("w", 1)), DASHBOARD_GRID_COLUMN_COUNT))
+        h = max(1, int(layout.get("h", 1)))
+        x = max(0, min(x, DASHBOARD_GRID_COLUMN_COUNT - 1))
+        for column in range(x, min(x + w, DASHBOARD_GRID_COLUMN_COUNT)):
+            column_heights[column] = max(column_heights[column], y + h)
+    return column_heights
+
+
+def _find_lowest_segment_placement(
+    *,
+    column_heights: list[int],
+    width: int,
+    height: int,
+) -> dict[str, int]:
+    """Greedy lowest-segment packing from ``frontend/src/scenes/dashboard/tileLayouts.ts``."""
+    w = max(1, min(width, DASHBOARD_GRID_COLUMN_COUNT))
+    h = max(1, height)
+
+    best_x = 0
+    best_y = max(column_heights[0:w])
+    for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
+        segment_top = max(column_heights[x : x + w])
+        if segment_top < best_y:
+            best_x = x
+            best_y = segment_top
+
+    return {"x": best_x, "y": best_y, "w": w, "h": h}
 
 
 def stack_widget_layout_at_bottom(
@@ -24,8 +52,8 @@ def stack_widget_layout_at_bottom(
     width = defaults["sm"]["w"]
     height = defaults["sm"]["h"]
     sm_layouts = [*existing_sm_layouts, *(pending_sm_layouts or [])]
-    y = _max_sm_layout_bottom(sm_layouts)
-    sm = {"x": 0, "y": y, "w": width, "h": height}
+    column_heights = _column_heights_from_sm_layouts(sm_layouts)
+    sm = _find_lowest_segment_placement(column_heights=column_heights, width=width, height=height)
     return {"sm": sm, "xs": {**sm}}
 
 

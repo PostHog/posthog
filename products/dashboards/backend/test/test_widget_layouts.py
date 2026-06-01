@@ -1,32 +1,38 @@
 from products.dashboards.backend.widget_layouts import stack_widget_layout_at_bottom
 
 
-def _max_layout_bottom(sm_layouts: list[dict[str, int]]) -> int:
-    return max(layout["y"] + layout["h"] for layout in sm_layouts)
-
-
 class TestWidgetLayouts:
-    """Backend stacking only reads `layouts.sm`.
+    """Backend placement only reads `layouts.sm`.
 
-    Mobile (`xs`) placement is derived on the frontend in `tileLayouts.calculateLayouts`:
-    stored xs is ignored, tiles are single-column, and order/height follow sm layout.
-    The backend still mirrors sm → xs for API/schema completeness; dashboard save paths
-    only persist sm anyway.
+    Uses the same lowest-segment greedy packing as ``tileLayouts.calculateLayouts`` /
+    ``_apply_reorder_layout`` (preserve). Mobile (`xs`) placement is still derived on
+    the frontend; the backend mirrors sm → xs for API/schema completeness.
     """
 
-    def test_stack_widget_layout_at_bottom_stacks_after_existing_and_pending(self) -> None:
-        # Messy dashboard grid: mixed widths/heights, side-by-side rows, one full-width strip.
-        # Deepest existing tile is the tall insight on the right (y=11, h=7 → bottom 18).
+    def test_stack_widget_layout_at_bottom_fills_lowest_segment(self) -> None:
         existing = [
-            {"x": 0, "y": 0, "w": 6, "h": 4},  # top-left widget
-            {"x": 6, "y": 0, "w": 6, "h": 9},  # tall insight, right column
-            {"x": 0, "y": 4, "w": 3, "h": 2},  # small text card
-            {"x": 3, "y": 4, "w": 3, "h": 5},  # medium insight under top-left
-            {"x": 0, "y": 9, "w": 12, "h": 2},  # full-width header strip
-            {"x": 0, "y": 11, "w": 4, "h": 3},  # short widget, left
-            {"x": 4, "y": 11, "w": 8, "h": 7},  # tallest tile — sets existing max bottom (18)
+            {"x": 0, "y": 0, "w": 6, "h": 4},
+            {"x": 6, "y": 0, "w": 6, "h": 11},
         ]
-        # Earlier widgets from the same batch add, stacked below the grid.
+
+        layouts = stack_widget_layout_at_bottom(
+            widget_type="error_tracking_list",
+            existing_sm_layouts=existing,
+        )
+
+        assert layouts["sm"] == {"x": 0, "y": 4, "w": 6, "h": 5}
+        assert layouts["xs"] == layouts["sm"]
+
+    def test_stack_widget_layout_at_bottom_uses_right_column_when_left_is_taller(self) -> None:
+        existing = [
+            {"x": 0, "y": 0, "w": 6, "h": 4},
+            {"x": 6, "y": 0, "w": 6, "h": 9},
+            {"x": 0, "y": 4, "w": 3, "h": 2},
+            {"x": 3, "y": 4, "w": 3, "h": 5},
+            {"x": 0, "y": 9, "w": 12, "h": 2},
+            {"x": 0, "y": 11, "w": 4, "h": 3},
+            {"x": 4, "y": 11, "w": 8, "h": 7},
+        ]
         pending = [
             {"x": 0, "y": 18, "w": 6, "h": 4},
             {"x": 0, "y": 22, "w": 6, "h": 3},
@@ -38,34 +44,12 @@ class TestWidgetLayouts:
             pending_sm_layouts=pending,
         )
 
-        expected_y = _max_layout_bottom([*existing, *pending])
-        assert expected_y == 25
-        assert layouts["sm"] == {"x": 0, "y": expected_y, "w": 6, "h": 5}
-        assert layouts["xs"] == layouts["sm"]
+        assert layouts["sm"] == {"x": 6, "y": 18, "w": 6, "h": 5}
 
-    def test_stack_widget_layout_at_bottom_ignores_horizontal_position(self) -> None:
-        # A wide tile parked on the far right still contributes its bottom edge.
+    def test_stack_widget_layout_at_bottom_prefers_shorter_right_column(self) -> None:
         existing = [
-            {"x": 0, "y": 0, "w": 4, "h": 3},
-            {"x": 8, "y": 2, "w": 4, "h": 10},  # bottom 12 despite x=8
-            {"x": 4, "y": 6, "w": 2, "h": 2},
-        ]
-
-        layouts = stack_widget_layout_at_bottom(
-            widget_type="session_replay_list",
-            existing_sm_layouts=existing,
-        )
-
-        assert layouts["sm"]["y"] == 12
-        assert layouts["sm"]["w"] == 6
-        assert layouts["sm"]["h"] == 5
-
-    def test_stack_widget_layout_at_bottom_does_not_consider_stored_xs_layouts(self) -> None:
-        # Templates may persist xs with w=1 and deep y values; stacking ignores them.
-        # Mobile reflow is handled client-side from sm order + sm.h.
-        existing = [
-            {"x": 0, "y": 0, "w": 6, "h": 4},
-            {"x": 6, "y": 0, "w": 6, "h": 11},
+            {"x": 0, "y": 0, "w": 6, "h": 10},
+            {"x": 6, "y": 0, "w": 6, "h": 4},
         ]
 
         layouts = stack_widget_layout_at_bottom(
@@ -73,5 +57,18 @@ class TestWidgetLayouts:
             existing_sm_layouts=existing,
         )
 
-        assert layouts["sm"]["y"] == 11
-        assert layouts["xs"] == layouts["sm"]
+        assert layouts["sm"] == {"x": 6, "y": 4, "w": 6, "h": 5}
+
+    def test_stack_widget_layout_at_bottom_packs_batch_side_by_side(self) -> None:
+        first = stack_widget_layout_at_bottom(
+            widget_type="error_tracking_list",
+            existing_sm_layouts=[],
+        )
+        second = stack_widget_layout_at_bottom(
+            widget_type="error_tracking_list",
+            existing_sm_layouts=[],
+            pending_sm_layouts=[first["sm"]],
+        )
+
+        assert first["sm"] == {"x": 0, "y": 0, "w": 6, "h": 5}
+        assert second["sm"] == {"x": 6, "y": 0, "w": 6, "h": 5}

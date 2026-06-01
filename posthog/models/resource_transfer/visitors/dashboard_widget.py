@@ -8,7 +8,6 @@ from posthog.models.resource_transfer.visitors.base import ResourceTransferVisit
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
-from products.dashboards.backend.widget_registry import normalize_widget_type
 
 
 class DashboardWidgetVisitor(
@@ -28,7 +27,7 @@ class DashboardWidgetVisitor(
 
         widget_type = getattr(resource, "widget_type", None)
         if widget_type:
-            catalog_entry = WIDGET_CATALOG.get(normalize_widget_type(str(widget_type)))
+            catalog_entry = WIDGET_CATALOG.get(str(widget_type))
             if catalog_entry is not None:
                 return catalog_entry["label"]
             return str(widget_type)

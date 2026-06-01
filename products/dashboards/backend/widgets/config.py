@@ -11,6 +11,9 @@ from posthog.models.team import Team
 # Cap per-query row count so run-widgets responses stay bounded.
 MAX_WIDGET_RESULT_LIMIT = 25
 
+# Cap widgets per batch create / run-widgets request.
+MAX_WIDGETS_BATCH_SIZE = 10
+
 # Preset relative ranges only — widgets don't accept arbitrary HogQL date strings.
 WIDGET_DATE_FROM_VALUES = frozenset({"-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"})
 

@@ -543,18 +543,14 @@ class TestDashboardWidgets(APIBaseTest):
         assert updated["show_description"] is True
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_error_tracking_widget_type_alias(self) -> None:
+    def test_widgets_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id,
-            widget_type="error_tracking",
-            config={"limit": 10},
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
+            {"widget_type": "error_tracking", "config": {"limit": 10}},
         )
-
-        tile = dashboard_json["tiles"][0]
-        assert tile["widget"]["widget_type"] == "error_tracking_list"
-        assert tile["widget"]["config"]["limit"] == 10
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_widgets_endpoint_rejects_unknown_widget_type(self) -> None:
@@ -644,7 +640,7 @@ class TestDashboardWidgets(APIBaseTest):
             {
                 "widgets": [
                     {"widget_type": "error_tracking_list", "config": {"limit": 5}, "name": "Errors A"},
-                    {"widget_type": "error_tracking", "config": {"limit": 3}, "name": "Errors B"},
+                    {"widget_type": "error_tracking_list", "config": {"limit": 3}, "name": "Errors B"},
                 ]
             },
         )
@@ -703,3 +699,60 @@ class TestDashboardWidgets(APIBaseTest):
 
         for call in mock_report_user_action.call_args_list:
             assert call[0][1] != "dashboard tile added"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    def test_widget_tile_creation_does_not_emit_limit_hit_below_threshold(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
+            {"widget_type": "error_tracking_list", "config": {"limit": 8}},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        limit_calls = [call for call in mock_report_user_action.call_args_list if call[0][1] == "resource limit hit"]
+        assert limit_calls == []
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("posthog.resource_limits.evaluator.report_user_action")
+    def test_widget_tile_creation_emits_resource_limit_hit_at_threshold(self, mock_report_user_action) -> None:
+        from posthog.resource_limits import LimitKey
+
+        from products.dashboards.backend.models.dashboard_tile import DashboardTile
+        from products.dashboards.backend.models.dashboard_widget import DashboardWidget
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        dashboard = Dashboard.objects.get(id=dashboard_id)
+
+        for index in range(19):
+            widget = DashboardWidget.all_teams.create(
+                team_id=self.team.id,
+                widget_type="error_tracking_list",
+                name=f"Widget {index}",
+                config={"limit": 10},
+                created_by=self.user,
+                last_modified_by=self.user,
+            )
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                team_id=self.team.id,
+                widget=widget,
+                layouts={"sm": {"x": 0, "y": index, "w": 6, "h": 5}},
+            )
+
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
+            {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Widget 20"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        limit_calls = [call for call in mock_report_user_action.call_args_list if call[0][1] == "resource limit hit"]
+        assert len(limit_calls) == 1
+        properties = limit_calls[0][0][2]
+        assert properties["limit_key"] == LimitKey.MAX_WIDGETS_PER_DASHBOARD
+        assert properties["limit"] == 20
+        assert properties["current_count"] == 19
+        assert properties["crossing_threshold"] is True

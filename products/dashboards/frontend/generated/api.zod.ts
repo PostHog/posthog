@@ -482,7 +482,7 @@ export const DashboardsWidgetsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(dashboardsWidgetsCreateBodyWidgetTypeMax)
         .describe(
-            'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+            'Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
         ),
     config: zod
         .unknown()
@@ -544,7 +544,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
                     .describe(
-                        'Widget type identifier. Supported values: error_tracking, error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+                        'Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
                     ),
                 config: zod
                     .unknown()
