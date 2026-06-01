@@ -14,8 +14,10 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.dashboards.backend.api.dashboard import DashboardTileSerializer
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
 
@@ -812,3 +814,18 @@ class TestDashboardWidgets(APIBaseTest):
         assert properties["limit"] == 20
         assert properties["current_count"] == 19
         assert properties["crossing_threshold"] is True
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_shared_dashboard_tile_serializer_omits_widget_payload(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = DashboardTile.objects.get(id=dashboard_json["tiles"][0]["id"])
+
+        class ViewShim:
+            action = "retrieve"
+
+        context = {"view": ViewShim(), "order": 0}
+        assert DashboardTileSerializer(tile, context=context).data["widget"] is not None
+
+        shared_context = {**context, "is_shared": True}
+        assert DashboardTileSerializer(tile, context=shared_context).data["widget"] is None

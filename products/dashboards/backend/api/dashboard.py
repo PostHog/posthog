@@ -704,6 +704,9 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
+        if self.context.get("is_shared") and representation.get("widget"):
+            representation["widget"] = None
+
         representation["order"] = self.context.get("order", None)
 
         insight_representation = representation["insight"] or {}  # May be missing for text tiles
