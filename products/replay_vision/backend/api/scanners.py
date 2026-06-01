@@ -328,6 +328,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filterset_class = ReplayScannerFilter
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
+    # Same authorization as /observe/: configuring a scanner indirectly exposes recording contents.
+    _CONFIG_ACTIONS = {"create", "update", "partial_update"}
+
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        if self.action in self._CONFIG_ACTIONS:
+            return ["replay_scanner:write", "session_recording:read"]
+        return None
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action in self._CONFIG_ACTIONS and not self.user_access_control.check_access_level_for_resource(
+            "session_recording", required_level="viewer"
+        ):
+            raise PermissionDenied("Configuring a Replay Vision scanner requires session_recording read access.")
+
     def safely_get_queryset(self, queryset: QuerySet[ReplayScanner]) -> QuerySet[ReplayScanner]:
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("name", "id")
 
