@@ -64,9 +64,9 @@ class SlackUserProfileCache(UUIDModel):
 
 
 class SlackSettings(UUIDModel):
-    """Per-(Slack workspace, Slack user) settings for inbound `slack-posthog-code`
-    events. Currently stores the routing default — which PostHog integration a
-    mention from this Slack user should route to.
+    """Per-(Slack workspace, Slack user) settings for inbound Slack events.
+    Currently stores the routing default — which PostHog integration a mention
+    from this Slack user should route to.
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.

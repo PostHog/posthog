@@ -299,12 +299,15 @@ describe('CDP hog invocation rerun e2e', () => {
         // having to manually delete the row.
 
         // ── 2. Mimic Django POST /rerun — only the request itself is faked ──────
-        // The rerun request requires a time window; we use a wide one and
-        // restrict to a specific invocation_id via the optional filter field.
+        // The rerun request requires a time window; we use a wide one around
+        // "now" (the lifecycle row's scheduled_at = current time) and restrict
+        // to a specific invocation_id via the optional filter field.
+        const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+        const windowEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
         const rerunJobId = await rerunManager.enqueue(team.id, 'hog_function', fnFetch.id, {
             filter: {
-                window_start: '2026-05-01T00:00:00Z',
-                window_end: '2026-05-31T00:00:00Z',
+                window_start: windowStart,
+                window_end: windowEnd,
                 status: ['succeeded'],
                 invocation_ids: [originalInvocationId],
             },

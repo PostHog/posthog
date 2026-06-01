@@ -18,9 +18,9 @@ from products.slack_app.backend.tests.helpers import sign_slack_request
 class TestSlackWorkspaceClaimsView(TestCase):
     """The receiver-side endpoint that the other region calls to ask "do you claim this workspace?".
 
-    Authenticated with the same HMAC scheme Slack uses, against the PostHog Code Slack signing
-    secret that both regions already share. The signed body covers `slack_team_id + kinds`, so a
-    captured signature cannot be replayed against a different workspace.
+    Authenticated with the same HMAC scheme Slack uses, against the Slack app signing secret that
+    both regions already share. The signed body covers `slack_team_id + kinds`, so a captured
+    signature cannot be replayed against a different workspace.
     """
 
     def setUp(self):
@@ -44,70 +44,70 @@ class TestSlackWorkspaceClaimsView(TestCase):
         response = self.client.get("/slack/workspace/claims/")
         assert response.status_code == 405
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_existing_integration_returns_claimed(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T_PRESENT",
             sensitive_config={"access_token": "xoxb"},
         )
-        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack-posthog-code"]})
+        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": True}
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_any_of_kinds_match_returns_claimed(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         Integration.objects.create(
             team=self.team,
             kind="slack",
             integration_id="T_NOTIF",
             sensitive_config={"access_token": "xoxb"},
         )
-        response = self._post({"slack_team_id": "T_NOTIF", "kinds": ["slack", "slack-posthog-code"]})
+        response = self._post({"slack_team_id": "T_NOTIF", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": True}
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_missing_integration_returns_not_claimed(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
-        response = self._post({"slack_team_id": "T_UNKNOWN", "kinds": ["slack-posthog-code"]})
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        response = self._post({"slack_team_id": "T_UNKNOWN", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": False}
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_invalid_signature_returns_403(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
         response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"]})
         assert response.status_code == 403
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_missing_team_id_returns_400(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         response = self._post({"kinds": ["slack"]})
         assert response.status_code == 400
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_no_valid_kinds_returns_400(self, mock_config):
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["github", "not-real"]})
         assert response.status_code == 400
 
-    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_other_kinds_for_same_id_do_not_count(self, mock_config):
         # Same integration_id can be reused across PostHog integration kinds (e.g. a GitHub install
         # whose external id happens to collide with a Slack workspace). The endpoint must scope
         # to the requested Slack kinds only.
-        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         Integration.objects.create(
             team=self.team,
             kind="github",
             integration_id="T_PRESENT",
             sensitive_config={"access_token": "ghp"},
         )
-        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack", "slack-posthog-code"]})
+        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": False}
 
@@ -126,14 +126,14 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
         from products.slack_app.backend.api import does_other_region_claim_workspace
 
         with (
-            patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config") as mock_config,
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
             patch("products.slack_app.backend.api.requests.post") as mock_post,
         ):
-            mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
             mock_post.return_value = mock_post_return
             kwargs = {
                 "slack_team_id": "T123",
-                "kinds": ["slack-posthog-code"],
+                "kinds": ["slack"],
                 "incoming_host": "eu.posthog.com",
                 **call_overrides,
             }
@@ -186,10 +186,10 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
         from products.slack_app.backend.api import does_other_region_claim_workspace
 
         with (
-            patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config") as mock_config,
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
             patch("products.slack_app.backend.api.requests.post") as mock_post,
         ):
-            mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
             mock_post.side_effect = requests.ConnectionError("boom")
             result = does_other_region_claim_workspace(
                 slack_team_id="T123", kinds=["slack"], incoming_host="us.posthog.com"

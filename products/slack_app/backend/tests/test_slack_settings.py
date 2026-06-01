@@ -17,13 +17,13 @@ class TestSlackSettings:
         self.team_b = Team.objects.create(organization=self.organization, name="Team B")
         self.integration_a = Integration.objects.create(
             team=self.team_a,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T_WS",
             sensitive_config={"access_token": "xoxb-a"},
         )
         self.integration_b = Integration.objects.create(
             team=self.team_b,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T_WS",
             sensitive_config={"access_token": "xoxb-b"},
         )
