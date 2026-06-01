@@ -350,8 +350,6 @@ class ClickHouseClient:
         if database:
             self.params["database"] = database
 
-        # Keep ArrowStream responses readable by PyArrow's IPC stream readers.
-        self.params["output_format_arrow_compression_method"] = "none"
         self.params.update(kwargs)
 
     @classmethod
