@@ -1447,8 +1447,8 @@
             "readOnlyHint": true
         }
     },
-    "endpoints-last-execution-times-create": {
-        "description": "Get the most recent execution time per endpoint. Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this to find unused endpoints during an audit.",
+    "endpoints-last-execution-times": {
+        "description": "Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history, query the query_log table with execute-sql.",
         "category": "Endpoints",
         "feature": "endpoints",
         "summary": "Get endpoints last execution times",
@@ -1462,7 +1462,7 @@
             "readOnlyHint": true
         }
     },
-    "endpoints-materialization-preview-create": {
+    "endpoints-materialization-preview": {
         "description": "Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL, detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not eligible. Supports an optional version body param. Read-only — does not enable materialization.",
         "category": "Endpoints",
         "feature": "endpoints",

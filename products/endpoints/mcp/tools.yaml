@@ -167,7 +167,7 @@ tools:
             Get all API endpoints in the current project. Endpoints expose saved HogQL or insight queries as callable
             API routes. Returns name, description, query, active status, current version, and materialization info for
             each endpoint.
-    endpoints-last-execution-times-create:
+    endpoints-last-execution-times:
         operation: endpoints_last_execution_times_create
         enabled: true
         scopes:
@@ -178,12 +178,13 @@ tools:
             idempotent: true
         title: Get endpoints last execution times
         description: >
-            Get the most recent execution time per endpoint (over the past 6 months, personal API key calls only). Pass
-            an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called in the
-            window are omitted from the response. Use this to find unused endpoints during an audit.
+            Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array
+            of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the
+            response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history,
+            query the query_log table with execute-sql.
         include_params:
             - names
-    endpoints-materialization-preview-create:
+    endpoints-materialization-preview:
         operation: endpoints_materialization_preview_create
         enabled: true
         scopes:

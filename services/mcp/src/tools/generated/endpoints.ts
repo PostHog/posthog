@@ -279,15 +279,15 @@ const endpointsGetAll = (): ToolBase<
     },
 })
 
-const EndpointsLastExecutionTimesCreateSchema = EndpointsLastExecutionTimesCreateBody.omit({ include_versions: true })
+const EndpointsLastExecutionTimesSchema = EndpointsLastExecutionTimesCreateBody
 
-const endpointsLastExecutionTimesCreate = (): ToolBase<
-    typeof EndpointsLastExecutionTimesCreateSchema,
+const endpointsLastExecutionTimes = (): ToolBase<
+    typeof EndpointsLastExecutionTimesSchema,
     Schemas.QueryStatusResponse
 > => ({
-    name: 'endpoints-last-execution-times-create',
-    schema: EndpointsLastExecutionTimesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesCreateSchema>) => {
+    name: 'endpoints-last-execution-times',
+    schema: EndpointsLastExecutionTimesSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsLastExecutionTimesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.names !== undefined) {
@@ -302,17 +302,14 @@ const endpointsLastExecutionTimesCreate = (): ToolBase<
     },
 })
 
-const EndpointsMaterializationPreviewCreateSchema = EndpointsMaterializationPreviewCreateParams.omit({
+const EndpointsMaterializationPreviewSchema = EndpointsMaterializationPreviewCreateParams.omit({
     project_id: true,
 }).extend(EndpointsMaterializationPreviewCreateBody.shape)
 
-const endpointsMaterializationPreviewCreate = (): ToolBase<
-    typeof EndpointsMaterializationPreviewCreateSchema,
-    unknown
-> => ({
-    name: 'endpoints-materialization-preview-create',
-    schema: EndpointsMaterializationPreviewCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewCreateSchema>) => {
+const endpointsMaterializationPreview = (): ToolBase<typeof EndpointsMaterializationPreviewSchema, unknown> => ({
+    name: 'endpoints-materialization-preview',
+    schema: EndpointsMaterializationPreviewSchema,
+    handler: async (context: Context, params: z.infer<typeof EndpointsMaterializationPreviewSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.version !== undefined) {
@@ -340,6 +337,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'endpoint-update': endpointUpdate,
     'endpoint-versions': endpointVersions,
     'endpoints-get-all': endpointsGetAll,
-    'endpoints-last-execution-times-create': endpointsLastExecutionTimesCreate,
-    'endpoints-materialization-preview-create': endpointsMaterializationPreviewCreate,
+    'endpoints-last-execution-times': endpointsLastExecutionTimes,
+    'endpoints-materialization-preview': endpointsMaterializationPreview,
 }
