@@ -116,6 +116,9 @@ tools:
             Get a specific task by ID, including its description, repository, origin product, current stage, and latest
             run summary. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.
         feature_flag: tasks
+        response:
+            exclude:
+                - latest_run.log_url
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
@@ -201,6 +204,9 @@ tools:
             state, error message, and timestamps. The `state` object contains `sandbox_environment_id` (the UUID of the
             sandbox environment used).
         feature_flag: tasks
+        response:
+            exclude:
+                - log_url
     tasks-runs-session-logs-retrieve:
         operation: tasks_runs_session_logs_retrieve
         enabled: true

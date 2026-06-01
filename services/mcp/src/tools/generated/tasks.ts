@@ -11,7 +11,7 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const TasksListSchema = TasksListQueryParams
@@ -78,7 +78,8 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/tasks/${result.id}`)
+        const filtered = omitResponseFields(result, ['latest_run.log_url']) as typeof result
+        return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
 })
 
@@ -130,7 +131,8 @@ const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.T
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/`,
         })
-        return result
+        const filtered = omitResponseFields(result, ['log_url']) as typeof result
+        return filtered
     },
 })
 
