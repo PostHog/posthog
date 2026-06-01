@@ -1,4 +1,3 @@
-import asyncio
 from collections.abc import Collection, Iterable
 from typing import Any, cast
 
@@ -712,18 +711,11 @@ class TestMaterializeViewActivity:
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
 
-    async def test_aborted_write_releases_producer_parked_on_full_queue(
+    async def test_write_failure_surfaces_after_buffering_batches(
         self, activity_environment, ateam, anode, ajob, bucket_name, adag
     ):
-        # regression: when the consumer (write) aborts while the producer is still
-        # streaming, the producer must not be orphaned. its queue ops run in a thread
-        # via asyncio.to_thread (not cancellable), so a plain blocking put against the
-        # bounded queue would park that thread forever once the consumer stops draining,
-        # and the cleanup join (await producer_task) would hang with it. the producer's
-        # _put/_get poll a stop_event that cleanup sets, so the parked op returns and the
-        # task is reaped. we yield far more batches than the queue holds (maxsize=2) and
-        # make write_deltalake raise without draining, guaranteeing the producer parks;
-        # the activity must surface the write error promptly instead of hanging.
+        # regression: a failure in the single buffered write_deltalake transaction must
+        # surface from the activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
 
         def mock_hogql_table(*args, **kwargs):
@@ -765,7 +757,5 @@ class TestMaterializeViewActivity:
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
-            # wait_for fails the test rather than hanging the suite if the producer is
-            # orphaned and the cleanup join blocks forever.
             with pytest.raises(RuntimeError, match="boom"):
-                await asyncio.wait_for(activity_environment.run(materialize_view_activity, inputs), timeout=10)
+                await activity_environment.run(materialize_view_activity, inputs)
