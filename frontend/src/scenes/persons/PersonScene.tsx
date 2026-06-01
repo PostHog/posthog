@@ -209,9 +209,14 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                 <LemonBanner
                     type="error"
                     className="max-w-200 w-full"
-                    action={{ children: 'Reload', onClick: () => window.location.reload() }}
+                    action={{
+                        children: 'Reload',
+                        onClick: () => window.location.reload(),
+                        'data-attr': 'person-load-error-reload',
+                    }}
                 >
-                    We couldn't load this person. {personError}
+                    <p>We couldn't load this person.</p>
+                    <p className="text-muted mb-0">{personError}</p>
                 </LemonBanner>
             </div>
         )

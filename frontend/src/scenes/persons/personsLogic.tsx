@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { decodeParams, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
@@ -10,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { objectsEqual, toParams } from 'lib/utils'
+import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -216,8 +217,10 @@ export const personsLogic = kea<personsLogicType>([
                         } catch (error) {
                             // The blocking query is aborted when navigation moves on before it resolves.
                             // That's expected, not a load failure — drop the stale result instead of
-                            // surfacing an error or letting it be captured as an exception.
-                            if ((error as { name?: string })?.name === 'AbortError') {
+                            // surfacing an error or letting it be captured as an exception. Emit a
+                            // breadcrumb so the otherwise-silent swallow is still measurable.
+                            if (isAbortedRequest(error)) {
+                                posthog.capture('person_uuid_load_aborted')
                                 breakpoint()
                                 return values.person
                             }

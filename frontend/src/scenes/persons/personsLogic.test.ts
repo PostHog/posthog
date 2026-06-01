@@ -176,6 +176,32 @@ describe('personsLogic', () => {
                     personError: null,
                 })
         })
+
+        it('keeps the already-loaded person when an in-flight query is aborted', async () => {
+            const existingPerson: PersonType = {
+                id: 'person-1',
+                uuid: 'uuid-1',
+                distinct_ids: ['some-uuid'],
+                properties: {},
+                is_identified: true,
+                created_at: '2024-01-01',
+            }
+            logic.actions.setPerson(existingPerson)
+
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: existingPerson,
+                    personError: null,
+                })
+        })
     })
 
     describe('tab-aware person scene state', () => {
