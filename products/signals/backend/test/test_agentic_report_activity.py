@@ -360,9 +360,7 @@ async def test_run_multi_turn_research_ends_session_when_followup_fails():
     signals = _build_signals()
 
     session = Mock()
-    session.send_followup = AsyncMock(
-        side_effect=RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s")
-    )
+    session.send_followup = AsyncMock(side_effect=RuntimeError("custom_prompt - poll_for_turn: timed out after 1800s"))
     session.end = AsyncMock()
     first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
 
