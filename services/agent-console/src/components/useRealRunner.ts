@@ -310,7 +310,16 @@ export function useRealRunner({
                 const result = await handler.handle(data.args ?? {})
                 await postClientToolResult(agentSlug, sessionId, data.call_id, { result })
             } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err)
+                // Empty error messages turn into silent failures upstream
+                // (the runner's bus reducer treats falsy errors as success
+                // → tool resolves with undefined → pi-ai flags malformed
+                // content → model gets `ok: false, error: ""`). Always
+                // post a non-empty error and log the original so the
+                // browser console keeps the diagnostic.
+                // eslint-disable-next-line no-console
+                console.error(`[client tool] ${data.tool_id} threw`, err)
+                const raw = err instanceof Error ? err.message : String(err)
+                const msg = raw || (err instanceof Error ? err.name : null) || 'client_handler_threw_no_message'
                 await postClientToolResult(agentSlug, sessionId, data.call_id, { error: msg }).catch(() => undefined)
             }
         },

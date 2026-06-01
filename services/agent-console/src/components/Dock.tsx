@@ -117,6 +117,8 @@ function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string |
     }
     switch (args.kind) {
         case 'tab':
+            // Mirrors the actual AgentDetail tab set
+            // (`overview | configuration | connections | sessions | memory`).
             return `/agents/${slug}?tab=${args.tab}`
         case 'revision':
             return `/agents/${slug}?tab=configuration&revision=${encodeURIComponent(args.revisionId)}`
@@ -145,18 +147,31 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
                     : context.mode === 'playground'
                       ? context.agent.slug
                       : undefined
+            // Each branch returns a distinct `reason` so the model gets
+            // an actionable message instead of a generic "unresolved" —
+            // the previous catch-all was indistinguishable from a real
+            // failure in the chat UI.
+            if (!contextSlug) {
+                return { focused: false, reason: 'no_agent_in_dock_context' }
+            }
             const url = urlForFocus(args, contextSlug)
             if (!url) {
-                return { focused: false, reason: 'unresolved_target' }
+                return { focused: false, reason: `unsupported_focus_kind:${args.kind}` }
             }
-            router.push(url)
+            try {
+                router.push(url)
+            } catch (e) {
+                const msg = e instanceof Error ? e.message || e.name : String(e)
+                return { focused: false, reason: `router_push_failed:${msg || 'unknown'}` }
+            }
             bumpReload()
             return { focused: true, kind: args.kind }
         }
         return [
             {
                 id: 'focus_tab',
-                handle: (a: { tab: 'overview' | 'configuration' | 'sessions' }) => dispatch({ kind: 'tab', ...a }),
+                handle: (a: { tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory' }) =>
+                    dispatch({ kind: 'tab', ...a }),
             },
             { id: 'focus_file', handle: (a: { path: string }) => dispatch({ kind: 'file', ...a }) },
             { id: 'focus_revision', handle: (a: { revisionId: string }) => dispatch({ kind: 'revision', ...a }) },

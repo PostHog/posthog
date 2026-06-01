@@ -213,7 +213,9 @@ export function isRenderHandler<A, R>(h: ClientToolHandler<A, R>): h is ClientTo
  * already on the target URL pick up changes the agent just made.
  */
 export type FocusArgs =
-    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'sessions' }
+    // Tab values mirror the actual AgentDetail tab set. The host's
+    // `urlForFocus` translates each into a `?tab=…` URL.
+    | { kind: 'tab'; tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory' }
     | { kind: 'file'; path: string }
     | { kind: 'revision'; revisionId: string }
     | { kind: 'session'; sessionId: string }

@@ -30,11 +30,11 @@
         {
             "kind": "client",
             "id": "focus_tab",
-            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, sessions. Use BEFORE a corresponding read so the user's panel transitions in parallel. Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console — degrade to text.",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console — degrade to text.",
             "args_schema": {
                 "type": "object",
                 "properties": {
-                    "tab": { "enum": ["overview", "configuration", "sessions"] }
+                    "tab": { "enum": ["overview", "configuration", "connections", "sessions", "memory"] }
                 },
                 "required": ["tab"],
                 "additionalProperties": false

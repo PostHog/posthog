@@ -221,8 +221,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return
         }
         pendingClientCalls.delete(d.call_id)
-        if (d.error) {
-            pending.reject(new Error(d.error))
+        // Key presence — not truthiness. An empty-string `error` still
+        // means the handler failed; falling through to resolve(undefined)
+        // would let pi-ai see malformed tool content and emit a silent
+        // `ok: false, error: ""` to the model.
+        if ('error' in d) {
+            pending.reject(new Error(d.error || 'empty_client_error'))
         } else {
             pending.resolve(d.result)
         }
