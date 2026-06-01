@@ -198,32 +198,33 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         const hostNormalized = stripWww(parsedUrl.hostname)
 
-        const exactMatch = authorizedUrls.some((authorizedUrl) => {
-            if (authorizedUrl.indexOf(urlWithoutPath) > -1) {
-                return true
+        return authorizedUrls.some((authorizedUrl) => {
+            // Wildcard entries (subdomain or port wildcards, e.g. `https://*.example.com`). Anchor the
+            // pattern with ^…$ so a `*` cannot match a suffix of an unrelated origin such as
+            // `https://app.example.com.evil.com`.
+            if (authorizedUrl.includes('*')) {
+                try {
+                    const regex = new RegExp('^' + authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+                    return regex.test(urlWithoutPath)
+                } catch {
+                    return false
+                }
             }
-            // www-equivalence: compare hostnames with www. stripped
+
+            // Exact entries: compare by origin (protocol + host) instead of a substring check, so a
+            // different domain cannot be authorized merely by being a prefix/substring of an entry
+            // (e.g. `https://example.co` against `https://example.com`).
             try {
-                const authorizedHost = sanitizePossibleWildCardedURL(authorizedUrl).hostname
-                return stripWww(authorizedHost) === hostNormalized
+                const authorizedUrlParsed = sanitizePossibleWildCardedURL(authorizedUrl)
+                if (authorizedUrlParsed.protocol + '//' + authorizedUrlParsed.host === urlWithoutPath) {
+                    return true
+                }
+                // www-equivalence: compare hostnames with www. stripped
+                return stripWww(authorizedUrlParsed.hostname) === hostNormalized
             } catch {
                 return false
             }
         })
-
-        if (exactMatch) {
-            return true
-        }
-
-        const wildcardMatch = !!authorizedUrls.find((authorizedUrl) => {
-            // Matches something like `https://*.example.com` against the urlWithoutPath
-            const regex = new RegExp(authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*'))
-            return urlWithoutPath.match(regex)
-        })
-
-        if (wildcardMatch) {
-            return true
-        }
     } catch {
         // Ignore invalid URLs
     }
