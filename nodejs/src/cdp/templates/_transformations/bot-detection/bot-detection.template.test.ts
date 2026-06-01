@@ -311,31 +311,18 @@ describe('bot-detection.template', () => {
         expect(response.execResult).toBeFalsy()
     })
 
-    it.each([['web'], ['js']])('should still filter known bot UA when $lib=%s (browser SDK)', async (lib) => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $lib: lib,
-                    $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                },
-            },
-        })
-
-        const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
-
-        expect(response.finished).toBeTruthy()
-        expect(response.error).toBeFalsy()
-        expect(response.execResult).toBeFalsy()
-    })
-
-    it('should still filter known bot UA when $lib is missing (treat as browser)', async () => {
-        mockGlobals = tester.createGlobals({
-            event: {
-                properties: {
-                    $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                },
-            },
-        })
+    it.each([
+        ['web', 'web' as string | undefined],
+        ['js', 'js' as string | undefined],
+        ['(missing)', undefined as string | undefined],
+    ])('should still filter known bot UA when $lib=%s (browser or unknown source)', async (_label, lib) => {
+        const properties: Record<string, string> = {
+            $raw_user_agent: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        }
+        if (lib !== undefined) {
+            properties.$lib = lib
+        }
+        mockGlobals = tester.createGlobals({ event: { properties } })
 
         const response = await tester.invoke(DEFAULT_INPUTS, mockGlobals)
 
