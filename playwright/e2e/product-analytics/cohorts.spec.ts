@@ -68,9 +68,10 @@ test.describe('Cohorts', () => {
         await expect(deleteDialog).toBeVisible()
         await deleteDialog.getByRole('button', { name: 'Delete' }).click()
 
-        // The delete redirects back to the cohorts list once the request resolves, so
-        // waiting for it guarantees the deletion committed before we reload and assert.
-        await expect(page).toHaveURL(/\/cohorts$/)
+        // The delete redirects back to the cohorts list (e.g. /cohorts?page=1#panel=max)
+        // once the request resolves, so waiting for it guarantees the deletion committed
+        // before we reload and assert. Match the list URL but not the /cohorts/<id> detail.
+        await expect(page).toHaveURL(/\/cohorts(\?|#|$)/)
 
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
