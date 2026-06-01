@@ -1,12 +1,14 @@
 import math
 import asyncio
 import inspect
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.temporal.ai.pulse import detection, narrative, selection
 from posthog.temporal.ai.pulse.detection import (
     MIN_BASELINE_VALUE,
@@ -19,12 +21,17 @@ from posthog.temporal.ai.pulse.narrative import (
     NARRATIVE_MAX_TOKENS,
     NARRATIVE_MODEL,
     NARRATIVE_TIMEOUT_SECONDS,
+    SYNTHESIS_SYSTEM_PROMPT,
     _attribute_finding,
+    _describe_flag_change,
     _enrich_one,
     _fallback_narrative,
+    _fetch_flag_changes,
     _generate_narrative,
     _pick_top_contributor,
+    _sanitize_for_prompt,
     enrich_findings,
+    synthesize_digest,
 )
 from posthog.temporal.ai.pulse.types import (
     CandidateMetric,
@@ -322,3 +329,124 @@ class TestEnrichInputsCarryServiceUser:
             max_findings=5,
         )
         assert inputs.user_id == expected
+
+
+class TestDescribeFlagChange:
+    @parameterized.expand(
+        [
+            ("created", "created", None, "created"),
+            ("deleted", "deleted", None, "deleted"),
+            ("turned_on", "updated", {"changes": [{"field": "active", "after": True}]}, "turned on"),
+            ("turned_off", "updated", {"changes": [{"field": "active", "after": False}]}, "turned off"),
+            ("rollout_only", "updated", {"changes": [{"field": "filters", "after": {}}]}, "updated"),
+            ("no_detail", "updated", None, "updated"),
+            ("empty_changes", "updated", {"changes": []}, "updated"),
+        ]
+    )
+    def test_label(self, _name, activity, detail, expected):
+        assert _describe_flag_change(activity, detail) == expected
+
+
+class TestSanitizeForPrompt:
+    def test_strips_angle_brackets(self):
+        cleaned = _sanitize_for_prompt("a<script>alert(1)</script>b")
+        assert "<" not in cleaned and ">" not in cleaned
+
+    def test_strips_control_chars_and_newlines(self):
+        assert "\n" not in _sanitize_for_prompt("line1\nline2\tend")
+
+    def test_truncates_to_200(self):
+        assert len(_sanitize_for_prompt("x" * 500)) == 200
+
+
+class TestSynthesisPromptFramesFlagChanges:
+    def test_prompt_covers_flag_changes_as_coincidence(self):
+        assert "feature-flag" in SYNTHESIS_SYSTEM_PROMPT
+        assert "never proven cause" in SYNTHESIS_SYSTEM_PROMPT
+
+
+class TestSynthesizeDigestFeedsFlagChangesToLLM:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async")
+    async def test_flag_changes_reach_the_model(self, mock_db_wrap):
+        flag_changes = [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]
+
+        async def _fake_resolve():
+            return MagicMock(name="team"), MagicMock(name="user"), [], flag_changes
+
+        # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
+        mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
+
+        fake_chain = MagicMock()
+        fake_chain.ainvoke = AsyncMock(return_value="Two metrics moved, coinciding with a flag change.")
+        with (
+            patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
+            patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
+        ):
+            mock_llm_cls.return_value.__or__ = MagicMock(return_value=fake_chain)
+            result = await synthesize_digest(
+                team_id=1,
+                user_id=None,
+                findings=[
+                    _make_enriched(_finding(impact=10.0, robust_z=4.0, label="A")),
+                    _make_enriched(_finding(impact=5.0, robust_z=3.0, label="B")),
+                ],
+                period_start="2026-05-19T00:00:00+00:00",
+                period_end="2026-05-26T00:00:00+00:00",
+            )
+
+        assert result == "Two metrics moved, coinciding with a flag change."
+        human_message = fake_chain.ainvoke.call_args.args[0][1]
+        assert "new-onboarding" in human_message.content
+        assert "turned on" in human_message.content
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_with_fewer_than_two_findings(self):
+        result = await synthesize_digest(
+            team_id=1,
+            user_id=None,
+            findings=[_make_enriched(_finding(impact=10.0, robust_z=4.0, label="A"))],
+        )
+        assert result == ""
+
+
+@pytest.mark.django_db
+class TestFetchFlagChanges:
+    def test_returns_only_feature_flag_changes_in_period_for_team(self):
+        team_id = 987654
+        ActivityLog.objects.create(
+            team_id=team_id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail={"name": "new-onboarding", "changes": [{"field": "active", "after": True}]},
+            created_at=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+        ActivityLog.objects.create(  # out of period
+            team_id=team_id,
+            scope="FeatureFlag",
+            activity="created",
+            detail={"name": "old-flag"},
+            created_at=datetime(2026, 4, 1, tzinfo=UTC),
+        )
+        ActivityLog.objects.create(  # wrong scope
+            team_id=team_id,
+            scope="Insight",
+            activity="updated",
+            detail={"name": "an-insight"},
+            created_at=datetime(2026, 5, 21, tzinfo=UTC),
+        )
+        ActivityLog.objects.create(  # wrong team
+            team_id=team_id + 1,
+            scope="FeatureFlag",
+            activity="created",
+            detail={"name": "other-team-flag"},
+            created_at=datetime(2026, 5, 21, tzinfo=UTC),
+        )
+
+        out = _fetch_flag_changes(
+            team_id,
+            datetime(2026, 5, 19, tzinfo=UTC),
+            datetime(2026, 5, 26, tzinfo=UTC),
+        )
+
+        assert out == [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]

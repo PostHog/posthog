@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
@@ -244,16 +245,62 @@ async def enrich_findings(
 
 
 SYNTHESIS_MAX_TOKENS = 320
+MAX_FLAG_CHANGES_FOR_AI_CONTEXT = 15
 
 SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
 
-You are given several findings (metric, % change, optional attribution segment) and optionally annotations (dated events the team logged — deploys, launches, incidents). Write a short paragraph, 2-4 sentences:
+You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), and optionally feature-flag changes in the same period (a flag rolled out, turned on/off). Write a short paragraph, 2-4 sentences:
 - If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
 - Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
 - If a change lines up with an annotation, note it as a possible explanation to verify — e.g. "the signup rise lines up with your 'pricing v2' note on the 20th." A coincidence to check, never proven cause.
+- If a change lines up with a feature-flag change, note it as a possible explanation to verify — e.g. "the activation dip coincides with turning on the 'new-onboarding' flag — worth checking." A coincidence to check, never proven cause.
 - Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
 
 If the findings share no obvious pattern, say that briefly rather than forcing a connection.""".strip()
+
+
+def _sanitize_for_prompt(text: str) -> str:
+    """Strip characters usable for prompt injection from team-authored free text (flag names, annotations)."""
+    cleaned = "".join(c for c in text if c == " " or (c.isprintable() and c not in "<>"))
+    return cleaned[:200]
+
+
+def _describe_flag_change(activity: str, detail: dict[str, Any] | None) -> str:
+    """Short human label for a FeatureFlag ActivityLog row: created / deleted / turned on / turned off / updated."""
+    if activity == "created":
+        return "created"
+    if activity == "deleted":
+        return "deleted"
+    for change in (detail or {}).get("changes") or []:
+        if isinstance(change, dict) and change.get("field") == "active":
+            return "turned on" if change.get("after") else "turned off"
+    return "updated"
+
+
+def _fetch_flag_changes(team_id: int, start: datetime, end: datetime) -> list[dict[str, str]]:
+    """Feature-flag mutations in the period, as coincident-signal context for synthesis (never causation).
+
+    ActivityLog is a plain team_id-scoped model (no fail-closed manager), so a direct filter is correct.
+    """
+    rows = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="FeatureFlag",
+            activity__in=["created", "updated", "deleted"],
+            created_at__gte=start,
+            created_at__lte=end,
+        )
+        .order_by("created_at")
+        .values_list("created_at", "activity", "detail")[:MAX_FLAG_CHANGES_FOR_AI_CONTEXT]
+    )
+    return [
+        {
+            "date": created_at.date().isoformat(),
+            "flag": _sanitize_for_prompt(str((detail or {}).get("name") or "a feature flag")),
+            "change": _describe_flag_change(activity, detail),
+        }
+        for created_at, activity, detail in rows
+    ]
 
 
 async def synthesize_digest(
@@ -273,25 +320,33 @@ async def synthesize_digest(
         return ""
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User, list[dict[str, str]]]:
+    def _resolve() -> tuple[Team, User, list[dict[str, str]], list[dict[str, str]]]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
         annotations: list[dict[str, str]] = []
+        flag_changes: list[dict[str, str]] = []
         if period_start and period_end:
+            start = datetime.fromisoformat(period_start)
+            end = datetime.fromisoformat(period_end)
             rows = (
                 Annotation.objects.filter(
                     team_id=team_id,
                     deleted=False,
-                    date_marker__gte=datetime.fromisoformat(period_start),
-                    date_marker__lte=datetime.fromisoformat(period_end),
+                    date_marker__gte=start,
+                    date_marker__lte=end,
                 )
                 .order_by("date_marker")
                 .values_list("date_marker", "content")[:20]
             )
-            annotations = [{"date": dm.date().isoformat(), "note": content} for dm, content in rows if content]
-        return team, user, annotations
+            annotations = [
+                {"date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)}
+                for dm, content in rows
+                if content
+            ]
+            flag_changes = _fetch_flag_changes(team_id, start, end)
+        return team, user, annotations, flag_changes
 
-    team, user, annotations = await _resolve()
+    team, user, annotations, flag_changes = await _resolve()
     facts = {
         "findings": [
             {
@@ -302,6 +357,7 @@ async def synthesize_digest(
             for f in findings
         ],
         "annotations": annotations,
+        "feature_flag_changes": flag_changes,
     }
 
     llm = MaxChatOpenAI(
