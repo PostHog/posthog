@@ -199,10 +199,11 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
-    /** Where the tooltip anchors vertically. `follow-data` (default) tracks the highest data point
-     *  at the hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump
-     *  vertically as the cursor moves between data points. */
-    placement?: 'follow-data' | 'top'
+    /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
+     *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
+     *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
+     *  beside the cursor and the hovered bar (chart.js-style) rather than at a fixed anchor. */
+    placement?: 'follow-data' | 'top' | 'cursor'
 }
 
 /** Bar appearance + band-layout details. Grouped under {@link BarChartConfig.bars} to keep the
