@@ -8,7 +8,7 @@ This rewrite supersedes the earlier hybrid (`A/B/C/D`) proposal. There is **one*
 
 ## 1. The model
 
-A user message carries an optional list of typed attachments. The Django `POST /sandbox/` handler (`ee/hogai/sandbox/message_view.py` — see [`02_CORE.md`](./02_CORE.md) § 4) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the cloud-agent Task/Run. The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
+A user message carries an optional list of typed attachments. The Django `POST /sandbox/` handler (`products/posthog_ai/backend/message_routing.py` — see [`02_CORE.md`](./02_CORE.md) § 4) wraps the message with a `<posthog_context>` block — on both first messages and follow-ups — and forwards the wrapped text into the `products/tasks` Task/Run in-process (direct Python calls, no HTTP-to-self). The frontend never sees the wrapped form on its own outbound requests; it speaks `/conversations/*` as today and just adds an `attached_context` field to the request body.
 
 ```ts
 interface AttachedContext {
@@ -39,7 +39,7 @@ That's the whole contract. No JSON, no schema the agent has to parse — the wra
 
 | Old reason for pre-computation                                | Current state                                                                                                                                 |
 | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Some entity types had no read tool — agent couldn't fetch     | Every entity type listed above is covered by an MCP tool exposed by `posthog-data` / `posthog-notebook` (see `04_PROMPTS.md` § 5)             |
+| Some entity types had no read tool — agent couldn't fetch     | Every entity type listed above is covered by an inner tool of the single-exec `posthog` MCP server (see `04_PROMPTS.md` § 5)                  |
 | Token cost of an extra round-trip per dashboard mattered      | Tool-call round-trips are cheap relative to model latency; pre-loading every dashboard the user might mention is wasteful when most go unused |
 | The LangGraph node graph needed deterministic prompt assembly | The sandbox agent decides its own tool sequence — pre-fetching steals decisions from it                                                       |
 
@@ -142,7 +142,7 @@ The taxonomic-filter "add context" affordance also branches the same way. Same T
 
 By default the user sees only their typed text on each message bubble — the `<posthog_context>` block the agent actually receives is **not** rendered in the thread. For internal devs debugging "what did the agent see?", a feature-flag-gated `Show context sent to Max` toggle expands an inline preview that calls `GET /api/environments/{tid}/conversations/{id}/preview_wrap/?content=…&attached_context=…` and renders the returned string. The endpoint is a thin wrapper around `wrap_user_message` so the rendered template never duplicates into TypeScript — see § 4.3.
 
-The toggle is gated by a separate internal flag (e.g. `posthog-ai-sandbox-debug`) so external users never see the raw wrapper text. The preview endpoint is read-only and stateless.
+The toggle is gated by a separate internal flag (e.g. `phai-sandbox-debug`) so external users never see the raw wrapper text. The preview endpoint is read-only and stateless.
 
 ### 3.4 Lifecycle (sandbox runtime)
 
@@ -192,7 +192,7 @@ POST /api/environments/{teamId}/conversations/{conversationId}/sandbox/
 The shape is the same in both cases. The `POST /sandbox/` handler is responsible for:
 
 1. Deduping `attached_context` against entity refs already named in the conversation's persisted ACP log (see § 4.3). Dedupe affects only the rendered prompt block — the structured record stays verbatim.
-2. Wrapping `content` with the `<posthog_context>` block built from the deduped list before sending it on (to either `POST /tasks/{id}/run/` `pending_user_message` for the first turn, or `POST /command/` `user_message` for follow-ups).
+2. Wrapping `content` with the `<posthog_context>` block built from the deduped list before sending it on — in-process: the wrapped text becomes the run state's `pending_user_message` at `Task.create_and_run(...)` / `task.create_run(...)` time for the first turn (`products/tasks/backend/models.py:279`, `:230`), or the `wrapped_content` passed to `signal_task_followup_message(run.workflow_id, ...)` for an in-progress follow-up (`products/tasks/backend/temporal/client.py:314`).
 3. Including the **full, undeduped** structured `attached_context` under the outbound payload's `state.attached_context` (first turn) or `params._meta.attached_context` (follow-up) so the persisted ACP log keeps a complete record per message.
 
 `ui_context` (today's rich-payload field) is **dropped** from the request shape for `agent_runtime === 'sandbox'` conversations. The LangGraph path keeps reading it for `agent_runtime === 'langgraph'`. The frontend can keep sending both during the soak — the sandbox `POST /sandbox/` handler just ignores `ui_context`.
@@ -210,23 +210,23 @@ Two places — both downstream of the `POST /sandbox/` handler:
 
 In **both** locations the structured record is the **full, undeduped** list as the user sent it. Cross-message dedupe (§ 4.3) applies only to the rendered `<posthog_context>` text block — the structured record stays verbatim so the audit trail, debug views, and any future re-render path are not data-lossy.
 
-`state` is a free-form JSON bag in the existing Task/Run model (cloud-agent spec § 2.5). Adding a key is non-breaking.
+`state` is a free-form JSON bag in the existing `products/tasks` Task/Run model (the contract is documented in `CLOUD_IMPLEMENTATION.md` § 2.5; it is implemented in this monorepo at `products/tasks/backend/`). Adding a key is non-breaking.
 
 The `Conversation` row in PostHog's database does **not** need an `attached_context` column. The structured record lives on the Run side; the conversation row stays slim.
 
 ### 4.2 Where wrapping happens
 
-The Django `POST /sandbox/` handler (`ee/hogai/sandbox/message_view.py` — see [`02_CORE.md`](./02_CORE.md) § 4) calls the dedupe+wrap pair at two points:
+The Django `POST /sandbox/` handler (`products/posthog_ai/backend/message_routing.py` — see [`02_CORE.md`](./02_CORE.md) § 4) calls the dedupe+wrap pair at two points:
 
-- **First message** — when constructing the `POST /tasks/{id}/run/` body. The relay computes `pending_user_message = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))` (on a brand-new conversation the prior set is empty, so dedupe is a no-op) and sets `state.attached_context = attached_context` with the full list.
-- **Follow-up message** — when constructing the `POST /command/` body. The relay first walks prior `_posthog/user_message` entries on the conversation's persisted ACP log to collect already-named `(type, id)` pairs, then computes `params.content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=seen))` and sets `params._meta.attached_context = attached_context` with the full list.
+- **First message** — when constructing the run state for the in-process `Task.create_and_run(...)` / `task.create_run(...)` call (`products/tasks/backend/models.py:279`, `:230`). The handler computes `pending_user_message = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=[]))` (on a brand-new conversation the prior set is empty, so dedupe is a no-op) and sets `state.attached_context = attached_context` with the full list.
+- **Follow-up message** — when constructing the `signal_task_followup_message(run.workflow_id, wrapped_content, artifact_ids)` call for an in-progress run (`products/tasks/backend/temporal/client.py:314`). The handler first walks prior `_posthog/user_message` entries on the conversation's persisted ACP log to collect already-named `(type, id)` pairs, then computes `wrapped_content = wrap_user_message(content, prune_repeated_entity_refs(attached_context, prior=seen))` and records `_meta.attached_context = attached_context` with the full list on the logged message.
 
-There is no Temporal workflow involvement. The cloud-agent `POST /sandbox/` handler and the sandbox JWT scheme handle the rest of the lifecycle.
+The wrap+dedupe happens entirely in the Django handler (`products/posthog_ai`) **before** the in-process `products/tasks` call. The Temporal workflow and sandbox provisioning belong to `products/tasks` and are reused as-is — the PostHog AI handler does not own or duplicate them. The first-message wrapped content rides in the run state's `pending_user_message`; the in-progress follow-up rides through `signal_task_followup_message`; the terminal follow-up (resume) rides in `task.create_run(...)` `extra_state.pending_user_message` (`products/tasks/backend/models.py:230`).
 
 ### 4.3 The wrapping function
 
 ```python
-# ee/hogai/sandbox/context_wrapper.py
+# products/posthog_ai/backend/context_wrapper.py
 
 def wrap_user_message(content: str, attached_context: list[AttachedContext]) -> str:
     if not attached_context:
@@ -275,7 +275,7 @@ def prune_repeated_entity_refs(
 
 `_format_item` emits one line per attachment naming the entity type, ID, and (if present) human label. It does **not** name specific tool function signatures — naming is owned by `04_PROMPTS.md` § 5 — but the wrapper does name the tool _category_ ("Use the appropriate tools..."). Tool descriptions on the MCP side carry the function signatures the agent reads.
 
-Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the `POST /sandbox/` handler at both first-message Run-create and follow-up `POST /command/` time (§ 4.2).
+Both functions are pure, side-effect-free, snapshot-testable. `wrap_user_message` skips emitting the block entirely when its input is empty — so when dedupe removes everything, the user's message is forwarded without any wrapper noise. Called from the `POST /sandbox/` handler at both first-message run-create and follow-up `signal_task_followup_message` time (§ 4.2).
 
 **Template single-sourcing.** The `<posthog_context>` template lives only here, in Python. The frontend never builds it. If a future debug surface needs to show the wrapped form (§ 3.6), it calls a thin `GET /preview_wrap/` endpoint that delegates to `wrap_user_message` — no TypeScript mirror, no risk of the two copies drifting.
 
@@ -307,8 +307,8 @@ If a future iteration needs efficient querying by attached entity (e.g. "show al
 Ordered. Each step is a self-contained PR. **None of these steps modifies the existing `maxContextLogic.ts`, scene logics, or `MaxContextInput`/`MaxUIContext`/`createMaxContextHelpers` types** — that belongs in the deferred cleanup phase per [`BACKWARD_COMPAT.md`](./BACKWARD_COMPAT.md).
 
 1. **Types.** Add `AttachedContext` to `frontend/src/scenes/max/maxTypes.ts` (new export, no existing edits).
-2. **Backend wrapper + dedupe.** Add `ee/hogai/sandbox/context_wrapper.py` with both `wrap_user_message` and `prune_repeated_entity_refs`. Snapshot test for: empty, one-of-each-type, mixed-with-free-text, repeated-entity-ref dedupe, repeated-text not-deduped, length-capped, missing-name fallbacks. Pure functions — independent of relay plumbing.
-3. **`POST /sandbox/` handler integration.** The `POST /sandbox/` handler (`02_CORE.md` § 4) calls `prune_repeated_entity_refs` then `wrap_user_message` at Run-create and at every `POST /command/` — only on the sandbox branch. The full undeduped list goes to `state.attached_context` / `params._meta.attached_context`.
+2. **Backend wrapper + dedupe.** Add `products/posthog_ai/backend/context_wrapper.py` with both `wrap_user_message` and `prune_repeated_entity_refs`. Snapshot test for: empty, one-of-each-type, mixed-with-free-text, repeated-entity-ref dedupe, repeated-text not-deduped, length-capped, missing-name fallbacks. Pure functions — independent of the handler plumbing.
+3. **`POST /sandbox/` handler integration.** The `POST /sandbox/` handler (`products/posthog_ai/backend/message_routing.py`, `02_CORE.md` § 4) calls `prune_repeated_entity_refs` then `wrap_user_message` at run-create and at every in-process `signal_task_followup_message` — only on the sandbox branch. The full undeduped list goes to `state.attached_context` / the logged message's `_meta.attached_context`.
 4. **New sandbox context logic.** Add `frontend/src/scenes/max/posthogAiContextLogic.ts` (sibling to `maxContextLogic.ts`). Includes `projectToAttachedContext` helper and the single `attachments` reducer with dedup-on-`attach`. Mounted by `maxThreadLogic` only when `conversation.agent_runtime === 'sandbox'`.
 5. **`Context.tsx` runtime branch.** Add a runtime-aware render branch — LangGraph path uses today's chips; sandbox path uses the new logic. Existing LangGraph branch is verbatim.
 6. **Wire send-message.** `maxThreadLogic.sendMessage` already builds the request body. Add an `if conversation.agent_runtime === 'sandbox'` branch that reads from `posthogAiContextLogic.values.attachments` and sets `attached_context` instead of `ui_context`. Send does not clear attachments. LangGraph branch unchanged.
@@ -318,11 +318,11 @@ Ordered. Each step is a self-contained PR. **None of these steps modifies the ex
 
 ## 6. Cross-spec dependencies
 
-| Spec            | Dependency                                                                                                                                                                                                                                                                                                                                                                      |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `02_CORE.md`    | `POST /conversations/{id}/sandbox/` request body carries `attached_context` field for both first and follow-up messages. The handler calls `prune_repeated_entity_refs` then `wrap_user_message` before dispatching to the cloud-agent. The endpoint is non-streaming — frontend opens SSE directly against `/api/projects/{tid}/tasks/.../stream/` after the response returns. |
-| `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`).                                                                                                      |
-| `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory).                                        |
+| Spec            | Dependency                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `02_CORE.md`    | `POST /conversations/{id}/sandbox/` request body carries `attached_context` field for both first and follow-up messages. The handler calls `prune_repeated_entity_refs` then `wrap_user_message` before the in-process `products/tasks` call (`Task.create_and_run` / `signal_task_followup_message` / `task.create_run`). The endpoint is non-streaming — frontend opens SSE directly against the existing `products/tasks` endpoint `/api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/` (`products/tasks/backend/api.py:2659`) after the response returns. |
+| `03_RICH_UI.md` | Scene–agent interaction is one-directional: scenes contribute attachments via the existing `maxContext` selector and can subscribe to thread state read-only (`useValues(maxThreadLogic)`). No agent-side callbacks; `useMaxTool` / `MaxTool` are deleted (owned by `03`).                                                                                                                                                                                                                                                                                         |
+| `04_PROMPTS.md` | (a) Don't inject groups, billing, or core memory into `systemPrompt` — MCP tools handle it. (b) Tool naming used in `<posthog_context>` wrappers comes from § 5 of that spec — keep the wrapper template generic ("the appropriate tools") so renames don't break this. (c) Drop `ManageMemoriesTool` from the catalog (no core memory).                                                                                                                                                                                                                           |
 
 ---
 
