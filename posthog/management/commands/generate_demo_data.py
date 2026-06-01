@@ -22,12 +22,17 @@ from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_project
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
+
+# Deterministic project token for the locally seeded demo team, so SDKs/tools can target it without
+# looking up the random token. Only used for the freshly created demo account (not existing projects).
+DEMO_PROJECT_API_TOKEN = "phc_localposthogprojecttoken"
 
 
 class Command(BaseCommand):
@@ -170,6 +175,11 @@ class Command(BaseCommand):
                             raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
+                    # Hand the deterministic token to the new demo team. It's unique, so release it from
+                    # any team that claimed it on a previous run first.
+                    Team.objects.filter(api_token=DEMO_PROJECT_API_TOKEN).update(
+                        api_token=generate_random_token_project()
+                    )
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -177,6 +187,7 @@ class Command(BaseCommand):
                         is_staff=bool(options.get("staff")),
                         password=password,
                         email_collision_handling="disambiguate",
+                        api_token=DEMO_PROJECT_API_TOKEN,
                     )
 
                     # Optionally generate demo issues for issue tracker if extension is available
@@ -233,6 +244,7 @@ class Command(BaseCommand):
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
+                    f"The project API token is:\n{DEMO_PROJECT_API_TOKEN}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
                     f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )

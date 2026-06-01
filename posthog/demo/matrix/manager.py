@@ -55,6 +55,7 @@ class MatrixManager:
         password: str | None = None,
         is_staff: bool = False,
         email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
+        api_token: str | None = None,
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: User | None = User.objects.filter(email=email).first()
@@ -90,7 +91,7 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
-                team = self.create_team(organization)
+                team = self.create_team(organization, **({"api_token": api_token} if api_token else {}))
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
