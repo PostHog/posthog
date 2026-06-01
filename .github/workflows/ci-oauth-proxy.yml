@@ -76,7 +76,7 @@ jobs:
         name: OAuth Proxy Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check all oauth-proxy jobs
               run: |

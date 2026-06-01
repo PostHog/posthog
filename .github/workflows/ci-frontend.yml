@@ -456,7 +456,7 @@ jobs:
         name: Frontend Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - run: exit 0
             - name: Check outcomes

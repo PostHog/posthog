@@ -636,7 +636,7 @@ jobs:
         name: MCP Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check all MCP jobs
               run: |

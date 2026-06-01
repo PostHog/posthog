@@ -416,7 +416,7 @@ jobs:
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         permissions: {}
         steps:
             - name: Check all Rust jobs

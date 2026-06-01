@@ -230,7 +230,7 @@ jobs:
         name: Python code quality checks
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check Python CI status
               run: |
