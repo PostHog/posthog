@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 import json
+import asyncio
 import logging
 from enum import Enum
 from typing import TYPE_CHECKING
