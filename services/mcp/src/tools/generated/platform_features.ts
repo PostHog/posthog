@@ -278,8 +278,10 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/`,
             query: {
+                completed: params.completed,
                 cursor: params.cursor,
                 item_id: params.item_id,
+                kind: params.kind,
                 scope: params.scope,
                 search: params.search,
                 source_comment: params.source_comment,
@@ -303,6 +305,7 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
+                search: params.search,
             },
         })
         return result

@@ -42,7 +42,6 @@ from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEval
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
@@ -580,13 +579,11 @@ def _get_flags_response_for_local_evaluation_batch(
 
     # Bulk load group type mappings for all projects
     gtm_by_project: dict[int, dict[str, str]] = defaultdict(dict)
-    # nosemgrep: no-direct-persons-db-orm
-    for row in GroupTypeMapping.objects.db_manager(
-        READ_ONLY_DATABASE_FOR_PERSONS
-    ).filter(  # nosemgrep: no-direct-persons-db-orm
-        project_id__in=project_ids
-    ):  # nosemgrep: no-direct-persons-db-orm
-        gtm_by_project[row.project_id][str(row.group_type_index)] = row.group_type
+    from posthog.models.group_type_mapping import get_group_types_for_projects
+
+    for pid, mappings in get_group_types_for_projects(list(project_ids)).items():
+        for m in mappings:
+            gtm_by_project[pid][str(m["group_type_index"])] = m["group_type"]
 
     results: dict[int, dict[str, Any]] = {}
 

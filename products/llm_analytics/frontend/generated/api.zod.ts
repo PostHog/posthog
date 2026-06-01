@@ -1079,7 +1079,7 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .min(1)
         .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs or generation IDs to classify, depending on analysis_level.'),
+        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
     analysis_level: zod
         .enum(['trace', 'generation'])
         .describe('* `trace` - trace\n* `generation` - generation')
@@ -1097,6 +1097,23 @@ export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
         .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
     date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
 })
+
+/**
+ * Fetch the recent $ai_generation events for the sentiment tab.
+
+Backed by `_SENTIMENT_GENERATIONS_SQL` reading `posthog.ai_events` through
+`execute_with_ai_events_fallback`, so heavy `input` values survive the
+post-cutover strip on `events.properties.$ai_input`. Frontend callers
+pass the same `HogQLFilters` payload they previously passed to
+`api.query({kind: HogQLQuery, filters: ...})`.
+ */
+export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        filters: zod.unknown().optional(),
+    })
+    .describe(
+        'Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.\n\n`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL\npath used (dateRange, filterTestAccounts, properties), so the migration is\nbehaviour-preserving for callers that pass a request unchanged.'
+    )
 
 /**
  * 

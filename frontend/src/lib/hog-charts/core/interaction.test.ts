@@ -1,4 +1,4 @@
-import { dimensions, makeSeries } from '../test-helpers'
+import { dimensions, makeSeries } from '../testing'
 import { buildPointClickData, buildTooltipContext, findNearestIndex, isInPlotArea } from './interaction'
 import type { ResolveValueFn } from './types'
 
@@ -248,6 +248,26 @@ describe('hog-charts interaction', () => {
                 yAxes
             )
             expect(result?.position.y).toBe(42)
+        })
+
+        it('swaps and picks the rightmost (max) value pixel when interactionAxis is "y"', () => {
+            const s1 = makeSeries({ key: 's1', data: [10] })
+            const s2 = makeSeries({ key: 's2', data: [50] })
+            const xFixed = (): number => 150
+            const xPxScale = (v: number): number => (v === 10 ? 200 : 400)
+            const result = buildTooltipContext(
+                0,
+                [s1, s2],
+                ['a'],
+                xFixed,
+                xPxScale,
+                fakeCanvasBounds,
+                defaultResolveValue,
+                undefined,
+                'y'
+            )
+            expect(result?.position.x).toBe(400)
+            expect(result?.position.y).toBe(150)
         })
     })
 

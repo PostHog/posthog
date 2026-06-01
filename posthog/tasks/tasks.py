@@ -61,6 +61,55 @@ def delete_expired_exported_assets() -> None:
     ExportedAsset.delete_expired_assets()
 
 
+@shared_task(ignore_result=True, soft_time_limit=300, time_limit=360)
+def delete_expired_delegation_invites() -> None:
+    """Delete delegation invites that have passed their expiry.
+
+    The `pre_delete` receiver on OrganizationInvite handles un-suppressing onboarding
+    for the delegator, so this runs the existing cancellation path without bespoke
+    state-clearing logic here. Without this periodic sweep, natural expiry leaves
+    delegators stranded on the "waiting for teammate" screen indefinitely.
+
+    The sweep is bounded to a single batch per run; if more invites remain, the next
+    scheduled run picks them up. Materializing ids first (rather than iterating a
+    QuerySet while deleting from the same table) avoids server-side cursor invalidation
+    on Postgres.
+    """
+    from posthog.constants import INVITE_DAYS_VALIDITY
+    from posthog.models import OrganizationInvite
+
+    BATCH_SIZE = 500
+
+    cutoff = timezone.now() - datetime.timedelta(days=INVITE_DAYS_VALIDITY)
+    expired_ids = list(
+        OrganizationInvite.objects.filter(is_setup_delegation=True, created_at__lt=cutoff)
+        .order_by("created_at")
+        .values_list("id", flat=True)[:BATCH_SIZE]
+    )
+    swept = 0
+    errors = 0
+    # Per-row instance .delete() preserves ModelActivityMixin's "deleted" activity-log
+    # signal, which bulk QuerySet .delete() bypasses. Wrap each delete so one concurrent
+    # acceptance race (use() deleting the row first) can't break the entire sweep.
+    for invite_id in expired_ids:
+        invite = OrganizationInvite.objects.filter(pk=invite_id).first()
+        if invite is None:
+            continue
+        try:
+            invite.delete()
+            swept += 1
+        except Exception as exc:  # noqa: BLE001 - one invite must not block the sweep
+            errors += 1
+            capture_exception(exc)
+    logger.info(
+        "delete_expired_delegation_invites.sweep_done",
+        candidates=len(expired_ids),
+        swept=swept,
+        errors=errors,
+        batch_size=BATCH_SIZE,
+    )
+
+
 @shared_task(ignore_result=True)
 def clear_expired_sessions() -> None:
     from django.contrib.sessions.models import Session

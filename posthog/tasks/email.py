@@ -38,6 +38,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.user_permissions import UserPermissions
@@ -219,12 +220,14 @@ def should_send_pipeline_error_notification(
 @shared_task(**EMAIL_TASK_KWARGS)
 def send_invite(invite_id: str) -> None:
     campaign_key: str = f"invite_email_{invite_id}"
-    invite: OrganizationInvite = OrganizationInvite.objects.select_related("created_by", "organization").get(
-        id=invite_id
-    )
-    inviter_name = invite.created_by.first_name if invite.created_by else "someone"
+    invite = OrganizationInvite.objects.select_related("created_by", "organization").filter(id=invite_id).first()
+    if invite is None:
+        # Invite can be deleted (cancelled/accepted) before the worker picks up the task.
+        # Treat as terminal no-op instead of retrying.
+        return
+    inviter_name_for_validation = invite.created_by.first_name if invite.created_by else "someone"
     try:
-        validate_display_name(inviter_name)
+        validate_display_name(inviter_name_for_validation)
         validate_display_name(invite.organization.name)
         validate_display_name(invite.first_name)
         validate_message_body(invite.message)
@@ -248,18 +251,31 @@ def send_invite(invite_id: str) -> None:
             },
         )
         return
+    # Guard against whitespace-only first_name (.strip() returning "" leaves the subject blank).
+    inviter_name = (
+        invite.created_by.first_name.strip()
+        if invite.created_by and invite.created_by.first_name and invite.created_by.first_name.strip()
+        else "Someone"
+    )
+    is_delegation = bool(invite.is_setup_delegation)
+    template_name = "delegation_invite" if is_delegation else "invite"
+    if is_delegation:
+        subject = f"{inviter_name} asked you to finish setting up PostHog for {invite.organization.name}"
+    else:
+        subject = f"{inviter_name} invited you to join {invite.organization.name} on PostHog"
     message = EmailMessage(
         use_http=True,
         campaign_key=campaign_key,
-        subject=f"{inviter_name} invited you to join {invite.organization.name} on PostHog",
-        template_name="invite",
+        subject=subject,
+        template_name=template_name,
         template_context={
             "invite": invite,
             "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": inviter_name,
-            "organization_name": invite.organization.name,
+            "inviter_email": invite.created_by.email if invite.created_by and invite.created_by.email else "",
+            "org_name": invite.organization.name,
             "url": f"{settings.SITE_URL}/signup/{invite_id}",
         },
         reply_to=invite.created_by.email if invite.created_by and invite.created_by.email else "",
@@ -268,7 +284,50 @@ def send_invite(invite_id: str) -> None:
     if invite.target_email is None:
         return
     message.add_recipient(email=invite.target_email, distinct_id=f"invite_{invite_id}")
-    message.send()
+    # For delegation invites the resubmit path retries email dispatch when
+    # emailing_attempt_made is False, so we need that flag to track *actual* delivery,
+    # not just task enqueue. _send_via_smtp / _send_via_http catch and swallow exceptions
+    # — the only reliable signal of successful delivery is MessagingRecord.sent_at being
+    # set after `_send_email` runs. Send synchronously and check the record before
+    # stamping the flag; if delivery silently failed, leave the flag False so a resubmit
+    # retries dispatch.
+    if is_delegation:
+        # Snapshot delivery state *before* we send, so we can tell whether THIS invocation
+        # actually delivered something or whether it short-circuited at the MessagingRecord
+        # idempotency guard (a previous attempt had already set `sent_at`). Without this
+        # snapshot, "delivered=True" after `send()` reads identically in both cases — which
+        # can mislead an operator looking at the success log.
+        # MessagingRecord stores SHA-256(SECRET_KEY + email) in `email_hash`. The custom
+        # manager remaps a `raw_email=` kwarg to `email_hash=` magically, but django-stubs
+        # can't follow that override and mypy then can't resolve `raw_email` against the
+        # model's actual fields. Compute the hash directly to keep mypy happy.
+        target_email_hash = get_email_hash(invite.target_email)
+        already_delivered = MessagingRecord.objects.filter(
+            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+        ).exists()
+        message.send(send_async=False)
+        delivered = MessagingRecord.objects.filter(
+            campaign_key=campaign_key, email_hash=target_email_hash, sent_at__isnull=False
+        ).exists()
+        if delivered:
+            OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+            if already_delivered:
+                logger.info(
+                    "send_invite.delivery_already_recorded",
+                    invite_id=invite_id,
+                    organization_id=str(invite.organization_id),
+                    campaign_key=campaign_key,
+                )
+        else:
+            logger.warning(
+                "send_invite.delivery_unconfirmed",
+                invite_id=invite_id,
+                organization_id=str(invite.organization_id),
+                campaign_key=campaign_key,
+            )
+    else:
+        message.send()
+        OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

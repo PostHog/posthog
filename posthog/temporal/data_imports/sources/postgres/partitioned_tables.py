@@ -550,6 +550,8 @@ def iterate_partitions(
     # If range-partitioned on the incremental field, skip children whose upper
     # bound is at or below cursor to avoid reading already-synced data.
     skippable_upper: Any = db_incremental_field_last_value
+    if incremental_field_type is not None and skippable_upper is not None:
+        skippable_upper = _ensure_aware(skippable_upper, incremental_field_type)
     partition_bounds: dict[str, tuple[Any, Any] | None] = {}
     if incremental_field_type is not None and skippable_upper is not None:
         for child in child_partitions:

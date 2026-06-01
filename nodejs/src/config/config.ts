@@ -1,6 +1,5 @@
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
-    getDefaultKafkaMskProducerEnvConfig,
     getDefaultKafkaWarehouseProducerEnvConfig,
     getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig,
     getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
@@ -34,7 +33,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
-        ...getDefaultKafkaMskProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),

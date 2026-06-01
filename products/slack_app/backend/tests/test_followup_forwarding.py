@@ -9,8 +9,10 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 from posthog.temporal.ai.posthog_code_slack_mention import (
     PostHogCodeSlackMentionWorkflowInputs,
+    create_posthog_code_task_for_repo_activity,
     forward_posthog_code_followup_activity,
 )
 
@@ -129,6 +131,163 @@ class TestSlackThreadTaskMapping(TestCase):
             )
 
 
+class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
+    def setUp(self):
+        self.Task = apps.get_model("tasks", "Task")
+        self.TaskRun = apps.get_model("tasks", "TaskRun")
+        self.org = Organization.objects.create(name="TestOrg")
+        self.team = Team.objects.create(organization=self.org, name="TestTeam")
+        self.user = User.objects.create(email="alice@test.com", distinct_id="user-1")
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_no_repo_task_starts_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "run without repo"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.latest_run.state["interaction_origin"] == "slack"
+        assert task.latest_run.state["pr_authorship_mode"] == "bot"
+
+        mock_execute_workflow.assert_called_once()
+        call_kwargs = mock_execute_workflow.call_args.kwargs
+        assert call_kwargs["task_id"] == str(task.id)
+        assert call_kwargs["run_id"] == str(task.latest_run.id)
+        assert call_kwargs["create_pr"] is True
+        assert call_kwargs["posthog_mcp_scopes"] == "full"
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        assert mapping.task_id == task.id
+        assert mapping.task_run_id == task.latest_run.id
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_no_repo_task_falls_back_to_team_github_integration(self, mock_slack_cls, mock_execute_workflow):
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.github_integration is not None
+        assert task.github_user_integration is None
+        assert task.latest_run.state["pr_authorship_mode"] == "bot"
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_no_repo_task_falls_back_to_team_github_integration_when_user_token_unusable(
+        self, mock_slack_cls, mock_execute_workflow
+    ):
+        Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.github_integration is not None
+        assert task.github_user_integration is None
+        assert task.latest_run.state["pr_authorship_mode"] == "bot"
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_no_repo_task_prefers_user_github_integration(self, mock_slack_cls, mock_execute_workflow):
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"user_access_token": "gho_user", "user_refresh_token": "ghr_user"},
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        inputs = _make_inputs(self.integration.id)
+        create_posthog_code_task_for_repo_activity(
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [{"user": "U_ALICE", "text": "clone a repo later"}],
+            None,
+        )
+
+        task = self.Task.objects.get(team=self.team)
+        assert task.repository is None
+        assert task.github_user_integration is not None
+        assert task.latest_run.state["pr_authorship_mode"] == "user"
+        mock_execute_workflow.assert_called_once()
+
+
 class TestForwardPostHogCodeFollowupActivity(TestCase):
     def setUp(self):
         self.Task = apps.get_model("tasks", "Task")
@@ -213,6 +372,25 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="eyes"
         )
         mock_slack_instance.client.chat_postMessage.assert_not_called()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_no_repo_run_resumes_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
+        self.task.repository = None
+        self.task.save()
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> clone org/repo and open PR", "1234.5679"
+        )
+
+        assert result is True
+        mock_execute_workflow.assert_called_once()
+        assert mock_execute_workflow.call_args.kwargs["create_pr"] is True
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

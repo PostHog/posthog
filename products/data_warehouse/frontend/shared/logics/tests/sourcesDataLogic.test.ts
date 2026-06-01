@@ -57,6 +57,7 @@ describe('sourcesDataLogic', () => {
                     schemas: [],
                     prefix: 'test',
                     description: null,
+                    created_via: 'web',
                     latest_error: null,
                     revenue_analytics_config: {
                         enabled: false,

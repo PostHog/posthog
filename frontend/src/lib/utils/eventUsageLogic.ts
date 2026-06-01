@@ -322,8 +322,6 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
     return objectClean(payload)
 }
 
-const reportedMissingTaxonomyEntries = new Set<string>()
-
 export const eventUsageLogic = kea<eventUsageLogicType>([
     path(['lib', 'utils', 'eventUsageLogic']),
     connect(() => ({
@@ -453,6 +451,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             layoutZoom: number,
             source: 'button' | 'shortcut'
         ) => ({ dashboard, layoutZoom, source }),
+        reportDashboardEditModeDiscardPrompt: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            action: 'shown' | 'discarded' | 'kept_editing'
+        ) => ({ dashboard, action }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -772,9 +774,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             eventName,
         }),
         reportTaxonomicFilterAddFilterClicked: (eventName?: string) => ({ eventName }),
-        reportMissingTaxonomyEntries: (entries: { name: string; groupType: TaxonomicFilterGroupType }[]) => ({
-            entries,
-        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType, mediaPreviewCount?: number) => ({
             type,
@@ -1304,6 +1303,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
+            posthog.capture('dashboard edit mode discard prompt', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                action,
+            })
+        },
         reportDashboardRefreshed: async ({
             dashboardId,
             dashboard,
@@ -1787,20 +1793,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportTaxonomicFilterAddFilterClicked: ({ eventName }) => {
             posthog.capture('taxonomic filter add filter clicked', { eventName })
-        },
-        reportMissingTaxonomyEntries: ({ entries }) => {
-            for (const { name, groupType } of entries) {
-                const key = `${groupType}::${name}`
-                if (reportedMissingTaxonomyEntries.has(key)) {
-                    continue
-                }
-                reportedMissingTaxonomyEntries.add(key)
-                posthog.capture('taxonomy entry missing', {
-                    name,
-                    group_type: groupType,
-                    source: 'taxonomic_filter',
-                })
-            }
         },
         reportDataManagementDefinitionHovered: ({ type, mediaPreviewCount }) => {
             posthog.capture('definition hovered', { type, media_preview_count: mediaPreviewCount ?? 0 })

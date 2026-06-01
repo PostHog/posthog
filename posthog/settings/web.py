@@ -71,6 +71,7 @@ PRODUCTS_APPS = [
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
     "products.query_performance_ai.backend.apps.QueryPerformanceAiConfig",
     "products.access_control.backend.apps.AccessControlConfig",
+    "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
 ]
 
 INSTALLED_APPS = [
@@ -416,6 +417,8 @@ SPECTACULAR_SETTINGS = {
         "LLMProviderEnum": "products.llm_analytics.backend.models.provider_keys.LLMProvider",
         "HogFlowStatusEnum": "posthog.models.hog_flow.hog_flow.HogFlow.State",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
+        "TaskRunStatusEnum": "products.tasks.backend.models.TaskRun.Status",
+        "TaskRunEnvironmentEnum": "products.tasks.backend.models.TaskRun.Environment",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
         "PropertyFilterTypeEnum": [
@@ -727,6 +730,7 @@ TOOLBAR_OAUTH_SCOPES = [
     "element:read",
     "uploaded_media:write",
     "survey:read",
+    "survey:write",
 ]
 
 ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000, type_cast=int)

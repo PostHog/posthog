@@ -350,3 +350,5 @@ always_required:
     - feature-flags
     - hypercache-server
     - property-defs-rs
+    - personhog-replica
+    - personhog-router

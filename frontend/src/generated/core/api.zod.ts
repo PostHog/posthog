@@ -149,6 +149,32 @@ export const InvitesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create an onboarding delegation invite: an admin-level invite flagged as a setup delegation.
+Sends a single dedicated delegation email and records the inviting user as having delegated.
+ */
+export const invitesDelegateCreateBodyMessageMax = 1000
+
+export const invitesDelegateCreateBodyStepAtDelegationMax = 64
+
+export const InvitesDelegateCreateBody = /* @__PURE__ */ zod.object({
+    target_email: zod
+        .email()
+        .describe(
+            "Email of the teammate who should complete setup on the inviter's behalf. Receives a PostHog-branded delegation invite granting admin-level membership on accept."
+        ),
+    message: zod
+        .string()
+        .max(invitesDelegateCreateBodyMessageMax)
+        .optional()
+        .describe('Optional personal message included in the delegation email (up to 1000 characters).'),
+    step_at_delegation: zod
+        .string()
+        .max(invitesDelegateCreateBodyStepAtDelegationMax)
+        .optional()
+        .describe('Onboarding step key the delegator was on when delegating, for analytics only.'),
+})
+
+/**
  * Projects for the current organization.
  */
 export const organizationsProjectsCreateBodyNameMax = 200
@@ -3036,6 +3062,35 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
 })
+
+/**
+ * Mark the current user as having exited onboarding with a non-delegated reason.
+Idempotent: the skip timestamp is only set on the first successful call.
+
+Callers wanting to delegate setup to a teammate must use the dedicated
+/organizations/{id}/invites/delegate/ endpoint, which atomically creates the
+invite and sets reason="delegated". This endpoint rejects that reason so state
+can't be faked without a real invite.
+ */
+export const usersOnboardingSkipCreateBodyStepAtSkipMax = 64
+
+export const UsersOnboardingSkipCreateBody = /* @__PURE__ */ zod
+    .object({
+        reason: zod
+            .enum(['later', 'other'])
+            .describe('* `later` - Later\n* `other` - Other')
+            .describe(
+                "Why the user is leaving onboarding. 'later' keeps them able to return; 'other' is a catch-all. 'delegated' is rejected here — use the delegate endpoint so the delegation invite is created atomically.\n\n* `later` - Later\n* `other` - Other"
+            ),
+        step_at_skip: zod
+            .string()
+            .max(usersOnboardingSkipCreateBodyStepAtSkipMax)
+            .optional()
+            .describe('Onboarding step key the user was on when skipping, for analytics only.'),
+    })
+    .describe(
+        'Request body for POST /api/users/{id}/onboarding/skip/.\n\nSource of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at\nruntime so the contract clients believe is enforced (length cap, choice validation,\nno extra fields) is actually enforced server-side.'
+    )
 
 export const usersScenePersonalisationCreateBodyFirstNameMax = 150
 

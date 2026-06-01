@@ -3,10 +3,38 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * Generate AI individual summary for each session, without grouping.
+ */
+export const CreateSessionSummariesIndividuallyParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const createSessionSummariesIndividuallyBodySessionIdsMax = 300
+
+export const createSessionSummariesIndividuallyBodyFocusAreaMax = 500
+
+export const CreateSessionSummariesIndividuallyBody = /* @__PURE__ */ zod.object({
+    session_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(createSessionSummariesIndividuallyBodySessionIdsMax)
+        .describe('List of session IDs to summarize (max 300)'),
+    focus_area: zod
+        .string()
+        .max(createSessionSummariesIndividuallyBodyFocusAreaMax)
+        .optional()
+        .describe('Optional focus area for the summarization'),
+})
 
 /**
  * Override list to include synthetic playlists

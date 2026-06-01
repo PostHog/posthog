@@ -1,9 +1,14 @@
+import { trace } from '@opentelemetry/api'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
 
 import { type SamplingRuleRow, compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'
 
 const REFRESH_MS = 30_000
+
+const samplingCacheInstrumentOpts = { measureTime: false, sendException: false } as const
 
 type CacheEntry = {
     compiled: CompiledRuleSet
@@ -17,16 +22,36 @@ export class SamplingRulesCache {
     constructor(private postgres: PostgresRouter) {}
 
     public async getCompiledRuleSet(teamId: number): Promise<CompiledRuleSet> {
-        const now = Date.now()
-        const existing = this.cache.get(teamId)
-        if (existing && now - existing.fetchedAtMs < REFRESH_MS) {
-            return existing.compiled
-        }
-        const rows = await this.fetchRules(teamId)
-        const compiled = compileRuleSet(rows)
-        const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
-        this.cache.set(teamId, { compiled, versionWatermark: vw, fetchedAtMs: now })
-        return compiled
+        return instrumentFn(
+            {
+                key: 'logsIngestion.sampling.getCompiledRuleSet',
+                ...samplingCacheInstrumentOpts,
+                getLoggingContext: () => ({ team_id: teamId }),
+            },
+            async () => {
+                const now = Date.now()
+                const existing = this.cache.get(teamId)
+                if (existing && now - existing.fetchedAtMs < REFRESH_MS) {
+                    trace.getActiveSpan()?.setAttributes({
+                        'logs.sampling.cache_hit': true,
+                        'logs.sampling.rule_count': existing.compiled.rules.length,
+                        'logs.sampling.version_watermark': existing.versionWatermark,
+                    })
+                    return existing.compiled
+                }
+                const rows = await this.fetchRules(teamId)
+                const compiled = compileRuleSet(rows)
+                const vw = rows.reduce((m, r) => Math.max(m, r.version ?? 0), 0)
+                this.cache.set(teamId, { compiled, versionWatermark: vw, fetchedAtMs: now })
+                trace.getActiveSpan()?.setAttributes({
+                    'logs.sampling.cache_hit': false,
+                    'logs.sampling.db_row_count': rows.length,
+                    'logs.sampling.rule_count': compiled.rules.length,
+                    'logs.sampling.version_watermark': vw,
+                })
+                return compiled
+            }
+        )
     }
 
     private async fetchRules(teamId: number): Promise<SamplingRuleRow[]> {

@@ -24,7 +24,7 @@ export interface BlockedRunsLogicProps {
     id: string
 }
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 1000
 
 const DEFAULT_BLOCKED_RUNS_STATE: BlockedRunsState = {
     results: [],

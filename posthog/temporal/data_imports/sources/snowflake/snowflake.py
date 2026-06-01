@@ -161,7 +161,7 @@ def _build_query(
     if db_incremental_field_last_value is None:
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
-    return "SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) >= %s ORDER BY IDENTIFIER(%s) ASC", (
+    return "SELECT * FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) > %s ORDER BY IDENTIFIER(%s) ASC", (
         f"{database}.{schema}.{table_name}",
         incremental_field,
         db_incremental_field_last_value,

@@ -337,31 +337,32 @@ func TestReadLoop_batchesOutput(t *testing.T) {
 	}
 }
 
+// runReadLoop drives readLoop against an in-memory reader and waits for it to
+// return. Bypassing the PTY avoids a known Linux kernel race (commit
+// 1a48632ffed6) where data written and immediately followed by close() on the
+// child's PTY end can be dropped before the parent's read is scheduled.
+func runReadLoop(t *testing.T, p *Process, input string) {
+	t.Helper()
+	outChannel := make(chan tea.Msg, 64)
+	done := make(chan struct{})
+	go func() {
+		p.readLoop(strings.NewReader(input), outChannel)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("readLoop did not return")
+	}
+}
+
 func TestHasPrompt_partialLine(t *testing.T) {
-	// printf writes a partial line (no trailing \n), which readLoop should
-	// detect and set HasPrompt = true.
-	p := NewProcess("prompt-test", config.ProcConfig{
-		Shell: `printf "Enter name: "`,
-	}, 100, "")
+	p := NewProcess("prompt-test", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "Enter name: ")
 
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	if !p.HasPrompt() {
+		t.Error("HasPrompt should be true for a partial line")
 	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for HasPrompt")
-		default:
-		}
-		if p.HasPrompt() {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-
 	lines := p.Lines()
 	if len(lines) == 0 {
 		t.Fatal("expected at least one buffered line")
@@ -372,30 +373,8 @@ func TestHasPrompt_partialLine(t *testing.T) {
 }
 
 func TestHasPrompt_completeLine(t *testing.T) {
-	// echo writes a complete line (with trailing \n), so HasPrompt should
-	// be false once the process finishes.
-	p := NewProcess("no-prompt", config.ProcConfig{
-		Shell: `echo "hello"`,
-	}, 100, "")
-
-	send, _, _ := collectMsgs()
-	if err := p.Start(send); err != nil {
-		t.Skipf("skipping: cannot spawn subprocess: %v", err)
-	}
-
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case <-deadline:
-			t.Fatal("timed out waiting for process to finish")
-		default:
-		}
-		st := p.Status()
-		if st == StatusDone || st == StatusCrashed {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	p := NewProcess("no-prompt", config.ProcConfig{}, 100, "")
+	runReadLoop(t, p, "hello\n")
 
 	if p.HasPrompt() {
 		t.Error("HasPrompt should be false after a complete line")

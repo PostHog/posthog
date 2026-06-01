@@ -23,10 +23,6 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
-        "search": {
-            "description": "A search term.",
-            "type": "string"
-        },
         "type": {
             "description": "Multiple values may be separated by commas.",
             "items": {

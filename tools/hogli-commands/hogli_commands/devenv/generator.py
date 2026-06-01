@@ -232,10 +232,12 @@ printf '{gray}  ─────────────────────�
 echo ''
 if [ -f {news_path} ]; then
     printf '  {orange}{bold}News:{reset}\\n'
-    while IFS= read -r line || [ -n "$line" ]; do
-        [ -z "$line" ] && continue
-        printf '    {gray}·{reset} %s\\n' "$line"
-    done < {news_path}
+    git blame --date=short {news_path} 2>/dev/null | \\
+      awk '{{match($0,/[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}/); d=substr($0,RSTART,RLENGTH); sub(/.*\\) /,""); if($0!="") print d"|"$0}}' | \\
+      sort -r | \\
+      while IFS='|' read -r date content; do
+        printf '    {gray}%s{reset}  %s\\n' "$date" "$content"
+      done
     echo ''
 fi
 printf '  {bold}Commands:{reset}\\n'

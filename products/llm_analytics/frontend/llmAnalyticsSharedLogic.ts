@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -251,7 +251,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values, cache }) => {
         const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
 
         function applySearchParams(
@@ -299,24 +299,44 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             }
         }
 
-        return {
-            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
-                applySearchParams(searchParams)
+        function clearDashboardTimer(): void {
+            clearTimeout(cache.dashboardDwellTimer)
+            cache.dashboardDwellTimer = undefined
+        }
+
+        function startDashboardTimer(): void {
+            clearDashboardTimer()
+            cache.dashboardDwellTimer = setTimeout(() => {
                 actions.addProductIntent({
                     product_type: ProductKey.LLM_ANALYTICS,
                     intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
                 })
+            }, 15000)
+        }
+
+        function applyNonDashboard(
+            searchParams: Record<string, unknown>,
+            options?: { stripStaleParams?: boolean }
+        ): void {
+            clearDashboardTimer()
+            applySearchParams(searchParams, options)
+        }
+
+        return {
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                startDashboardTimer()
             },
-            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.llmAnalyticsReviews()]: (_, searchParams) =>
-                applySearchParams(searchParams, { stripStaleParams: false }),
-            [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsTools()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSentiment()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
+                applyNonDashboard(searchParams, { stripStaleParams: false }),
+            [urls.llmAnalyticsTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsErrors()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsTools()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsSentiment()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsSessions()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.llmAnalyticsPlayground()]: (_, searchParams) => applyNonDashboard(searchParams),
         }
     }),
 
@@ -367,17 +387,13 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
         actions.loadAIEventDefinition()
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
-        // Track product intent when dashboard is viewed
-        if (values.activeTab === 'dashboard') {
-            actions.addProductIntent({
-                product_type: ProductKey.LLM_ANALYTICS,
-                intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
-            })
-        }
-
         const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams
         if (!urlHasTestAccountsParam && values.filterTestAccountsDefault !== values.shouldFilterTestAccounts) {
             actions.setShouldFilterTestAccounts(values.filterTestAccountsDefault)
         }
+    }),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.dashboardDwellTimer)
     }),
 ])

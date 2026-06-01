@@ -41,6 +41,7 @@ export const NullEnumApi = {} as const
  * `Workflows` - Workflows
  * `HTTP` - Http
  * `NoOp` - Noop
+ * `FileDownload` - File Download
  */
 export type BatchExportDestinationTypeEnumApi =
     (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
@@ -56,6 +57,7 @@ export const BatchExportDestinationTypeEnumApi = {
     Workflows: 'Workflows',
     Http: 'HTTP',
     NoOp: 'NoOp',
+    FileDownload: 'FileDownload',
 } as const
 
 /**
@@ -73,7 +75,8 @@ export interface BatchExportDestinationApi {
 * `AzureBlob` - Azure Blob
 * `Workflows` - Workflows
 * `HTTP` - Http
-* `NoOp` - Noop */
+* `NoOp` - Noop
+* `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
     /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
     config?: unknown

@@ -576,6 +576,10 @@ export type DashboardsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Fuzzy match against dashboard `name` and `description` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). `name` matches rank above `description` matches. Results are ordered by relevance, then pinned status, then name. When omitted, dashboards are ordered by pinned status then alphabetical name. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof DashboardsListFormat]
@@ -597,7 +601,15 @@ export const DashboardsCreateFormat = {
 } as const
 
 export type DashboardsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRetrieveFormat
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsRetrieveFormat = (typeof DashboardsRetrieveFormat)[keyof typeof DashboardsRetrieveFormat]
@@ -690,6 +702,10 @@ export const DashboardsReorderTilesCreateFormat = {
 } as const
 
 export type DashboardsRunInsightsRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsRunInsightsRetrieveFormat
     /**
      * 'optimized' (default) returns LLM-friendly formatted text per insight. 'json' returns the raw query result objects.
@@ -699,6 +715,10 @@ export type DashboardsRunInsightsRetrieveParams = {
      * Cache behavior. 'force_cache' (default) serves from cache even if stale. 'blocking' uses cache if fresh, otherwise recalculates. 'force_blocking' always recalculates.
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsRunInsightsRetrieveFormat =
@@ -739,7 +759,19 @@ export const DashboardsSnapshotCreateFormat = {
 } as const
 
 export type DashboardsStreamTilesRetrieveParams = {
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
     format?: DashboardsStreamTilesRetrieveFormat
+    /**
+     * Layout size for tile positioning. 'sm' (default) for standard, 'xs' for mobile. The snake_case alias `layout_size` is also accepted for backward compatibility.
+     */
+    layoutSize?: DashboardsStreamTilesRetrieveLayoutSize
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
 }
 
 export type DashboardsStreamTilesRetrieveFormat =
@@ -748,6 +780,14 @@ export type DashboardsStreamTilesRetrieveFormat =
 export const DashboardsStreamTilesRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsStreamTilesRetrieveLayoutSize =
+    (typeof DashboardsStreamTilesRetrieveLayoutSize)[keyof typeof DashboardsStreamTilesRetrieveLayoutSize]
+
+export const DashboardsStreamTilesRetrieveLayoutSize = {
+    Sm: 'sm',
+    Xs: 'xs',
 } as const
 
 export type DashboardsBulkUpdateTagsCreateParams = {

@@ -105,7 +105,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
@@ -223,10 +223,10 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group], list[Person]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
-        actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]
+        actors: Union[QuerySet[Person], QuerySet[Group], list[Person], list[Group]]
         serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
@@ -258,11 +258,11 @@ def get_groups(
     group_type_index: int,
     group_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
-) -> tuple[QuerySet[Group], list[SerializedGroup]]:
+) -> tuple[list[Group], list[SerializedGroup]]:
     """Get groups from raw SQL results in data model and dict formats"""
-    groups: QuerySet[Group] = Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-        team_id=team_id, group_type_index=group_type_index, group_key__in=group_ids
-    )
+    from posthog.models.group.util import get_groups_by_identifiers
+
+    groups = get_groups_by_identifiers(team_id, group_type_index, [str(gid) for gid in group_ids])
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
@@ -409,7 +409,9 @@ def serialize_people(
     ]
 
 
-def serialize_groups(data: QuerySet[Group], value_per_actor_id: Optional[dict[str, float]]) -> list[SerializedGroup]:
+def serialize_groups(
+    data: QuerySet[Group] | list[Group], value_per_actor_id: Optional[dict[str, float]]
+) -> list[SerializedGroup]:
     return [
         SerializedGroup(
             id=group.group_key,

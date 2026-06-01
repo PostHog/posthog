@@ -28,6 +28,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         ),
     channel_detail: zod
         .enum([
+            'github_issue',
             'slack_bot_mention',
             'slack_channel_message',
             'slack_emoji_reaction',
@@ -39,7 +40,7 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter by the channel sub-type (e.g. `widget_embedded`, `slack_bot_mention`).'),
     channel_source: zod
-        .enum(['email', 'slack', 'teams', 'widget'])
+        .enum(['email', 'github', 'slack', 'teams', 'widget'])
         .optional()
         .describe('Filter by the channel the ticket originated from.'),
     date_from: zod

@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -19,10 +19,6 @@ export const LOADING_CONNECTIONS = '__loading_connections__'
 export const ADD_POSTGRES_DIRECT_CONNECTION = '__add_postgres_direct_connection__'
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
-export interface ConnectionSelectorLogicProps {
-    selectedConnectionId?: string
-}
-
 export interface ConnectionSelectOption {
     value: string
     label: string
@@ -39,9 +35,24 @@ function getConnectionEngine(source: Pick<ExternalDataSourceConnectionOption, 'e
     return source.engine === 'duckdb' ? 'duckdb' : 'postgres'
 }
 
+export function getConnectionSelectorValue(
+    connectionOptions: ExternalDataSourceConnectionOption[] | null,
+    connectionOptionsLoading: boolean,
+    selectedConnectionId: string | undefined
+): string {
+    if (connectionOptionsLoading) {
+        return LOADING_CONNECTIONS
+    }
+
+    if (selectedConnectionId && (connectionOptions ?? []).some((source) => source.id === selectedConnectionId)) {
+        return selectedConnectionId
+    }
+
+    return POSTHOG_WAREHOUSE
+}
+
 export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
     path(['scenes', 'data-warehouse', 'editor', 'connectionSelectorLogic']),
-    props({ selectedConnectionId: undefined } as ConnectionSelectorLogicProps),
     connect(() => ({
         actions: [sourcesDataLogic, ['loadSourcesSuccess']],
     })),
@@ -101,27 +112,6 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                         ],
                     },
                 ]
-            },
-        ],
-        connectionSelectorValue: [
-            (s) => [s.connectionOptions, s.connectionOptionsLoading, (_, props) => props.selectedConnectionId],
-            (
-                connectionOptions: ExternalDataSourceConnectionOption[] | null,
-                connectionOptionsLoading: boolean,
-                selectedConnectionId: string | undefined
-            ): string => {
-                if (connectionOptionsLoading) {
-                    return LOADING_CONNECTIONS
-                }
-
-                if (
-                    selectedConnectionId &&
-                    (connectionOptions ?? []).some((source) => source.id === selectedConnectionId)
-                ) {
-                    return selectedConnectionId
-                }
-
-                return POSTHOG_WAREHOUSE
             },
         ],
     }),

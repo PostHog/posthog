@@ -14,6 +14,7 @@ use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
+use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 use crate::pg::load_person_from_pg;
@@ -28,6 +29,8 @@ pub struct PersonHogLeaderService {
     changelog_topic: String,
     /// Read-only pool for PG fallback on cache miss.
     fallback_pool: Option<PgPool>,
+    /// Per-partition inflight counter used to drive the handoff drain phase.
+    inflight: Arc<InflightTracker>,
 }
 
 impl PersonHogLeaderService {
@@ -37,6 +40,7 @@ impl PersonHogLeaderService {
         changelog_topic: String,
         fallback_pool: Option<PgPool>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
+        inflight: Arc<InflightTracker>,
     ) -> Self {
         Self {
             cache,
@@ -44,6 +48,7 @@ impl PersonHogLeaderService {
             producer,
             changelog_topic,
             fallback_pool,
+            inflight,
         }
     }
 
@@ -173,6 +178,14 @@ impl PersonHogLeader for PersonHogLeaderService {
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         let req = request.into_inner();
+
+        // Track this write as inflight for its partition. The handoff protocol
+        // waits for the per-partition inflight count to drop to zero before
+        // advancing Freezing -> Warming. Combined with sync-acked produces, a
+        // zero count implies every acked write is durable in Kafka. Using a
+        // non-`_` prefixed binding so the RAII guard is held for the full
+        // handler lifetime (see the `let_underscore_drop` lint).
+        let _inflight_guard = self.inflight.begin(req.partition);
 
         let cache_key = PersonCacheKey {
             team_id: req.team_id,

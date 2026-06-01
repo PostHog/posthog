@@ -2,14 +2,16 @@
     .quill-toggle {
         font-size: var(--text-xs, 0.75rem);
         font-weight: 500;
+        cursor: pointer;
         border-radius: var(--radius-sm);
         outline: none;
+        box-shadow: 0 3px 0 color-mix(in oklab, var(--border), transparent 10%);
         transition: all 0.15s ease;
     }
 
     .quill-toggle:hover {
         color: var(--foreground);
-        background-color: var(--muted);
+        background-color: color-mix(in oklab, var(--fill-hover) 50%, transparent);
     }
 
     .quill-toggle:focus-visible {
@@ -32,8 +34,11 @@
     }
 
     .quill-toggle[aria-pressed='true'],
-    .quill-toggle[data-state='on'] {
-        background-color: color-mix(in oklab, var(--accent) 80%, transparent);
+    .quill-toggle[data-state='on'],
+    .quill-toggle:not(:disabled):active {
+        background-color: color-mix(in oklab, var(--fill-selected) 50%, transparent);
+        box-shadow: 0 1px 0 color-mix(in oklab, var(--border), transparent 10%);
+        translate: 0 2px;
     }
 
     .quill-toggle svg {

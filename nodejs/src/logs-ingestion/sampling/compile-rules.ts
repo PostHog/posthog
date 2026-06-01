@@ -45,6 +45,27 @@ function parseSeverityActions(raw: unknown): [SeverityAction, SeverityAction, Se
     return out
 }
 
+const MAX_LOGS_PER_SECOND = 1_000_000
+const MAX_BURST_LOGS = 60_000_000
+
+function parseRateLimitFromConfig(
+    config: Record<string, unknown>
+): { refillPerSecond: number; poolMax: number } | null {
+    const lps = config.logs_per_second
+    if (typeof lps !== 'number' || !Number.isFinite(lps) || lps < 1 || lps > MAX_LOGS_PER_SECOND) {
+        return null
+    }
+    const refill = Math.floor(lps)
+    const burstRaw = config.burst_logs
+    let poolMax: number
+    if (typeof burstRaw === 'number' && Number.isFinite(burstRaw) && burstRaw >= refill) {
+        poolMax = Math.min(Math.floor(burstRaw), MAX_BURST_LOGS)
+    } else {
+        poolMax = Math.min(refill * 3, MAX_BURST_LOGS)
+    }
+    return { refillPerSecond: refill, poolMax }
+}
+
 function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule['alwaysKeep'] {
     const ak = config.always_keep as Record<string, unknown> | undefined
     if (!ak || typeof ak !== 'object') {
@@ -68,6 +89,7 @@ function parseAlwaysKeep(config: Record<string, unknown>): CompiledSamplingRule[
 
 export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
     const rules: CompiledSamplingRule[] = []
+    let hasRateLimitRules = false
     for (const row of rows) {
         let pathRegex: RegExp | null = null
         if (row.scope_path_pattern) {
@@ -78,6 +100,7 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
             }
         }
         let pathDropPatterns: RegExp[] | null = null
+        let pathDropMatchAttributeKey: string | null = null
         if (row.rule_type === 'path_drop') {
             const patterns = (row.config.patterns as unknown[]) || []
             pathDropPatterns = []
@@ -91,17 +114,33 @@ export function compileRuleSet(rows: SamplingRuleRow[]): CompiledRuleSet {
                     /* skip invalid */
                 }
             }
+            const mak = row.config.match_attribute_key
+            if (typeof mak === 'string') {
+                const t = mak.trim()
+                pathDropMatchAttributeKey = t === '' ? null : t
+            }
         }
         const rt = row.rule_type as CompiledSamplingRule['ruleType']
+        const ruleType: CompiledSamplingRule['ruleType'] =
+            rt === 'path_drop' || rt === 'rate_limit' || rt === 'severity_sampling' ? rt : 'path_drop'
+        let rateLimit: CompiledSamplingRule['rateLimit'] = null
+        if (ruleType === 'rate_limit') {
+            rateLimit = parseRateLimitFromConfig(row.config ?? {})
+            if (rateLimit) {
+                hasRateLimitRules = true
+            }
+        }
         rules.push({
             id: row.id,
-            ruleType: rt === 'path_drop' || rt === 'rate_limit' || rt === 'severity_sampling' ? rt : 'path_drop',
+            ruleType,
             scopeService: row.scope_service,
             pathRegex,
             pathDropPatterns,
+            pathDropMatchAttributeKey,
             severityActions: parseSeverityActions(row.config),
             alwaysKeep: parseAlwaysKeep(row.config),
+            rateLimit,
         })
     }
-    return { rules }
+    return { rules, hasRateLimitRules }
 }

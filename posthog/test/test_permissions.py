@@ -1051,6 +1051,34 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         self.assertTrue(result)
         mock_ff.assert_called_once()
         self.assertEqual(mock_ff.call_args[0][0], "my-flag")
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(
+            kwargs["groups"],
+            {"organization": str(self.organization.id), "project": str(self.team.id)},
+        )
+        self.assertEqual(
+            kwargs["group_properties"],
+            {
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.id)},
+            },
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_feature_flag_evaluation_passes_organization_only_when_view_has_no_team(self, mock_ff):
+        class OrgOnlyView:
+            posthog_feature_flag = "my-flag"
+            action = "list"
+            organization = self.organization
+            organization_id = str(self.organization.id)
+
+        request = self._create_mock_request()
+        view = OrgOnlyView()
+
+        self.assertTrue(self.permission.has_permission(request, view))
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
+        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_denies_when_flag_disabled(self, mock_ff):

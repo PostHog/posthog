@@ -16,7 +16,6 @@ from ..facade.contracts import (
     AutoApproveResult,
     BaselineEntry,
     BaselineOverview,
-    BaselineSparklineDay,
     BaselineTotals,
     CreateRepoInput,
     CreateRunInput,
@@ -182,14 +181,7 @@ class CreateRepoInputSerializer(DataclassSerializer):
         dataclass = CreateRepoInput
 
 
-class BaselineSparklineDaySerializer(DataclassSerializer):
-    class Meta:
-        dataclass = BaselineSparklineDay
-
-
 class BaselineEntrySerializer(DataclassSerializer):
-    sparkline = BaselineSparklineDaySerializer(many=True)
-
     class Meta:
         dataclass = BaselineEntry
 

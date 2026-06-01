@@ -622,7 +622,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 const hasValidName = evaluation.name.length > 0
                 const hasValidConditions =
                     evaluation.conditions.length > 0 &&
-                    evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
+                    evaluation.conditions.every(
+                        (c) => (c.rollout_percentage ?? 0) > 0 && (c.rollout_percentage ?? 0) <= 100
+                    )
 
                 let hasValidConfig = false
                 if (evaluation.evaluation_type === 'hog') {

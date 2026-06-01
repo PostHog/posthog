@@ -506,9 +506,9 @@ procs:
     warehouse-sources-load:
         shell: |-
             bin/wait-for-docker && \
-            python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
+            python manage.py run_warehouse_sources_load
         autostart: false
-        ready_pattern: 'health_server_started'
+        ready_pattern: 'batch_consumer_started'
         groups:
             layer: Tools
             tech: Python

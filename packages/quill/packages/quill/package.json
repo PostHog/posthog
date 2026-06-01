@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill",
-    "version": "0.3.0-beta.0",
+    "version": "0.3.0-beta.1",
     "description": "PostHog's unified design system — primitives, components, and blocks designed to be compiled by the consumer's Tailwind v4.",
     "license": "MIT",
     "repository": {
@@ -47,7 +47,6 @@
         "@base-ui/react": "^1.3.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
-        "cmdk": "^1.1.1",
         "lucide-react": "^0.577.0",
         "react-resizable-panels": "^4.7.1",
         "tailwind-merge": "^2.2.2"

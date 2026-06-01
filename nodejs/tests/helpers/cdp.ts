@@ -4,7 +4,6 @@ import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
 import { CdpLegacyEventsConsumerDeps } from '../../src/cdp/consumers/cdp-legacy-event.consumer'
 import {
     CdpProducerName,
-    MSK_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CALCULATED_EVENTS_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
@@ -28,7 +27,6 @@ function buildTestCdpProducerRegistry(
         [WARPSTREAM_INGESTION_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CALCULATED_EVENTS_PRODUCER]: kafkaProducer,
         [WARPSTREAM_CYCLOTRON_PRODUCER]: kafkaProducer,
-        [MSK_PRODUCER]: kafkaProducer,
         [WAREHOUSE_PRODUCER]: kafkaProducer,
     })
 }

@@ -6,11 +6,11 @@ application cookies (`metabase.SESSION`, `metabase.DEVICE`). API keys alone
 won't pass the ALB.
 
 Workflow:
-    hogli metabase:login --region us|eu         # opens browser, captures cookies
-    hogli metabase:databases --region us|eu     # list databases with current IDs
-    hogli metabase:query --region us|eu \\      # run SQL against /api/dataset
+    hogli metabase:login --region us|eu|dev     # opens browser, captures cookies
+    hogli metabase:databases --region us|eu|dev # list databases with current IDs
+    hogli metabase:query --region us|eu|dev \\  # run SQL against /api/dataset
         --database-id <id> < query.sql
-    hogli metabase:cookie --region us|eu        # print cached cookie header (humans)
+    hogli metabase:cookie --region us|eu|dev    # print cached cookie header (humans)
 
 Cookies are cached at ~/.config/posthog/metabase/cookie-{region} with mode 0600.
 The `query` command reads the cookie internally so callers never see it —
@@ -45,6 +45,7 @@ _CHROMIUM_PROFILE_ROOTS: dict[str, list[Path]] = {
 REGIONS: dict[str, str] = {
     "us": "metabase.prod-us.posthog.dev",
     "eu": "metabase.prod-eu.posthog.dev",
+    "dev": "metabase.dev.posthog.dev",
 }
 REQUIRED_COOKIES: tuple[str, ...] = (
     "metabase.SESSION",
@@ -242,7 +243,7 @@ def _login_region(region: str, browser: str | None, no_open: bool, timeout: floa
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to authenticate (one at a time, e.g. --region us or --region eu)",
+    help="Region to authenticate (one at a time, e.g. --region us, --region eu, --region dev)",
 )
 @click.option(
     "--browser",
@@ -272,7 +273,7 @@ def metabase_login(region: str, browser: str | None, no_open: bool, timeout: flo
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region whose cached cookie to print (us or eu)",
+    help="Region whose cached cookie to print (us, eu, dev)",
 )
 @click.option("--check/--no-check", default=False, help="Validate the cookie before printing")
 def metabase_cookie(region: str, check: bool) -> None:
@@ -395,7 +396,7 @@ def _render_rows_tsv(body: dict[str, Any]) -> str:
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to inspect (us or eu)",
+    help="Region to inspect (us, eu, dev)",
 )
 @click.option(
     "--format",
@@ -429,7 +430,7 @@ def metabase_databases(region: str, output_format: str) -> None:
     "--region",
     type=click.Choice(sorted(REGIONS.keys())),
     required=True,
-    help="Region to query (us or eu)",
+    help="Region to query (us, eu, dev)",
 )
 @click.option(
     "--database-id",

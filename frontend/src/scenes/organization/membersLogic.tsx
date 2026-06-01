@@ -1,11 +1,9 @@
-import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -14,8 +12,6 @@ import { userLogic } from 'scenes/userLogic'
 import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
-
-export interface MembersFuse extends Fuse<OrganizationMemberType> {}
 
 const PAGINATION_LIMIT = 200
 
@@ -28,6 +24,7 @@ export const membersLogic = kea<membersLogicType>([
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
         loadMemberUpdates: true,
+        loadSearchedMembers: true,
         loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
@@ -114,6 +111,22 @@ export const membersLogic = kea<membersLogicType>([
                 }
             },
         },
+        // Server-side search results — separate from the canonical `members` store so
+        // other consumers (rolesLogic, hedgehogModeLogic, etc.) keep seeing the full org
+        // when the user has a search term active in the org-settings members page.
+        searchedMembers: {
+            __default: null as OrganizationMemberType[] | null,
+            loadSearchedMembers: async () => {
+                const search = values.search?.trim()
+                if (!search) {
+                    return null
+                }
+                return await api.organizationMembers.listAll({
+                    limit: PAGINATION_LIMIT,
+                    search,
+                })
+            },
+        },
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -141,17 +154,19 @@ export const membersLogic = kea<membersLogicType>([
                 return result
             },
         ],
-        membersFuse: [
-            (s) => [s.meFirstMembers],
-            (members): MembersFuse =>
-                createFuse<OrganizationMemberType>(members ?? [], {
-                    keys: ['user.first_name', 'user.last_name', 'user.email'],
-                }),
-        ],
         filteredMembers: [
-            (s) => [s.meFirstMembers, s.membersFuse, s.search],
-            (members, membersFuse, search): OrganizationMemberType[] =>
-                search ? membersFuse.search(search).map((result) => result.item) : (members ?? []),
+            (s) => [s.meFirstMembers, s.searchedMembers, s.search],
+            (members, searched, search): OrganizationMemberType[] => {
+                // When a search term is set, return the (server-filtered) searchedMembers
+                // — this avoids polluting the canonical `members` store with a filtered
+                // subset, so other consumers (rolesLogic, hedgehogModeLogic) keep seeing
+                // the full org. me-first is dropped during search because the user is
+                // looking for someone else, not themselves.
+                if (search?.trim()) {
+                    return searched ?? []
+                }
+                return members ?? []
+            },
         ],
         memberCount: [
             (s) => [s.user, s.sortedMembers],
@@ -179,6 +194,11 @@ export const membersLogic = kea<membersLogicType>([
             } else {
                 actions.loadMemberUpdates()
             }
+        },
+
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(250)
+            actions.loadSearchedMembers()
         },
     })),
 

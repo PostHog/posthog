@@ -647,11 +647,24 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     """
 
     def _is_replay_feature_enabled(self) -> bool:
-        from posthog.models.feature_flag import FeatureFlag
-
-        return FeatureFlag.objects.filter(
-            team_id=self.team_id, key="workflows-replay-blocked-runs", active=True
-        ).exists()
+        user = self.request.user
+        distinct_id = getattr(user, "distinct_id", None) or str(self.team.uuid)
+        return (
+            posthoganalytics.feature_enabled(
+                "workflows-replay-blocked-runs",
+                str(distinct_id),
+                groups={
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team_id),
+                },
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team_id)},
+                },
+                send_feature_flag_events=False,
+            )
+            or False
+        )
 
     def _parse_blocked_run_message(self, message: str) -> tuple[Optional[str], Optional[str]]:
         action_match = self._ACTION_ID_PATTERN.search(message)
@@ -701,6 +714,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def blocked_runs(self, request: Request, *args, **kwargs):
         """List workflow runs that were blocked by the dedup bug."""
         from posthog.clickhouse.client.execute import sync_execute
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
 
         if not self._is_replay_feature_enabled():
             return Response({"results": []})
@@ -744,6 +760,10 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @action(detail=True, methods=["POST"], url_path="replay_blocked_run")
     def replay_blocked_run(self, request: Request, *args, **kwargs):
         """Replay a single blocked run. Django fetches the event, Node creates the invocation and writes the log."""
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
+
         if not self._is_replay_feature_enabled():
             return Response({"error": "This feature is not enabled"}, status=403)
 
@@ -802,6 +822,9 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def replay_all_blocked_runs(self, request: Request, *args, **kwargs):
         """Replay all blocked runs in a single bulk call to Node."""
         from posthog.clickhouse.client.execute import sync_execute
+        from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+
+        tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
 
         if not self._is_replay_feature_enabled():
             return Response({"error": "This feature is not enabled"}, status=403)

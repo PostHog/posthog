@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     default_fallback_cost_usd: float = 0.01
 
     posthog_api_base_url: str = "https://us.posthog.com"
-    plan_cache_ttl: int = 300  # 5 minutes
+    plan_cache_ttl: int = 900  # 15 minutes
     billing_period_days: int = 30
 
     @field_validator("product_cost_limits", mode="before")

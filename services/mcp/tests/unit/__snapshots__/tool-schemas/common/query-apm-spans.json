@@ -1,0 +1,127 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The tracing spans query to execute.",
+            "properties": {
+                "after": {
+                    "description": "Pagination cursor from previous response.",
+                    "type": "string"
+                },
+                "dateRange": {
+                    "description": "Date range for the query. Defaults to last hour.",
+                    "properties": {
+                        "date_from": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
+                        },
+                        "date_to": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                        }
+                    },
+                    "type": "object"
+                },
+                "filterGroup": {
+                    "default": [],
+                    "description": "Property filters for the query.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                                "type": "string"
+                            },
+                            "operator": {
+                                "description": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "lt",
+                                    "is_set",
+                                    "is_not_set"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "description": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                                "enum": ["span", "span_attribute", "span_resource_attribute"],
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {},
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators."
+                            }
+                        },
+                        "required": ["key", "type", "operator"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "default": 100,
+                    "description": "Max results (1-1000). Defaults to 100.",
+                    "type": "number"
+                },
+                "orderBy": {
+                    "description": "Order results by timestamp. Defaults to latest.\n\n* `latest` - latest\n* `earliest` - earliest",
+                    "enum": ["latest", "earliest"],
+                    "type": "string"
+                },
+                "prefetchSpans": {
+                    "description": "Number of child spans to prefetch per trace (1-100).",
+                    "type": "number"
+                },
+                "rootSpans": {
+                    "default": true,
+                    "description": "Filter to root spans only. Defaults to true.",
+                    "type": "boolean"
+                },
+                "serviceNames": {
+                    "description": "Filter by service names.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "statusCodes": {
+                    "description": "Filter by HTTP status codes.",
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "traceId": {
+                    "description": "Filter to a specific trace ID (hex string).",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

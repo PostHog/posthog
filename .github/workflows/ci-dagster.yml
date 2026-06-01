@@ -63,11 +63,17 @@ jobs:
             dagster: ${{ steps.filter.outputs.dagster || 'true' }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             matrix_include: ${{ steps.build-matrix.outputs.include || '[]' }}
+            schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
-            # also want this to run on master so we need to checkout
+            # also want this to run on master so we need to checkout.
+            # fetch-depth=1000 + blob:none mirrors ci-backend's turbo-discover so
+            # HEAD^2 (PR branch tip) is reachable for the merge-base step below
+            # without the cost of fetching blobs.
             - uses: actions/checkout@v6
               with:
+                  fetch-depth: 1000
+                  filter: blob:none
                   clean: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -180,6 +186,30 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Dagster matrix: $shards shards"
 
+            - name: Fetch base branch for merge-base computation
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              # Scoped, blob-less, no-tags — matches ci-backend's pattern.
+              # Without an explicit refspec, `git fetch --deepen` would fall back
+              # to remote.origin.fetch and pull every branch.
+              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+
+            - name: Compute schema cache key from merge-base
+              id: schema-key
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ -n "$MERGE_BASE" ]; then
+                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  else
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                  fi
+
     dagster:
         name: Dagster tests (${{ matrix.group }}/${{ matrix.concurrency }})
         needs: [changes]
@@ -270,23 +300,53 @@ jobs:
                     docker compose -f docker-compose.dev.yml exec -T db \
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
-            - name: Run migrations
+            - name: Restore schema cache from master
+              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+              id: schema-cache
+              with:
+                  path: schema.sql.gz
+                  key: ${{ needs.changes.outputs.schema_cache_key }}
+
+            - name: Prime test_posthog and posthog from cached schema (PR)
+              # Primes both test_posthog (used by pytest --reuse-db) and the prod-style
+              # posthog db (read by migrate_clickhouse → InstanceSetting). pytest's
+              # keepdb=True path layers any PR-added migrations on top.
+              # On cache miss, fall through to a full migrate so migrate_clickhouse works.
+              if: ${{ github.event_name == 'pull_request' }}
               run: |
-                  # Run Django migrations first
-                  python manage.py migrate
-                  # Then run persons migrations using sqlx
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — falling through to full migrate"
+                      python manage.py migrate
+                      exit 0
+                  fi
+                  mkdir -p .postgres-backups
+                  mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
+                  ./bin/hogli db:restore-test-db
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | \
+                    docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog posthog
+
+            - name: Run Django migrations (master)
+              # Master pushes don't restore from cache (the artifact-producing run
+              # is in ci-backend, not here). Run a full migrate so migrate_clickhouse
+              # can read posthog_instancesetting from a populated posthog db.
+              if: ${{ github.event_name != 'pull_request' }}
+              run: python manage.py migrate
+
+            - name: Run persons migrations
+              run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx database create
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Run clickhouse migrations
-              run: |
-                  python manage.py migrate_clickhouse
+              run: python manage.py migrate_clickhouse
 
             - name: Run Dagster tests
               run: |
                   pytest posthog/dags products/**/dags \
+                      --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
                       --splitting-algorithm=duration_based_chunks \

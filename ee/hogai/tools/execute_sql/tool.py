@@ -4,7 +4,19 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, VisualizationArtifactContent
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantDataVisualizationChartSettings,
+    AssistantDataVisualizationDisplayType,
+    AssistantHogQLQuery,
+    AssistantToolCallMessage,
+    ChartDisplayType,
+    ChartSettings,
+    DataVisualizationNode,
+    HogQLQuery,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Team, User
 
@@ -39,6 +51,14 @@ class ExecuteSQLToolArgs(BaseModel):
     viz_description: str = Field(
         description="Short, concise summary of the SQL query (1 sentence) that will be displayed as a description in the visualization."
     )
+    display: AssistantDataVisualizationDisplayType | None = Field(
+        default=None,
+        description="Optional visualization type for the SQL result, such as ActionsBar or ActionsLineGraph. Use this when the user asks for a chart.",
+    )
+    chart_settings: AssistantDataVisualizationChartSettings | None = Field(
+        default=None,
+        description="Optional chart settings for the SQL result, including X-axis label, left Y-axis label, right Y-axis label, and which Y series uses the right axis.",
+    )
 
 
 class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
@@ -66,7 +86,12 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query: str, viz_title: str, viz_description: str
+        self,
+        query: str,
+        viz_title: str,
+        viz_description: str,
+        display: AssistantDataVisualizationDisplayType | None = None,
+        chart_settings: AssistantDataVisualizationChartSettings | dict[str, object] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         parsed_query = self._parse_output({"query": query})
         try:
@@ -76,9 +101,26 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except PydanticOutputParserException as e:
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
+        artifact_query: AssistantHogQLQuery | DataVisualizationNode = parsed_query.query
+        if display or chart_settings:
+            if isinstance(chart_settings, AssistantDataVisualizationChartSettings):
+                chart_settings_data = chart_settings.model_dump(mode="json", exclude_none=True)
+            elif chart_settings:
+                chart_settings_data = AssistantDataVisualizationChartSettings.model_validate(chart_settings).model_dump(
+                    mode="json", exclude_none=True
+                )
+            else:
+                chart_settings_data = None
+
+            artifact_query = DataVisualizationNode(
+                source=HogQLQuery(**parsed_query.query.model_dump(mode="json", exclude_none=True)),
+                display=ChartDisplayType(display) if display else None,
+                chartSettings=ChartSettings.model_validate(chart_settings_data) if chart_settings_data else None,
+            )
+
         # Display an ephemeral visualization message to the user.
         artifact = await self._context_manager.artifacts.acreate(
-            VisualizationArtifactContent(query=parsed_query.query, name=viz_title, description=viz_description),
+            VisualizationArtifactContent(query=artifact_query, name=viz_title, description=viz_description),
             "SQL Query",
         )
         artifact_message = self._context_manager.artifacts.create_message(

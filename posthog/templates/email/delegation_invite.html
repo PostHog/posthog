@@ -1,0 +1,28 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<h1 class="invite-header">
+    <strong>{{ inviter_first_name }}</strong> asked you to finish setting up PostHog for
+    <strong>{{ org_name }}</strong>
+</h1>
+<p class="text-center">
+    <strong>{{ inviter_first_name }}</strong> ({{ inviter_email }}) started setting up PostHog for
+    <strong>{{ org_name }}</strong> and would like you to finish the setup. Accept the invitation below to get
+    started — you'll be taken through the full setup flow.
+</p>
+<p class="text-center">
+    PostHog is an all-in-one platform for product analytics, session replays, feature flags, experiments, surveys,
+    and more.
+</p>
+{% if invite.message %}
+<div class="invite-message">
+    <div class="invite-message-divider"></div>
+    {{ invite.message }}
+</div>
+{% endif %}
+<div class="mb mt text-center">
+    <a class="button primary" href="{{ invite }}">Accept and set up PostHog</a>
+</div>
+<p class="invite-bottom">This invitation will expire on {{ expiry_date }}.</p>
+
+{% block footer %}
+{% endblock %}
+{% endblock %}{% load posthog_filters %}

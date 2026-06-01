@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -40,13 +40,11 @@ class VideoSummarySingleSessionInputs(BaseModel):
 
 
 class PrepSessionVideoAssetResult(BaseModel):
-    """Result from preparing the session video ExportedAsset."""
-
     model_config = ConfigDict(frozen=True)
 
     asset_id: int
-    needs_export: bool
     team_api_token: str
+    team_name: str
 
 
 class UploadedVideo(BaseModel):
@@ -61,10 +59,9 @@ class UploadedVideo(BaseModel):
 
 
 class UploadVideoToGeminiOutput(TypedDict):
-    """Return type for upload_video_to_gemini_activity including uploaded video and team name"""
+    """Return type for upload_video_to_gemini_activity."""
 
     uploaded_video: UploadedVideo
-    team_name: str
     # Stored as list of dicts from ReplayInactivityPeriod.model_dump()
     inactivity_periods: list[ReplayInactivityPeriod] | None
 
@@ -87,6 +84,25 @@ class VideoSegmentSpec(BaseModel):
         if self.recording_end_time <= self.recording_start_time:
             raise ValueError("recording_end_time must be greater than recording_start_time")
         return self
+
+
+class SegmentEventEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    event_id: str
+    data: list[Any]
+
+
+class SegmentLlmContext(BaseModel):
+    """Per-segment slice of LlmInputs — events in range plus the URL/window keys they reference."""
+
+    model_config = ConfigDict(frozen=True)
+
+    events: list[SegmentEventEntry]
+    simplified_events_columns: list[str]
+    url_mapping_reversed: dict[str, str]
+    window_mapping_reversed: dict[str, str]
+    session_start_time_str: str
 
 
 class VideoSegmentOutput(BaseModel):

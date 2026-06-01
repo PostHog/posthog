@@ -14,6 +14,9 @@ ui_apps:
         data_type: LLMCostsData
         view_component: LLMCostsView
 tools:
+    llm-analytics-sentiment-generations-create:
+        operation: llm_analytics_sentiment_generations_create
+        enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_retrieve
         enabled: false

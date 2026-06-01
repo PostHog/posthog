@@ -18,13 +18,15 @@ import { SyncMoreNotice } from './SyncMoreNotice'
 
 export const DatabaseTree = memo(function DatabaseTree({
     databaseTreeRef,
+    tabId,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
+    tabId: string
 }): JSX.Element | null {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
         useValues(editorSizingLogic)
-    const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic)
+    const { selectedConnectionId, selectedDirectSource } = useValues(sqlEditorLogic({ tabId }))
     const { toggleDatabaseTreeCollapsed, setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
 
     const searchPlaceholder = selectedConnectionId
@@ -59,7 +61,7 @@ export const DatabaseTree = memo(function DatabaseTree({
                     >
                         <IconSidebarClose className="size-4 text-tertiary rotate-180" />
                     </ButtonPrimitive>
-                    <ConnectionSelector />
+                    <ConnectionSelector tabId={tabId} />
                 </div>
                 <DatabaseSearchField placeholder={searchPlaceholder} />
             </div>

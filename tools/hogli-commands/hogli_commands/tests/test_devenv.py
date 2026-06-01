@@ -547,12 +547,14 @@ class TestInfoProcess:
         assert f"{expected_count} active" in shell
 
     def test_info_process_reads_news_at_runtime(self) -> None:
-        """Info process shell reads news.txt at runtime, not at generation time."""
+        """Info process shell reads news.txt at runtime via git blame for dates."""
         procs = self._generate_with_intents(["feature_flags"])
         shell = procs["info"]["shell"]
 
         assert "devenv/news.txt" in shell
         assert "News:" in shell
+        assert "git blame" in shell
+        assert "sort -r" in shell
 
     def test_info_process_includes_commands(self) -> None:
         """Info process shell includes useful commands."""

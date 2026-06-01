@@ -13,7 +13,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Group, Team
+from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
@@ -184,18 +184,20 @@ class GroupStrategy(ActorStrategy):
         super().__init__(**kwargs)
 
     def get_actors(self, actor_ids) -> dict[str, dict]:
+        from posthog.models.group.util import get_groups_by_identifiers
+
+        groups = get_groups_by_identifiers(self.team.pk, self.group_type_index, [str(aid) for aid in actor_ids])
         return {
-            str(p["group_key"]): {
-                "id": p["group_key"],
+            str(g.group_key): {
+                "id": g.group_key,
                 "type": "group",
-                "properties": p["group_properties"],  # TODO: Legacy for frontend
-                **p,
+                "properties": g.group_properties,  # TODO: Legacy for frontend
+                "group_key": g.group_key,
+                "group_type_index": g.group_type_index,
+                "created_at": g.created_at,
+                "group_properties": g.group_properties,
             }
-            for p in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=self.team.pk, group_type_index=self.group_type_index, group_key__in=actor_ids
-            )
-            .values("group_key", "group_type_index", "created_at", "group_properties")
-            .iterator(chunk_size=self.paginator.limit)
+            for g in groups
         }
 
     def input_columns(self) -> list[str]:

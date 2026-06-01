@@ -1,5 +1,11 @@
-export interface TooltipAccessor {
-    element: HTMLElement
+import { createHogChartTooltip, type HogChartTooltip } from 'lib/hog-charts/testing'
+
+/** Insight-flavored tooltip accessor. Extends the generic hog-charts tooltip
+ *  with helpers for the InsightTooltip's table layout — a header `<th>` row
+ *  and per-series `<tr>` rows with `.datum-column` / `.datum-counts-column`
+ *  cells. Other consumers with their own tooltip renderer should compose
+ *  their own accessor on top of `createHogChartTooltip` the same way. */
+export interface InsightTooltipAccessor extends HogChartTooltip {
     /** Header text — typically the hovered date (e.g. "Wednesday, 12 Jun (UTC)"). */
     title(): string
     /** Value cell text for the row whose datum column contains `label`. */
@@ -8,14 +14,9 @@ export interface TooltipAccessor {
     rows(): string[]
 }
 
-export function createTooltipAccessor(element: HTMLElement): TooltipAccessor {
-    return {
-        element,
-
+export function createInsightTooltipAccessor(element: HTMLElement): InsightTooltipAccessor {
+    return Object.assign(createHogChartTooltip(element), {
         title(): string {
-            // The InsightTooltip's first column carries the date/header text. Its <th>
-            // doesn't have a stable class hook in either tooltip variant, so we just
-            // pick off the first <th> in the table head.
             return element.querySelector('thead th')?.textContent?.trim() ?? ''
         },
 
@@ -37,5 +38,5 @@ export function createTooltipAccessor(element: HTMLElement): TooltipAccessor {
                 .map((r) => r.querySelector('.datum-column')?.textContent?.trim() ?? '')
                 .filter(Boolean)
         },
-    }
+    })
 }

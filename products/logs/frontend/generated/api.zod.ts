@@ -67,6 +67,8 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
+export const logsAlertsCreateBodyThresholdCountDefault = 100
+
 export const logsAlertsCreateBodyThresholdOperatorDefault = `above`
 export const logsAlertsCreateBodyWindowMinutesDefault = 5
 export const logsAlertsCreateBodyEvaluationPeriodsDefault = 1
@@ -79,20 +81,28 @@ export const logsAlertsCreateBodyCooldownMinutesDefault = 0
 export const logsAlertsCreateBodyCooldownMinutesMin = 0
 
 export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsCreateBodyNameMax).describe('Human-readable name for this alert.'),
+    name: zod
+        .string()
+        .max(logsAlertsCreateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
     enabled: zod
         .boolean()
         .default(logsAlertsCreateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
+        .optional()
         .describe(
-            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
         .min(1)
-        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
+        .default(logsAlertsCreateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -130,6 +140,8 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsUpdateBodyNameMax = 255
 
 export const logsAlertsUpdateBodyEnabledDefault = true
+export const logsAlertsUpdateBodyThresholdCountDefault = 100
+
 export const logsAlertsUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsUpdateBodyWindowMinutesDefault = 5
 export const logsAlertsUpdateBodyEvaluationPeriodsDefault = 1
@@ -142,20 +154,28 @@ export const logsAlertsUpdateBodyCooldownMinutesDefault = 0
 export const logsAlertsUpdateBodyCooldownMinutesMin = 0
 
 export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsAlertsUpdateBodyNameMax).describe('Human-readable name for this alert.'),
+    name: zod
+        .string()
+        .max(logsAlertsUpdateBodyNameMax)
+        .optional()
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
     enabled: zod
         .boolean()
         .default(logsAlertsUpdateBodyEnabledDefault)
         .describe('Whether the alert is actively being evaluated. Disabling resets the state to not_firing.'),
     filters: zod
         .unknown()
+        .optional()
         .describe(
-            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
         .min(1)
-        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
+        .default(logsAlertsUpdateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -193,6 +213,8 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
 export const logsAlertsPartialUpdateBodyNameMax = 255
 
 export const logsAlertsPartialUpdateBodyEnabledDefault = true
+export const logsAlertsPartialUpdateBodyThresholdCountDefault = 100
+
 export const logsAlertsPartialUpdateBodyThresholdOperatorDefault = `above`
 export const logsAlertsPartialUpdateBodyWindowMinutesDefault = 5
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsDefault = 1
@@ -209,7 +231,7 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(logsAlertsPartialUpdateBodyNameMax)
         .optional()
-        .describe('Human-readable name for this alert.'),
+        .describe("Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted."),
     enabled: zod
         .boolean()
         .default(logsAlertsPartialUpdateBodyEnabledDefault)
@@ -218,13 +240,15 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object).'
+            'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
     threshold_count: zod
         .number()
         .min(1)
-        .optional()
-        .describe('Number of matching log entries that constitutes a threshold breach within the evaluation window.'),
+        .default(logsAlertsPartialUpdateBodyThresholdCountDefault)
+        .describe(
+            'Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100.'
+        ),
     threshold_operator: zod
         .enum(['above', 'below'])
         .describe('* `above` - Above\n* `below` - Below')
@@ -291,6 +315,9 @@ export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object
  * Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.
  */
 
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
+export const logsAlertsSimulateCreateBodyCheckIntervalMinutesMax = 60
+
 export const logsAlertsSimulateCreateBodyEvaluationPeriodsDefault = 1
 export const logsAlertsSimulateCreateBodyEvaluationPeriodsMax = 10
 
@@ -310,6 +337,12 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             'Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below'
         ),
     window_minutes: zod.number().describe('Window size in minutes — determines bucket interval.'),
+    check_interval_minutes: zod
+        .number()
+        .min(1)
+        .max(logsAlertsSimulateCreateBodyCheckIntervalMinutesMax)
+        .default(logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault)
+        .describe('How often the alert is evaluated, in minutes.'),
     evaluation_periods: zod
         .number()
         .min(1)
@@ -634,9 +667,11 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -649,14 +684,16 @@ export const LogsSamplingRulesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
         ),
     config: zod
         .unknown()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+        ),
 })
 
 export const logsSamplingRulesUpdateBodyNameMax = 255
@@ -683,9 +720,11 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
+        .describe(
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -698,14 +737,16 @@ export const LogsSamplingRulesUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
         ),
     config: zod
         .unknown()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+        ),
 })
 
 export const logsSamplingRulesPartialUpdateBodyNameMax = 255
@@ -736,10 +777,12 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     rule_type: zod
         .enum(['severity_sampling', 'path_drop', 'rate_limit'])
-        .describe('* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit')
+        .describe(
+            '* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
+        )
         .optional()
         .describe(
-            'Rule kind: severity_sampling, path_drop, or rate_limit (rate_limit reserved for a future release).\n\n* `severity_sampling` - Severity sampling\n* `path_drop` - Path drop\n* `rate_limit` - Rate limit'
+            'Rule kind: severity_sampling, path_drop, or rate_limit (caps logs/sec for scope_service at ingestion).\n\n* `severity_sampling` - Severity-based reduction\n* `path_drop` - Path exclusion\n* `rate_limit` - Rate limit'
         ),
     scope_service: zod
         .string()
@@ -752,7 +795,7 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Optional regex matched against a path-like log attribute when present.'),
     scope_attribute_filters: zod
-        .unknown()
+        .array(zod.record(zod.string(), zod.unknown()))
         .optional()
         .describe(
             'Optional list of predicates over string attributes, e.g. [{\"key\":\"http.route\",\"op\":\"eq\",\"value\":\"/api\"}].'
@@ -760,7 +803,9 @@ export const LogsSamplingRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
     config: zod
         .unknown()
         .optional()
-        .describe('Type-specific JSON (severity actions, path_drop patterns, or future rate_limit settings).'),
+        .describe(
+            'Type-specific JSON. For path_drop: object with required `patterns` (list of regex strings) and optional `match_attribute_key` (string). When `match_attribute_key` is omitted or empty, patterns match the same virtual path string as ingestion (url.path, http.path, http.route, path). When set, each pattern is tested only against that string attribute on the log record. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with required `logs_per_second` (integer 1–1000000) and optional `burst_logs` (integer ≥ logs_per_second, max 60000000); rate_limit rules require non-null `scope_service` matching `service.name` on each log line.'
+        ),
 })
 
 /**

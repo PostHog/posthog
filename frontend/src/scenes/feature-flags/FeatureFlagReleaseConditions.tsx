@@ -290,7 +290,6 @@ export function FeatureFlagReleaseConditions({
                     {!readOnly && (
                         <FeatureFlagConditionWarning
                             properties={properties}
-                            filterGroups={filterGroups}
                             evaluationRuntime={evaluationRuntime}
                             className="mt-3 mb-3"
                         />

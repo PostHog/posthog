@@ -242,6 +242,12 @@ const DEFAULT_OPERATORS: Record<SurveyQuestionType, { label: string; value: Prop
 
 export type SurveyDemoData = ReturnType<typeof getDemoDataForSurvey>
 
+export enum SurveyTab {
+    SUMMARY = 'summary',
+    RESPONSES = 'responses',
+    HISTORY = 'history',
+}
+
 export enum SurveyEditSection {
     Steps = 'steps',
     Widget = 'widget',
@@ -596,6 +602,7 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     })),
     actions({
+        setActiveTab: (tab: SurveyTab) => ({ tab }),
         setEditingLanguage: (language: string | null) => ({ language }),
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
@@ -1437,6 +1444,12 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     reducers({
+        activeTab: [
+            SurveyTab.SUMMARY as SurveyTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
         personNames: [
             {} as Record<string, string>,
             {
@@ -2956,6 +2969,16 @@ export const surveyLogic = kea<surveyLogicType>([
     })),
     urlToAction(({ actions, props, values }) => ({
         [urls.survey(props.id ?? 'new')]: (_, searchParams, { fromTemplate }, { method }) => {
+            // Sync active tab from URL
+            const tabFromUrl = searchParams.tab
+            if (tabFromUrl && Object.values(SurveyTab).includes(tabFromUrl) && tabFromUrl !== values.activeTab) {
+                actions.setActiveTab(tabFromUrl as SurveyTab)
+            } else if (searchParams.activity && values.activeTab !== SurveyTab.HISTORY) {
+                actions.setActiveTab(SurveyTab.HISTORY)
+            } else if (!tabFromUrl && !searchParams.activity && values.activeTab !== SurveyTab.SUMMARY) {
+                actions.setActiveTab(SurveyTab.SUMMARY)
+            }
+
             // Preserve unsaved edits whenever we re-enter the same survey URL — covers
             // both explicit opt-in navigations (e.g. guided↔full editor switch) and
             // implicit re-entries like tab switching, which also dispatch a PUSH.
@@ -3033,6 +3056,16 @@ export const surveyLogic = kea<surveyLogicType>([
         },
     })),
     actionToUrl(({ values }) => ({
+        setActiveTab: ({ tab }) => {
+            const searchParams = { ...router.values.searchParams }
+            if (tab === SurveyTab.SUMMARY) {
+                delete searchParams['tab']
+            } else {
+                searchParams['tab'] = tab
+            }
+            delete searchParams['activity']
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+        },
         editingSurvey: ({ editing }) => {
             const searchParams = router.values.searchParams
             if (editing) {

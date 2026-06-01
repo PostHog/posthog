@@ -852,6 +852,42 @@ export const commentsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+/**
+ * Mark a task-comment as complete. Sets completed_at and completed_by. 400 if the comment is not a task or is already complete.
+ */
+export const getCommentsCompleteCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/complete/`
+}
+
+export const commentsCompleteCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsCompleteCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+/**
+ * Reopen a completed task-comment. Clears completed_at and completed_by. 400 if the comment is not a task or is already open.
+ */
+export const getCommentsReopenCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/reopen/`
+}
+
+export const commentsReopenCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsReopenCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getCommentsThreadRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/comments/${id}/thread/`
 }

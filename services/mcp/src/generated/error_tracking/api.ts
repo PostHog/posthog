@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -3032,4 +3032,54 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
         .max(errorTrackingSuppressionRulesCreateBodySamplingRateMax)
         .default(errorTrackingSuppressionRulesCreateBodySamplingRateDefault)
         .describe('Fraction of matching events to suppress. Use `1.0` to suppress all matching events.'),
+})
+
+export const ErrorTrackingSymbolSetsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
+
+export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Sort order for symbol sets. Prefix with `-` for descending order.\n\n* `created_at` - created_at\n* `-created_at` - -created_at\n* `ref` - ref\n* `-ref` - -ref\n* `last_used` - last_used\n* `-last_used` - -last_used'
+        ),
+    ref: zod.string().min(1).optional().describe('Exact symbol set reference to filter by.'),
+    status: zod
+        .enum(['all', 'valid', 'invalid'])
+        .default(errorTrackingSymbolSetsListQueryStatusDefault)
+        .describe(
+            'Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.\n\n* `all` - all\n* `valid` - valid\n* `invalid` - invalid'
+        ),
+})
+
+export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Return a presigned URL for downloading the symbol set's source map.
+ */
+export const ErrorTrackingSymbolSetsDownloadRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })

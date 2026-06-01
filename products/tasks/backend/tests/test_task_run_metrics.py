@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -69,39 +69,17 @@ class TestTaskRunMetrics(TestCase):
 
     @parameterized.expand(
         [
-            ("started", True, "user", True, None, [("attempted", "requested"), ("started", "accepted")], True),
-            (
-                "missing_user",
-                False,
-                "none",
-                True,
-                None,
-                [("attempted", "requested"), ("blocked", "missing_user")],
-                False,
-            ),
-            (
-                "feature_flag",
-                False,
-                "user",
-                False,
-                None,
-                [("attempted", "requested"), ("blocked", "feature_flag")],
-                False,
-            ),
+            ("started", "team", None, [("attempted", "requested"), ("started", "accepted")], True),
             (
                 "permission_validation",
-                False,
-                "missing",
-                True,
+                "missing_team",
                 None,
                 [("attempted", "requested"), ("failed", "permission_validation")],
                 False,
             ),
             (
                 "temporal_start",
-                True,
-                "user",
-                True,
+                "team",
                 RuntimeError("boom"),
                 [("attempted", "requested"), ("failed", "temporal_start")],
                 True,
@@ -111,9 +89,7 @@ class TestTaskRunMetrics(TestCase):
     def test_workflow_start_increments_outcome_counters(
         self,
         _name: str,
-        debug: bool,
-        user_kind: str,
-        feature_enabled: bool,
+        team_kind: str,
         sync_connect_side_effect: Exception | None,
         expected_outcomes: list[tuple[str, str]],
         expect_sync_connect_called: bool,
@@ -132,21 +108,15 @@ class TestTaskRunMetrics(TestCase):
         before_by_outcome = [
             _sample_value("posthog_tasks_task_run_workflow_start_total", labels) for labels in labels_by_outcome
         ]
-        user_id = {
-            "user": self.user.id,
-            "none": None,
-            "missing": self.user.id + 1,
-        }[user_kind]
+        team_id = {
+            "team": self.team.id,
+            "missing_team": self.team.id + 9999,
+        }[team_kind]
 
         temporal_client = MagicMock()
         temporal_client.start_workflow = AsyncMock()
 
-        with (
-            override_settings(DEBUG=debug),
-            patch("products.tasks.backend.temporal.client.posthoganalytics.feature_enabled") as mock_feature_enabled,
-            patch("products.tasks.backend.temporal.client.sync_connect") as mock_sync_connect,
-        ):
-            mock_feature_enabled.return_value = feature_enabled
+        with patch("products.tasks.backend.temporal.client.sync_connect") as mock_sync_connect:
             if sync_connect_side_effect is not None:
                 mock_sync_connect.side_effect = sync_connect_side_effect
             else:
@@ -155,8 +125,8 @@ class TestTaskRunMetrics(TestCase):
             execute_task_processing_workflow(
                 task_id=str(self.task.id),
                 run_id=str(task_run.id),
-                team_id=self.team.id,
-                user_id=user_id,
+                team_id=team_id,
+                user_id=self.user.id,
             )
 
         for labels, before in zip(labels_by_outcome, before_by_outcome, strict=True):

@@ -270,6 +270,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = <HogQLBoldNumber />
     }
 
+    if (props.embedded) {
+        return <div className="DataVisualization InsightCard__viz">{component}</div>
+    }
+
     return (
         <div
             className={clsx('DataVisualization flex flex-1 gap-2', {

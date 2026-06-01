@@ -31,6 +31,7 @@ from posthog.clickhouse.query_tagging import (
     Feature,
     Product,
     QueryTags,
+    add_fallback_query_tags,
     get_caller_source,
     get_query_tag_value,
     get_query_tags,
@@ -302,19 +303,17 @@ def sync_execute(
     # update tags if inside temporal (should not)
     update_query_tags_with_temporal_info()
 
-    from posthog.event_usage import EventSource
-
-    if tags.product is None and tags.source == EventSource.MCP:
-        tags.product = Product.MCP
+    add_fallback_query_tags(tags)
 
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
     elif tags.product == Product.ENDPOINTS:
         ch_user = ClickHouseUser.ENDPOINTS
 
-    # Fail fast if trying to run an untagged query in local dev.
-    # If you are reading this because you got the error below, please fix your query by
-    # adding tags!
+    # To humans and bots reading this, you might be tempted to add a catch-all tag to avoid
+    # hitting this error. Please don't do this. This error is to let us know about queries
+    # that are untagged. It's much better for it to throw in local dev, so that we know
+    # to tag it correctly, than it is to add an incorrect tag to avoid throwing.
     # See `tag_queries` and `tags_context` in posthog/clickhouse/query_tagging.py for how to
     # attach tags.
     # Please add whichever tags are relevant, in particular use helper functions like

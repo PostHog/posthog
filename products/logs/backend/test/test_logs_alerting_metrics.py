@@ -1,9 +1,12 @@
 import datetime as dt
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+
+from parameterized import parameterized
 
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
 from products.logs.backend.temporal.metrics import (
@@ -14,17 +17,19 @@ from products.logs.backend.temporal.metrics import (
     increment_check_errors,
     increment_checkpoint_unavailable,
     increment_checks_total,
+    increment_cohort_save_fallback,
     increment_notification_failures,
     increment_state_transition,
-    record_alert_save_duration,
     record_alerts_active,
     record_check_duration,
     record_checkpoint_lag,
     record_clickhouse_duration,
-    record_pending_alerts,
+    record_cohort_event_insert_duration,
+    record_cohort_save_duration,
+    record_cohort_size,
+    record_cohort_update_duration,
     record_schedule_to_start_latency,
     record_scheduler_lag,
-    record_semaphore_wait,
 )
 
 
@@ -41,7 +46,7 @@ class TestLogsAlertingMetricsInterceptor:
 
 class TestActivityTypes:
     def test_alerting_activity_types(self):
-        assert ALERTING_ACTIVITY_TYPES == frozenset({"check_alerts_activity"})
+        assert ALERTING_ACTIVITY_TYPES == frozenset({"discover_cohorts_activity", "evaluate_cohort_batch_activity"})
 
 
 class TestIncrementChecksTotal:
@@ -175,7 +180,11 @@ class TestRecordCheckDuration:
     @patch("products.logs.backend.temporal.metrics._record_histogram")
     def test_records_histogram_with_duration(self, mock_record: MagicMock):
         record_check_duration(150)
-        mock_record.assert_called_once_with("logs_alerting_check_duration_ms", "Per-alert evaluation duration", 150)
+        mock_record.assert_called_once_with(
+            "logs_alerting_check_duration_ms",
+            "Per-alert end-to-end duration (eval + dispatch); cohort bulk save excluded — see logs_alerting_cohort_save_ms",
+            150,
+        )
 
 
 class TestRecordClickhouseDuration:
@@ -189,53 +198,72 @@ class TestRecordClickhouseDuration:
         )
 
 
-class TestRecordSemaphoreWait:
+class TestRecordCohortSaveSubstageDurations:
+    @parameterized.expand(
+        [
+            (
+                "save_total",
+                record_cohort_save_duration,
+                "logs_alerting_cohort_save_ms",
+                "Postgres write time for the per-cohort bulk save (full transaction: bulk_create + bulk_update)",
+                45,
+            ),
+            (
+                "event_insert",
+                record_cohort_event_insert_duration,
+                "logs_alerting_cohort_event_insert_ms",
+                "Postgres bulk_create time for LogsAlertEvent rows in a cohort (only on state changes or errors)",
+                12,
+            ),
+            (
+                "cohort_update",
+                record_cohort_update_duration,
+                "logs_alerting_cohort_update_ms",
+                "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
+                28,
+            ),
+            (
+                "cohort_size",
+                record_cohort_size,
+                "logs_alerting_cohort_size",
+                "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+                17,
+            ),
+        ]
+    )
     @patch("products.logs.backend.temporal.metrics._record_histogram")
-    def test_records_histogram_with_wait(self, mock_record: MagicMock):
-        record_semaphore_wait(800)
-        mock_record.assert_called_once_with(
-            "logs_alerting_semaphore_wait_ms",
-            "Time an alert spent waiting on the per-cycle concurrency semaphore",
-            800,
-        )
+    def test_records_histogram_with_duration(
+        self, _name: str, fn: Any, metric_name: str, description: str, sample_value: int, mock_record: MagicMock
+    ):
+        fn(sample_value)
+        mock_record.assert_called_once_with(metric_name, description, sample_value)
 
 
-class TestRecordAlertSaveDuration:
-    @patch("products.logs.backend.temporal.metrics._record_histogram")
-    def test_records_histogram_with_duration(self, mock_record: MagicMock):
-        record_alert_save_duration(45)
-        mock_record.assert_called_once_with(
-            "logs_alerting_alert_save_ms",
-            "Postgres write time for the per-eval alert state update",
-            45,
-        )
-
-
-class TestRecordPendingAlerts:
-    @pytest.mark.parametrize("count", [42, 0])
+class TestIncrementCohortSaveFallback:
     @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_sets_gauge_value(self, mock_get_meter: MagicMock, count: int):
+    def test_increments_counter_with_reason(self, mock_get_meter: MagicMock):
         mock_meter = MagicMock()
-        mock_gauge = MagicMock()
-        mock_meter.create_gauge.return_value = mock_gauge
+        mock_counter = MagicMock()
+        mock_meter.create_counter.return_value = mock_counter
         mock_get_meter.return_value = mock_meter
 
-        record_pending_alerts(count)
+        increment_cohort_save_fallback("integrity_error")
 
-        (name, _description), _ = mock_meter.create_gauge.call_args
-        assert name == "logs_alerting_pending_alerts"
-        mock_gauge.set.assert_called_once_with(count)
+        mock_get_meter.assert_called_once_with({"reason": "integrity_error"})
+        (name, _description), _ = mock_meter.create_counter.call_args
+        assert name == "logs_alerting_cohort_save_fallback_total"
+        mock_counter.add.assert_called_once_with(1)
 
 
 class TestRecordScheduleToStartLatency:
     @patch("products.logs.backend.temporal.metrics._record_histogram")
     def test_records_latency_with_activity_type(self, mock_record: MagicMock):
-        record_schedule_to_start_latency("check_alerts_activity", 250)
+        record_schedule_to_start_latency("discover_cohorts_activity", 250)
         mock_record.assert_called_once_with(
             "logs_alerting_schedule_to_start_ms",
             "Time between activity scheduling and start",
             250,
-            {"activity_type": "check_alerts_activity"},
+            {"activity_type": "discover_cohorts_activity"},
         )
 
 

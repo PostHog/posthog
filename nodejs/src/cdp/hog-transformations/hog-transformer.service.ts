@@ -13,7 +13,7 @@ import { GeoIPService, GeoIp } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 import { TeamManager } from '../../utils/team-manager'
-import { CdpCoreServicesConfig } from '../cdp-services'
+import { CdpCoreServicesConfig, createCdpReaderRedisPool } from '../cdp-services'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
@@ -455,6 +455,8 @@ export function createHogTransformerService(
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
+    const redisReader = createCdpReaderRedisPool(config, redis, 'hog-transformer-redis')
+
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const emailService = new EmailService(
@@ -503,7 +505,8 @@ export function createHogTransformerService(
             observeResultsBufferTimeMs: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS,
             observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
         },
-        redis
+        redis,
+        redisReader
     )
 
     return new HogTransformerService(

@@ -24,6 +24,10 @@ export interface ChartLayoutContextValue<Meta = unknown> {
      *  This is a getter (not a value) because DOMRect changes on scroll. Useful for
      *  custom overlays that portal positioned content outside the chart wrapper. */
     canvasBounds: () => DOMRect | null
+    /** `horizontal` swaps which axis carries the value scale (`scales.y` returns x-pixels). */
+    axisOrientation: 'vertical' | 'horizontal'
+    /** True for BarChart `barLayout: 'percent'` / LineChart `percentStackView`. */
+    isPercent: boolean
 }
 
 /** Hover state isolated from layout so mousemoves don't invalidate every overlay.

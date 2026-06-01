@@ -1,4 +1,5 @@
 import pytest
+import unittest.mock
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -185,9 +186,13 @@ async def test_connect_when_invalid_host():
         catalog="test",
         schema="test",
     )
-    with pytest.raises(
-        DatabricksConnectionError,
-        match="Failed to connect to Databricks. Please check that your connection details are valid.",
+    with unittest.mock.patch(
+        "products.batch_exports.backend.temporal.destinations.databricks_batch_export.sql.connect",
+        side_effect=ValueError("invalid host"),
     ):
-        async with client.connect():
-            pass
+        with pytest.raises(
+            DatabricksConnectionError,
+            match="Failed to connect to Databricks. Please check that your connection details are valid.",
+        ):
+            async with client.connect():
+                pass

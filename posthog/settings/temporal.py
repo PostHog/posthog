@@ -51,9 +51,10 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Override the process_task workflow's inactivity timeout (default 5 min). Set
-# this to e.g. 30 for local testing of the shutdown / resume flow. When set,
-# the CI-follow-up floor is also bypassed so the timer actually fires fast.
+# Override the process_task workflow's inactivity timeout (default 2 hours).
+# Set this to e.g. 30 for local testing of the shutdown / resume flow. When
+# set, the CI-follow-up floor is also bypassed so the timer actually fires
+# fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")

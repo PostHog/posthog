@@ -63,4 +63,37 @@ describe('useChartMargins', () => {
         const small: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
     })
+
+    describe('horizontal orientation', () => {
+        it('sizes the left margin from the widest category label, not value-tick width', () => {
+            const longCategoryLabels = ['shortest', 'a-considerably-longer-label']
+            const shortValueData: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]
+            const horizontal = render({
+                series: shortValueData,
+                labels: longCategoryLabels,
+                axisOrientation: 'horizontal',
+            })
+            const vertical = render({ series: shortValueData, labels: longCategoryLabels })
+            // Horizontal: left margin reflects category-label width (25 chars × 10 = 250 + padding).
+            // Vertical: left margin reflects value-tick width (single-digit ticks → small).
+            expect(horizontal.left).toBeGreaterThan(vertical.left)
+        })
+
+        it('sizes the right margin from the widest value tick, not category-label width', () => {
+            const shortLabels = ['a', 'b']
+            const bigValueData: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
+            const horizontal = render({
+                series: bigValueData,
+                labels: shortLabels,
+                axisOrientation: 'horizontal',
+            })
+            const vertical = render({
+                series: bigValueData,
+                labels: shortLabels,
+            })
+            // Horizontal: bottom-axis value ticks force the right margin wider to accommodate the
+            // rightmost tick's half-width. Vertical's right margin only sees the (tiny) category label.
+            expect(horizontal.right).toBeGreaterThan(vertical.right)
+        })
+    })
 })

@@ -25,15 +25,15 @@
 
     /* Variants — text = outer color ring, inner = solid fill, pulse = border color */
     .quill-dot--variant-default {
-        color: var(--accent);
+        color: var(--muted-foreground);
     }
 
     .quill-dot--variant-default .quill-dot__inner {
-        background-color: color-mix(in oklab, var(--accent-foreground) 40%, transparent);
+        background-color: color-mix(in oklab, var(--foreground) 40%, transparent);
     }
 
     .quill-dot--variant-default .quill-dot__pulse {
-        border-color: color-mix(in oklab, var(--accent-foreground) 40%, transparent);
+        border-color: color-mix(in oklab, var(--foreground) 40%, transparent);
     }
 
     .quill-dot--variant-info {

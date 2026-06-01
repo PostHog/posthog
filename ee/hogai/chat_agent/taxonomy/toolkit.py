@@ -29,7 +29,6 @@ from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import Actor
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Action, Team, User
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.sync import database_sync_to_async
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
@@ -146,19 +145,16 @@ class TaxonomyAgentToolkit:
         self.MAX_ENTITIES_PER_BATCH = 6
         self.MAX_PROPERTIES = 500
 
-    @property
-    def _groups(self):
-        # nosemgrep: no-direct-persons-db-orm
-        return GroupTypeMapping.objects.filter(
-            project_id=self._team.project_id
-        ).order_by(  # nosemgrep: no-direct-persons-db-orm
-            "group_type_index"
-        )  # nosemgrep: no-direct-persons-db-orm
+    @cached_property
+    def _groups(self) -> list[dict]:
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return get_group_types_for_project(self._team.project_id)
 
     @cached_property
     def _team_group_types(self) -> list[str]:
         """Get all available group names for this team."""
-        return list(self._groups.values_list("group_type", flat=True))
+        return [g["group_type"] for g in self._groups]
 
     @cached_property
     def _entity_names(self) -> list[str]:
@@ -174,6 +170,10 @@ class TaxonomyAgentToolkit:
             *self._team_group_types,
         ]
         return entities
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _get_groups(self) -> list[dict]:
+        return self._groups
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_entity_names(self) -> list[str]:
@@ -336,7 +336,7 @@ class TaxonomyAgentToolkit:
             for property_name in property_names:
                 results.append(self._retrieve_session_properties(property_name))
             return results
-        groups = [group async for group in self._groups]
+        groups = await self._get_groups()
         query = self._build_query(entity, property_names, groups)
         if query is None:
             results.append(TaxonomyErrorMessages.entity_not_found(entity))
@@ -370,11 +370,10 @@ class TaxonomyAgentToolkit:
     async def retrieve_entity_properties_parallel(self, entities: list[str]) -> dict[str, str]:
         tool_calls = []
         groups = []
+        team_group_types = await self._get_team_group_types()
 
         for entity in entities:
-            group_types = [group.group_type async for group in self._groups]
-
-            if entity in group_types:
+            if entity in team_group_types:
                 groups.append(entity)
             else:
                 tool_calls.append(
@@ -491,8 +490,9 @@ class TaxonomyAgentToolkit:
 
         entity_to_group_index = {}
         artifacts = []
+        all_groups = await self._get_groups()
         for group_entity in group_entities:
-            group_types = {group.group_type: group.group_type_index async for group in self._groups}
+            group_types = {g["group_type"]: g["group_type_index"] for g in all_groups}
             group_type_index = group_types.get(group_entity, None)
             if group_type_index is not None:
                 entity_to_group_index[group_entity] = group_type_index
@@ -615,7 +615,7 @@ class TaxonomyAgentToolkit:
         return {prop.name: prop for prop in property_definitions}
 
     def _build_query(
-        self, entity: str, properties: list[str], groups: list[GroupTypeMapping]
+        self, entity: str, properties: list[str], groups: list[dict]
     ) -> ActorsPropertyTaxonomyQuery | None:
         """Build a query for the given entity and property names."""
         if entity == "person":
@@ -623,7 +623,7 @@ class TaxonomyAgentToolkit:
         elif entity == "event":
             query = ActorsPropertyTaxonomyQuery(properties=properties, maxPropertyValues=50)
         else:
-            group_index = next((group.group_type_index for group in groups if group.group_type == entity), None)
+            group_index = next((g["group_type_index"] for g in groups if g["group_type"] == entity), None)
             if group_index is None:
                 return None
             query = ActorsPropertyTaxonomyQuery(groupTypeIndex=group_index, properties=properties, maxPropertyValues=25)
