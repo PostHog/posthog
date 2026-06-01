@@ -15,52 +15,71 @@ Legend for the prerequisites checklist:
 | 📋     | Planned — a sibling plan file exists. Link to it.                                                        |
 | ⚠️     | **Gap** — neither built nor planned. Either a new plan needs writing or the app needs a different shape. |
 
-Cross-cutting gaps surfaced by this inbox (promote into their own
-plans once we commit):
+Cross-cutting status (refreshed against current code):
 
-- ⚠️ **Persistent agent memory** — every "remembers" bullet below
-  (SRE outcomes, doc updates, customer profiles, pricing RFCs,
-  weekly changelogs) wants a first-class memory store on the
-  platform. Today the only persistence agents have is
-  `agent_session.conversation` JSONB (per-session, evictable).
-  Discussed in
-  [`resumable-conversations.md`](resumable-conversations.md) for
-  conversation continuity, but a cross-session **key-value /
-  vector store keyed by `(agent, scope)`** is not designed
-  anywhere yet. Needs its own plan.
-- ⚠️ **Per-user (per-principal) memory scope** — distinct from
-  agent-wide memory. "Agent remembers individual users for
-  better context" / "stores responses in memory for later
-  analysis" both need a `scope: 'user:<principal_id>'` slot on
-  whatever the memory primitive ends up being. Composes with
-  the principal model from
-  [`per-session-access-elevation.md`](per-session-access-elevation.md)
-  but is a memory-layer concern, not an ACL one.
-- ⚠️ **Document / corpus ingestion + retrieval** — multiple
-  apps want "query existing documentation", "read changelogs",
-  "subscribe to newsletters". `web-fetch` + `web-search` cover
-  ad-hoc fetches; what's missing is a curated corpus an agent
-  is grounded against, with periodic refresh.
-- ⚠️ **Inbound email mailbox per agent** — "subscribes to
-  newsletters", "reads email updates" needs an addressable
-  mailbox that triggers a session on receive. No trigger type
-  for email today.
-- ⚠️ **Spreadsheet / structured-report output sink** — "outputs
-  to spreadsheets or structured reports" wants a typed artifact
-  sink (Google Sheets, Notion DB, etc.) rather than only inline
-  tool_result content. Composes with the artifact channel from
-  [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md)
-  §"artifact channel" but that's intra-session; persisted
-  artifacts to external systems aren't covered.
-- ⚠️ **Connecting an agent to a user's local machine** (filesystem,
-  local git, local kubectl context) — server agents can't reach
-  out to a developer's laptop today. The closest existing
-  pattern is the **client-fulfilled tools** protocol from
-  [`agent-console-website.md`](agent-console-website.md) §8 —
-  the client (CLI / IDE / desktop app) declares `client.handles[]`
-  and the runner routes the call back over SSE. That's the
-  natural shape for "local fs / local git" tools but no
-  CLI client exists yet to host them.
+- ✅ **Persistent agent memory** — `MemoryStore` interface +
+  `S3MemoryStore` impl in
+  [`services/agent-shared/src/memory/`](../../../services/agent-shared/src/memory/),
+  with six native tools (`@posthog/memory-list / -search /
+-read / -write / -update / -delete` in
+  [`services/agent-tools/src/tools/memory.ts`](../../../services/agent-tools/src/tools/memory.ts)).
+  Markdown + YAML frontmatter format with BM25 search via
+  MiniSearch. Per-`(team, application)` scoped — every
+  "remembers across sessions" bullet below now has a concrete
+  primitive to lean on.
+- ⚠️ **Per-user (per-principal) memory scope** — the memory layer
+  scopes by `(teamId, applicationId)` only. There is no
+  `scope: 'user:<principal_id>'` slot, so "agent remembers this
+  individual user" use cases still degrade to "agent remembers
+  the most-recent answer for everyone" without a shim. Still a
+  gap; would need a key-prefix convention or a new field on
+  `MemoryStore.write()`.
+- ✅ **Skill templates** — registry of shared, versioned skills +
+  custom-tool templates that agents pin via
+  `spec.skills[].from_template` / `spec.tools[].from_template`.
+  Backend, MCP write tools, freeze-time resolution, frontend
+  pages, concierge skill — see
+  [`skill-templates.md`](skill-templates.md).
+- 📋 **Cron trigger** — schema slot exists in `TriggerSchema`,
+  janitor side (the scheduler that fires sessions on schedule)
+  is not implemented. Plan:
+  [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
+  Every weekly / monthly app below assumes cron and is
+  currently blocked on this — but it's a small piece of work.
+- 📋 **Runtime MCP support (external endpoints)** —
+  `McpRefSchema` accepts `{ kind: 'external', url }`, but the
+  runner doesn't open external MCP clients at session start.
+  Agent-to-agent MCP (`kind: 'agent'`) resolves through the
+  ingress because the receiving agent's `/mcp` trigger exists.
+  Plan: [`runtime-mcps.md`](runtime-mcps.md). Anything wanting
+  GitHub / Stripe / Grafana / k8s / Warpstream is blocked here
+  until this lands — but most of those have MCP servers, so it
+  unblocks several apps at once.
+- ⚠️ **Document / corpus ingestion + retrieval** — multiple apps
+  want a curated, periodically-refreshed corpus to ground
+  against. `web-fetch` + `web-search` cover ad-hoc retrieval;
+  no curated-corpus primitive. Could be served by the memory
+  store if a corpus-loader job is added, but the indexing
+  semantics differ from per-agent notes.
+- ⚠️ **Inbound email mailbox per agent** — no email trigger,
+  no plan.
+- ⚠️ **Spreadsheet / structured-report output sink** —
+  no Sheets / Notion / Airtable native tool, no plan.
+- ⚠️ **Agent-to-agent invocation (outbound)** — the receiving
+  half is shipped (agent-as-MCP), the calling-from-an-agent
+  half needs a `@posthog/ass/trigger-agent` native or the
+  runtime-MCP path open to point at another platform agent's
+  `/mcp` endpoint. Not a separate plan today.
+- ⚠️ **Connecting an agent to a user's local machine** — the
+  client-fulfilled-tools protocol (`kind: 'client'`) is shipped
+  and used today by the agent-console for `focus_*` / `toast` /
+  `set_secret`. The shape supports local-fs / local-git tools
+  in principle; what's missing is a **CLI client** that hosts
+  them. No plan today.
+- ⚠️ **Call-transcription integration** (Gong / Otter / Fireflies)
+  and **incentive distribution** (Tremendous / Amazon gift
+  cards) — no plan, no MCP server we'd reach for once runtime
+  MCP lands.
 
 ---
 
@@ -124,12 +143,18 @@ reasoning: high
 - [ ] 📋 Runtime MCP support for Grafana + k8s servers —
       [`runtime-mcps.md`](runtime-mcps.md).
       Schema slot exists; runner doesn't open the clients yet.
-- [ ] ⚠️ **Persistent agent memory** — "remembers outcomes from
-      previous alerts/incidents" requires cross-session storage
-      keyed by alert signature → notes. **Gap.**
+- [x] ✅ Persistent agent memory — `MemoryStore` + `@posthog/memory-*`
+      tools cover the "remember outcomes by alert signature" use
+      case as markdown notes with BM25 search.
 - [ ] ⚠️ Runbook corpus retrieval — `web-fetch` works for a
       single URL but the agent needs a grounded index over the
-      whole runbook tree. **Gap.**
+      whole runbook tree. Memory store could host a periodic
+      mirror; no loader job today. **Gap.**
+
+**Feasibility today.** Ship the v0 (already done). The next
+visible upgrade is **memory** — alert-signature → outcome notes
+land immediately because the primitive exists. Grafana / k8s
+MCPs wait on [`runtime-mcps.md`](runtime-mcps.md).
 
 ---
 
@@ -175,14 +200,30 @@ auth: { mode: 'public' } # public docs, identity flows from chat
       "approved Slack org member" can be checked) —
       [`per-session-access-elevation.md`](per-session-access-elevation.md).
 - [x] ✅ Approval-gated tools for memory-write into the internal
-      tier — [`approval-gated-tools.md`](approval-gated-tools.md).
-- [ ] ⚠️ **Persistent agent memory** (internal scope) — **gap**.
-- [ ] ⚠️ **Per-user memory** (user scope) — **gap**.
+      tier — [`approval-gated-tools.md`](approval-gated-tools.md);
+      `@posthog/memory-write` accepts an `approval_policy` override.
+- [x] ✅ Persistent agent memory (internal scope) — `MemoryStore`
+      keyed by `(team, application)`; the "agent-wide" tier maps
+      to a flat path prefix.
+- [ ] ⚠️ **Per-user memory scope** — `MemoryStore` doesn't accept
+      a principal segment in the key; "Ben usually means…"
+      requires a shim or a small extension. **Gap.**
 - [ ] ⚠️ Curated doc corpus + retrieval (more than `web-fetch`) —
-      **gap**.
+      could be a periodic memory-store loader, but no job exists
+      and the indexing semantics drift from per-agent notes.
+      **Gap.**
 - [ ] ⚠️ Native GitHub "open PR with these changes" tool —
-      **gap**. Could be served via [`runtime-mcps.md`](runtime-mcps.md)
+      **gap**. Will be served via [`runtime-mcps.md`](runtime-mcps.md)
       once that ships, since GitHub has an MCP server.
+
+**Feasibility today.** Buildable as **org-only internal Slack
+bot first** — the public-docs surface needs the chat-trigger
+embeddable variant on posthog.com/docs (separate frontend
+work) and a curated doc corpus (gap). Memory + approval gating
+let the org-internal "remember Ben prefers Node SDK" flow work
+right now without per-user scope, by writing notes with a
+`user:ben@posthog.com` tag in the body — until per-user scope
+lands as a first-class field.
 
 ---
 
@@ -224,15 +265,27 @@ skills:
 - [x] ✅ Per-session principal threading so wizard actions show up
       as the user in the activity log —
       [`per-session-access-elevation.md`](per-session-access-elevation.md).
-- [ ] 📋 Authoring skill + reference flow —
-      [`agent-authoring-flow.md`](agent-authoring-flow.md).
-- [ ] 📋 Client-fulfilled tools protocol (so server-side variant
-      can drive console navigation; foundational for the
-      local-CLI variant too) —
-      [`agent-console-website.md`](agent-console-website.md) §8.
+- [x] ✅ Authoring skill + reference flow — the agent-concierge
+      bundle at
+      [`services/agent-tests/src/examples/agent-concierge/`](../../../services/agent-tests/src/examples/agent-concierge/)
+      is the reference; `skills/authoring-new-agents.md`,
+      `skills/editing-agents-safely.md`,
+      `skills/using-the-registry.md` cover the flow.
+- [x] ✅ Client-fulfilled tools protocol — `kind: 'client'`
+      variant in
+      [`spec.ts`](../../../services/agent-shared/src/spec/spec.ts);
+      `focus_*` / `toast` / `get_context` / `set_secret`
+      handlers live in
+      [`services/agent-console/src/components/Dock.tsx`](../../../services/agent-console/src/components/Dock.tsx).
 - [ ] ⚠️ Local-CLI client that hosts `local-fs/*` + `local-git/*`
       client-fulfilled tools — no plan for this client today.
       **Gap** for the local variant; not blocking for server-side.
+
+**Feasibility today.** Server-side variant is **buildable now**
+— concierge bundle ships, all referenced client tools are wired
+in the console, the registry lets it pull canonical authoring
+skills via `from_template`. The local-CLI variant still wants
+a CLI client to host `local-fs` / `local-git` tools.
 
 ---
 
@@ -264,7 +317,8 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger —
+- [ ] 📋 Cron trigger — schema slot exists; scheduler not built.
+      Plan:
       [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
 - [x] ✅ Slack post tool —
       [`slack.v1.ts`](../../../services/agent-tools/src/tools/slack.v1.ts).
@@ -273,8 +327,13 @@ skills:
 - [x] ✅ Slack read-channel + read-thread —
       [`slack.v1.ts`](../../../services/agent-tools/src/tools/slack.v1.ts)
       `slackReadChannelV1` / `slackReadThreadV1`.
-- [ ] ⚠️ **Persistent agent memory** for per-product weekly
-      changelog rollups. **Gap.**
+- [x] ✅ Persistent agent memory for per-product weekly
+      changelog rollups.
+
+**Feasibility today.** **Blocked on two small pieces**: cron
+scheduler + GitHub access via runtime MCP. Both are planned, not
+gaps. Slack-only variant (no PR list — humans paste links) is
+buildable as a webhook-triggered draft today.
 
 ---
 
@@ -309,13 +368,20 @@ reasoning: high # the dedup is the hard part
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [ ] 📋 GitHub access via runtime MCP —
       [`runtime-mcps.md`](runtime-mcps.md).
 - [x] ✅ Slack read-channel — see Marketing agent.
-- [ ] ⚠️ **Persistent agent memory** with semantic/fuzzy lookup
-      (the canonicalization problem _is_ a vector-search problem).
-      **Gap.**
+- [x] ⚠️ Persistent agent memory — `MemoryStore` ships BM25
+      search via MiniSearch, which handles the
+      canonicalization-by-fuzzy-token problem well enough for a
+      v0. **True vector / embedding search isn't shipped** —
+      mark as `partial`. Acceptable for v0; revisit when the
+      dedup quality plateaus.
+
+**Feasibility today.** Same blockers as Marketing agent: cron +
+runtime MCP for GitHub. Memory primitive is good-enough for the
+dedup. Buildable end-of-month if cron lands.
 
 ---
 
@@ -351,15 +417,23 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron + webhook triggers.
+- [ ] 📋 Cron trigger.
+- [x] ✅ Webhook trigger.
 - [x] ✅ PostHog query tool.
 - [x] ✅ Web-fetch for competitor pages.
 - [x] ✅ Sandboxed code execution for simulation math —
       [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md).
-- [ ] ⚠️ **Persistent agent memory** for pricing RFCs + last-period
-      snapshot. **Gap.**
+- [x] ✅ Persistent agent memory for pricing RFCs + last-period
+      snapshot — store as memory notes, retrieve via
+      `memory-search`.
 - [ ] ⚠️ **Spreadsheet / structured-report output** for scenarios.
-      **Gap.**
+      **Gap.** Workaround: write the simulation output as a
+      memory note and have the user pull it into Sheets manually.
+
+**Feasibility today.** Webhook-triggered (on-demand) variant
+is **buildable now** with the on-demand fallback for the missing
+Sheets sink. The "every 6 months" cron variant waits on the
+cron scheduler.
 
 ---
 
@@ -391,14 +465,22 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [x] ✅ Web-fetch.
 - [ ] ⚠️ **Inbound email trigger / per-agent mailbox** for
       newsletter subscription. **Gap.**
-- [ ] ⚠️ **Persistent agent memory** with per-user scope (for
-      configured interests). **Gap.**
+- [x] ⚠️ Persistent agent memory exists; **per-user scope is
+      missing** — "Ben likes observability content" works only
+      via in-body tagging until per-principal scope lands.
 - [ ] ⚠️ **Native data-warehouse write tool** (current `@posthog/query`
-      is read-only). **Gap.**
+      is read-only). **Gap.** Workaround: write summaries to
+      memory + render via a Notebook later.
+
+**Feasibility today.** **Two real gaps** (email trigger,
+warehouse write) and one nice-to-have (per-user scope). Could
+ship as a cron-fired (once cron lands) Slack-output app
+with user interests in a memory file editable by hand —
+slimmer than the original vision but viable.
 
 ---
 
@@ -428,13 +510,26 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron + webhook triggers.
+- [ ] 📋 Cron trigger.
+- [x] ✅ Webhook trigger.
 - [x] ✅ Long-running sessions —
-      [`long-running-sessions.md`](long-running-sessions.md).
+      [`long-running-sessions.md`](long-running-sessions.md);
+      `ResumeConfigSchema` in spec, `resume.enabled` flag with
+      `max_completed_age_ms` (default 7 days, raisable per
+      agent).
 - [ ] ⚠️ **Call transcription integration** (Gong / Otter / etc.) —
-      no native tool, no MCP for these yet. **Gap.**
-- [ ] ⚠️ **Persistent agent memory** with semantic search for
-      insight clustering. **Gap.**
+      no native tool, no MCP server we'd target once runtime
+      MCP lands. **Gap.** Workaround: webhook trigger ingests
+      transcripts the transcription provider posts.
+- [x] ⚠️ Persistent agent memory shipped; semantic / vector
+      search not (MiniSearch BM25 only). Insight clustering
+      works at v0 quality.
+
+**Feasibility today.** Buildable as a **webhook-fed variant**
+where the transcription service POSTs to `/agents/<slug>/webhook`
+with the transcript inline. Long-running sessions + memory let
+the cross-quarter synthesis pass work. No native transcription
+tool needed.
 
 ---
 
@@ -471,12 +566,23 @@ skills:
       [`per-session-access-elevation.md`](per-session-access-elevation.md).
 - [x] ✅ Approval-gated tools for incentive distribution —
       [`approval-gated-tools.md`](approval-gated-tools.md).
-- [ ] 📋 Skill templates (for "interview template" library shape) —
-      [`skill-templates.md`](skill-templates.md).
-- [ ] ⚠️ **Persistent agent memory** scoped per-respondent +
-      cross-respondent corpus query. **Gap.**
+- [x] ✅ Skill templates — see
+      [`skill-templates.md`](skill-templates.md); registry
+      lets the agent pin a canonical "interview template" via
+      `from_template`.
+- [x] ⚠️ Persistent agent memory shipped but **per-respondent
+      scope is missing** — respondents would have to share a
+      single memory pool until per-principal scope lands. v0
+      workaround: prefix path with respondent id.
 - [ ] ⚠️ **Incentive distribution integration** (Tremendous,
-      Amazon gift cards, etc.) — **gap**.
+      Amazon gift cards, etc.) — **gap**. Could be a custom
+      tool the user wires today with their own API key.
+
+**Feasibility today.** **Buildable as a v0** with skill
+templates handling interview library, memory + path-prefixing
+covering per-respondent answers, and a user-authored custom
+tool wrapping Tremendous's API. Per-principal scope upgrade
+later.
 
 ---
 
@@ -508,17 +614,26 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [x] ✅ PostHog query tool.
 - [x] ✅ Sandboxed code execution / coding-agent target for
       "fix the missing instrumentation" —
       [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md).
-- [ ] 📋 **Agent-to-agent invocation** ("trigger the coding
-      agent from here") — the auto-chaining gateway entry in
-      [`_TODO.md`](_TODO.md#auto-chaining) covers the inbound
-      side; outbound "agent X starts agent Y" wants the same
-      primitive. Track as gateway plan v2.
-- [ ] ⚠️ **Spreadsheet output sink**. **Gap.**
+- [ ] ⚠️ **Agent-to-agent invocation** ("trigger the coding
+      agent from here") — receiving half (agent-as-MCP)
+      shipped; outbound call from inside an agent still
+      missing. Could be served by runtime MCP pointing at the
+      other agent's `/mcp` once it lands. Track as gateway
+      plan v2.
+- [ ] ⚠️ **Spreadsheet output sink**. **Gap.** Workaround:
+      output to a Slack post / Notebook / memory note.
+
+**Feasibility today.** **Buildable as a webhook-fed v0**
+(weekly cron lands later) that posts the review to Slack
+or writes to a Notebook instead of Sheets. Coding-agent
+fan-out comes after agent-to-agent outbound — until then,
+flag missing instrumentation in the report and the user
+opens issues by hand.
 
 ---
 
@@ -549,14 +664,21 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [ ] 📋 GitHub + ticketing access via runtime MCP —
       [`runtime-mcps.md`](runtime-mcps.md).
-- [ ] 📋 Agent-to-agent invocation (see Growth review).
-- [ ] ⚠️ **Persistent agent memory** (shared corpus with
-      Customer research agent — implies a memory _scope_ broader
-      than a single agent, which the proposed memory primitive
-      needs to support). **Gap.**
+- [ ] ⚠️ Agent-to-agent invocation (see Growth review).
+- [x] ⚠️ Persistent agent memory shipped per-agent;
+      **cross-agent shared corpus** (shared with the Customer
+      research agent) is missing. `MemoryStore` keys include
+      `applicationId` so two agents can't read from the same
+      pool. **Gap.** Workaround: pick one of the two agents as
+      the corpus owner and have the other query via MCP.
+
+**Feasibility today.** **Blocked on cron + runtime MCP** for
+real data sources. Memory can be made to work via the "single
+owner agent" workaround. Without the data sources, only the
+gap-classifier logic is exercisable — not enough to ship.
 
 ---
 
@@ -587,12 +709,18 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [ ] 📋 Runtime MCP — [`runtime-mcps.md`](runtime-mcps.md).
       Once wired, every external financial provider with an MCP
       server drops in.
-- [ ] ⚠️ **Persistent agent memory** for cross-run reconciliation
-      state. **Gap.**
+- [x] ✅ Persistent agent memory — cross-run reconciliation
+      state lives naturally as memory notes (per-period
+      snapshot keyed by date).
+
+**Feasibility today.** **Blocked entirely on runtime MCP** —
+no Stripe / banking data without it. Cron is a smaller piece;
+memory's done. This is a great showcase agent the moment
+runtime MCP lands.
 
 ---
 
@@ -623,34 +751,72 @@ skills:
 
 **Platform prerequisites.**
 
-- [x] ✅ Cron trigger.
+- [ ] 📋 Cron trigger.
 - [x] ✅ Sandboxed code execution for forecasting math —
       [`sandboxed-agent-inference.md`](sandboxed-agent-inference.md).
 - [ ] 📋 Runtime MCP for Warpstream + Grafana —
       [`runtime-mcps.md`](runtime-mcps.md).
-- [ ] ⚠️ **Persistent agent memory** to compare current
-      projections against last week's. **Gap.** (Could also be
-      satisfied by a data-warehouse write tool — same workaround.)
+- [x] ✅ Persistent agent memory — last-period snapshot lands
+      as a memory note keyed by ISO week.
+
+**Feasibility today.** Same shape as Financial reconciliation:
+**blocked on runtime MCP**. The forecasting math + memory both
+exist; the data sources don't.
 
 ---
 
-## Promotion candidates
+## Feasibility matrix
 
-Apps that would be **buildable end-of-month** if we picked them up
-right now, judged against the prerequisites above:
+| App                            | Verdict (now)                                                    | What's missing                                              |
+| ------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------- |
+| SRE Slack bot                  | ✅ Ship today; v1 needs memory (also ✅) + runtime MCP           | Grafana / k8s MCP                                           |
+| AI documentation agent         | 🟡 Internal-only Slack v0 ships; public docs surface waits       | Per-user memory scope + curated doc corpus                  |
+| Wizard for ASS (server)        | ✅ Ship today                                                    | —                                                           |
+| Wizard for ASS (local-CLI)     | 🔴 Blocked                                                       | CLI client to host `local-fs` / `local-git` tools           |
+| Marketing update agent         | 🟡 Slack-only v0 via webhook; full vision waits                  | Cron + runtime MCP (GitHub)                                 |
+| Feature prioritization agent   | 🟡 Webhook v0; cron variant waits                                | Cron + runtime MCP (GitHub)                                 |
+| Competitive pricing agent      | ✅ Webhook-triggered v0 ships now                                | Cron (for "every 6 months") + Sheets sink (use memory note) |
+| Industry intelligence agent    | 🔴 Two-gap blocked                                               | Email trigger + warehouse-write                             |
+| Customer research agent        | ✅ Webhook v0 ships now                                          | Per-respondent scope is nice-to-have, not blocking          |
+| AI user interviewing agent     | ✅ v0 ships now via skill templates + custom tool for Tremendous | Native incentive integration is convenience, not blocker    |
+| Growth review automation       | 🟡 Webhook v0; cron + agent-fan-out wait                         | Cron + agent-to-agent outbound                              |
+| Gap analysis agent             | 🔴 Blocked                                                       | Cron + runtime MCP for ticketing & GitHub                   |
+| Financial reconciliation agent | 🔴 Blocked                                                       | Runtime MCP for Stripe + banking                            |
+| Warpstream forecasting tool    | 🔴 Blocked                                                       | Runtime MCP for Warpstream + Grafana                        |
 
-1. **SRE Slack bot** — buildable today _without_ memory and
-   _without_ Grafana/k8s MCP, by leaning on `@posthog/query` for
-   logs and Slack thread continuity as a soft memory substitute.
-   Lossy but ships. Adding memory + runtime MCPs is the
-   visible-improvement loop.
-2. **Wizard for ASS (server-side variant)** — buildable today,
-   blocked only on the chat dock landing
-   ([`agent-console-website.md`](agent-console-website.md) phase
-   v0.2). Local-CLI variant gated on a CLI client.
-3. **Growth review automation** — buildable minus the spreadsheet
-   sink (output to a doc or Slack message in v0).
+Legend: ✅ build now · 🟡 v0 buildable with a stripped scope ·
+🔴 blocked on a sibling plan.
 
-Everything else is gated primarily on the **persistent memory**
-gap — that's the single highest-leverage platform investment for
-this inbox.
+## Promotion candidates — refreshed
+
+Highest-leverage next picks given the matrix:
+
+1. **Wizard for ASS (server-side)** — the only fully-unblocked
+   "showcase the platform" candidate; the agent-concierge bundle
+   already covers most of it, registry + chat dock land the rest.
+2. **SRE Slack bot v1 (memory pass)** — memory's the highest-value
+   visible upgrade and was the doc's "single highest-leverage
+   platform investment." Now that the primitive is shipped, the
+   upgrade is days of bundle work, not platform work.
+3. **Competitive pricing agent (webhook variant)** — ships now
+   end-to-end with the memory-note-as-Sheets-substitute
+   workaround; uses sandbox + query + web-fetch + memory.
+
+**What unblocks the most apps for the least platform work:**
+
+- **Cron scheduler** ([`cron-trigger-scheduler.md`](cron-trigger-scheduler.md))
+  → unblocks the time-based half of Marketing, Feature
+  prioritization, Industry intel, Customer research, Growth
+  review, Gap analysis, Financial reconciliation, Warpstream
+  forecasting. **8 apps.**
+- **Runtime MCP (external)** ([`runtime-mcps.md`](runtime-mcps.md))
+  → unblocks Marketing (GitHub), Feature prioritization (GitHub),
+  Gap analysis (GitHub + ticketing), Financial reconciliation
+  (Stripe + banking), Warpstream forecasting (Warpstream +
+  Grafana), and the v1 of SRE bot. **6 apps.**
+
+Memory was the previous highest-leverage block; it's now shipped.
+The next two platform investments in priority order are **cron
+scheduler** then **runtime MCP**. Per-user memory scope and a
+spreadsheet sink come third — neither blocks an app fully, both
+turn 🟡 verdicts into ✅.
