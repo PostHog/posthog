@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
 
-import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSelection'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { OnboardingFlowHost } from './OnboardingFlowHost'
 import { onboardingLogic } from './onboardingLogic'
+import { onboardingVariantRegistry } from './onboardingVariantRegistry'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -14,20 +13,12 @@ export const scene: SceneExport = {
 /**
  * Onboarding scene shell.
  *
- * - No `productKey` in the URL → render the product-selection landing page.
- * - With a `productKey` → hand off to {@link OnboardingFlowHost}, which renders the
- *   current step out of the data-driven flow built by `onboardingLogic.flow`.
+ * Reads the `ONBOARDING_FLOW_VARIANT` multivariate flag and renders the matching onboarding
+ * variant from {@link onboardingVariantRegistry}. `control` (the default, and the fallback for
+ * any unknown value) renders the current product-selection + step-host flow.
  */
 export function Onboarding(): JSX.Element | null {
-    const { productKey } = useValues(onboardingLogic)
-
-    if (!productKey) {
-        return <ProductSelection />
-    }
-
-    return (
-        <div className="pt-4 pb-10">
-            <OnboardingFlowHost />
-        </div>
-    )
+    const { onboardingFlowVariant } = useValues(onboardingLogic)
+    const VariantComponent = onboardingVariantRegistry[onboardingFlowVariant] ?? onboardingVariantRegistry.control
+    return <VariantComponent />
 }
