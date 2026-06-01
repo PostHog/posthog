@@ -538,11 +538,8 @@ async def run_multi_turn_research(
         internal=True,
     )
 
-    # start() returned the session, so the sandbox is live. Any failure past this point must end
-    # the session — otherwise the orphaned sandbox keeps running until the workflow inactivity
-    # timeout, and on a Temporal retry a fresh run would overlap it. Mirrors start()'s own cleanup.
-    # CancelledError (BaseException, e.g. a Temporal activity timeout) is caught too. Shield so the
-    # failure signal still lands if the cancel re-fires mid-cleanup.
+    # start() returned the session, so any failure past this point must end it
+    # - otherwisea an orphaned sandbox can keep running until the workflow inactivity timeout
     try:
         # Record the research task relationship immediately after task creation
         if signal_report_id:
@@ -629,6 +626,7 @@ async def run_multi_turn_research(
 
         await session.end()
     except (Exception, asyncio.CancelledError) as e:
+        # Shield so the session ending cannot itself be canceled - must complete
         await asyncio.shield(session.end(status="failed", error=str(e)))
         raise
 
