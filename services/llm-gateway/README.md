@@ -316,5 +316,4 @@ response = client.chat.completions.create(
 
 `ai_product` and `$ai_billable` are derived from the product config (`products/config.py`):
 the route sets `ai_product` from the `product` arg, and `$ai_billable` from that product's
-`billable` flag. Set `billable=True` on the product config to bill its generations — don't
-override `$ai_billable` per call via headers (a typo silently mis-bills).
+`billable` flag. Set `billable=True` on the product config to bill its generations.

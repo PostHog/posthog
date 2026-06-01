@@ -119,7 +119,6 @@ class TestGetAsyncAnthropicGatewayClient:
 
         client = get_async_anthropic_gateway_client(product="signals", team_id=1)
 
-        # SDK normalizes with a trailing slash, then appends v1/messages -> /signals/v1/messages
         assert str(client.base_url) == "http://gateway:8080/signals/"
         assert client.api_key == "test-key"
 

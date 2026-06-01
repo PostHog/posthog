@@ -85,9 +85,7 @@ async def call_llm(
     retries: int = MAX_RETRIES,
     stage: Optional[str] = None,
 ) -> T:
-    # Routed through the internal LLM gateway's native Anthropic Messages endpoint, so the
-    # Anthropic-specific request shape (prefilling, extended thinking) carries over unchanged.
-    # The gateway captures the $ai_generation event and attributes spend to team_id.
+    # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
     client = get_async_anthropic_gateway_client(product="signals", team_id=team_id)
 

@@ -20,8 +20,6 @@ from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
-# Model routed through the internal LLM gateway. Claude Haiku 4.5 is a cheap,
-# fast judgment model — summarization and actionability are simple judgment tasks.
 LLM_MODEL = "claude-haiku-4-5"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
@@ -36,7 +34,6 @@ LLM_CALL_TIMEOUT_SECONDS = 120
 # Backoff between LLM retry attempts (delay = initial * coefficient ^ (attempt - 1))
 LLM_RETRY_INITIAL_DELAY_SECONDS = 5
 LLM_RETRY_BACKOFF_COEFFICIENT = 2.0
-# Cap output tokens for actionability; summarization adds proportionally to its threshold.
 LLM_ACTIONABILITY_MAX_TOKENS = 256
 LLM_SUMMARY_MIN_TOKENS = 256
 
