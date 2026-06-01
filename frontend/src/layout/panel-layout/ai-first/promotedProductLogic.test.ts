@@ -193,7 +193,7 @@ describe('promotedProductLogic', () => {
             mountLogic()
             setFlagVariant('intent_plus')
 
-            logic.actions.setOverride('web_analytics')
+            logic.actions.setOverride('web_analytics', logic.values.effectiveProductKey)
 
             expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe('web_analytics')
             expect(mockedPosthog.capture).toHaveBeenCalledWith(
@@ -204,15 +204,33 @@ describe('promotedProductLogic', () => {
             await expectLogic(logic).toMatchValues({ effectiveProductKey: 'web_analytics' })
         })
 
-        it('clearOverride removes localStorage entry and reverts to intent', async () => {
+        it('captures the product showing at change time as `from` on repeated overrides', async () => {
+            window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
+            mountLogic()
+            setFlagVariant('intent_plus')
+
+            logic.actions.setOverride('web_analytics', logic.values.effectiveProductKey)
+            logic.actions.setOverride('feature_flags', logic.values.effectiveProductKey)
+
+            expect(mockedPosthog.capture).toHaveBeenLastCalledWith(
+                'promoted product config changed',
+                expect.objectContaining({ from: 'web_analytics', to: 'feature_flags' })
+            )
+        })
+
+        it('clearOverride removes localStorage entry, reverts to intent, and reports the change', async () => {
             window.localStorage.setItem(PRODUCT_KEY, 'session_replay')
             window.localStorage.setItem(OVERRIDE_KEY, 'web_analytics')
             mountLogic()
             setFlagVariant('intent_plus')
 
-            logic.actions.clearOverride()
+            logic.actions.clearOverride(logic.values.effectiveProductKey)
 
             expect(window.localStorage.getItem(OVERRIDE_KEY)).toBeNull()
+            expect(mockedPosthog.capture).toHaveBeenCalledWith(
+                'promoted product config changed',
+                expect.objectContaining({ from: 'web_analytics', to: 'session_replay' })
+            )
             await expectLogic(logic).toMatchValues({ effectiveProductKey: 'session_replay' })
         })
     })
@@ -238,7 +256,7 @@ describe('promotedProductLogic', () => {
             logic.actions.showConfigureModal()
             await expectLogic(logic).toMatchValues({ pendingProduct: 'session_replay' })
 
-            logic.actions.setOverride('web_analytics')
+            logic.actions.setOverride('web_analytics', logic.values.effectiveProductKey)
             logic.actions.hideConfigureModal()
             logic.actions.showConfigureModal()
             await expectLogic(logic).toMatchValues({ pendingProduct: 'web_analytics' })
@@ -259,7 +277,7 @@ describe('promotedProductLogic', () => {
         it('writes the override under the current-team key, not a global one', () => {
             mountLogic()
             setFlagVariant('intent_plus')
-            logic.actions.setOverride('web_analytics')
+            logic.actions.setOverride('web_analytics', logic.values.effectiveProductKey)
 
             expect(window.localStorage.getItem(OVERRIDE_KEY)).toBe('web_analytics')
             // The legacy global key should not be touched.

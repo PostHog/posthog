@@ -134,8 +134,10 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
     })),
 
     actions({
-        setOverride: (productKey: string) => ({ productKey }),
-        clearOverride: true,
+        // `from` is the product showing at click time (effectiveProductKey) — passed in
+        // because by the time the listener runs the override reducer has already changed it.
+        setOverride: (productKey: string, from: string | null) => ({ productKey, from }),
+        clearOverride: (from: string | null) => ({ from }),
         showConfigureModal: true,
         hideConfigureModal: true,
         trackPromotedProductClick: true,
@@ -209,21 +211,21 @@ export const promotedProductLogic = kea<promotedProductLogicType>([
     }),
 
     listeners(({ actions, values }) => {
-        const captureConfigChanged = (to: string | null): void => {
+        const captureConfigChanged = (from: string | null, to: string | null): void => {
             posthog.capture('promoted product config changed', {
                 variant: values.variant,
-                from: values.promotedProductIntent,
+                from,
                 to,
             })
         }
         return {
-            setOverride: ({ productKey }) => {
+            setOverride: ({ productKey, from }) => {
                 persistOverride(productKey)
-                captureConfigChanged(productKey)
+                captureConfigChanged(from, productKey)
             },
-            clearOverride: () => {
+            clearOverride: ({ from }) => {
                 persistOverride(null)
-                captureConfigChanged(null)
+                captureConfigChanged(from, values.defaultProductKey)
             },
             showConfigureModal: () => {
                 // Seed the pending product from the current effectiveProductKey so the modal

@@ -18,16 +18,16 @@ export interface ConfigurePromotedProductModalProps {
 const PRODUCT_OPTIONS = PROMOTED_PRODUCT_KEYS.map((value) => ({ value, label: labelForPromotedProductKey(value) }))
 
 export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigurePromotedProductModalProps): JSX.Element {
-    const { pendingProduct, defaultProductKey, override } = useValues(promotedProductLogic)
+    const { pendingProduct, defaultProductKey, override, effectiveProductKey } = useValues(promotedProductLogic)
     const { setPendingProduct, setOverride, clearOverride } = useActions(promotedProductLogic)
 
     const handleSave = (): void => {
-        setOverride(pendingProduct)
+        setOverride(pendingProduct, effectiveProductKey)
         onClose()
     }
 
     const handleReset = (): void => {
-        clearOverride()
+        clearOverride(effectiveProductKey)
         onClose()
     }
 
