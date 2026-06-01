@@ -1,6 +1,5 @@
 import type {
     ClassifierScannerConfig,
-    IndexerScannerConfig,
     MonitorScannerConfig,
     ScorerScannerConfig,
     SummarizerScannerConfig,
@@ -47,17 +46,7 @@ export interface ScorerTemplate extends BaseTemplate {
     scanner_config: ScorerScannerConfig
 }
 
-export interface IndexerTemplate extends BaseTemplate {
-    scanner_type: 'indexer'
-    scanner_config: IndexerScannerConfig
-}
-
-export type ScannerTemplate =
-    | MonitorTemplate
-    | SummarizerTemplate
-    | ClassifierTemplate
-    | ScorerTemplate
-    | IndexerTemplate
+export type ScannerTemplate = MonitorTemplate | SummarizerTemplate | ClassifierTemplate | ScorerTemplate
 
 export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {

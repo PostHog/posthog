@@ -1209,7 +1209,7 @@ class InsightViewedRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
+@extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
         parameters=[

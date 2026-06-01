@@ -26,7 +26,6 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
@@ -314,7 +313,6 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[VISION_TAG])
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 

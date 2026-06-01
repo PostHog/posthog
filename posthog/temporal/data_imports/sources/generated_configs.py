@@ -696,7 +696,8 @@ class ResendSourceConfig(config.Config):
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
-    pass
+    secret_api_key: str
+    project_id: str
 
 
 @config.config
