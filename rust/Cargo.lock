@@ -44,6 +44,7 @@ dependencies = [
  "guppy",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

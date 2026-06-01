@@ -5,8 +5,8 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use determinator::Determinator;
 use determinator::rules::DeterminatorRules;
+use determinator::Determinator;
 use guppy::graph::{DependencyDirection, PackageGraph};
 use guppy::MetadataCommand;
 use serde::Serialize;
@@ -119,8 +119,11 @@ struct TempWorktree {
 
 impl TempWorktree {
     fn create(base_ref: &str) -> Result<Self> {
-        let path =
-            std::env::temp_dir().join(format!("affected-services-{}", std::process::id()));
+        let path = tempfile::Builder::new()
+            .prefix("affected-services-")
+            .tempdir()
+            .context("failed to create temp directory")?
+            .keep();
         let out = Command::new("git")
             .args([
                 "worktree",
@@ -292,8 +295,8 @@ fn compute_affected(
     new_graph: &PackageGraph,
     images: &[ImageConfig],
 ) -> Result<AffectedResult> {
-    let rules = DeterminatorRules::parse(RULES_TOML)
-        .context("failed to parse determinator rules")?;
+    let rules =
+        DeterminatorRules::parse(RULES_TOML).context("failed to parse determinator rules")?;
 
     let workspace_paths: Vec<String> = changed_files
         .iter()
@@ -625,8 +628,8 @@ mod tests {
     fn load_test_fixtures() -> (PackageGraph, Vec<ImageConfig>) {
         let repo_root = find_repo_root().expect("must be in a git repo");
         let graph = build_package_graph(&repo_root.join("rust")).expect("cargo metadata");
-        let images = parse_images_yaml(&repo_root.join(".github/rust-images.yml"))
-            .expect("images YAML");
+        let images =
+            parse_images_yaml(&repo_root.join(".github/rust-images.yml")).expect("images YAML");
         (graph, images)
     }
 
@@ -636,9 +639,11 @@ mod tests {
     fn e2e_file_in_workspace_crate_affects_that_crate() {
         let (graph, images) = load_test_fixtures();
         let member = graph.workspace().iter().next().unwrap();
-        let fake_path = format!("rust/{}/src/lib.rs", member.source().workspace_path().unwrap());
-        let result =
-            compute_affected(&[fake_path], None, &graph, &images).unwrap();
+        let fake_path = format!(
+            "rust/{}/src/lib.rs",
+            member.source().workspace_path().unwrap()
+        );
+        let result = compute_affected(&[fake_path], None, &graph, &images).unwrap();
         assert!(!result.rebuild_all);
         assert!(
             result.crates.contains(&member.name().to_string()),
@@ -651,9 +656,11 @@ mod tests {
     fn e2e_directly_changed_is_subset_of_crates() {
         let (graph, images) = load_test_fixtures();
         let member = graph.workspace().iter().next().unwrap();
-        let fake_path = format!("rust/{}/src/lib.rs", member.source().workspace_path().unwrap());
-        let result =
-            compute_affected(&[fake_path], None, &graph, &images).unwrap();
+        let fake_path = format!(
+            "rust/{}/src/lib.rs",
+            member.source().workspace_path().unwrap()
+        );
+        let result = compute_affected(&[fake_path], None, &graph, &images).unwrap();
         let crates: HashSet<&str> = result.crates.iter().map(|s| s.as_str()).collect();
         for dc in &result.directly_changed {
             assert!(
@@ -666,8 +673,7 @@ mod tests {
     #[test]
     fn e2e_rebuild_all_marks_every_workspace_crate() {
         let (graph, images) = load_test_fixtures();
-        let result =
-            compute_affected(&["rust/Cargo.lock".into()], None, &graph, &images).unwrap();
+        let result = compute_affected(&["rust/Cargo.lock".into()], None, &graph, &images).unwrap();
         assert!(result.rebuild_all);
         let workspace_count = graph.workspace().iter().count();
         assert_eq!(
@@ -681,13 +687,7 @@ mod tests {
     #[test]
     fn e2e_file_outside_workspace_produces_no_crates() {
         let (graph, images) = load_test_fixtures();
-        let result = compute_affected(
-            &["README.md".into()],
-            None,
-            &graph,
-            &images,
-        )
-        .unwrap();
+        let result = compute_affected(&["README.md".into()], None, &graph, &images).unwrap();
         assert!(!result.rebuild_all);
         assert!(result.crates.is_empty());
         assert!(result.images.is_empty());
@@ -703,8 +703,7 @@ mod tests {
 
         let result_a = compute_affected(&[path_a.clone()], None, &graph, &images).unwrap();
         let result_b = compute_affected(&[path_b.clone()], None, &graph, &images).unwrap();
-        let result_both =
-            compute_affected(&[path_a, path_b], None, &graph, &images).unwrap();
+        let result_both = compute_affected(&[path_a, path_b], None, &graph, &images).unwrap();
 
         let union: HashSet<&str> = result_a
             .crates
@@ -712,9 +711,11 @@ mod tests {
             .chain(&result_b.crates)
             .map(|s| s.as_str())
             .collect();
-        let combined: HashSet<&str> =
-            result_both.crates.iter().map(|s| s.as_str()).collect();
-        assert_eq!(union, combined, "multi-file result should be the union of individual results");
+        let combined: HashSet<&str> = result_both.crates.iter().map(|s| s.as_str()).collect();
+        assert_eq!(
+            union, combined,
+            "multi-file result should be the union of individual results"
+        );
     }
 
     // ── Concrete tests ───────────────────────────────────────────
@@ -729,7 +730,10 @@ mod tests {
         let bin_to_crate = build_binary_to_crate_map(&graph);
         for img in &images {
             let bin_name = img.bin.as_deref().unwrap_or(&img.image);
-            if NON_CRATE_IMAGE_TRIGGERS.iter().any(|&(name, _)| name == img.image) {
+            if NON_CRATE_IMAGE_TRIGGERS
+                .iter()
+                .any(|&(name, _)| name == img.image)
+            {
                 continue;
             }
             assert!(
@@ -744,13 +748,8 @@ mod tests {
     #[test]
     fn e2e_leaf_service_only_affects_itself_and_dependents() {
         let (graph, images) = load_test_fixtures();
-        let result = compute_affected(
-            &["rust/capture/src/main.rs".into()],
-            None,
-            &graph,
-            &images,
-        )
-        .unwrap();
+        let result =
+            compute_affected(&["rust/capture/src/main.rs".into()], None, &graph, &images).unwrap();
         assert!(!result.rebuild_all);
         assert_eq!(result.directly_changed, vec!["capture"]);
         assert_eq!(result.images, vec!["capture", "capture-logs"]);
@@ -759,17 +758,17 @@ mod tests {
     #[test]
     fn e2e_proto_change_maps_to_proto_crates() {
         let (graph, images) = load_test_fixtures();
-        let result = compute_affected(
-            &["proto/personhog.proto".into()],
-            None,
-            &graph,
-            &images,
-        )
-        .unwrap();
+        let result =
+            compute_affected(&["proto/personhog.proto".into()], None, &graph, &images).unwrap();
         assert!(!result.rebuild_all);
         assert!(result.directly_changed.contains(&"personhog-proto".into()));
-        assert!(result.directly_changed.contains(&"kafka-assigner-proto".into()));
-        assert!(result.images.len() > 2, "proto change should propagate to multiple images");
+        assert!(result
+            .directly_changed
+            .contains(&"kafka-assigner-proto".into()));
+        assert!(
+            result.images.len() > 2,
+            "proto change should propagate to multiple images"
+        );
     }
 
     #[test]

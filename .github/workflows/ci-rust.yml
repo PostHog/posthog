@@ -85,7 +85,7 @@ jobs:
                   clean: false
 
             - name: Install rust
-              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
@@ -174,8 +174,17 @@ jobs:
                       "serve-metrics": 14,
                   }
 
-                  # Filter to only affected crates when selective builds are active
+                  # Filter to only affected crates when selective builds are active.
+                  # Unknown crates (not in packages dict) get a default weight so new
+                  # services are never silently dropped from CI.
+                  DEFAULT_WEIGHT = 60
                   if affected:
+                      unknown = affected - packages.keys()
+                      if unknown:
+                          print(f"WARNING: affected crates missing from weight table (using {DEFAULT_WEIGHT}s default): {', '.join(sorted(unknown))}")
+                          print("Add them to the packages dict in ci-rust.yml with measured weights.")
+                          for crate in unknown:
+                              packages[crate] = DEFAULT_WEIGHT
                       packages = {k: v for k, v in packages.items() if k in affected}
                       print(f"Selective build: testing {len(packages)} of affected crates")
                   else:

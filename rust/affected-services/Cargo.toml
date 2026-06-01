@@ -10,3 +10,4 @@ determinator = "0.12"
 guppy = "0.17"
 serde = { workspace = true }
 serde_json = { workspace = true }
+tempfile = "3"
