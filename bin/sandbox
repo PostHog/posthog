@@ -1334,7 +1334,7 @@ def _wait_for_clickhouse(project: str, timeout: int = 120) -> None:
         capture=True,
     )
     if result.returncode != 0:
-        fatal(f"ClickHouse did not become ready within {timeout}s. Container logs may reveal the cause.")
+        raise RuntimeError(f"ClickHouse did not become ready within {timeout}s. Container logs may reveal the cause.")
 
 
 def _restore_databases(
@@ -1397,7 +1397,10 @@ def _restore_databases(
         error("ClickHouse restore failed:")
         for line in (result.stderr or "").strip().splitlines():
             print(f"  {line}")
-        fatal("Run `sandbox rebuild-cache` if the cache is corrupt, or retry with `sandbox create`.")
+        raise RuntimeError(
+            "ClickHouse restore failed. Run `sandbox rebuild-cache` if the cache is corrupt, "
+            "or retry with `sandbox create`."
+        )
     info("ClickHouse restored.")
 
     # Drop the cached DuckLake catalog — the extension version in the cache
@@ -1413,7 +1416,7 @@ def _restore_databases(
     # The RESTORE above is synchronous and has fully landed — tell the app's
     # setup window (same container) it's safe to migrate. Without this it would
     # wait on a probe that can pass mid-restore.
-    run(["docker", "exec", f"{project}-app-1", "touch", "/tmp/sandbox-ch-restored"], capture=True)
+    run(["docker", "exec", f"{project}-app-1", "sh", "-c", "printf done > /tmp/sandbox-restore-status"], capture=True)
 
     # Bring up the proxy (and any profile-gated services) now that infra is ready;
     # the app container is already running.
@@ -1526,14 +1529,39 @@ def _spawn_db_restore(branch: str, use_cache: bool) -> None:
     )
 
 
+def _mark_restore_failed(container: str, reason: str) -> None:
+    """Record the restore failure in the app container so its setup window stops
+    waiting on the database and surfaces the error, instead of timing out.
+
+    Best-effort. Skips writing if the status is already "done": a failure after
+    the DB restore succeeded (e.g. proxy bringup) must not turn a ready sandbox
+    into an error for the setup window.
+    """
+    script = (
+        '[ "$(cat /tmp/sandbox-restore-status 2>/dev/null)" = done ] || '
+        f"printf %s {shlex.quote(reason)} > /tmp/sandbox-restore-status"
+    )
+    run(["docker", "exec", container, "sh", "-c", script], check=False, capture=True)
+
+
 def cmd_db_restore(branch: str, use_cache: bool) -> None:
-    """Internal: detached worker spawned by `create` to bring up infra + restore."""
+    """Internal: detached worker spawned by `create` to bring up infra + restore.
+
+    Runs detached, so its output only reaches a log file. On failure it writes
+    the reason into the app container, where the setup window is blocking on the
+    database; otherwise that window would wait out its full timeout in silence.
+    """
     entry = Registry().get(branch)
     if entry is None:
         fatal(f"No sandbox registered for '{branch}'.")
     project = project_name(entry.slug)
     profiles = resolve_docker_profiles(entry.intents)
-    _restore_databases(project, entry.port, use_cache, profiles=profiles)
+    try:
+        _restore_databases(project, entry.port, use_cache, profiles=profiles)
+    except BaseException as e:  # includes SystemExit from any fatal() below
+        reason = str(e).strip() or f"Database restore failed ({type(e).__name__})."
+        _mark_restore_failed(f"{project}-app-1", reason)
+        raise
 
 
 def cmd_start(branch: str) -> None:

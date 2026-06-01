@@ -44,9 +44,11 @@ PROGRESS_FILE = Path("/tmp/sandbox-progress")
 # Shown in tmux status bar, polled every 2s by tmux.sandbox.conf.
 STATUS_FILE = Path("/tmp/sandbox-status")
 
-# Touched by the host's detached restore once its synchronous ClickHouse RESTORE
-# has fully landed; the setup window waits on it before migrating (cache creates).
-CH_RESTORED_MARKER = Path("/tmp/sandbox-ch-restored")
+# The host's detached restore writes its status here: "done" once the (cache)
+# ClickHouse RESTORE has fully landed, or a failure reason if it dies before the
+# database is ready. The setup window waits for "done" before migrating and
+# aborts on a failure reason instead of timing out. Written by bin/sandbox.
+RESTORE_STATUS_FILE = Path("/tmp/sandbox-restore-status")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -685,13 +687,40 @@ def _clickhouse_ready() -> bool:
         return False
 
 
-def _wait_for(label: str, ready: Callable[[], bool], timeout: int = 300) -> None:
-    """Poll `ready` until true, updating the status bar; raise on timeout."""
+def _restore_status() -> str | None:
+    """What the host's detached restore last wrote: "done", a failure reason, or
+    None if it hasn't written yet. The setup window waits for "done" (cache
+    creates) and aborts on a failure reason instead of timing out.
+    """
+    if RESTORE_STATUS_FILE.exists():
+        return RESTORE_STATUS_FILE.read_text().strip() or None
+    return None
+
+
+def _restore_failed_reason() -> str | None:
+    """The failure reason if the restore reported one, else None ("done" is success)."""
+    status = _restore_status()
+    return status if status and status != "done" else None
+
+
+def _wait_for(
+    label: str,
+    ready: Callable[[], bool],
+    timeout: int = 300,
+    fail_check: Callable[[], str | None] | None = None,
+) -> None:
+    """Poll `ready` until true, updating the status bar; raise on timeout.
+
+    `fail_check` returns a reason string to abort early. It's checked *after*
+    `ready`, so a restore that already signalled success wins over a late failure.
+    """
     _write_status(f"waiting for {label}")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if ready():
             return
+        if fail_check and (reason := fail_check()):
+            raise RuntimeError(reason)
         time.sleep(2)
     raise RuntimeError(f"{label} not ready within {timeout}s")
 
@@ -701,18 +730,19 @@ def _wait_for_databases() -> None:
 
     Postgres restores before its container boots, so a reachable db is already
     restored. ClickHouse restores onto a *running* server, and the database can
-    appear mid-restore — so for a cache-backed create we wait on the marker the
-    host touches once its synchronous RESTORE has fully landed, not on a probe.
+    appear mid-restore — so for a cache-backed create we wait for the "done" status
+    the host writes once its synchronous RESTORE has fully landed, not on a probe.
     """
     _wait_for(
         "Postgres",
         lambda: run_quiet(["psql", "-h", "db", "-U", "posthog", "-d", "posthog", "-tAc", "SELECT 1"]).returncode == 0,
+        fail_check=_restore_failed_reason,
     )
     if os.environ.get("SANDBOX_USE_CACHE") == "1":
-        _wait_for("ClickHouse cache restore", CH_RESTORED_MARKER.exists)
+        _wait_for("ClickHouse cache restore", lambda: _restore_status() == "done", fail_check=_restore_failed_reason)
     else:
-        _wait_for("ClickHouse", _clickhouse_ready)
-    _wait_for("Kafka", lambda: _port_open("kafka", 9092))
+        _wait_for("ClickHouse", _clickhouse_ready, fail_check=_restore_failed_reason)
+    _wait_for("Kafka", lambda: _port_open("kafka", 9092), fail_check=_restore_failed_reason)
 
 
 def run_setup() -> None:
@@ -722,6 +752,10 @@ def run_setup() -> None:
     so the user can diagnose. Claude keeps running in window 1 either way.
     """
     _setup_user_env()
+    # The status file can linger in /tmp across a stop/start; clear it before
+    # waiting so a stale "done"/failure from a previous boot can't trip this one.
+    # On a cache create the host worker writes the fresh status later.
+    RESTORE_STATUS_FILE.unlink(missing_ok=True)
     _write_status("setup starting")
 
     try:
@@ -766,15 +800,21 @@ def run_setup() -> None:
             "\nSetup complete — see status bar for keybinding hints.\n",
             flush=True,
         )
-    except Exception:
+    except Exception as e:
         traceback.print_exc()
-        _write_status("!! SETUP FAILED — see window 2")
+        _write_status("!! SETUP FAILED. Ctrl-b 1 returns to claude")
         print(  # noqa: T201
-            "\n\n!!! Setup failed — traceback above. This window is now a bash shell;"
-            "\n!!! claude is still running in window 1 against whatever managed to come up."
-            "\n!!! Re-run the failing step manually, then `tmux new-window bin/start --phrocs` when ready.\n",
+            f"\n\n!!! Setup failed: {e}"
+            "\n!!! Traceback above. This window is now a bash shell; claude is still running in window 1."
+            "\n!!! Fix the issue, then `tmux new-window bin/start --phrocs` when ready.\n",
             flush=True,
         )
+        # Pull the user's view to this window so the failure can't be missed,
+        # but leave claude running in window 1, since they may already be working.
+        # select before rename, so the "setup" target still resolves.
+        tmux = ["tmux", "-L", "sandbox"]
+        subprocess.run([*tmux, "select-window", "-t", "posthog:setup"])
+        subprocess.run([*tmux, "rename-window", "-t", "posthog:setup", "⚠ SETUP FAILED"])
 
     # Exec into bash so this window stays usable (both success and failure).
     os.execvp("bash", ["bash", "-l"])
