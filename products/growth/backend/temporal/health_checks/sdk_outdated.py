@@ -98,14 +98,21 @@ class SdkOutdatedCheck(HealthCheck):
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         sdk_name = issue.payload.get("sdk_name", "an SDK")
-        latest = issue.payload.get("latest_version") or "the latest version"
-        # `current_version` originates from the $lib_version event property — attacker
-        # controllable via project token. Gate it through the same allowlist used
-        # by SDK Doctor before interpolating into a string we forward to alert
-        # destinations (Slack, email, webhooks).
-        raw_current = issue.payload.get("current_version")
-        current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
-        summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
+        # `reason` is the assessment's single source of truth (compute_sdk_health → _build_reason).
+        # It already names the current in-use version and the specific older versions driving the
+        # alert, and routes every version through SDK Doctor's allowlist before interpolation — so
+        # it's both complete and safe to forward to alert destinations (Slack, email, webhooks).
+        summary = issue.payload.get("reason")
+        if not summary:
+            # Fallback for issues persisted before `reason` was added to the payload. `current_version`
+            # originates from the $lib_version event property — attacker controllable via project token —
+            # so gate it through the same allowlist before interpolating.
+            #
+            # Can be removed after 2026-06-08.
+            latest = issue.payload.get("latest_version") or "the latest version"
+            raw_current = issue.payload.get("current_version")
+            current = raw_current if raw_current and _is_safe_for_interpolation(raw_current) else None
+            summary = f"{sdk_name} is on {current}, latest is {latest}" if current else f"{sdk_name} is behind {latest}"
         return AlertContent(
             title=f"{sdk_name} SDK is outdated",
             summary=summary,
@@ -139,9 +146,6 @@ class SdkOutdatedCheck(HealthCheck):
 
         _cache_team_sdk_data({tid: dict(sdk_data) for tid, sdk_data in team_sdk_data.items()})
 
-        # Run the same outdatedness heuristics the SDK Doctor UI shows (grace periods, device
-        # thresholds, traffic-share rules, team-level severity escalation) so alerts match the UI
-        # instead of firing on every non-latest version.
         issues: defaultdict[int, list[HealthCheckResult]] = defaultdict(list)
         for team_id, sdk_data in team_sdk_data.items():
             combined = _build_combined_data(sdk_data, github_data)

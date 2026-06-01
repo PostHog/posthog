@@ -6,7 +6,7 @@ The single source of truth for SDK outdatedness detection. Consumed by:
   - the SDK Doctor report endpoint (posthog/api/sdk_doctor.py), which the SDK Doctor UI and the
     SDK Doctor MCP tool both read.
 
-The frontend renders these pre-computed values directly and no longer duplicates the thresholds.
+The frontend renders these pre-computed values.
 """
 
 from dataclasses import dataclass, field
@@ -31,7 +31,7 @@ from posthog.redis import get_client
 
 from products.growth.backend.constants import SDK_TYPES, github_sdk_versions_key
 
-# --- SDK classification ----------------------------------------------------
+# --- SDK classification --------------------
 
 MOBILE_SDKS: frozenset[str] = frozenset(
     {
@@ -71,7 +71,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-elixir": "Elixir",
 }
 
-# --- Thresholds ------------------------------------------------------------
+# --- Thresholds ----------------------------
 
 # Age-based outdatedness thresholds in weeks (desktop=4mo, mobile=6mo)
 AGE_THRESHOLD_DESKTOP_WEEKS = 16
@@ -93,7 +93,7 @@ SIGNIFICANT_TRAFFIC_THRESHOLD_DEFAULT = 0.1
 MINOR_VERSIONS_BEHIND_THRESHOLD = 3
 MINOR_AGE_THRESHOLD_DAYS = 180
 
-# --- Types ------------------------------------------------------------------
+# --- Types ----------------------------------
 
 Severity = Literal["none", "warning", "danger"]
 OverallHealth = Literal["healthy", "needs_attention"]
@@ -243,7 +243,7 @@ def diff_versions(a: SemanticVersion, b: SemanticVersion) -> Optional[SemanticVe
     return None
 
 
-# --- Age / device helpers --------------------------------------------------
+# --- Age / device helpers ------------------
 
 
 def _calculate_version_age_days(release_date_iso: str, now: Optional[datetime] = None) -> int:
@@ -330,7 +330,7 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
     return humanize.naturaltime(current - release)
 
 
-# --- UI-facing string/URL builders -----------------------------------------
+# --- UI-facing string/URL builders ---------
 #
 # The SDK Doctor UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
 # from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
@@ -338,16 +338,18 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
 
 def _build_status_reason(is_outdated: bool, is_current_or_newer: bool, released_ago: Optional[str]) -> str:
     """
-    Per-version tooltip text for the three badge states (Outdated / Current / Recent) the SDK Doctor UI shows.
+    Per-version status text for the three badge states (Outdated / Current / Recent).
 
     - Outdated (danger): "Released {ago}. Upgrade recommended." or "Upgrade recommended"
-    - Current (success): "You have the latest available. Click 'Releases ↗' above to check for any since."
+    - Current (success): "You have the latest available."
     - Recent  (warning): "Released {ago}. Upgrading is a good idea, but it's not urgent yet." (or without prefix)
+
+    This value is persisted into HealthIssue payloads and forwarded to alert destinations / MCP.
     """
     if is_outdated:
         return f"Released {released_ago}. Upgrade recommended." if released_ago else "Upgrade recommended"
     if is_current_or_newer:
-        return "You have the latest available. Click 'Releases ↗' above to check for any since."
+        return "You have the latest available."
     if released_ago:
         return f"Released {released_ago}. Upgrading is a good idea, but it's not urgent yet."
     return "Upgrading is a good idea, but it's not urgent yet"
@@ -491,7 +493,7 @@ def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     )
 
 
-# --- Core assessment -------------------------------------------------------
+# --- Core assessment -----------------------
 
 
 def assess_release(
@@ -637,12 +639,20 @@ def _build_reason(
     latest_version: str,
     outdated_traffic_alerts: list[OutdatedTrafficAlert],
 ) -> str:
-    """Short human-readable explanation for agents / UI."""
+    """Short human-readable explanation for agents / UI / alerts.
+
+    The single source of truth for "why is this flagged?": it always names the current
+    in-use version and, when older versions still taking significant traffic are what drove
+    the alert, the specific versions that triggered it. This keeps the string self-contained
+    for every consumer (SDK Doctor UI, MCP agents, alert destinations) — including the case
+    where the latest in-use version already matches latest but an older one is still served.
+    """
+    name = SDK_READABLE_NAME.get(sdk_type, sdk_type)
     current_version = _safe_version_display(current_release.version)
     latest = _safe_version_display(latest_version)
 
     if not current_release.needs_updating and not outdated_traffic_alerts:
-        return f"{sdk_type} is on {current_version} which matches or exceeds latest {latest}."
+        return f"{name} is on {current_version} which matches or exceeds latest {latest}."
 
     pieces: list[str] = []
     if current_release.is_outdated:
@@ -656,13 +666,18 @@ def _build_reason(
         pieces.append(
             f"In-use version {current_version} is old ({current_release.days_since_release} days since release)."
         )
+    else:
+        # The latest in-use version is fine; the alert is driven entirely by older versions
+        # still taking traffic. State it so the reason stands on its own rather than reading
+        # as "outdated" while current and latest are the same.
+        pieces.append(f"Latest in-use version {current_version} matches latest {latest}.")
 
     if outdated_traffic_alerts:
         versions = ", ".join(_safe_version_display(a.version) for a in outdated_traffic_alerts)
         threshold = outdated_traffic_alerts[0].threshold_percent
-        pieces.append(f"Outdated versions handling >= {threshold:.0f}% of traffic: {versions}.")
+        pieces.append(f"Outdated versions still handling >= {threshold:.0f}% of traffic: {versions}.")
 
-    return " ".join(pieces) if pieces else f"{sdk_type} may need attention."
+    return " ".join(pieces) if pieces else f"{name} may need attention."
 
 
 def assess_sdk(

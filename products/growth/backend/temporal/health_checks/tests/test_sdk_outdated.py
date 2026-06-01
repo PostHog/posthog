@@ -83,6 +83,33 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert "status_reason" in issue.payload["usage"][0]
         assert issue.hash_keys == ["sdk_name"]
 
+    def test_alert_reason_explains_significant_outdated_traffic(self):
+        # The most-used version already matches latest, but an older version still serves a
+        # significant share of traffic. The SDK is flagged, and the alert must explain *that*
+        # rather than the contradictory "on 1.142.0, latest is 1.142.0".
+        github = {"web": {"latestVersion": "1.142.0", "releaseDates": {"1.130.0": OLD_RELEASE}}}
+        rows = [
+            _make_ch_row(1, "web", "1.142.0", event_count=700),  # primary: latest, healthy
+            _make_ch_row(1, "web", "1.130.0", event_count=300),  # 30% traffic, behind, old
+        ]
+
+        results = self._run(github, rows, [1])
+
+        issue = results[1][0]
+        assert issue.payload["current_version"] == "1.142.0"
+        assert issue.payload["latest_version"] == "1.142.0"
+        assert issue.payload["is_outdated"] is True
+
+        # The reason names both the healthy current version and the older version driving the alert.
+        reason = issue.payload["reason"]
+        assert "1.142.0" in reason
+        assert "1.130.0" in reason
+
+        # render_alert forwards the reason verbatim, so the alert is no longer self-contradictory.
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == reason
+        assert "1.130.0" in content.summary
+
     def test_escalates_to_critical_when_majority_outdated(self):
         github = {"posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}}}
         rows = [_make_ch_row(1, "posthog-python", "4.0.0")]
@@ -166,6 +193,26 @@ class TestSdkOutdatedCheck(SimpleTestCase):
 
 
 class TestSdkOutdatedRenderAlert(SimpleTestCase):
+    def test_render_alert_prefers_reason_when_present(self) -> None:
+        reason = (
+            "Latest in-use version 1.200.0 matches latest 1.200.0. "
+            "Outdated versions still handling >= 20% of traffic: 1.150.0."
+        )
+        issue = HealthIssue(
+            team_id=1,
+            kind="sdk_outdated",
+            severity=HealthIssue.Severity.WARNING,
+            payload={
+                "sdk_name": "web",
+                "latest_version": "1.200.0",
+                "current_version": "1.200.0",
+                "reason": reason,
+            },
+            unique_hash="h",
+        )
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == reason
+
     @parameterized.expand(
         [
             ("safe_version", "1.198.0", "web is on 1.198.0, latest is 1.200.0"),
