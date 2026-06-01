@@ -1,10 +1,6 @@
 import pytest
 
-from posthog.temporal.data_imports.sources.doit.doit import (
-    DOIT_RETRY,
-    MAX_ERROR_BODY_LENGTH,
-    summarize_response_body,
-)
+from posthog.temporal.data_imports.sources.doit.doit import DOIT_RETRY, MAX_ERROR_BODY_LENGTH, summarize_response_body
 from posthog.temporal.data_imports.sources.doit.source import DoItSource
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
