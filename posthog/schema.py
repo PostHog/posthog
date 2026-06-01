@@ -25055,35 +25055,6 @@ class QueryResponseAlternative74(BaseModel):
     ]
 
 
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | DataVisualizationNode
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantStickinessQuery
-        | AssistantPathsQuery
-        | AssistantLifecycleQuery
-        | AssistantHogQLQuery
-    ) = Field(
-        ...,
-        description="The query to render (same as VisualizationArtifactContent.query)",
-    )
-    title: str | None = Field(default=None, description="Optional title for the visualization")
-    type: Literal["visualization"] = "visualization"
-
-
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25302,21 +25273,6 @@ class LegacyExperimentQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class NotebookArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
-        ..., description="Structured blocks for the notebook content"
-    )
-    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
-    is_saved: bool | None = Field(
-        default=None,
-        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
-    )
-    title: str | None = Field(default=None, description="Title for the notebook")
 
 
 class PathsQuery(BaseModel):
@@ -25601,6 +25557,38 @@ class QueryResponseAlternative(
     )
 
 
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
+        | AssistantHogQLQuery
+    ) = Field(
+        ...,
+        description="The query to render (same as VisualizationArtifactContent.query)",
+    )
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25793,13 +25781,6 @@ class DatabaseSchemaQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DocumentArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
-
-
 class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25910,6 +25891,21 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
+        ..., description="Structured blocks for the notebook content"
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
+    title: str | None = Field(default=None, description="Title for the notebook")
+
+
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25969,6 +25965,13 @@ class IsExperimentFunnelsQuery(BaseModel):
 
 class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs2 | None = None
+
+
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
 class ExperimentActorsQuery(BaseModel):
