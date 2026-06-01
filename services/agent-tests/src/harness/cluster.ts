@@ -26,7 +26,13 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
-import { AgentMcpResolver, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import {
+    AgentMcpResolver,
+    IntegrationHostValidator,
+    IsAskerInApproverScope,
+    McpTransportFactory,
+    Worker,
+} from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
 import {
@@ -143,6 +149,13 @@ export interface BuildClusterOpts {
      * their own.
      */
     agentMcpResolver?: AgentMcpResolver
+    /**
+     * Gates the `auth.integration` bearer attachment on `external` MCP refs.
+     * Defaults to a permissive `() => true` so the common e2e cases don't
+     * have to think about it; security-flavoured tests pass a stricter
+     * implementation to exercise the rejection paths.
+     */
+    integrationHostValidator?: IntegrationHostValidator
 }
 
 let _pool: Pool | null = null
@@ -237,6 +250,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         memoryStore,
         mcpTransportFactory: opts.mcpTransportFactory,
         agentMcpResolver: opts.agentMcpResolver,
+        // Permissive default so the common e2e suite doesn't have to know
+        // about the security gate; the runtime-mcps cases that specifically
+        // exercise integration auth (none in the suite yet) can override.
+        integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 

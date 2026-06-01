@@ -200,7 +200,19 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     // `ref` (used here to filter against `allowlist` for the external variant).
     if (deps.mcpClients && deps.mcpClients.length > 0) {
         const listings = await Promise.all(
-            deps.mcpClients.map(async (client) => ({ client, tools: await client.listTools() }))
+            deps.mcpClients.map(async (client) => {
+                try {
+                    return { client, tools: await client.listTools() }
+                } catch (err) {
+                    // Wrap raw SDK errors with a `mcp_list_tools_failed:<prefix>`
+                    // code so the session-failure reason is attributable to a
+                    // specific MCP at triage time. Matches the convention used
+                    // by `mcp-clients.ts` for the other error paths
+                    // (`mcp_secret_not_resolved`, `mcp_integration_not_resolved`,
+                    // `duplicate_mcp_prefix`).
+                    throw new Error(`mcp_list_tools_failed:${client.prefix}: ${(err as Error).message}`)
+                }
+            })
         )
         for (const { client, tools: remoteTools } of listings) {
             const allowlist =

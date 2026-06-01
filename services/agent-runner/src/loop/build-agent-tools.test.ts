@@ -391,5 +391,26 @@ describe('buildAgentTools', () => {
             // the streamFn's reverse lookup is consistent.
             expect(built.nameToId.get('linear__create-issue')).toBe('linear__create-issue')
         })
+
+        it('wraps a listTools() failure with mcp_list_tools_failed:<prefix>', async () => {
+            // Without the wrapping, an SDK-internal error string would surface
+            // as the session-failure reason — making it hard to attribute the
+            // outage to a specific MCP at triage time.
+            const ref: McpRef = { kind: 'external', id: 'flaky', url: 'https://example.com/flaky', secrets: [] }
+            const brokenClient: OpenedMcp = {
+                prefix: 'flaky',
+                ref,
+                listTools: async () => {
+                    throw new Error('socket hang up')
+                },
+                // Never called — listTools throws before any tool is registered.
+                callTool: async () => ({ content: [] }) as unknown as Awaited<ReturnType<OpenedMcp['callTool']>>,
+                close: async () => undefined,
+            }
+            const rev = makeRev([], [], [ref])
+            await expect(buildAgentTools(rev, makeDeps(rev, { mcpClients: [brokenClient] }))).rejects.toThrow(
+                /mcp_list_tools_failed:flaky: socket hang up/
+            )
+        })
     })
 })

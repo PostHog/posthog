@@ -41,7 +41,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
-import { AgentMcpResolver, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
+import { AgentMcpResolver, IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
 import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -180,6 +180,16 @@ export interface WorkerDeps {
      * instrumentation / retry middleware.
      */
     mcpTransportFactory?: McpTransportFactory
+    /**
+     * Per-call validator that gates attaching a connected integration's
+     * bearer token to an outbound MCP request. **Required to use
+     * `auth.integration` on any `external` MCP ref** — without it,
+     * `openMcpClients` fails closed (a spec author can't redirect a
+     * team's OAuth token to an arbitrary URL). Production wires this
+     * against a per-integration-kind host registry (`linear:*` →
+     * `mcp.linear.app`, etc.); tests can supply `() => true` to opt-in.
+     */
+    integrationHostValidator?: IntegrationHostValidator
 }
 
 export class Worker {
@@ -351,6 +361,7 @@ export class Worker {
                     secrets,
                     agentMcpResolver: this.deps.agentMcpResolver,
                     transportFactory: this.deps.mcpTransportFactory,
+                    integrationHostValidator: this.deps.integrationHostValidator,
                     callerContext: { teamId: session.team_id, sessionId: session.id },
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                 })

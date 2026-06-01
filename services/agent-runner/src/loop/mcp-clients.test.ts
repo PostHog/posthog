@@ -29,10 +29,21 @@ type ToolCapturedCall = { name: string; args: Record<string, unknown>; headers: 
  * `pairs` is the inflight server handles keyed by the prefix the test gives
  * the factory — tests use it to close servers in their own `afterEach`.
  */
+interface PairHandle {
+    close: () => Promise<void>
+    /**
+     * Flips to true the first time the SDK calls `close()` on the
+     * server-side transport — i.e. when the *runner* closed the
+     * matching client. Used to verify the partial-open cleanup path
+     * actually drains successful clients rather than leaking them.
+     */
+    serverClosed: { value: boolean }
+}
+
 async function buildEchoFactory(): Promise<{
     factory: McpTransportFactory
     calls: ToolCapturedCall[]
-    pairs: { close: () => Promise<void> }[]
+    pairs: PairHandle[]
     /**
      * Tracks the `{ url, headers }` payloads the factory was invoked with —
      * lets tests assert auth/secret substitution without parsing HTTP traffic.
@@ -40,7 +51,7 @@ async function buildEchoFactory(): Promise<{
     targets: Array<{ url: string; headers: Record<string, string> }>
 }> {
     const calls: ToolCapturedCall[] = []
-    const pairs: { close: () => Promise<void> }[] = []
+    const pairs: PairHandle[] = []
     const targets: Array<{ url: string; headers: Record<string, string> }> = []
     const factory: McpTransportFactory = (target): Transport => {
         targets.push(target)
@@ -73,11 +84,18 @@ async function buildEchoFactory(): Promise<{
         // Connect the server side eagerly — the SDK's `connect()` is fire-and-
         // forget at this layer; the linked pair carries the handshake.
         void server.server.connect(serverTransport)
+        const serverClosed = { value: false }
+        const originalServerClose = serverTransport.close?.bind(serverTransport)
+        serverTransport.close = async () => {
+            serverClosed.value = true
+            await originalServerClose?.()
+        }
         pairs.push({
             close: async () => {
                 await clientTransport.close?.()
                 await serverTransport.close?.()
             },
+            serverClosed,
         })
         return clientTransport
     }
@@ -198,7 +216,7 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
-    it('stamps Authorization: Bearer <token> when auth.integration is set', async () => {
+    it('stamps Authorization: Bearer <token> when auth.integration is set and the validator allows the host', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
             {
@@ -215,9 +233,60 @@ describe('openMcpClients', () => {
             },
             secrets: {},
             transportFactory: factory,
+            integrationHostValidator: () => true,
         })
         expect(targets[0].headers).toEqual({ Authorization: 'Bearer tok_abc' })
         await close()
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: refuses to attach integration bearer when no host validator is wired', async () => {
+        // Fail-closed: a deploy that doesn't wire `integrationHostValidator`
+        // must NOT silently regress to "attach bearer to whatever URL the
+        // spec author chose." Without this, a malicious author could point
+        // at their own URL and harvest the team's OAuth token.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'external',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+                auth: { integration: 'linear:T01' },
+            },
+        ]
+        await expect(
+            openMcpClients(refs, {
+                integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
+                secrets: {},
+                transportFactory: factory,
+            })
+        ).rejects.toThrow(/mcp_integration_host_validator_not_wired: linear:T01/)
+        await closePairs(pairs)
+    })
+
+    it('SECURITY: refuses to attach integration bearer when validator rejects the host', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                kind: 'external',
+                id: 'linear',
+                url: 'https://evil.example.com/linear',
+                secrets: [],
+                auth: { integration: 'linear:T01' },
+            },
+        ]
+        await expect(
+            openMcpClients(refs, {
+                integrations: { 'linear:T01': { kind: 'linear', access_token: 'tok_abc' } },
+                secrets: {},
+                transportFactory: factory,
+                integrationHostValidator: (ref, url) =>
+                    // Mimic a prod validator that only allows the canonical
+                    // host for a known integration kind.
+                    ref === 'linear:T01' && url.host === 'mcp.linear.app',
+            })
+        ).rejects.toThrow(/mcp_integration_host_not_allowed: linear:T01 → evil\.example\.com/)
         await closePairs(pairs)
     })
 
@@ -316,6 +385,14 @@ describe('openMcpClients', () => {
         // Confirms the factory was invoked for the good ref (the partial-open
         // case is the one we actually want to cover).
         expect(targets.length).toBeGreaterThanOrEqual(1)
+        // The contract this test exists for: the successful `ok` client must
+        // have been closed by the cleanup path. Without this assertion an
+        // accidental no-op on `closeAll(opened)` would still let the test
+        // pass because `closePairs` below drains everything anyway. Look at
+        // the pair created for the `ok` ref (the first factory invocation).
+        const okPair = pairs[0]
+        expect(okPair).not.toBeUndefined()
+        expect(okPair.serverClosed.value).toBe(true)
         await closePairs(pairs)
     })
 
@@ -374,5 +451,76 @@ describe('openMcpClients', () => {
         // path; we already asserted the per-client closure logged once.
         await close()
         await closePairs(pairs)
+    })
+
+    describe('SECURITY: assertSafeExternalMcpUrl', () => {
+        it.each([
+            { label: 'plain HTTP', url: 'http://mcp.linear.app/sse' },
+            { label: 'WebSocket', url: 'ws://example.com/mcp' },
+            { label: 'file URL', url: 'file:///etc/passwd' },
+        ])('rejects the $label scheme', async ({ url }) => {
+            const { factory, pairs } = await buildEchoFactory()
+            await expect(
+                openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
+                    integrations: {},
+                    secrets: {},
+                    transportFactory: factory,
+                })
+            ).rejects.toThrow(/mcp_unsafe_url: scheme must be https/)
+            await closePairs(pairs)
+        })
+
+        it.each([
+            { label: 'localhost', url: 'https://localhost/mcp' },
+            { label: 'IPv4 loopback literal', url: 'https://127.0.0.1/mcp' },
+            { label: 'AWS / Azure / GCP metadata service IP', url: 'https://169.254.169.254/latest/meta-data/' },
+            { label: 'RFC1918 10.x', url: 'https://10.0.0.1/mcp' },
+            { label: 'RFC1918 192.168.x', url: 'https://192.168.1.1/mcp' },
+            { label: 'RFC1918 172.16-31.x', url: 'https://172.20.0.1/mcp' },
+            { label: 'GCP metadata DNS name', url: 'https://metadata.google.internal/computeMetadata/v1/' },
+            { label: '.internal TLD', url: 'https://api.internal/mcp' },
+            { label: 'IPv6 loopback', url: 'https://[::1]/mcp' },
+        ])('rejects the unsafe host: $label', async ({ url }) => {
+            const { factory, pairs } = await buildEchoFactory()
+            await expect(
+                openMcpClients([{ kind: 'external', id: 'x', url, secrets: [] }], {
+                    integrations: {},
+                    secrets: {},
+                    transportFactory: factory,
+                })
+            ).rejects.toThrow(/mcp_unsafe_url: (scheme|hostname)/)
+            await closePairs(pairs)
+        })
+
+        it('accepts a normal public HTTPS URL', async () => {
+            const { factory, pairs } = await buildEchoFactory()
+            const { close } = await openMcpClients(
+                [{ kind: 'external', id: 'x', url: 'https://mcp.linear.app/sse', secrets: [] }],
+                { integrations: {}, secrets: {}, transportFactory: factory }
+            )
+            await close()
+            await closePairs(pairs)
+        })
+
+        it('does NOT apply the URL safety check to kind: agent (URL minted by trusted resolver)', async () => {
+            // The agent-variant URL comes from the runner's own resolver, not
+            // the author's spec — so the SSRF floor doesn't apply. (The
+            // existing kind:'agent' test uses `https://ingress.local/` which
+            // would be rejected by the floor; this confirms it still works.)
+            const { factory, pairs, targets } = await buildEchoFactory()
+            const { close } = await openMcpClients([{ kind: 'agent', slug: 'weekly-digest' }], {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+                callerContext: { teamId: 1, sessionId: 's' },
+                agentMcpResolver: async (slug) => ({
+                    url: `https://ingress.local/agents/${slug}/mcp`,
+                    headers: {},
+                }),
+            })
+            expect(targets[0].url).toBe('https://ingress.local/agents/weekly-digest/mcp')
+            await close()
+            await closePairs(pairs)
+        })
     })
 })

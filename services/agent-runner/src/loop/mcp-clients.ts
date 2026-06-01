@@ -99,6 +99,21 @@ export type AgentMcpResolver = (
  */
 export type McpTransportFactory = (target: { url: string; headers: Record<string, string> }) => Transport
 
+/**
+ * Per-call validator the runner consults before stamping a connected
+ * integration's bearer token on an outbound MCP request. Returns `true` to
+ * allow attachment, `false` to reject. The worker is expected to wire a
+ * validator that maps the integration kind (e.g. `linear`, `github`) to
+ * the host pattern that integration is authorised for; without a wired
+ * validator, every `auth.integration`-bearing ref is **refused at open
+ * time** so a malicious spec author can't redirect a team's OAuth token
+ * to an arbitrary URL.
+ *
+ * See `docs/agent-platform/plans/runtime-mcps.md` "Auth resolution" and
+ * the PR-6 security thread for the threat model.
+ */
+export type IntegrationHostValidator = (integrationRef: string, url: URL) => boolean
+
 export interface OpenMcpClientsDeps {
     integrations: Record<string, IntegrationCredentials>
     /** Resolved plaintext secrets keyed by name (same shape `runSession`
@@ -117,6 +132,14 @@ export interface OpenMcpClientsDeps {
     /** Identity sent during the MCP `initialize` handshake. Defaults to the
      *  runner's own name + a static version stamp. */
     clientInfo?: { name: string; version: string }
+    /**
+     * Validator that decides whether a connected integration's bearer token
+     * may be attached to a given MCP URL. Fail-closed: when unset, any
+     * `auth.integration`-bearing external ref is refused at open time
+     * (`mcp_integration_host_validator_not_wired`). See the type definition
+     * for the threat model.
+     */
+    integrationHostValidator?: IntegrationHostValidator
 }
 
 const DEFAULT_CLIENT_INFO = { name: 'posthog-agent-runner', version: '0.1.0' }
@@ -235,15 +258,100 @@ async function resolveTarget(
     }
     // `external` variant.
     const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)
+    assertSafeExternalMcpUrl(url)
     const headers: Record<string, string> = {}
     if (ref.auth?.integration) {
         const cred = deps.integrations[ref.auth.integration]
         if (!cred) {
             throw new Error(`mcp_integration_not_resolved: ${ref.auth.integration}`)
         }
+        // Fail-closed integration host binding: an author can't redirect a
+        // team's OAuth token to an arbitrary URL because the worker's
+        // validator gates which host each integration kind is allowed to
+        // talk to. The unwired-validator branch refuses unconditionally so
+        // a config-drift / deploy issue can't silently regress to "attach
+        // bearer to anything." See `IntegrationHostValidator` doc + the
+        // PR-6 security thread.
+        if (!deps.integrationHostValidator) {
+            throw new Error(`mcp_integration_host_validator_not_wired: ${ref.auth.integration}`)
+        }
+        const parsed = new URL(url)
+        if (!deps.integrationHostValidator(ref.auth.integration, parsed)) {
+            throw new Error(`mcp_integration_host_not_allowed: ${ref.auth.integration} → ${parsed.host}`)
+        }
         headers['Authorization'] = `Bearer ${cred.access_token}`
     }
     return { url, headers }
+}
+
+/**
+ * SSRF floor for `kind: 'external'` MCP URLs. The author-supplied URL passes
+ * Zod's `.url()` validator (a syntactic check) and could otherwise resolve
+ * to private / loopback / cloud-metadata addresses. This rejects the
+ * obvious cases at open time:
+ *
+ *   - non-HTTPS schemes (no plaintext, no `ws://`, no `file://`)
+ *   - IPv4 loopback / RFC1918 / link-local / cloud-metadata literals
+ *   - IPv6 loopback / link-local / unique-local
+ *   - hostnames ending in `.local` or `.internal` (mDNS / private DNS)
+ *
+ * This is a best-effort string-pattern check, NOT DNS-time validation —
+ * a hostname like `evil.com` that A-records to `127.0.0.1` slips through.
+ * Closing that gap requires a custom HTTP agent that resolves DNS and
+ * inspects the resolved IP before connect; tracked as a follow-up in the
+ * plan. The string check still raises the floor enough to address the
+ * concrete attacks called out in the PR-6 security review:
+ *   - `https://169.254.169.254/...` (AWS / Azure IMDS)
+ *   - `https://10.0.0.1/...` (private LAN)
+ *   - `http://...` (downgrade to plaintext for credential capture)
+ *
+ * `kind: 'agent'` URLs are minted by the resolver — not author input —
+ * so they don't pass through here.
+ */
+export function assertSafeExternalMcpUrl(url: string): void {
+    let parsed: URL
+    try {
+        parsed = new URL(url)
+    } catch {
+        throw new Error(`mcp_unsafe_url: not a valid URL`)
+    }
+    if (parsed.protocol !== 'https:') {
+        throw new Error(`mcp_unsafe_url: scheme must be https (got '${parsed.protocol}')`)
+    }
+    if (isUnsafeMcpHost(parsed.hostname)) {
+        throw new Error(`mcp_unsafe_url: hostname '${parsed.hostname}' is private / loopback / link-local`)
+    }
+}
+
+const UNSAFE_HOST_PATTERNS: ReadonlyArray<RegExp> = [
+    /^localhost$/i,
+    /^localhost\./i,
+    // IPv4 loopback / link-local / RFC1918 / first-octet 0.x / cloud-IMDS.
+    /^0\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/,
+    /^192\.168\.\d{1,3}\.\d{1,3}$/,
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/,
+    /^169\.254\.\d{1,3}\.\d{1,3}$/,
+    // IPv6 loopback / link-local / unique-local. URL hostnames bracket
+    // literal v6 addresses (`[::1]`), but `URL.hostname` strips the
+    // brackets — match the unbracketed form.
+    /^::1$/,
+    /^fe[89ab][0-9a-f]:/i,
+    /^fc[0-9a-f][0-9a-f]:/i,
+    /^fd[0-9a-f][0-9a-f]:/i,
+    // Cloud / internal-DNS suffixes used as private resolvers.
+    /\.internal$/i,
+    /\.local$/i,
+    /^metadata\.google\.internal$/i,
+]
+
+export function isUnsafeMcpHost(host: string): boolean {
+    // `URL.hostname` keeps the brackets on IPv6 literals (`[::1]`,
+    // `[fe80::1%eth0]`); strip them so the IPv6 patterns can match without
+    // having to anchor on the bracket form too.
+    const normalized = host.toLowerCase().replace(/^\[|\]$/g, '')
+    return UNSAFE_HOST_PATTERNS.some((re) => re.test(normalized))
 }
 
 /**

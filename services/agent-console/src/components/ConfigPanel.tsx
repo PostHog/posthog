@@ -96,22 +96,7 @@ interface SkillRef {
     description?: string
 }
 
-// Hand-rolled mirror of `McpRefSchema` in @posthog/agent-shared. Kept in sync
-// by hand to avoid a workspace import. TODO: once runtime-mcps flattens to a
-// single shape (see plans/runtime-mcps.md "Future migration"), drop the union.
-interface AgentMcpRef {
-    kind: 'agent'
-    slug: string
-}
-interface ExternalMcpRef {
-    kind: 'external'
-    id: string
-    url: string
-    auth?: { integration?: string }
-    secrets?: string[]
-    allowlist?: string[]
-}
-type McpRef = AgentMcpRef | ExternalMcpRef
+import type { McpRef } from '@/types/mcp'
 
 interface Trigger {
     type: string

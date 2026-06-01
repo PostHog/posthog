@@ -236,31 +236,12 @@ describe('AgentSpecSchema', () => {
             expect(m.allowlist).toBeUndefined()
         })
 
-        it('rejects an external entry missing id', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    mcps: [{ kind: 'external', url: 'https://mcp.linear.app/sse' }],
-                })
-            ).toThrow()
-        })
-
-        it('rejects an external entry with empty id', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    mcps: [{ kind: 'external', id: '', url: 'https://mcp.linear.app/sse' }],
-                })
-            ).toThrow()
-        })
-
-        it('rejects an external entry with a non-URL endpoint', () => {
-            expect(() =>
-                AgentSpecSchema.parse({
-                    model: 'x',
-                    mcps: [{ kind: 'external', id: 'linear', url: 'not-a-url' }],
-                })
-            ).toThrow()
+        it.each([
+            { label: 'missing id', mcp: { kind: 'external', url: 'https://mcp.linear.app/sse' } },
+            { label: 'empty id', mcp: { kind: 'external', id: '', url: 'https://mcp.linear.app/sse' } },
+            { label: 'non-URL endpoint', mcp: { kind: 'external', id: 'linear', url: 'not-a-url' } },
+        ])('rejects an external entry with $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ model: 'x', mcps: [mcp] })).toThrow()
         })
 
         it('still parses the agent variant with just a slug', () => {
