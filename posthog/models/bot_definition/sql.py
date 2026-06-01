@@ -95,22 +95,3 @@ PRIMARY KEY regexp
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(REGEXP_TREE())
 """
-
-# Lambda UDFs for direct SQL editor usage — these provide stable callable names
-# that delegate to the dictionary, decoupling query authors from dict internals.
-BOT_DEFINITION_UDFS_SQL = [
-    "CREATE FUNCTION IF NOT EXISTS botGetName AS (ua) -> dictGetOrDefault('{dict}', 'name', ua, '')",
-    "CREATE FUNCTION IF NOT EXISTS botGetCategory AS (ua) -> dictGetOrDefault('{dict}', 'category', ua, 'regular')",
-    "CREATE FUNCTION IF NOT EXISTS botGetTrafficType AS (ua) -> dictGetOrDefault('{dict}', 'traffic_type', ua, 'Regular')",
-    "CREATE FUNCTION IF NOT EXISTS botGetOperator AS (ua) -> dictGetOrDefault('{dict}', 'operator', ua, '')",
-    # isBot: any non-Regular traffic type (AI Agent, Bot, Automation) means the UA is a bot
-    "CREATE FUNCTION IF NOT EXISTS botIsBot AS (ua) -> dictGetOrDefault('{dict}', 'traffic_type', ua, 'Regular') != 'Regular'",
-]
-
-DROP_BOT_DEFINITION_UDFS_SQL = [
-    "DROP FUNCTION IF EXISTS botGetName",
-    "DROP FUNCTION IF EXISTS botGetCategory",
-    "DROP FUNCTION IF EXISTS botGetTrafficType",
-    "DROP FUNCTION IF EXISTS botGetOperator",
-    "DROP FUNCTION IF EXISTS botIsBot",
-]
