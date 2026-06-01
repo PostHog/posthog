@@ -9,8 +9,10 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKLING_BACKFILL_CONCURRENCY_TAG,
     EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
+    EVENTS_CONCURRENCY_TAG,
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
@@ -19,6 +21,7 @@ from posthog.dags.events_backfill_to_duckling import (
     ICEBERG_PERSONS_PARTITION_EXPR,
     ICEBERG_PERSONS_TABLE_DDL,
     PERSONS_COLUMNS,
+    PERSONS_CONCURRENCY_TAG,
     PERSONS_TABLE_DDL,
     _get_cluster,
     _set_iceberg_table_partitioning,
@@ -905,3 +908,13 @@ class TestIcebergInsertByNameHivePartitioning:
         insert_sql = next(s for s in executed if "read_parquet" in s)
         assert "BY NAME" in insert_sql
         assert "hive_partitioning=false" in insert_sql
+
+
+class TestDucklingConcurrencyTags:
+    # The combined events+persons cap is enforced on the shared key in the charts
+    # Dagster deployment settings. If either backfill drops the shared tag, the
+    # cap silently stops applying to it — guard against that here.
+    def test_events_and_persons_share_the_combined_concurrency_key(self):
+        ((shared_key, shared_value),) = DUCKLING_BACKFILL_CONCURRENCY_TAG.items()
+        assert EVENTS_CONCURRENCY_TAG[shared_key] == shared_value
+        assert PERSONS_CONCURRENCY_TAG[shared_key] == shared_value
