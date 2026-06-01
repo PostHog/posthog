@@ -199,6 +199,9 @@ tools/query-performance-ai/ @PostHog/team-analytics-platform
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
 
+# User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
+products/user_interviews/** @pauldambra @fivestarspicy @ksvat
+
 # OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
 posthog/api/documentation.py @PostHog/team-devex
 posthog/api/mixins.py @PostHog/team-devex

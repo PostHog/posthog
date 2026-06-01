@@ -3,16 +3,18 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconPin, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { uuid } from 'lib/utils'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -27,8 +29,13 @@ import { HOMEPAGE_TAB_ID } from './constants'
 
 function IdleInput(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
-    const { setQuery, submitQuery, enterAiMode } = useActions(aiFirstHomepageLogic)
+    const { setQuery, submitQuery, enterAiMode, startHandsFreeChat } = useActions(aiFirstHomepageLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const handsFreeFlag = useFeatureFlag('MAX_HANDS_FREE')
+    const { canUseHandsFree } = useValues(handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }))
     const inputRef = useRef<HTMLTextAreaElement>(null)
+
+    const handsFreeAvailable = handsFreeFlag && canUseHandsFree && dataProcessingAccepted
 
     useEffect(() => {
         const timer = setTimeout(() => inputRef.current?.focus(), 100)
@@ -80,7 +87,7 @@ function IdleInput(): JSX.Element {
                                 posthog.capture('homepage query submitted', { mode: 'search' })
                                 submitQuery('search')
                             }
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
                                 if (e.shiftKey) {
                                     // Allow default behavior to insert newline
                                     return
@@ -122,6 +129,18 @@ function IdleInput(): JSX.Element {
                             >
                                 <span className="text-xxs">Tab to search</span>
                             </ButtonPrimitive>
+                            {handsFreeAvailable && (
+                                <Tooltip title="Start a new chat in hands-free">
+                                    <ButtonPrimitive
+                                        iconOnly
+                                        data-attr="homepage-hands-free"
+                                        className="shrink-0"
+                                        onClick={startHandsFreeChat}
+                                    >
+                                        <IconMicrophone className="size-4" />
+                                    </ButtonPrimitive>
+                                </Tooltip>
+                            )}
                             <Tooltip title={!query.trim() ? 'Try asking a question' : undefined}>
                                 <ButtonPrimitive
                                     onClick={() => {
