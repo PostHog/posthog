@@ -181,7 +181,7 @@ class TestPrintTimeOnlyAllowlists(BaseTest):
 
 
 class TestEscapePreservationOnParserOutput(BaseTest):
-    """Group 4: escape-wrapped paths preserve attacker-controlled content as escaped literals — `Constant.value` (str) lands in `context.values` (CH driver binds it), `Field.chain` identifiers backtick-wrap with embedded-backtick escape via `escape_clickhouse_identifier`."""
+    """Group 4: escape-wrapped paths preserve attacker-controlled content as escaped literals — `Constant.value` (str) lands in `context.values` (CH driver binds it), `Field.chain` identifiers backtick-wrap with embedded-backtick escaping via `escape_clickhouse_identifier`."""
 
     def test_string_constant_with_injection_chars_is_parameterized_not_inlined(self):
         # Dangerous string content lands in `context.values` (a parameter slot, escaped at bind time by the CH driver), not in the SQL body itself.
@@ -198,9 +198,24 @@ class TestEscapePreservationOnParserOutput(BaseTest):
         self.assertGreaterEqual(len(context.values), 1)
 
     def test_identifier_with_backtick_is_backtick_escaped(self):
-        # HogQL accepts backtick-quoted identifiers with doubled inner backticks; printer re-emits backtick-wrapped with the inner backtick backslash-escaped.
+        # HogQL accepts backtick-quoted identifiers with doubled inner backticks; printer re-emits that form.
         sql, _ = _print(self, parse_select("SELECT 1 AS `weird``name` FROM events"))
-        self.assertIn("`weird\\`name`", sql)
+        self.assertIn("`weird``name`", sql)
+
+    def test_alias_backticks_are_doubled_for_clickhouse_identifier(self):
+        query = ast.SelectQuery(
+            select=[
+                ast.Alias(
+                    alias="safe` , 2 AS injected --",
+                    expr=ast.Constant(value=1),
+                )
+            ]
+        )
+
+        sql, _ = _print(self, query)
+
+        self.assertIn("SELECT 1 AS `safe`` , 2 AS injected --`", sql)
+        self.assertNotIn("\\`", sql)
 
     def test_identifier_with_percent_rejected(self):
         # `%` is reserved for parameter placeholders downstream; every identifier escape path rejects it.

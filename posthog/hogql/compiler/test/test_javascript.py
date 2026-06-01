@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.javascript import JavaScriptCompiler, Local, _sanitize_identifier, to_js_expr, to_js_program
+from posthog.hogql.compiler.javascript_stl import STL_FUNCTIONS
 from posthog.hogql.errors import QueryError
 
 
@@ -121,6 +122,11 @@ class TestJavaScript(BaseTest):
         stl_code = compiler.get_stl_code()
         self.assertIn("function randomFloat", stl_code)
         self.assertIn("Math.random()", stl_code)
+
+    def test_stl_escape_identifier_doubles_backticks(self):
+        escape_identifier_code = STL_FUNCTIONS["__escapeIdentifier"][0]
+        self.assertIn("c === '`' ? '``'", escape_identifier_code)
+        self.assertNotIn("'`': '\\\\`'", escape_identifier_code)
 
     def test_sanitize_keywords(self):
         self.assertEqual(_sanitize_identifier("for"), "__x_for")

@@ -25,7 +25,9 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_hogql_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_hogql_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_hogql_identifier("a#$#"), "`a#$#`")
-        self.assertEqual(escape_hogql_identifier("back`tick"), "`back\\`tick`")
+        self.assertEqual(escape_hogql_identifier("back`tick"), "`back``tick`")
+        self.assertEqual(escape_hogql_identifier("back\\`tick"), "`back\\\\``tick`")
+        self.assertEqual(escape_hogql_identifier("safe` , 2 AS injected --"), "`safe`` , 2 AS injected --`")
         self.assertEqual(escape_hogql_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_hogql_identifier('double"quote'), '`double"quote`')
         self.assertEqual(
@@ -43,7 +45,9 @@ class TestPrintString(BaseTest):
         self.assertEqual(escape_clickhouse_identifier("a.b.c"), "`a.b.c`")
         self.assertEqual(escape_clickhouse_identifier("a-b-c"), "`a-b-c`")
         self.assertEqual(escape_clickhouse_identifier("a#$#"), "`a#$#`")
-        self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back\\`tick`")
+        self.assertEqual(escape_clickhouse_identifier("back`tick"), "`back``tick`")
+        self.assertEqual(escape_clickhouse_identifier("back\\`tick"), "`back\\\\``tick`")
+        self.assertEqual(escape_clickhouse_identifier("safe` , 2 AS injected --"), "`safe`` , 2 AS injected --`")
         self.assertEqual(escape_clickhouse_identifier("single'quote"), "`single'quote`")
         self.assertEqual(escape_clickhouse_identifier('double"quote'), '`double"quote`')
         self.assertEqual(

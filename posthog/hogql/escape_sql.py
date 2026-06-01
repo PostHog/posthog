@@ -22,7 +22,11 @@ escape_chars_map = {
     "\\": "\\\\",
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
-backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+
+
+def _escape_backquoted_identifier(identifier: str) -> str:
+    escaped_identifier = "".join("``" if c == "`" else escape_chars_map.get(c, c) for c in identifier)
+    return f"`{escaped_identifier}`"
 
 
 def safe_identifier(identifier: str) -> str:
@@ -48,7 +52,7 @@ def escape_hogql_identifier(identifier: str | int) -> str:
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
     ):  # Same regex as the frontend escapePropertyAsHogQlIdentifier
         return identifier
-    return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
+    return _escape_backquoted_identifier(identifier)
 
 
 # Copied from dlt/common/data_writers/escape.py
@@ -223,7 +227,7 @@ def escape_clickhouse_identifier(identifier: str) -> str:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):
         return identifier
-    return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
+    return _escape_backquoted_identifier(identifier)
 
 
 def escape_hogql_string(

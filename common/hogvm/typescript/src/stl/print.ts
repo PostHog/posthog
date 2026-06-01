@@ -19,7 +19,6 @@ const singlequoteEscapeCharsMap: Record<string, string> = {
 
 const backquoteEscapeCharsMap: Record<string, string> = {
     ...escapeCharsMap,
-    '`': '\\`',
 }
 
 export function escapeString(value: string): string {
@@ -38,7 +37,7 @@ export function escapeIdentifier(identifier: string | number): string {
     }
     return `\`${identifier
         .split('')
-        .map((c) => backquoteEscapeCharsMap[c] || c)
+        .map((c) => (c === '`' ? '``' : backquoteEscapeCharsMap[c] || c))
         .join('')}\``
 }
 
