@@ -1,13 +1,26 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { useActions } from 'kea'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
 
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { panelLayoutLogic } from '../panelLayoutLogic'
+import {
+    errorTrackingEventsQueryResponse,
+    errorTrackingQueryResponse,
+    errorTrackingTypeIssue,
+} from 'products/error_tracking/frontend/__mocks__/error_tracking_query'
+
+// Seeding the persisted value before <App /> mounts lets panelLayoutLogic initialise in the
+// desired state without mounting the logic early in a decorator, which would hijack routing.
+const NAV_COLLAPSED_STORAGE_KEY = 'layout.panel-layout.panelLayoutLogic.isLayoutNavCollapsedDesktop'
+
+const withNavCollapsed = (collapsed: boolean): Decorator => {
+    return function WithNavCollapsed(Story) {
+        window.localStorage.setItem(NAV_COLLAPSED_STORAGE_KEY, JSON.stringify(collapsed))
+        return <Story />
+    }
+}
 
 const meta: Meta<typeof App> = {
     component: App,
@@ -15,28 +28,25 @@ const meta: Meta<typeof App> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2025-10-10',
-        pageUrl: urls.dashboards(),
+        mockDate: '2024-07-09',
+        pageUrl: urls.errorTracking(),
         testOptions: {
             includeNavigationInSnapshot: true,
-            viewportWidths: ['narrow', 'medium', 'wide'],
+            viewportWidths: ['wide'],
         },
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboard_templates/': {},
-                '/api/projects/:id/integrations': { results: [] },
-                '/api/organizations/:organization_id/pipeline_destinations/': { results: [] },
-                '/api/projects/:id/pipeline_destination_configs/': { results: [] },
-                '/api/projects/:id/batch_exports/': { results: [] },
-                '/api/projects/:id/surveys/': { results: [] },
-                '/api/projects/:id/surveys/responses_count/': { results: [] },
-                '/api/environments/:team_id/exports/': { results: [] },
-                '/api/environments/:team_id/events': { results: [] },
+                'api/projects/:team_id/error_tracking/issue/:id': async (_, res, ctx) => {
+                    return res(ctx.json(errorTrackingTypeIssue))
+                },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': {},
+                '/api/environments/:team_id/query/ErrorTrackingQuery': async (_, res, ctx) =>
+                    res(ctx.json(errorTrackingQueryResponse)),
+                '/api/environments/:team_id/query/EventsQuery': async (_, res, ctx) =>
+                    res(ctx.json(errorTrackingEventsQueryResponse)),
             },
         }),
     ],
@@ -46,17 +56,9 @@ export default meta
 type Story = StoryObj<typeof App>
 
 export const Expanded: Story = {
-    render: () => {
-        const { toggleLayoutNavCollapsed } = useActions(panelLayoutLogic)
-        useOnMountEffect(() => toggleLayoutNavCollapsed(false))
-        return <App />
-    },
+    decorators: [withNavCollapsed(false)],
 }
 
 export const Collapsed: Story = {
-    render: () => {
-        const { toggleLayoutNavCollapsed } = useActions(panelLayoutLogic)
-        useOnMountEffect(() => toggleLayoutNavCollapsed(true))
-        return <App />
-    },
+    decorators: [withNavCollapsed(true)],
 }
