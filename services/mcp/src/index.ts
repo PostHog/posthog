@@ -256,11 +256,32 @@ const handleRequest = async (
         // POSTHOG_API_BASE_URL takes precedence for self-hosted, otherwise routes to oauth.posthog.com.
         const authorizationServer = getAuthorizationServerUrl()
 
+        // Advertise the scopes the authorization server itself publishes, fetched at request
+        // time (edge-cached), so this list can never drift from what the AS will actually grant.
+        // The bundled OAUTH_SCOPES_SUPPORTED is only a fallback for when the AS is unreachable.
+        let scopesSupported: readonly string[] = OAUTH_SCOPES_SUPPORTED
+        try {
+            const asMetadataUrl = new URL('/.well-known/oauth-authorization-server', authorizationServer)
+            const asMetadata = await fetch(asMetadataUrl.toString(), {
+                cf: { cacheTtl: 3600, cacheEverything: true },
+            })
+            if (asMetadata.ok) {
+                const { scopes_supported: asScopes } = (await asMetadata.json()) as {
+                    scopes_supported?: unknown
+                }
+                if (Array.isArray(asScopes) && asScopes.length > 0) {
+                    scopesSupported = asScopes as string[]
+                }
+            }
+        } catch (error) {
+            log.extend({ asScopesError: error instanceof Error ? error.message : String(error) })
+        }
+
         return new Response(
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: scopesSupported,
                 bearer_methods_supported: ['header'],
             }),
             {
