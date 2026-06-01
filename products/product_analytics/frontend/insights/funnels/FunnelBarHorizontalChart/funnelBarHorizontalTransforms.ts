@@ -7,6 +7,9 @@ import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/typ
 export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
 export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
 
+/** Shared `bars.valueDomain` so each step's separate chart lines up (basis-step percentages, `0–100`). */
+export const FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN: [number, number] = [0, 100]
+
 const RATE_TO_PERCENT = 100
 
 export interface FunnelBarHorizontalSegmentMeta {
@@ -14,9 +17,11 @@ export interface FunnelBarHorizontalSegmentMeta {
     breakdownIndex: number | null
 }
 
-export interface FunnelBarHorizontalData {
+/** Series for one step's single-band bar. Each series' `data` has exactly one value. */
+export interface FunnelBarHorizontalStepData {
+    /** Band label — a single per-chart slot, so just the step index as a string. */
+    label: string
     series: Series<FunnelBarHorizontalSegmentMeta>[]
-    labels: string[]
 }
 
 interface BuildOptions {
@@ -42,84 +47,72 @@ function variantAtStep(
 export function buildFunnelBarHorizontalData(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
-): FunnelBarHorizontalData {
+): FunnelBarHorizontalStepData[] {
     if (steps.length === 0) {
-        return { series: [], labels: [] }
+        return []
     }
-
-    // Band keys must be unique — funnels often repeat the same event, so step names collide and
-    // d3.scaleBand would collapse them into one band. The visible step names come from StepDecorations.
-    const labels = steps.map((_, stepIndex) => String(stepIndex))
-
-    if (isBreakdownLayout(steps)) {
-        return { series: buildBreakdownSeries(steps, options), labels }
-    }
-    return { series: buildSingleSeries(steps, options), labels }
+    const breakdown = isBreakdownLayout(steps)
+    return steps.map((step, stepIndex) => ({
+        label: String(stepIndex),
+        series: breakdown ? buildBreakdownSegments(steps, stepIndex, options) : buildSingleSegment(step, options),
+    }))
 }
 
-function buildBreakdownSeries(
+function buildBreakdownSegments(
     steps: FunnelStepWithConversionMetrics[],
+    stepIndex: number,
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
+    const step = steps[stepIndex]
+    const basisCount = getReferenceStep(steps, options.stepReference, stepIndex).count
     const breakdownCount = steps[0].nested_breakdown!.length
-    const series: Series<FunnelBarHorizontalSegmentMeta>[] = []
+    const segments: Series<FunnelBarHorizontalSegmentMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
-        const fractions = steps.map((step, stepIndex) => {
-            const variant = variantAtStep(step, breakdownIndex)
-            if (!variant) {
-                return 0
-            }
-            const basisCount = getReferenceStep(steps, options.stepReference, stepIndex).count
-            return basisCount > 0 ? variant.count / basisCount : 0
-        })
+        const variant = variantAtStep(step, breakdownIndex)
+        const fraction = variant && basisCount > 0 ? variant.count / basisCount : 0
+        // Color and label come from step 0's variant so the same breakdown reads consistently
+        // across steps even when a later step is missing that variant.
         const representative = variantAtStep(steps[0], breakdownIndex)!
-        series.push({
+        segments.push({
             key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex}`,
             label: options.getLabel(representative),
-            data: fractions.map((f) => f * RATE_TO_PERCENT),
+            data: [fraction * RATE_TO_PERCENT],
             color: options.getColor(representative),
             meta: { isDropOff: false, breakdownIndex },
         })
     }
 
-    series.push(buildFiller(steps, series, options.fillerColor))
-    return series
+    return [...segments, buildFiller(segments, options.fillerColor)]
 }
 
-function buildSingleSeries(
-    steps: FunnelStepWithConversionMetrics[],
+function buildSingleSegment(
+    step: FunnelStepWithConversionMetrics,
     options: BuildOptions
 ): Series<FunnelBarHorizontalSegmentMeta>[] {
-    const displaySteps = steps.map((step) => getStepBreakdownSeries(step, options.breakdownFilter) ?? step)
-    const fractions = displaySteps.map((s) => s.conversionRates.fromBasisStep)
-    const representative = displaySteps[0]
-    const isSingleBreakdownCollapse = displaySteps[0] !== steps[0]
+    const displayStep = getStepBreakdownSeries(step, options.breakdownFilter) ?? step
+    const isSingleBreakdownCollapse = displayStep !== step
 
     const segment: Series<FunnelBarHorizontalSegmentMeta> = {
         key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}0`,
-        label: options.getLabel(representative),
-        data: fractions.map((f) => f * RATE_TO_PERCENT),
-        color: options.getColor(representative),
+        label: options.getLabel(displayStep),
+        data: [displayStep.conversionRates.fromBasisStep * RATE_TO_PERCENT],
+        color: options.getColor(displayStep),
         meta: { isDropOff: false, breakdownIndex: isSingleBreakdownCollapse ? 0 : null },
     }
 
-    return [segment, buildFiller(steps, [segment], options.fillerColor)]
+    return [segment, buildFiller([segment], options.fillerColor)]
 }
 
 function buildFiller(
-    steps: FunnelStepWithConversionMetrics[],
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
     color: string
 ): Series<FunnelBarHorizontalSegmentMeta> {
-    const fillerData = steps.map((_, stepIndex) => {
-        const covered = segments.reduce((sum, s) => sum + (s.data[stepIndex] ?? 0), 0)
-        return Math.max(0, RATE_TO_PERCENT - covered)
-    })
+    const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
     return {
         key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
         label: 'Drop-off',
-        data: fillerData,
+        data: [Math.max(0, RATE_TO_PERCENT - covered)],
         color,
         visibility: { tooltip: false },
         meta: { isDropOff: true, breakdownIndex: null },

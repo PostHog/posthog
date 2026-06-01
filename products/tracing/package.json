@@ -14,6 +14,7 @@
         "@types/react": "*",
         "clsx": "*",
         "fast-deep-equal": "*",
-        "react": "*"
+        "react": "*",
+        "react-window": "*"
     }
 }

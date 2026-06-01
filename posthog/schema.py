@@ -142,6 +142,13 @@ class Operator(StrEnum):
     NOT_IN = "not_in"
 
 
+class DisplayType(StrEnum):
+    AUTO = "auto"
+    LINE = "line"
+    BAR = "bar"
+    AREA = "area"
+
+
 class YAxisPosition(StrEnum):
     LEFT = "left"
     RIGHT = "right"
@@ -151,10 +158,56 @@ class AssistantDataVisualizationAxisDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    color: str | None = Field(
+        default=None,
+        description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
+    )
+    displayType: DisplayType | None = Field(
+        default=None,
+        description=(
+            "Override how this individual series is rendered, independent of the"
+            " chart-level `display` type. Use this to mix series types — e.g. plot one"
+            " series as `bar` and overlay another as `line`. `auto` follows the"
+            " chart-level display type."
+        ),
+    )
+    label: str | None = Field(
+        default=None,
+        description=("Custom label for this series, shown in the legend and tooltips instead of the column name."),
+    )
+    trendLine: bool | None = Field(
+        default=None,
+        description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
+    )
     yAxisPosition: YAxisPosition | None = Field(
         default=None,
         description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
     )
+
+
+class Style(StrEnum):
+    NONE = "none"
+    NUMBER = "number"
+    SHORT = "short"
+    PERCENT = "percent"
+
+
+class AssistantDataVisualizationAxisFormatting(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    decimalPlaces: float | None = Field(default=None, description="Number of decimal places to display.")
+    prefix: str | None = Field(default=None, description="Text prepended to each value (e.g. `$`).")
+    style: Style | None = Field(
+        default=None,
+        description=(
+            "Number formatting style.\n- `none` — no formatting.\n- `number` —"
+            " thousands separators (e.g. `1,234`).\n- `short` — abbreviated large"
+            " numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a"
+            " percentage."
+        ),
+    )
+    suffix: str | None = Field(default=None, description="Text appended to each value (e.g. `%` or ` ms`).")
 
 
 class AssistantDataVisualizationAxisSettings(BaseModel):
@@ -163,6 +216,10 @@ class AssistantDataVisualizationAxisSettings(BaseModel):
     )
     display: AssistantDataVisualizationAxisDisplaySettings | None = Field(
         default=None, description="Display settings for a plotted Y series."
+    )
+    formatting: AssistantDataVisualizationAxisFormatting | None = Field(
+        default=None,
+        description="Number-formatting settings for the values on this axis or series.",
     )
 
 
@@ -1014,13 +1071,6 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
 
 
-class DisplayType(StrEnum):
-    AUTO = "auto"
-    LINE = "line"
-    BAR = "bar"
-    AREA = "area"
-
-
 class ChartSettingsDisplay(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1030,13 +1080,6 @@ class ChartSettingsDisplay(BaseModel):
     label: str | None = None
     trendLine: bool | None = None
     yAxisPosition: YAxisPosition | None = None
-
-
-class Style(StrEnum):
-    NONE = "none"
-    NUMBER = "number"
-    SHORT = "short"
-    PERCENT = "percent"
 
 
 class ChartSettingsFormatting(BaseModel):
@@ -2974,6 +3017,44 @@ class LogValueResult(BaseModel):
     name: str
 
 
+class Action1(StrEnum):
+    FIRING = "firing"
+    BROKEN = "broken"
+
+
+class ThresholdOperator(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class LogsAlertStateChangeSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Action1
+    alert_id: str
+    alert_name: str
+    consecutive_failures: float
+    filters: dict[str, Any]
+    result_count: float | None = None
+    threshold_count: float
+    threshold_operator: ThresholdOperator
+    url: str
+    window_minutes: float
+
+
+class LogsAlertStateChangeSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: LogsAlertStateChangeSignalExtra
+    source_id: str
+    source_product: Literal["logs"] = "logs"
+    source_type: Literal["alert_state_change"] = "alert_state_change"
+    weight: float
+
+
 class LogsOrderBy(StrEnum):
     LATEST = "latest"
     EARLIEST = "earliest"
@@ -4621,6 +4702,7 @@ class SignalSourceProduct(StrEnum):
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
+    LOGS = "logs"
 
 
 class SignalSourceType(StrEnum):
@@ -4635,6 +4717,7 @@ class SignalSourceType(StrEnum):
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
     CROSS_SOURCE_ISSUE = "cross_source_issue"
+    ALERT_STATE_CHANGE = "alert_state_change"
 
 
 class SignalsScoutEvidenceEntry(BaseModel):
@@ -5587,6 +5670,10 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
     showLegend: bool | None = Field(default=None, description="Show the chart legend.")
     showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    showValuesOnSeries: bool | None = Field(
+        default=None,
+        description="Render each data point's value as a label directly on the series.",
+    )
     stackBars100: bool | None = Field(
         default=None,
         description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
@@ -8813,6 +8900,7 @@ class SignalInput(
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
+        | LogsAlertStateChangeSignalInput
     ]
 ):
     root: (
@@ -8827,6 +8915,7 @@ class SignalInput(
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
         | SignalsScoutSignalInput
+        | LogsAlertStateChangeSignalInput
     )
 
 
@@ -25008,35 +25097,6 @@ class QueryResponseAlternative74(BaseModel):
     ]
 
 
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | DataVisualizationNode
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantStickinessQuery
-        | AssistantPathsQuery
-        | AssistantLifecycleQuery
-        | AssistantHogQLQuery
-    ) = Field(
-        ...,
-        description="The query to render (same as VisualizationArtifactContent.query)",
-    )
-    title: str | None = Field(default=None, description="Optional title for the visualization")
-    type: Literal["visualization"] = "visualization"
-
-
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25255,21 +25315,6 @@ class LegacyExperimentQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class NotebookArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
-        ..., description="Structured blocks for the notebook content"
-    )
-    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
-    is_saved: bool | None = Field(
-        default=None,
-        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
-    )
-    title: str | None = Field(default=None, description="Title for the notebook")
 
 
 class PathsQuery(BaseModel):
@@ -25554,6 +25599,38 @@ class QueryResponseAlternative(
     )
 
 
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
+        | AssistantHogQLQuery
+    ) = Field(
+        ...,
+        description="The query to render (same as VisualizationArtifactContent.query)",
+    )
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25746,13 +25823,6 @@ class DatabaseSchemaQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DocumentArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
-
-
 class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25863,6 +25933,21 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
+        ..., description="Structured blocks for the notebook content"
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
+    title: str | None = Field(default=None, description="Title for the notebook")
+
+
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25922,6 +26007,13 @@ class IsExperimentFunnelsQuery(BaseModel):
 
 class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs2 | None = None
+
+
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
 class ExperimentActorsQuery(BaseModel):
