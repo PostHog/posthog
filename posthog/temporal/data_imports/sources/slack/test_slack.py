@@ -373,10 +373,6 @@ class TestSlackSourceGetSchemasForceRefresh:
                 "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
                 side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
             ) as mock_fetch,
-            patch(
-                "posthog.temporal.data_imports.sources.slack.source.is_webhook_feature_flag_enabled",
-                return_value=False,
-            ),
         ):
             first = source.get_schemas(config, team_id=1)
             cached = source.get_schemas(config, team_id=1)
@@ -392,6 +388,29 @@ class TestSlackSourceGetSchemasForceRefresh:
         assert channel_names(first) == {"C1"}
         assert channel_names(cached) == {"C1"}
         assert channel_names(forced) == {"C2"}
+
+    def test_channel_schemas_are_webhook_only(self) -> None:
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        config, integration = self._build_mocks()
+        source = SlackSource()
+
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                return_value=[{"id": "C1", "name": "general"}],
+            ),
+        ):
+            schemas = source.get_schemas(config, team_id=1)
+
+        channel = next(s for s in schemas if s.name == "C1")
+        # Webhook is the only valid sync method: full-refresh would wipe the table and
+        # reload nothing, incremental/append have no polling endpoint to read from.
+        assert channel.supports_webhooks is True
+        assert channel.supports_incremental is False
+        assert channel.supports_append is False
+        assert channel.incremental_fields == []
 
 
 class TestSlackSourceChannelsEndpoint:
