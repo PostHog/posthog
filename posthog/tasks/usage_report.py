@@ -1093,7 +1093,14 @@ CLOUD_REGION_TO_URL = {
 
 
 # ai_product values that roll into PostHog AI (Max) billing credits.
-POSTHOG_AI_PRODUCTS = ["posthog_ai", "slack_app", "subscriptions"]
+POSTHOG_AI_PRODUCTS = [
+    "posthog_ai",
+    "slack_app",
+    "subscriptions",
+    "alert_investigation_agent",
+    "slack_app_routing",
+    "mcp",
+]
 
 # ai_product values billed as signals credits.
 SIGNALS_AI_PRODUCTS = ["signals"]
