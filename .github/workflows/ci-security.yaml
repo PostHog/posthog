@@ -38,7 +38,9 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    bin/ common/ ee/ frontend/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
+                    --jobs 4 \
+                    --include "*.py" \
+                    bin/ common/ ee/ posthog/ products/ services/llm-gateway/ services/stripe-mock/
 
     semgrep-go:
         runs-on: ubuntu-latest
@@ -123,18 +125,29 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # Single-rule scan — keeps the failure surface here aligned with the
-            # job name. Other custom TS rules (no-direct-fuse-instantiation,
-            # require-iframe-sandbox, ...) live in semgrep-js. When more
-            # product-specific rules land, extend the --config list explicitly.
+            # Full JS/TS security scan for products/ and common/ directories.
+            # These paths contain TypeScript that is not covered by semgrep-js
+            # (which scans frontend/, nodejs/, services/). With semgrep-python
+            # now restricted to *.py files, this job picks up the JS/TS
+            # security coverage that was previously applied implicitly.
             - name: Run Semgrep
               run: |
                   semgrep \
-                    --config ".semgrep/rules/prefer-codegen-api.yaml" \
+                    --config ".semgrep/rules/" \
+                    --config "p/javascript" \
+                    --config "p/owasp-top-ten" \
+                    --config "p/security-audit" \
+                    --config "p/trailofbits" \
+                    --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
+                    --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
                     --error \
                     --metrics=off \
                     --verbose \
-                    products/
+                    --include "*.ts" \
+                    --include "*.tsx" \
+                    --include "*.js" \
+                    --include "*.jsx" \
+                    products/ common/
 
     # scans GitHub Actions and other repo-wide config
     semgrep-general:
