@@ -11,26 +11,24 @@ from posthog.models.team import Team
 from products.dashboards.backend.constants import WIDGET_DATE_FROM_VALUES
 
 
-def validate_filter_test_accounts_value(value: object) -> bool:
+def resolve_filter_test_accounts(config: dict[str, Any], team: Team) -> bool:
+    # Omitting filterTestAccounts should follow the team default, not hardcode false.
+    if "filterTestAccounts" not in config:
+        return bool(team.test_account_filters_default_checked)
+    value = config["filterTestAccounts"]
     if not isinstance(value, bool):
         raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
     return value
-
-
-def resolve_filter_test_accounts(config: dict[str, Any], team: Team) -> bool:
-    # Omitting filterTestAccounts should follow the team default, not hardcode false.
-    if "filterTestAccounts" in config:
-        return validate_filter_test_accounts_value(config["filterTestAccounts"])
-    return bool(team.test_account_filters_default_checked)
 
 
 def merge_base_widget_config_fields(config: dict[str, Any]) -> dict[str, Any]:
     # Centralizes shared fields so each widget type doesn't re-validate them.
     if "filterTestAccounts" not in config:
         return {}
-    return {
-        "filterTestAccounts": validate_filter_test_accounts_value(config["filterTestAccounts"]),
-    }
+    value = config["filterTestAccounts"]
+    if not isinstance(value, bool):
+        raise DRFValidationError({"config": "filterTestAccounts must be a boolean."})
+    return {"filterTestAccounts": value}
 
 
 def validate_widget_date_range(date_range: object) -> dict[str, object] | None:

@@ -118,6 +118,25 @@ class TestDashboardWidgets(APIBaseTest):
         assert updated_tile["show_description"] is True
 
     @override_settings(IN_UNIT_TESTING=True)
+    def test_dashboard_patch_widget_update_without_config_preserves_config(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, config={"limit": 5, "orderBy": "last_seen"}
+        )
+
+        tile = dashboard_json["tiles"][0]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+            {"tiles": [{"id": tile["id"], "widget": {"id": tile["widget"]["id"], "name": "Renamed"}}]},
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_tile = response.json()["tiles"][0]
+        assert updated_tile["widget"]["name"] == "Renamed"
+        assert updated_tile["widget"]["config"]["limit"] == 5
+        assert updated_tile["widget"]["config"]["orderBy"] == "last_seen"
+
+    @override_settings(IN_UNIT_TESTING=True)
     def test_duplicate_dashboard_copies_widget_name_with_suffix(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
         _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
@@ -511,59 +530,47 @@ class TestDashboardWidgets(APIBaseTest):
         assert error_tracking_list["availability_requirements"] == ["exception_autocapture"]
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_add_widget_via_widgets_endpoint(self) -> None:
+    def test_add_widget_via_batch_endpoint(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+                ]
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED
 
-        tile = response.json()
+        tile = response.json()["tiles"][0]
         assert tile["widget"]["widget_type"] == "error_tracking_list"
         assert tile["widget"]["config"]["limit"] == 8
         assert tile["widget"]["name"] == "Errors"
         assert tile["layouts"]["sm"]["w"] == 6
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_update_widget_via_dedicated_endpoint(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
-        tile_id = dashboard_json["tiles"][0]["id"]
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/{tile_id}/",
-            {"config": {"limit": 11}, "show_description": True},
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        updated = response.json()
-        assert updated["widget"]["config"]["limit"] == 11
-        assert updated["show_description"] is True
-
-    @override_settings(IN_UNIT_TESTING=True)
-    def test_widgets_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:
+    def test_widgets_batch_endpoint_rejects_legacy_error_tracking_widget_type(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "error_tracking", "config": {"limit": 10}},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking", "config": {"limit": 10}}]},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_widgets_endpoint_rejects_unknown_widget_type(self) -> None:
+    def test_widgets_batch_endpoint_rejects_unknown_widget_type(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "unknown", "config": {}},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "unknown", "config": {}}]},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @override_settings(IN_UNIT_TESTING=True)
-    def test_widgets_endpoint_requires_feature_flag(self) -> None:
+    def test_widgets_batch_endpoint_requires_feature_flag(self) -> None:
         self._stop_widgets_flag_patchers()
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -573,8 +580,8 @@ class TestDashboardWidgets(APIBaseTest):
                 return_value=False,
             ):
                 response = self.client.post(
-                    f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-                    {"widget_type": "error_tracking_list", "config": {"limit": 5}},
+                    f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+                    {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 5}}]},
                 )
         finally:
             self._start_widgets_flag_patchers()
@@ -608,13 +615,17 @@ class TestDashboardWidgets(APIBaseTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_add_widget_tile_via_widgets_endpoint_fires_tile_added_event(self, mock_report_user_action) -> None:
+    def test_add_widget_tile_via_batch_endpoint_fires_tile_added_event(self, mock_report_user_action) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Errors"},
+                ]
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -651,7 +662,9 @@ class TestDashboardWidgets(APIBaseTest):
         assert tiles[0]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[1]["widget"]["widget_type"] == "error_tracking_list"
         assert tiles[0]["layouts"]["sm"]["y"] == 0
-        assert tiles[1]["layouts"]["sm"]["y"] == tiles[0]["layouts"]["sm"]["h"]
+        assert tiles[0]["layouts"]["sm"]["x"] == 0
+        assert tiles[1]["layouts"]["sm"]["y"] == 0
+        assert tiles[1]["layouts"]["sm"]["x"] == 6
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_batch_create_widget_tiles_rejects_empty_list(self) -> None:
@@ -706,8 +719,8 @@ class TestDashboardWidgets(APIBaseTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "error_tracking_list", "config": {"limit": 8}},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {"widgets": [{"widget_type": "error_tracking_list", "config": {"limit": 8}}]},
         )
         assert response.status_code == status.HTTP_201_CREATED
 
@@ -744,8 +757,12 @@ class TestDashboardWidgets(APIBaseTest):
         mock_report_user_action.reset_mock()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/",
-            {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Widget 20"},
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "error_tracking_list", "config": {"limit": 8}, "name": "Widget 20"},
+                ]
+            },
         )
         assert response.status_code == status.HTTP_201_CREATED
 

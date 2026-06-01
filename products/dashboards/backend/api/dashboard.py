@@ -477,7 +477,6 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
     )
     config = serializers.JSONField(
         required=False,
-        default=dict,
         help_text=(
             "Widget-specific configuration JSON. Shape depends on widget_type; "
             "see config_schema_hints in dashboard-widget-catalog-list "
@@ -534,39 +533,8 @@ class AddDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
         min_length=1,
         max_length=MAX_WIDGETS_BATCH_SIZE,
         help_text=(
-            f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). "
-            "Each entry uses the same fields as a single add request."
+            f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). Use a single-element list to add one widget."
         ),
-    )
-
-
-class UpdateDashboardWidgetRequestSerializer(serializers.Serializer):
-    config = serializers.JSONField(
-        required=False,
-        help_text=(
-            "Updated widget configuration JSON. Validated for the tile's widget_type; "
-            "see config_schema_hints in dashboard-widget-catalog-list."
-        ),
-    )
-    name = serializers.CharField(
-        max_length=400,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional custom display name for the widget tile.",
-    )
-    description = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        help_text="Optional markdown description shown when show_description is enabled.",
-    )
-    show_description = serializers.BooleanField(
-        required=False,
-        help_text="Whether to show the description on the dashboard tile.",
-    )
-    layouts = serializers.JSONField(
-        required=False,
-        help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
     )
 
 
@@ -1376,7 +1344,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if patch_widget_type is not None and str(patch_widget_type) != widget.widget_type:
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
-        widget.config = validate_widget_config(widget.widget_type, widget_data.get("config", {}))
+        if "config" in widget_data:
+            widget.config = validate_widget_config(widget.widget_type, widget_data["config"])
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -2649,48 +2618,6 @@ class DashboardsViewSet(
         """List registered dashboard widget types and config hints for agents."""
         return Response({"results": get_widget_catalog_entries()})
 
-    @extend_schema(request=AddDashboardWidgetRequestSerializer, responses={201: DashboardTileSerializer})
-    @action(methods=["POST"], detail=True, url_path="widgets", required_scopes=["dashboard:write"])
-    def widgets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Add a widget tile to a dashboard."""
-        if not dashboard_widgets_enabled(self.team_id):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
-        dashboard = self.get_object()
-        if dashboard.deleted:
-            raise exceptions.NotFound()
-
-        serializer = AddDashboardWidgetRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        payload = cast(dict[str, Any], serializer.validated_data)
-
-        user = cast(User, request.user)
-        user_access_control = UserAccessControl(user=user, team=self.team)
-        tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
-
-        with transaction.atomic():
-            tile = self._create_widget_tile_from_payload(
-                dashboard=dashboard,
-                user=user,
-                user_access_control=user_access_control,
-                payload=payload,
-                existing_sm_layouts=collect_dashboard_sm_layouts_for_dashboard(dashboard),
-            )
-
-        assert tile.widget is not None
-        _report_dashboard_tile_added(
-            user=user,
-            dashboard=dashboard,
-            tile_type="widget",
-            widget_type=tile.widget.widget_type,
-            request=request,
-        )
-
-        return Response(
-            DashboardTileSerializer(tile, context=tile_context).data,
-            status=status.HTTP_201_CREATED,
-        )
-
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestSerializer,
         responses={201: AddDashboardWidgetsBatchResponseSerializer},
@@ -2811,98 +2738,6 @@ class DashboardsViewSet(
             widget=widget,
             **tile_defaults,
         )
-
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="tile_id",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.PATH,
-                required=True,
-                description="Dashboard tile ID from dashboard-get (must be a widget tile).",
-            ),
-        ],
-        request=UpdateDashboardWidgetRequestSerializer,
-        responses={200: DashboardTileSerializer},
-    )
-    @action(
-        methods=["PATCH"],
-        detail=True,
-        url_path=r"widgets/(?P<tile_id>[0-9]+)",
-        required_scopes=["dashboard:write"],
-    )
-    def update_widget(self, request: Request, tile_id: str, *args: Any, **kwargs: Any) -> Response:
-        """Update an existing widget tile on a dashboard."""
-        if not dashboard_widgets_enabled(self.team_id):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
-        dashboard = self.get_object()
-        if dashboard.deleted:
-            raise exceptions.NotFound()
-
-        try:
-            parsed_tile_id = int(tile_id)
-        except ValueError as exc:
-            raise exceptions.ValidationError("tile_id must be an integer.") from exc
-
-        tile = get_object_or_404(
-            DashboardTile.objects.select_related("widget"),
-            dashboard=dashboard,
-            id=parsed_tile_id,
-            widget__isnull=False,
-            dashboard__team__project_id=self.team.project_id,
-        )
-        if tile.widget is None:
-            raise exceptions.ValidationError("Widget tile is missing its widget.")
-
-        serializer = UpdateDashboardWidgetRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        validated = serializer.validated_data
-        if not validated:
-            raise exceptions.ValidationError("At least one field must be provided.")
-
-        user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
-        DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
-
-        user = cast(User, request.user)
-        widget = tile.widget
-        update_widget_fields: list[str] = []
-        update_tile_fields: list[str] = []
-
-        if "config" in validated:
-            config = validated["config"]
-            if not isinstance(config, dict):
-                raise exceptions.ValidationError({"config": "Config must be an object."})
-            widget.config = validate_widget_config(widget.widget_type, config)
-            update_widget_fields.append("config")
-
-        if "name" in validated:
-            widget.name = validated["name"] or None
-            update_widget_fields.append("name")
-
-        if "description" in validated:
-            widget.description = validated["description"]
-            update_widget_fields.append("description")
-
-        if update_widget_fields:
-            widget.last_modified_by = user
-            widget.last_modified_at = now()
-            update_widget_fields.extend(["last_modified_by", "last_modified_at"])
-            widget.save(update_fields=update_widget_fields)
-
-        if "show_description" in validated:
-            tile.show_description = validated["show_description"]
-            update_tile_fields.append("show_description")
-
-        if "layouts" in validated:
-            tile.layouts = validated["layouts"]
-            update_tile_fields.append("layouts")
-
-        if update_tile_fields:
-            tile.save(update_fields=update_tile_fields)
-
-        tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
-        return Response(DashboardTileSerializer(tile, context=tile_context).data)
 
     def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
         if not settings.EE_AVAILABLE:

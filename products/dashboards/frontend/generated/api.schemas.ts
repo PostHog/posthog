@@ -7594,26 +7594,9 @@ export interface AddDashboardWidgetRequestApi {
     show_description?: boolean
 }
 
-export interface PatchedUpdateDashboardWidgetRequestApi {
-    /** Updated widget configuration JSON. Validated for the tile's widget_type; see config_schema_hints in dashboard-widget-catalog-list. */
-    config?: unknown
-    /**
-     * Optional custom display name for the widget tile.
-     * @maxLength 400
-     * @nullable
-     */
-    name?: string | null
-    /** Optional markdown description shown when show_description is enabled. */
-    description?: string
-    /** Whether to show the description on the dashboard tile. */
-    show_description?: boolean
-    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: unknown
-}
-
 export interface AddDashboardWidgetsBatchRequestApi {
     /**
-     * Widget tiles to add atomically (1–10). Each entry uses the same fields as a single add request.
+     * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
      * @minItems 1
      * @maxItems 10
      */
@@ -8027,30 +8010,6 @@ export type DashboardsUpdateTextTileCreateFormat =
     (typeof DashboardsUpdateTextTileCreateFormat)[keyof typeof DashboardsUpdateTextTileCreateFormat]
 
 export const DashboardsUpdateTextTileCreateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
-export type DashboardsWidgetsCreateParams = {
-    format?: DashboardsWidgetsCreateFormat
-}
-
-export type DashboardsWidgetsCreateFormat =
-    (typeof DashboardsWidgetsCreateFormat)[keyof typeof DashboardsWidgetsCreateFormat]
-
-export const DashboardsWidgetsCreateFormat = {
-    Json: 'json',
-    Txt: 'txt',
-} as const
-
-export type DashboardsWidgetsPartialUpdateParams = {
-    format?: DashboardsWidgetsPartialUpdateFormat
-}
-
-export type DashboardsWidgetsPartialUpdateFormat =
-    (typeof DashboardsWidgetsPartialUpdateFormat)[keyof typeof DashboardsWidgetsPartialUpdateFormat]
-
-export const DashboardsWidgetsPartialUpdateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

@@ -415,12 +415,6 @@ tools:
     dashboards-widgets-batch-create:
         operation: dashboards_widgets_batch_create
         enabled: false
-    dashboards-widgets-create:
-        operation: dashboards_widgets_create
-        enabled: false
-    dashboards-widgets-partial-update:
-        operation: dashboards_widgets_partial_update
-        enabled: false
     data-color-themes-create:
         operation: data_color_themes_create
         enabled: false

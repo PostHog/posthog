@@ -9,7 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AddDashboardWidgetRequestApi,
     AddDashboardWidgetsBatchRequestApi,
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
@@ -44,8 +43,6 @@ import type {
     DashboardsUpdateTextTileCreateParams,
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
-    DashboardsWidgetsCreateParams,
-    DashboardsWidgetsPartialUpdateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     DeleteTileRequestApi,
@@ -56,7 +53,6 @@ import type {
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
-    PatchedUpdateDashboardWidgetRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -859,84 +855,6 @@ export const dashboardsUpdateTextTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(updateTextTileRequestApi),
-    })
-}
-
-export const getDashboardsWidgetsCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsWidgetsCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/widgets/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/widgets/`
-}
-
-/**
- * Add a widget tile to a dashboard.
- */
-export const dashboardsWidgetsCreate = async (
-    projectId: string,
-    id: number,
-    addDashboardWidgetRequestApi: AddDashboardWidgetRequestApi,
-    params?: DashboardsWidgetsCreateParams,
-    options?: RequestInit
-): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsWidgetsCreateUrl(projectId, id, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addDashboardWidgetRequestApi),
-    })
-}
-
-export const getDashboardsWidgetsPartialUpdateUrl = (
-    projectId: string,
-    id: number,
-    tileId: number,
-    params?: DashboardsWidgetsPartialUpdateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/dashboards/${id}/widgets/${tileId}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/dashboards/${id}/widgets/${tileId}/`
-}
-
-/**
- * Update an existing widget tile on a dashboard.
- */
-export const dashboardsWidgetsPartialUpdate = async (
-    projectId: string,
-    id: number,
-    tileId: number,
-    patchedUpdateDashboardWidgetRequestApi?: PatchedUpdateDashboardWidgetRequestApi,
-    params?: DashboardsWidgetsPartialUpdateParams,
-    options?: RequestInit
-): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsWidgetsPartialUpdateUrl(projectId, id, tileId, params), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUpdateDashboardWidgetRequestApi),
     })
 }
 
