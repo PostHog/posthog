@@ -148,6 +148,9 @@ function actorsConfigForKind(kind: string): CliActorsConfig | undefined {
 const SCALAR_TYPES = new Set(['string', 'integer', 'number', 'boolean'])
 
 function singularize(word: string): string {
+    if (word === 'analytics') {
+        return word
+    }
     if (word.endsWith('ies')) {
         return `${word.slice(0, -3)}y`
     }
@@ -313,7 +316,14 @@ export function generateCliManifest(
                 params.body = bodyParams
             }
 
-            const description = resolveDescription(config, yamlDir, resolved.operation.summary ?? '')
+            const descriptionConfig: { description?: string; description_file?: string } = {}
+            if (config.description !== undefined) {
+                descriptionConfig.description = config.description
+            }
+            if (config.description_file !== undefined) {
+                descriptionConfig.description_file = config.description_file
+            }
+            const description = resolveDescription(descriptionConfig, yamlDir, resolved.operation.summary ?? '')
             const tool: CliTool = {
                 mcp_name: name,
                 category: slug,

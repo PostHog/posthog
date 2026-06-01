@@ -3,7 +3,7 @@
   "tools": {
     "accounts-create": {
       "mcp_name": "accounts-create",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-create",
       "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
       "method": "POST",
@@ -42,7 +42,7 @@
     },
     "accounts-destroy": {
       "mcp_name": "accounts-destroy",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-destroy",
       "description": "Permanently delete a Customer Analytics account by id.",
       "method": "DELETE",
@@ -69,7 +69,7 @@
     },
     "accounts-list": {
       "mcp_name": "accounts-list",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-list",
       "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id.",
       "method": "GET",
@@ -152,7 +152,7 @@
     },
     "accounts-notebooks-create": {
       "mcp_name": "accounts-notebooks-create",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-notebooks-create",
       "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
       "method": "POST",
@@ -193,7 +193,7 @@
     },
     "accounts-notebooks-destroy": {
       "mcp_name": "accounts-notebooks-destroy",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-notebooks-destroy",
       "description": "Permanently delete an account notebook by its `short_id`.",
       "method": "DELETE",
@@ -226,7 +226,7 @@
     },
     "accounts-notebooks-list": {
       "mcp_name": "accounts-notebooks-list",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-notebooks-list",
       "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
       "method": "GET",
@@ -269,7 +269,7 @@
     },
     "accounts-notebooks-retrieve": {
       "mcp_name": "accounts-notebooks-retrieve",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-notebooks-retrieve",
       "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
       "method": "GET",
@@ -302,7 +302,7 @@
     },
     "accounts-partial-update": {
       "mcp_name": "accounts-partial-update",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-partial-update",
       "description": "Update fields on an existing Customer Analytics account. Accepts a subset of fields; unspecified fields are left unchanged. Pass `tags` to replace the full set of tags on the account.",
       "method": "PATCH",
@@ -350,7 +350,7 @@
     },
     "accounts-retrieve": {
       "mcp_name": "accounts-retrieve",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "accounts-retrieve",
       "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`.",
       "method": "GET",
@@ -7714,7 +7714,7 @@
     },
     "insight-create": {
       "mcp_name": "insight-create",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insight-create",
       "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel / query-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save. Returns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if you want to see the computed results.",
       "method": "POST",
@@ -7758,7 +7758,7 @@
     },
     "insight-delete": {
       "mcp_name": "insight-delete",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insight-delete",
       "description": "Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.",
       "method": "PATCH",
@@ -7785,7 +7785,7 @@
     },
     "insight-get": {
       "mcp_name": "insight-get",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insight-get",
       "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier. Optionally accepts `variables_override` and `filters_override` to apply one-off overrides to the returned query definition without mutating the saved insight.",
       "method": "GET",
@@ -7828,7 +7828,7 @@
     },
     "insight-update": {
       "mcp_name": "insight-update",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insight-update",
       "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results.",
       "method": "PATCH",
@@ -7880,7 +7880,7 @@
     },
     "insights-activity-retrieve": {
       "mcp_name": "insights-activity-retrieve",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insights-activity-retrieve",
       "description": "Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it (created, edited, deleted, restored), including who made each change and which fields changed. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and `page`.",
       "method": "GET",
@@ -7923,7 +7923,7 @@
     },
     "insights-all-activity-retrieve": {
       "mcp_name": "insights-all-activity-retrieve",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insights-all-activity-retrieve",
       "description": "Project-wide audit trail of changes to all insights, most recent first. Returns who created, edited, deleted, or restored each insight and which fields changed. Useful for surfacing what people (or agents) have been working on recently. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — drill into a specific insight with `insights-activity-retrieve` (or `insight-get` for current state). Paginate with `limit` and `page`.",
       "method": "GET",
@@ -7957,7 +7957,7 @@
     },
     "insights-list": {
       "mcp_name": "insights-list",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insights-list",
       "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
       "method": "GET",
@@ -8114,7 +8114,7 @@
     },
     "insights-trending-retrieve": {
       "mcp_name": "insights-trending-retrieve",
-      "category": "product-analytic",
+      "category": "product-analytics",
       "verb": "insights-trending-retrieve",
       "description": "Returns the most-viewed insights in the project, ranked by view count over the last N days (default 7). Use this to surface the insights that matter most to the team — the ones people actually open. Each result includes standard insight metadata plus `view_count` and up to 3 recent `viewers`. Returns metadata only — call `insight-query` with the returned `short_id` to fetch the actual data for any of them.",
       "method": "GET",
@@ -15047,7 +15047,7 @@
     },
     "usage-metrics-create": {
       "mcp_name": "usage-metrics-create",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "usage-metrics-create",
       "description": "Create a new usage metric for the project. The metric surfaces on both group and person Customer Analytics profile pages — usage metrics are not scoped to a specific group type. `filters` accepts two shapes:\n(1) Events (default) — HogFunction filter shape with an `events` array.\n(2) Data warehouse — set `source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`. Call `external-data-schemas-list` first to discover synced tables, and `execute-sql` (`SELECT * FROM <table> LIMIT 1`) to inspect column names. DW metrics currently render only on group profiles.\nWhen `math` is `sum`, `math_property` is required; when `math` is `count`, `math_property` must be empty. For DW SUM metrics, `math_property` is the column name (or HogQL expression) to sum on the table. Pass `group_type_index: 0`.",
       "method": "POST",
@@ -15112,7 +15112,7 @@
     },
     "usage-metrics-destroy": {
       "mcp_name": "usage-metrics-destroy",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "usage-metrics-destroy",
       "description": "Permanently delete a usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
       "method": "DELETE",
@@ -15145,7 +15145,7 @@
     },
     "usage-metrics-list": {
       "mcp_name": "usage-metrics-list",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "usage-metrics-list",
       "description": "List usage metrics defined for the project. Usage metrics apply to both groups and persons on Customer Analytics profile pages — they are NOT scoped to a specific group type despite the legacy URL shape. Returns each metric's id, name, format, interval (days), display mode, math aggregation, and filter definition. Pass `group_type_index: 0`.",
       "method": "GET",
@@ -15187,7 +15187,7 @@
     },
     "usage-metrics-partial-update": {
       "mcp_name": "usage-metrics-partial-update",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "usage-metrics-partial-update",
       "description": "Update fields on an existing usage metric. Accepts a subset of fields; unspecified fields are left unchanged. `filters` accepts the events shape (default) or the data warehouse shape (`source: \"data_warehouse\"` plus `table_name`, `timestamp_field`, `key_field`). When switching to DW, call `external-data-schemas-list` to discover synced tables. Changing `math` to `sum` requires `math_property`; changing to `count` requires clearing `math_property`. For DW SUM metrics, `math_property` is the column name to sum. DW metrics currently render only on group profiles. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
       "method": "PATCH",
@@ -15259,7 +15259,7 @@
     },
     "usage-metrics-retrieve": {
       "mcp_name": "usage-metrics-retrieve",
-      "category": "customer-analytic",
+      "category": "customer-analytics",
       "verb": "usage-metrics-retrieve",
       "description": "Fetch a single usage metric by id. Pass `group_type_index: 0` — usage metrics apply to both groups and persons regardless of this value.",
       "method": "GET",
@@ -17347,7 +17347,7 @@
     },
     "web-analytics-weekly-digest": {
       "mcp_name": "web-analytics-weekly-digest",
-      "category": "web-analytic",
+      "category": "web-analytics",
       "verb": "weekly-digest",
       "description": "Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions. Accepts optional `days` (1–90, default 7) and `compare` (bool, default true) query params — pass `days=30` to summarize the last month, or `compare=false` to skip the period-over-period comparison for a faster response. Use this to answer questions like \"how are my web analytics?\", \"how did the site do last week?\", or \"what's my traffic looking like this month?\".",
       "method": "GET",

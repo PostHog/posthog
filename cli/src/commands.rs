@@ -203,15 +203,18 @@ impl Cli {
                 if crate::agent::command::is_category(m, sub_name) {
                     let host = matches.get_one::<String>("host").cloned();
                     let env_file = matches.get_one::<PathBuf>("env_file").cloned();
+                    let no_fail = matches.get_flag("no_fail");
+                    let skip_ssl_verification = matches.get_flag("skip_ssl_verification");
+                    let rate_limit = matches.get_one::<usize>("rate_limit").copied();
                     let result = (|| -> Result<(), CapturedError> {
-                        init_context(host, false, None, env_file)?;
+                        init_context(host, skip_ssl_verification, rate_limit, env_file)?;
                         crate::agent::command::dispatch_category(m, sub_name, sub_matches)?;
                         if INVOCATION_CONTEXT.get().is_some() {
                             context().finish();
                         }
                         Ok(())
                     })();
-                    return handle_run_result(result, false);
+                    return handle_run_result(result, no_fail);
                 }
             }
         }
