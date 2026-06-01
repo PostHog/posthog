@@ -9,7 +9,7 @@ import structlog
 from posthog.models import Team
 
 from products.logs.backend.alert_state_machine import NotificationAction
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
