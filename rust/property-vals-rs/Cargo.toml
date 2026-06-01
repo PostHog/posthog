@@ -14,6 +14,7 @@ common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
+quick_cache = { workspace = true }
 rdkafka = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

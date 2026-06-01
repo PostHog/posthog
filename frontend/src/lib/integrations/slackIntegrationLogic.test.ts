@@ -57,13 +57,15 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         logic.unmount()
     })
 
-    it('forwards search and limit to the channels endpoint when search is provided', async () => {
+    it('forwards search to the channels endpoint when search is provided', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels(false, 'eng')
         }).toFinishAllListeners()
 
         expect(lastChannelsQuery.search).toBe('eng')
-        expect(lastChannelsQuery.limit).toBe('200')
+        // No explicit limit — the picker defers to the backend default so the initial dropdown
+        // stays light and anything past the default falls through to server-side search.
+        expect(lastChannelsQuery.limit).toBeUndefined()
         expect(lastChannelsQuery.force_refresh).toBe('false')
         expect(logic.values.allSlackChannels?.has_more).toBe(true)
     })
@@ -74,7 +76,7 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         }).toFinishAllListeners()
 
         expect(lastChannelsQuery.search).toBe('')
-        expect(lastChannelsQuery.limit).toBe('200')
+        expect(lastChannelsQuery.limit).toBeUndefined()
     })
 
     it('reloads the full list when a search-then-clear sequence runs', async () => {

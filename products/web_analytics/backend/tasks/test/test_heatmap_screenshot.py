@@ -401,6 +401,24 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         assert kwargs["send_feature_flag_events"] is False
         assert kwargs["only_evaluate_locally"] is False
 
+    @parameterized.expand([("US", "US"), ("EU", "EU"), (None, "DEV")])
+    @override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False)
+    @patch(
+        "products.web_analytics.backend.tasks.heatmap_screenshot.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+    def test_use_browserless_passes_region_property_to_flag(
+        self, cloud_deployment: str | None, expected_region: str, mock_feature_enabled: MagicMock
+    ) -> None:
+        # The deploy region is exposed to the flag (person + group properties) so it can target by
+        # environment, e.g. excluding DEV while prod is at 100%.
+        with override_settings(CLOUD_DEPLOYMENT=cloud_deployment):
+            assert _use_browserless_for_screenshot(self._make_heatmap()) is True
+        _, kwargs = mock_feature_enabled.call_args
+        assert kwargs["person_properties"]["region"] == expected_region
+        assert kwargs["group_properties"]["organization"]["region"] == expected_region
+        assert kwargs["group_properties"]["project"]["region"] == expected_region
+
     @override_settings(HEATMAP_BROWSERLESS_URL="wss://host/chromium", DEBUG=False)
     @patch(
         "products.web_analytics.backend.tasks.heatmap_screenshot.posthoganalytics.feature_enabled",

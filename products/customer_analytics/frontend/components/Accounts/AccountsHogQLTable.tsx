@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
@@ -328,6 +328,8 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
                 columns: contextColumns,
                 expandable,
                 dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                emptyStateHeading: 'There are no matching accounts for this query',
+                emptyStateDetail: 'Try adjusting the filters or refreshing',
             }}
             readOnly
         />
@@ -338,19 +340,11 @@ export function AccountsHogQLTable(): JSX.Element {
     const { hogqlQuery } = useValues(accountsLogic)
 
     return (
-        <BindLogic
-            logic={dataNodeLogic}
-            props={{
-                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                query: hogqlQuery.source,
-            }}
-        >
-            <div className="flex flex-col gap-2">
-                <div className="flex justify-end">
-                    <AccountsColumnConfigurator />
-                </div>
-                <AccountsHogQLDataTable query={hogqlQuery} />
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
+                <AccountsColumnConfigurator />
             </div>
-        </BindLogic>
+            <AccountsHogQLDataTable query={hogqlQuery} />
+        </div>
     )
 }

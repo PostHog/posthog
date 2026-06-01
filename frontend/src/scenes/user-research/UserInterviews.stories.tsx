@@ -98,7 +98,7 @@ const meta: Meta<Empty> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
+                '/api/projects/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
             },
             post: {
                 '/api/environments/:team_id/user_interviews/search/': MOCK_SEARCH_RESULTS,
@@ -127,7 +127,7 @@ export const SearchNoResults: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
+                '/api/projects/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
             },
             post: {
                 '/api/environments/:team_id/user_interviews/search/': [] as UserInterviewSearchResultApi[],
