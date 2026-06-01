@@ -3,6 +3,9 @@ import * as d3 from 'd3'
 import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
+/** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
+export const DEFAULT_BAND_PADDING = 0.2
+
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
 
 export interface ScaleSet {
@@ -327,7 +330,7 @@ export function createBarScales(
         scaleType = 'linear',
         barLayout = 'stacked',
         axisOrientation = 'vertical',
-        bandPadding = 0.2,
+        bandPadding = DEFAULT_BAND_PADDING,
         groupPadding = 0.1,
         stackedSeries,
         maxBandRange,

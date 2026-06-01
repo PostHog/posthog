@@ -48,6 +48,8 @@ from posthog.temporal.data_imports.sources.common.sql import (
     InvalidIdentifierError,
     SelectQueryBuilder,
     Table,
+    compute_projected_columns,
+    project_arrow_columns,
 )
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
@@ -158,6 +160,8 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
     force_index_name: str | None = None,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     hint: str | None = None
     if force_index_name is not None:
@@ -169,6 +173,8 @@ def _build_query(
             schema=schema,
             table_name=table_name,
             extra_table_hint=hint,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
         )
         params = result.params if isinstance(result.params, dict) else {}
         return result.sql, params
@@ -183,6 +189,8 @@ def _build_query(
         incremental_field_type=incremental_field_type,
         incremental_last_value=db_incremental_field_last_value,
         extra_table_hint=hint,
+        enabled_columns=enabled_columns,
+        primary_keys=primary_keys,
     )
     params = result.params if isinstance(result.params, dict) else {}
     return result.sql, params
@@ -722,9 +730,22 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
+                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                full_table = self.get_table_metadata(cursor, schema, table_name)
+
+                # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
+                if primary_keys is None and "id" in full_table:
+                    primary_keys = ["id"]
+
+                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                table = project_arrow_columns(full_table, projected)
+                arrow_schema = table.to_arrow_schema()
+                logger.debug(f"Source schema: {arrow_schema}")
+
                 inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
@@ -732,12 +753,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
 
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                table = self.get_table_metadata(cursor, schema, table_name)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
                 partition_settings = (
@@ -745,10 +764,6 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     if should_use_incremental_field
                     else None
                 )
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -780,6 +795,8 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         incremental_field_type,
                         db_incremental_field_last_value,
                         force_index_name=force_index_name,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
                     logger.debug(f"MySQL query: {query.format(args)}")
 

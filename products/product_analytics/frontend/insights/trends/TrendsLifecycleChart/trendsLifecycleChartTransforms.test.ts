@@ -18,16 +18,16 @@ import {
 } from './trendsLifecycleChartTransforms'
 
 describe('buildTrendsLifecycleSeries', () => {
-    it('orders series new → resurrecting → returning → dormant regardless of input order', () => {
+    it('orders series dormant → returning → resurrecting → new regardless of input order', () => {
         const results: TrendsLifecycleResultLike[] = [
-            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2, -3] },
-            { id: 'returning', status: 'returning', label: 'Pageview - returning', data: [1, 2, 3] },
             { id: 'new', status: 'new', label: 'Pageview - new', data: [1, 2, 3] },
+            { id: 'returning', status: 'returning', label: 'Pageview - returning', data: [1, 2, 3] },
+            { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2, -3] },
             { id: 'resurrecting', status: 'resurrecting', label: 'Pageview - resurrecting', data: [1, 2, 3] },
         ]
         const series = buildTrendsLifecycleSeries(results)
 
-        expect(series.map((s) => s.key)).toEqual(['new', 'resurrecting', 'returning', 'dormant'])
+        expect(series.map((s) => s.key)).toEqual(['dormant', 'returning', 'resurrecting', 'new'])
     })
 
     it('preserves dormant data as negative — diverging stack relies on the sign', () => {
@@ -46,7 +46,7 @@ describe('buildTrendsLifecycleSeries', () => {
             { id: 'dormant', status: 'dormant', label: 'Pageview - dormant', data: [-1, -2, -3] },
         ]
         const series = buildTrendsLifecycleSeries(results)
-        expect(series.map((s) => s.color)).toEqual(['#11ff11', '#22ff22', '#33ff33', '#44ff44'])
+        expect(series.map((s) => s.color)).toEqual(['#44ff44', '#33ff33', '#22ff22', '#11ff11'])
     })
 
     it('shortens series labels to capitalized status — used by both legend and tooltip', () => {
