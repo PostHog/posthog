@@ -30,6 +30,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.oauth2 import InvalidGrantError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -345,11 +346,14 @@ class OAuthValidator(OAuth2Validator):
         means a narrowed app drops the removed scopes on the next refresh.
 
         Always-allowed scopes (OIDC, introspection) pass through, mirroring
-        `validate_scopes`. Two cases are deliberately left untouched:
-        - a `*` token: narrowing it would strip all resource access on refresh, so its
-          retirement is handled separately in #60330 (coupled to #60342).
-        - a token with no overlap with the ceiling: intersecting to `{}` would yield an
-          empty-scope token that `APIScopePermission` rejects, breaking the client.
+        `validate_scopes`. Resolution when the app has a ceiling:
+        - a `*` token is left untouched: narrowing it would strip all resource access
+          on refresh, and `*` is still issued to legacy clients. Its retirement is
+          handled separately in #60330 (coupled to #60342).
+        - a token whose scopes have no overlap with the ceiling can't be narrowed
+          without emptying it, so we reject the refresh (`invalid_grant`) — the client
+          re-authorizes and gets a token within the current ceiling, rather than
+          silently keeping out-of-ceiling access.
 
         An empty `application.scopes` (no ceiling) is a no-op.
         """
@@ -374,7 +378,12 @@ class OAuthValidator(OAuth2Validator):
 
         narrowed = (original_set & app_scopes) | (original_set & self._ALWAYS_ALLOWED_SCOPES)
         if not narrowed:
-            return original_list
+            # Raised inside oauthlib's validate_token_request, which create_token_response
+            # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
+            raise InvalidGrantError(
+                description="Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                request=request,
+            )
         return sorted(narrowed)
 
     def rotate_refresh_token(self, request) -> bool:

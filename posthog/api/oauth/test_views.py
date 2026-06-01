@@ -1184,7 +1184,6 @@ class TestOAuthAPI(APIBaseTest):
                 {"experiment:read", "insight:read"},
             ),
             ("empty_ceiling_is_noop", [], "experiment:read insight:read", {"experiment:read", "insight:read"}),
-            ("zero_overlap_not_emptied", ["experiment:read"], "insight:read", {"insight:read"}),
         ]
     )
     def test_refresh_caps_scopes_at_app_ceiling(self, _name, ceiling, token_scope, expected):
@@ -1194,6 +1193,25 @@ class TestOAuthAPI(APIBaseTest):
         refresh_token = self._create_refreshable_token_pair(token_scope)
 
         self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    def test_refresh_rejected_when_token_scopes_outside_ceiling(self):
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("insight:read")
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token.token,
+                "client_id": self.confidential_application.client_id,
+                "client_secret": "test_confidential_client_secret",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
 
     def test_refresh_leaves_wildcard_token_untouched(self):
         self.confidential_application.scopes = ["experiment:read"]
