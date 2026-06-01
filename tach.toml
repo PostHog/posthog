@@ -630,6 +630,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
@@ -729,6 +730,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.access_control",
@@ -756,6 +758,7 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.business_knowledge",
@@ -770,6 +773,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.wizard",
@@ -784,6 +788,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.engineering_analytics",

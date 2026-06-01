@@ -22,14 +22,12 @@ import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
-import products.conversations.backend.api as conversations
 import products.web_analytics.backend.api as web_analytics_api
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
-import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
@@ -64,6 +62,7 @@ from products.ai_observability.backend.api import (
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
+from products.conversations.backend.routes import register_routes as register_conversations_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -136,6 +135,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SavedHeatmapViewSet,
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.wizard.backend.routes import register_routes as register_wizard_routes
 from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -272,17 +272,7 @@ def register_legacy_dual_route_team_nested_viewset(
 
     Returns (project_nested, environment_nested).
     """
-    if parents_query_lookups[0] != "team_id":
-        raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
-    if basename.startswith("project_"):
-        stem = basename.removeprefix("project_")
-    elif basename.startswith("environment_"):
-        stem = basename.removeprefix("environment_")
-    else:
-        raise ValueError("basename must start with `project_` or `environment_`")
-    project_nested = projects_router.register(prefix, viewset, "project_" + stem, parents_query_lookups)
-    environment_nested = environments_router.register(prefix, viewset, "environment_" + stem, parents_query_lookups)
-    return project_nested, environment_nested
+    return routers.register_legacy_dual_route(prefix, viewset, basename, parents_query_lookups)
 
 
 legacy_project_plugins_configs_router, environment_plugins_configs_router = (
@@ -359,12 +349,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
-projects_router.register(
-    r"wizard/sessions",
-    wizard_sessions.WizardSessionViewSet,
-    "project_wizard_sessions",
-    ["project_id"],
-)
+register_wizard_routes(routers)
 register_deployments_routes(routers)
 
 # Tasks endpoints
@@ -1296,19 +1281,7 @@ projects_router.register(
     ["team_id"],
 )
 
-projects_router.register(
-    r"conversations/tickets",
-    conversations.TicketViewSet,
-    "environment_conversations_tickets",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"conversations/views",
-    conversations.TicketViewViewSet,
-    "project_conversations_views",
-    ["team_id"],
-)
+register_conversations_routes(routers)
 
 projects_router.register(
     r"hog_function_templates",

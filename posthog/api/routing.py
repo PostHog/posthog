@@ -88,6 +88,32 @@ class RouterRegistry:
     def organizations(self) -> NestedRegistryItem:
         return self.get("organizations")
 
+    def register_legacy_dual_route(
+        self,
+        prefix: str,
+        viewset: type[GenericViewSet],
+        basename: str,
+        parents_query_lookups: list[str],
+    ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
+        """Register a team-nested viewset under BOTH /api/projects/ and /api/environments/.
+
+        The product-callable form of ``register_legacy_dual_route_team_nested_viewset``
+        in ``posthog/api/__init__.py`` (which delegates here). Only for preserving
+        already-shipped dual-route surfaces — NOT for new endpoints, which should
+        register directly under ``routers.projects``. Returns (project, environment).
+        """
+        if parents_query_lookups[0] != "team_id":
+            raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
+        if basename.startswith("project_"):
+            stem = basename.removeprefix("project_")
+        elif basename.startswith("environment_"):
+            stem = basename.removeprefix("environment_")
+        else:
+            raise ValueError("basename must start with `project_` or `environment_`")
+        project_nested = self.projects.register(prefix, viewset, "project_" + stem, parents_query_lookups)
+        environment_nested = self.environments.register(prefix, viewset, "environment_" + stem, parents_query_lookups)
+        return project_nested, environment_nested
+
 
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
