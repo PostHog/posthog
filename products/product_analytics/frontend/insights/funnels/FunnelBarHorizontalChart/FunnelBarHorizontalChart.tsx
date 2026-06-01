@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo, useState, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { BarChart, type BarChartConfig, type PointClickData, type TooltipContext } from 'lib/hog-charts'
@@ -16,8 +16,11 @@ import { FunnelBarHorizontalTooltip } from './FunnelBarHorizontalTooltip'
 import { buildFunnelBarHorizontalData, type FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransforms'
 import { StepDecorations } from './StepDecorations'
 
-const ROW_HEIGHT_PX = 76
-const BAR_PADDING = 0.6
+// Each row is `gap + bar + gap`. The bar keeps a constant thickness; the gaps grow to fit the
+// step's header/footer text (which wraps to more lines as the chart narrows), so rows never overlap.
+const MIN_GAP_PX = 28
+const GAP_BREATHING_PX = 10
+const BAR_THICKNESS_PX = 30
 const GLYPH_COLUMN_WIDTH_PX = 40
 
 function getTrackColor(): string {
@@ -63,6 +66,15 @@ export function FunnelBarHorizontalChart({
     const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
 
+    const [measuredGapPx, setMeasuredGapPx] = useState<number | null>(null)
+    const gapPx = Math.max(MIN_GAP_PX, (measuredGapPx ?? 0) + GAP_BREATHING_PX)
+    const rowHeightPx = 2 * gapPx + BAR_THICKNESS_PX
+    const bandPadding = (2 * gapPx) / rowHeightPx
+    const gapFraction = gapPx / rowHeightPx
+    const handleMeasureGap = useCallback((px: number): void => {
+        setMeasuredGapPx((prev) => (prev != null && Math.abs(prev - px) < 0.5 ? prev : px))
+    }, [])
+
     const { series, labels } = useMemo(
         () =>
             buildFunnelBarHorizontalData(steps, {
@@ -77,7 +89,7 @@ export function FunnelBarHorizontalChart({
     const chartConfig = useMemo<BarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            bars: { cornerRadius: 6, rounding: 'pill', track: { color: trackColor }, bandPadding: BAR_PADDING },
+            bars: { cornerRadius: 6, rounding: 'pill', track: { color: trackColor }, bandPadding },
             axisOrientation: 'horizontal',
             hideXAxis: true,
             hideYAxis: true,
@@ -86,7 +98,7 @@ export function FunnelBarHorizontalChart({
             margins: { top: 0, right: 0, bottom: 0, left: GLYPH_COLUMN_WIDTH_PX },
             tooltip: { placement: 'cursor' },
         }),
-        [trackColor]
+        [trackColor, bandPadding]
     )
 
     const onPointClick = (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
@@ -126,9 +138,9 @@ export function FunnelBarHorizontalChart({
     }
 
     return (
-        <div data-attr="funnel-bar-horizontal" className="w-full p-4">
+        <div data-attr="funnel-bar-horizontal" className="w-full px-1 py-4">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="relative flex w-full" style={{ height: steps.length * ROW_HEIGHT_PX }}>
+            <div className="relative flex w-full" style={{ height: steps.length * rowHeightPx }}>
                 <BarChart<FunnelBarHorizontalSegmentMeta>
                     series={series}
                     labels={labels}
@@ -146,7 +158,8 @@ export function FunnelBarHorizontalChart({
                         hasOptionalSteps={hasOptionalSteps}
                         showPersonsModal={showPersonsModal}
                         openPersonsModalForStep={openPersonsModalForStep}
-                        gapFraction={BAR_PADDING / 2}
+                        gapFraction={gapFraction}
+                        onMeasureGap={handleMeasureGap}
                     />
                 </BarChart>
             </div>

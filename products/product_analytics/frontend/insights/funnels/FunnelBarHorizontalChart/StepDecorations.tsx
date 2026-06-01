@@ -1,5 +1,6 @@
 /* eslint-disable react/forbid-dom-props */
 import clsx from 'clsx'
+import { useLayoutEffect, useRef } from 'react'
 
 import { IconInfinity } from '@posthog/icons'
 
@@ -39,6 +40,8 @@ interface StepDecorationsProps {
     openPersonsModalForStep: (args: { step: FunnelStepWithConversionMetrics; converted: boolean }) => void
     /** Fraction of each band reserved for gap. Header and metadata rows each occupy half this gap. */
     gapFraction: number
+    /** Reports the tallest header/footer content (px) so the parent can grow rows to fit wrapped text. */
+    onMeasureGap?: (gapPx: number) => void
 }
 
 export function StepDecorations({
@@ -50,10 +53,37 @@ export function StepDecorations({
     showPersonsModal,
     openPersonsModalForStep,
     gapFraction,
+    onMeasureGap,
 }: StepDecorationsProps): JSX.Element {
     const layout = useChartLayout<FunnelBarHorizontalSegmentMeta>()
     const { plotTop, plotLeft, plotHeight, plotWidth } = layout.dimensions
     const rowHeight = steps.length > 0 ? plotHeight / steps.length : 0
+
+    // The measured divs flow at natural height inside their fixed-height slots, so their offsetHeight
+    // is the unconstrained content height — the max drives the parent's row height. Wrapping depends
+    // only on plotWidth, so this converges in a single pass and never loops.
+    const slotRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+    const setSlotRef =
+        (key: string) =>
+        (el: HTMLDivElement | null): void => {
+            if (el) {
+                slotRefs.current.set(key, el)
+            } else {
+                slotRefs.current.delete(key)
+            }
+        }
+    useLayoutEffect(() => {
+        if (!onMeasureGap || plotWidth <= 0) {
+            return
+        }
+        let tallest = 0
+        for (const el of slotRefs.current.values()) {
+            tallest = Math.max(tallest, el.offsetHeight)
+        }
+        if (tallest > 0) {
+            onMeasureGap(tallest)
+        }
+    }, [onMeasureGap, plotWidth, steps])
 
     return (
         <>
@@ -119,31 +149,36 @@ export function StepDecorations({
                                 width: plotWidth,
                                 height: gapHeight,
                             }}
-                            className={clsx('flex flex-wrap items-center justify-between leading-5', dimRow)}
+                            className={clsx('flex items-center', dimRow)}
                         >
-                            <div className="flex items-center max-w-full grow">
-                                <div className="overflow-hidden font-bold break-words whitespace-normal">
-                                    {isUnordered ? (
-                                        <span>Completed {step.order + 1} steps</span>
-                                    ) : (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
-                                    )}
+                            <div
+                                ref={setSlotRef(`${stepIndex}-header`)}
+                                className="flex w-full flex-wrap items-center justify-between leading-5"
+                            >
+                                <div className="flex items-center max-w-full grow">
+                                    <div className="overflow-hidden font-bold break-words whitespace-normal">
+                                        {isUnordered ? (
+                                            <span>Completed {step.order + 1} steps</span>
+                                        ) : (
+                                            <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                                        )}
+                                    </div>
+                                    {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
+                                    {!isUnordered &&
+                                        stepIndex > 0 &&
+                                        step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
+                                    <FunnelStepMore stepIndex={stepIndex} />
                                 </div>
-                                {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
-                                {!isUnordered && stepIndex > 0 && step.action_id === steps[stepIndex - 1].action_id && (
-                                    <DuplicateStepIndicator />
-                                )}
-                                <FunnelStepMore stepIndex={stepIndex} />
+                                {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
+                                    <div
+                                        className="text-secondary text-xs"
+                                        title="Average time of conversion from previous step"
+                                    >
+                                        Avg time:{' '}
+                                        <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
+                                    </div>
+                                ) : null}
                             </div>
-                            {step.average_conversion_time && step.average_conversion_time >= Number.EPSILON ? (
-                                <div
-                                    className="text-secondary text-xs"
-                                    title="Average time of conversion from previous step"
-                                >
-                                    Avg time:{' '}
-                                    <b>{humanFriendlyDuration(step.average_conversion_time, { maxUnits: 2 })}</b>
-                                </div>
-                            ) : null}
                         </header>
 
                         <div
@@ -154,54 +189,63 @@ export function StepDecorations({
                                 width: plotWidth,
                                 height: gapHeight,
                             }}
-                            className={clsx('flex flex-wrap items-center gap-2 leading-5', dimRow)}
+                            className={clsx('flex items-center', dimRow)}
                         >
-                            <Tooltip
-                                title={getTooltipTitleForConverted(funnelsFilter, aggregationTargetLabel, stepIndex)}
-                                placement="bottom"
+                            <div
+                                ref={setSlotRef(`${stepIndex}-footer`)}
+                                className="flex w-full flex-wrap items-center gap-2 leading-5"
                             >
-                                <ValueInspectorButton
-                                    onClick={
-                                        showPersonsModal
-                                            ? () => openPersonsModalForStep({ step, converted: true })
-                                            : undefined
-                                    }
-                                >
-                                    <IconTrendingFlat
-                                        style={{ color: 'var(--success)' }}
-                                        className="mr-1 text-xl align-bottom"
-                                    />
-                                    <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
-                                </ValueInspectorButton>{' '}
-                                {!isFirstStep && (
-                                    <span className="text-secondary grow">
-                                        {`(${formatConvertedPercentage(step)}) completed step`}
-                                    </span>
-                                )}
-                            </Tooltip>
-                            {!isFirstStep && (
                                 <Tooltip
-                                    title={getTooltipTitleForDroppedOff(funnelsFilter, aggregationTargetLabel)}
+                                    title={getTooltipTitleForConverted(
+                                        funnelsFilter,
+                                        aggregationTargetLabel,
+                                        stepIndex
+                                    )}
                                     placement="bottom"
                                 >
                                     <ValueInspectorButton
                                         onClick={
                                             showPersonsModal
-                                                ? () => openPersonsModalForStep({ step, converted: false })
+                                                ? () => openPersonsModalForStep({ step, converted: true })
                                                 : undefined
                                         }
                                     >
-                                        <IconTrendingFlatDown
-                                            style={{ color: 'var(--danger)' }}
+                                        <IconTrendingFlat
+                                            style={{ color: 'var(--success)' }}
                                             className="mr-1 text-xl align-bottom"
                                         />
-                                        <b>{formatDroppedOffCount(step, aggregationTargetLabel)}</b>
+                                        <b>{formatConvertedCount(step, aggregationTargetLabel)}</b>
                                     </ValueInspectorButton>{' '}
-                                    <span className="text-secondary">
-                                        {`(${formatDroppedOffPercentage(step)}) dropped off`}
-                                    </span>
+                                    {!isFirstStep && (
+                                        <span className="text-secondary grow">
+                                            {`(${formatConvertedPercentage(step)}) completed step`}
+                                        </span>
+                                    )}
                                 </Tooltip>
-                            )}
+                                {!isFirstStep && (
+                                    <Tooltip
+                                        title={getTooltipTitleForDroppedOff(funnelsFilter, aggregationTargetLabel)}
+                                        placement="bottom"
+                                    >
+                                        <ValueInspectorButton
+                                            onClick={
+                                                showPersonsModal
+                                                    ? () => openPersonsModalForStep({ step, converted: false })
+                                                    : undefined
+                                            }
+                                        >
+                                            <IconTrendingFlatDown
+                                                style={{ color: 'var(--danger)' }}
+                                                className="mr-1 text-xl align-bottom"
+                                            />
+                                            <b>{formatDroppedOffCount(step, aggregationTargetLabel)}</b>
+                                        </ValueInspectorButton>{' '}
+                                        <span className="text-secondary">
+                                            {`(${formatDroppedOffPercentage(step)}) dropped off`}
+                                        </span>
+                                    </Tooltip>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )
