@@ -58,6 +58,76 @@ describe('LLMMessageDisplay', () => {
         expect(container.textContent).toContain(expectedSubstring)
     })
 
+    it.each([
+        ['valid JSON object', '{"key": "value"}', 'key'],
+        ['valid JSON array', '[{"role": "assistant", "content": "hello"}]', 'role'],
+        ['truncated JSON object', '{"key": "val', 'key'],
+    ])('renders %s as JSON in expanded mode', async (_label, content, expectedSubstring) => {
+        const message: CompatMessage = { role: 'assistant', content }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(container.querySelector('.react-json-view')).toBeInTheDocument()
+        })
+        expect(container.textContent).toContain(expectedSubstring)
+    })
+
+    it.each(['{}', '[]'])('keeps empty JSON container %s as plain text in expanded mode', (content) => {
+        const message: CompatMessage = { role: 'assistant', content }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('.react-json-view')).not.toBeInTheDocument()
+        expect(container.textContent).toContain(content)
+    })
+
+    it('renders output_text JSON as plain text', () => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify({ type: 'output_text', text: 'plain output text' }),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.textContent).toContain('plain output text')
+        expect(container.textContent).not.toContain('output_text')
+    })
+
+    it.each([
+        [
+            'image content object',
+            { type: 'image', content: { type: 'image', image: 'https://example.com/image.png' } },
+            'https://example.com/image.png',
+        ],
+        [
+            'input_image object',
+            { type: 'input_image', image_url: 'https://example.com/input-image.png' },
+            'https://example.com/input-image.png',
+        ],
+    ])('renders %s JSON as an image', (_label, content, expectedSrc) => {
+        const message: CompatMessage = {
+            role: 'assistant',
+            content: JSON.stringify(content),
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('img')?.getAttribute('src')).toBe(expectedSrc)
+    })
+
     it('renders content[].type=function with object arguments as a tool-call block', async () => {
         const message: CompatMessage = {
             role: 'assistant',

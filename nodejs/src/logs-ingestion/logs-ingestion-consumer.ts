@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { QuotaLimiting, QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { AppMetricsOutput } from '~/ingestion/common/outputs'
 import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
@@ -135,6 +135,9 @@ export const logsBytesDroppedByRuleCounter = new Counter({
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
+    // Billing identity for quota enforcement and usage metering; overridden by subclasses (e.g. traces).
+    protected quotaResource: QuotaResource = 'logs_mb_ingested'
+    protected appSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
@@ -149,35 +152,41 @@ export class LogsIngestionConsumer {
     constructor(
         config: LogsIngestionConsumerConfig,
         private deps: LogsIngestionConsumerDeps,
-        overrides: Partial<LogsIngestionConsumerConfig> = {}
+        overrides: Partial<LogsIngestionConsumerConfig> = {},
+        // Redis key namespace for the token-bucket rate limiter. Subclasses (e.g. traces) pass
+        // their own so their per-team buckets don't share state with logs. Defaults to logs.
+        rateLimiterName: string = 'logs-rate-limiter'
     ) {
+        // Merge overrides once so every downstream consumer reads the same effective config —
+        // a per-use-site `overrides.X ?? config.X` pattern is easy to forget (the rate limiter did).
+        const mergedConfig = { ...config, ...overrides }
+
         // The group and topic are configurable allowing for multiple ingestion consumers to be run in parallel
-        this.groupId = overrides.LOGS_INGESTION_CONSUMER_GROUP_ID ?? config.LOGS_INGESTION_CONSUMER_GROUP_ID
-        this.topic = overrides.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC ?? config.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
+        this.groupId = mergedConfig.LOGS_INGESTION_CONSUMER_GROUP_ID
+        this.topic = mergedConfig.LOGS_INGESTION_CONSUMER_CONSUME_TOPIC
 
         this.appMetricsAggregator = new AppMetricsAggregator(deps.outputs)
 
         this.kafkaConsumer = createKafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
-            connection:
-                (overrides.LOGS_REDIS_HOST ?? config.LOGS_REDIS_HOST)
-                    ? {
-                          url: overrides.LOGS_REDIS_HOST ?? config.LOGS_REDIS_HOST,
-                          options: {
-                              port: overrides.LOGS_REDIS_PORT ?? config.LOGS_REDIS_PORT,
-                              tls: (overrides.LOGS_REDIS_TLS ?? config.LOGS_REDIS_TLS) ? {} : undefined,
-                          },
-                          name: 'logs-redis',
-                      }
-                    : { url: config.REDIS_URL, name: 'logs-redis-fallback' },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+            connection: mergedConfig.LOGS_REDIS_HOST
+                ? {
+                      url: mergedConfig.LOGS_REDIS_HOST,
+                      options: {
+                          port: mergedConfig.LOGS_REDIS_PORT,
+                          tls: mergedConfig.LOGS_REDIS_TLS ? {} : undefined,
+                      },
+                      name: 'logs-redis',
+                  }
+                : { url: mergedConfig.REDIS_URL, name: 'logs-redis-fallback' },
+            poolMinSize: mergedConfig.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
-        this.rateLimiter = new LogsRateLimiterService(config, this.redis)
-        this.samplingService = new LogsSamplingService(this.redis, config.LOGS_LIMITER_TTL_SECONDS)
-        this.samplingEnabledTeamsRaw = overrides.LOGS_SAMPLING_ENABLED_TEAMS ?? config.LOGS_SAMPLING_ENABLED_TEAMS
-        this.samplingKillswitch = overrides.LOGS_SAMPLING_KILLSWITCH ?? config.LOGS_SAMPLING_KILLSWITCH
+        this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
+        this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
+        this.samplingKillswitch = mergedConfig.LOGS_SAMPLING_KILLSWITCH
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -398,7 +407,7 @@ export class LogsIngestionConsumer {
             (
                 await Promise.all(
                     uniqueTokens.map(async (token) =>
-                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, 'logs_mb_ingested'))
+                        (await this.deps.quotaLimiting.isTeamTokenQuotaLimited(token, this.quotaResource))
                             ? token
                             : null
                     )
@@ -584,7 +593,7 @@ export class LogsIngestionConsumer {
         }
         this.appMetricsAggregator.queue({
             team_id: teamId,
-            app_source: 'logs',
+            app_source: this.appSource,
             app_source_id: '',
             instance_id: '',
             metric_kind: 'usage',
@@ -604,7 +613,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',
@@ -625,7 +634,7 @@ export class LogsIngestionConsumer {
             }
             this.appMetricsAggregator.queue({
                 team_id: teamId,
-                app_source: 'logs',
+                app_source: this.appSource,
                 app_source_id: '',
                 instance_id: ruleId,
                 metric_kind: 'usage',

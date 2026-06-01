@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for `forget`.",
+    "properties": {
+        "key": {
+            "description": "Memory key to delete.",
+            "maxLength": 300,
+            "type": "string"
+        }
+    },
+    "required": ["key"],
+    "type": "object"
+}
