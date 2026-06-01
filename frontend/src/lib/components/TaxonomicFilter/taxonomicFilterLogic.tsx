@@ -1981,7 +1981,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType === TaxonomicFilterGroupType.PersonProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
+                // results.results can contain loading skeletons or undefined entries that have no
+                // `name`; those would crash `Object.fromEntries`/`.name` below, so skip them.
+                const propertyDefinitions = (results.results as PropertyDefinition[]).filter(
+                    (propertyDefinition) => propertyDefinition?.name
+                )
                 const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
                 const newPropertyDefinitions = Object.fromEntries(
                     propertyDefinitions.map((propertyDefinition) => [
