@@ -1997,13 +1997,17 @@ snapshots:
     home-recordingrow--default--light:
         hash: v1.k794b7964.329d31ae48aa77fb3985b7b04d9dd7442300f121a5216295ae62403ee2822c73.4UlskD-jaI7b0oEHZVJSnt34xEIL6IBubmZlb3edfvE
     insights-funnelbarhorizontalchart--breakdown--dark:
-        hash: v1.k794b7964.2399c3aaefe28872b98a766828373dfa2a2af07e570e51c3916a5e6441e56c99.Jwv9SlihbIqbaNbNtPtMNGdYFZpcBQffhH939az6JlU
+        hash: v1.k794b7964.dbd3815a2ce70313c4c756db00ac6833f615b2fd792346d1bf4eab96c5172b24.egLwOZA7evFp0IrboQABx_rpY3KiRH_TGWQOis1NPc8
     insights-funnelbarhorizontalchart--breakdown--light:
-        hash: v1.k794b7964.eb99a41493e9ab9534721b2c768aba6804be2a11c8d0d0b6bba635a95f60bbe1.Pvd4_u21_pG3USKvQqwfTEu66VQltyBQ6rXeLvbR5vE
+        hash: v1.k794b7964.c2b5e38ee6ab82db0be7edf94e2574feae2acb2506e8e140291afb05f10c8550.-Ef2fKN3l1IwbDeqKRTqwrKXwX5QaTwYR4TLNRVT_vk
     insights-funnelbarhorizontalchart--default--dark:
-        hash: v1.k794b7964.43302c9174c7cd7a3ea66450b3c50d69c219a1ddb770a6211f035460e4af6370.zHS6Xm-tU3FD8tmRHll7kATc3ei-klj3jYBVFVcEz1o
+        hash: v1.k794b7964.05d512588c6069b2105c4684b44857fd48cbc8a6f19cd0e757a9a805dc014a6d.UQhkOqMBpA2JbXYSH14xWkhxYp2jQ_mece8zogMNIHE
     insights-funnelbarhorizontalchart--default--light:
-        hash: v1.k794b7964.766e219b80c8d0bd5ef7d3e70c55e3ccac4149e5bbf0df28700ec80823b83752.SbbGf02Ugrx7Nm6nR8gxDe_HZrhFoPNSNzVGhzU-kYU
+        hash: v1.k794b7964.77e3cbda393cc66a977556211a04080b22b97c3f46f255a7baa65e4772e7a37b.JrqpYmAk2loyRWkOQIGyoHXM8tPQZkq09dsXX9UTaBc
+    insights-funnelbarhorizontalchart--default-narrow--dark:
+        hash: v1.k794b7964.ed8dcfd0398a52a184600b34416183c0e4f7db42860db1fed3e3631b31819a9c.VemuVUNUEgJsYOIWX8UgRIlBSIs9GeBXCSJsTV8nzAg
+    insights-funnelbarhorizontalchart--default-narrow--light:
+        hash: v1.k794b7964.b6543758ca04b2e970af5d54a370ba18ced44e9ae8fc75814f19392942db7abc.y9qjx5SS8j1iMTyUqdHLGqjEZuGfzS23ao2GcioBRUc
     insights-funnelcorrelationtable--default--dark:
         hash: v1.k794b7964.85a7028e6729988dedf767a52640b16c94aa48baf0ab9c89b1085c38d4e8cc8e.wDERvaZQvyEVwZsoj2q7nTwZSDswGOq-6dnRNcvuRpw
     insights-funnelcorrelationtable--default--light:
