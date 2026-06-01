@@ -1031,7 +1031,6 @@
         "summary": "Delete dashboard tile",
         "title": "Delete dashboard tile",
         "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -5082,7 +5081,6 @@
         "summary": "Launch a survey now.",
         "title": "Launch a survey now.",
         "required_scopes": ["survey:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5111,7 +5109,6 @@
         "summary": "Stop a survey now.",
         "title": "Stop a survey now.",
         "required_scopes": ["survey:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5168,7 +5165,6 @@
         "summary": "Get response counts for surveys (batched, all-surveys-at-once).",
         "title": "Get response counts for surveys (batched, all-surveys-at-once).",
         "required_scopes": ["survey:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5183,7 +5179,6 @@
         "summary": "List individual survey responses with resolved question text.",
         "title": "List individual survey responses with resolved question text.",
         "required_scopes": ["survey:read", "query:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5198,7 +5193,6 @@
         "summary": "Summarize survey responses (per question, or survey-wide headline).",
         "title": "Summarize survey responses (per question, or survey-wide headline).",
         "required_scopes": ["survey:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
