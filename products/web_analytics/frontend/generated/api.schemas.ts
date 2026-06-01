@@ -7,6 +7,180 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface HeatmapResponseItemApi {
+    count: number
+    pointer_y: number
+    pointer_relative_x: number
+    pointer_target_fixed: boolean
+}
+
+export interface HeatmapsResponseApi {
+    results: HeatmapResponseItemApi[]
+}
+
+export interface PaginatedHeatmapsResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapsResponseApi[]
+}
+
+/**
+ * * `screenshot` - Screenshot
+ * `iframe` - Iframe
+ * `recording` - Recording
+ */
+export type HeatmapScreenshotResponseTypeEnumApi =
+    (typeof HeatmapScreenshotResponseTypeEnumApi)[keyof typeof HeatmapScreenshotResponseTypeEnumApi]
+
+export const HeatmapScreenshotResponseTypeEnumApi = {
+    Screenshot: 'screenshot',
+    Iframe: 'iframe',
+    Recording: 'recording',
+} as const
+
+/**
+ * * `processing` - Processing
+ * `completed` - Completed
+ * `failed` - Failed
+ */
+export type HeatmapScreenshotResponseStatusEnumApi =
+    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+
+export const HeatmapScreenshotResponseStatusEnumApi = {
+    Processing: 'processing',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export type HeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
+
+export interface HeatmapScreenshotResponseApi {
+    readonly id: string
+    readonly short_id: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status: HeatmapScreenshotResponseStatusEnumApi
+    readonly has_content: boolean
+    readonly snapshots: readonly HeatmapScreenshotResponseApiSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedHeatmapScreenshotResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: HeatmapScreenshotResponseApi[]
+}
+
+export type PatchedHeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
+
+export interface PatchedHeatmapScreenshotResponseApi {
+    readonly id?: string
+    readonly short_id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** @maxLength 2000 */
+    url?: string
+    /**
+     * URL for fetching heatmap data
+     * @maxLength 2000
+     * @nullable
+     */
+    data_url?: string | null
+    target_widths?: unknown
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status?: HeatmapScreenshotResponseStatusEnumApi
+    readonly has_content?: boolean
+    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseApiSnapshotsItem[]
+    deleted?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    readonly updated_at?: string
+    /** @nullable */
+    readonly exception?: string | null
+}
+
 /**
  * * `Up` - Up
  * `Down` - Down
@@ -108,61 +282,6 @@ export interface WeeklyDigestResponseApi {
     dashboard_url: string
 }
 
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
 export interface WebAnalyticsFilterPresetApi {
     readonly id: string
     readonly short_id: string
@@ -202,123 +321,26 @@ export interface PatchedWebAnalyticsFilterPresetApi {
     readonly last_modified_by?: UserBasicApi
 }
 
-export interface HeatmapResponseItemApi {
-    count: number
-    pointer_y: number
-    pointer_relative_x: number
-    pointer_target_fixed: boolean
-}
-
-export interface HeatmapsResponseApi {
-    results: HeatmapResponseItemApi[]
-}
-
-export interface PaginatedHeatmapsResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: HeatmapsResponseApi[]
-}
-
-/**
- * * `screenshot` - Screenshot
- * `iframe` - Iframe
- * `recording` - Recording
- */
-export type HeatmapScreenshotResponseTypeEnumApi =
-    (typeof HeatmapScreenshotResponseTypeEnumApi)[keyof typeof HeatmapScreenshotResponseTypeEnumApi]
-
-export const HeatmapScreenshotResponseTypeEnumApi = {
-    Screenshot: 'screenshot',
-    Iframe: 'iframe',
-    Recording: 'recording',
-} as const
-
-/**
- * * `processing` - Processing
- * `completed` - Completed
- * `failed` - Failed
- */
-export type HeatmapScreenshotResponseStatusEnumApi =
-    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
-
-export const HeatmapScreenshotResponseStatusEnumApi = {
-    Processing: 'processing',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
-export type HeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
-
-export interface HeatmapScreenshotResponseApi {
-    readonly id: string
-    readonly short_id: string
+export type HeatmapsListParams = {
     /**
-     * @maxLength 400
-     * @nullable
+     * Number of results to return per page.
      */
-    name?: string | null
-    /** @maxLength 2000 */
-    url: string
+    limit?: number
     /**
-     * URL for fetching heatmap data
-     * @maxLength 2000
-     * @nullable
+     * The initial index from which to return the results.
      */
-    data_url?: string | null
-    target_widths?: unknown
-    type?: HeatmapScreenshotResponseTypeEnumApi
-    readonly status: HeatmapScreenshotResponseStatusEnumApi
-    readonly has_content: boolean
-    readonly snapshots: readonly HeatmapScreenshotResponseApiSnapshotsItem[]
-    deleted?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    readonly exception: string | null
+    offset?: number
 }
 
-export interface PaginatedHeatmapScreenshotResponseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: HeatmapScreenshotResponseApi[]
-}
-
-export type PatchedHeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
-
-export interface PatchedHeatmapScreenshotResponseApi {
-    readonly id?: string
-    readonly short_id?: string
+export type SavedListParams = {
     /**
-     * @maxLength 400
-     * @nullable
+     * Number of results to return per page.
      */
-    name?: string | null
-    /** @maxLength 2000 */
-    url?: string
+    limit?: number
     /**
-     * URL for fetching heatmap data
-     * @maxLength 2000
-     * @nullable
+     * The initial index from which to return the results.
      */
-    data_url?: string | null
-    target_widths?: unknown
-    type?: HeatmapScreenshotResponseTypeEnumApi
-    readonly status?: HeatmapScreenshotResponseStatusEnumApi
-    readonly has_content?: boolean
-    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseApiSnapshotsItem[]
-    deleted?: boolean
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    readonly updated_at?: string
-    /** @nullable */
-    readonly exception?: string | null
+    offset?: number
 }
 
 export type WebAnalyticsWeeklyDigestParams = {
@@ -343,26 +365,4 @@ export type WebAnalyticsFilterPresetsListParams = {
      */
     offset?: number
     short_id?: string
-}
-
-export type HeatmapsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type SavedListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
