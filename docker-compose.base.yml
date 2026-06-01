@@ -242,43 +242,30 @@ services:
         entrypoint:
             - /bin/sh
             - -c
+            # Background a one-shot create-buckets loop and exec weed as PID 1 so SIGTERM
+            # reaches it directly. `s3.bucket.create` is idempotent — retry the whole
+            # heredoc until the master answers; no list-then-create dance needed.
             - |
-                /usr/bin/weed "$$@" &
-                WEED_PID=$$!
-                BUCKETS="posthog ducklake-dev ai-blobs"
-                echo "Waiting for objectstorage SeaweedFS to initialize..."
-                while true; do
-                    sleep 3
-                    LIST_OUTPUT=$$(echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
-                    MISSING=0
-                    for bucket in $$BUCKETS; do
-                        if ! echo "$$LIST_OUTPUT" | grep -q "$$bucket"; then
-                            MISSING=1
-                            echo "Creating bucket $$bucket..."
-                            echo "s3.bucket.create -name $$bucket" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true
-                        fi
+                (
+                    until printf 's3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                            | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1; do
+                        sleep 1
                     done
-                    if [ "$$MISSING" -eq 0 ]; then
-                        echo "Objectstorage SeaweedFS ready with required buckets"
-                        break
-                    fi
-                done
-                wait $$WEED_PID
+                    touch /tmp/objectstorage-ready
+                    echo "Objectstorage SeaweedFS ready with required buckets"
+                ) &
+                exec /usr/bin/weed "$$@"
             - --
-        # -domainName keeps SigV4 host calculation consistent between client and server.
-        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.domainName=localhost', '-dir=/data']
+        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data']
         # Without this, bin/wait-for-docker treats the container as ready the instant
-        # weed execs, which races the bucket bootstrap loop. The previous MinIO config
+        # weed execs, which races the bucket bootstrap. The previous MinIO config
         # `mkdir -p ... && minio server` created buckets BEFORE the server started, so
-        # there was no race; SeaweedFS creates them via `weed shell` after startup.
+        # there was no race; SeaweedFS creates them after startup via the background loop
+        # above, which `touch`es this sentinel once all buckets exist.
         healthcheck:
-            test:
-                [
-                    'CMD-SHELL',
-                    'L=$$(echo s3.bucket.list | /usr/bin/weed shell -master=localhost:19001 2>&1); echo "$$L" | grep -q posthog && echo "$$L" | grep -q ducklake-dev && echo "$$L" | grep -q ai-blobs',
-                ]
+            test: ['CMD', 'test', '-f', '/tmp/objectstorage-ready']
             interval: 5s
-            timeout: 10s
+            timeout: 5s
             retries: 30
             start_period: 10s
 
@@ -786,7 +773,7 @@ services:
                 echo "SeaweedFS ready with posthog bucket"
                 wait $$WEED_PID
             - --
-        command: ['server', '-s3', '-s3.port=8333', '-s3.domainName=localhost', '-dir=/data']
+        command: ['server', '-s3', '-s3.port=8333', '-dir=/data']
 
     duckgres:
         # DuckLake 0.4 + DuckDB 1.5.1, multi-arch (posthog/duckgres@5cfca88)

@@ -51,6 +51,7 @@ services:
     objectstorage:
         # SeaweedFS, S3-compatible, exposing the same objectstorage:19000 endpoint MinIO did.
         # Open-access mode (no -s3.config) so any credential pair our code uses just works.
+        # See docker-compose.base.yml `objectstorage` for full rationale.
         image: chrislusf/seaweedfs:4.03
         restart: on-failure
         ports:
@@ -60,39 +61,21 @@ services:
             - /bin/sh
             - -c
             - |
-                /usr/bin/weed "$$@" &
-                WEED_PID=$$!
-                BUCKETS="capture posthog"
-                echo "Waiting for objectstorage SeaweedFS to initialize..."
-                while true; do
-                    sleep 3
-                    LIST_OUTPUT=$$(echo "s3.bucket.list" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
-                    MISSING=0
-                    for bucket in $$BUCKETS; do
-                        if ! echo "$$LIST_OUTPUT" | grep -q "$$bucket"; then
-                            MISSING=1
-                            echo "Creating bucket $$bucket..."
-                            echo "s3.bucket.create -name $$bucket" | /usr/bin/weed shell -master=localhost:19001 2>&1 || true
-                        fi
+                (
+                    until printf 's3.bucket.create -name capture\ns3.bucket.create -name posthog\n' \
+                            | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1; do
+                        sleep 1
                     done
-                    if [ "$$MISSING" -eq 0 ]; then
-                        echo "Objectstorage SeaweedFS ready with required buckets"
-                        break
-                    fi
-                done
-                wait $$WEED_PID
+                    touch /tmp/objectstorage-ready
+                    echo "Objectstorage SeaweedFS ready with required buckets"
+                ) &
+                exec /usr/bin/weed "$$@"
             - --
-        command:
-            ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-s3.domainName=localhost', '-dir=/data']
-        # See the matching healthcheck on the dev objectstorage in docker-compose.base.yml.
+        command: ['server', '-master.port=19001', '-s3', '-s3.port=19000', '-dir=/data']
         healthcheck:
-            test:
-                [
-                    'CMD-SHELL',
-                    'L=$$(echo s3.bucket.list | /usr/bin/weed shell -master=localhost:19001 2>&1); echo "$$L" | grep -q capture && echo "$$L" | grep -q posthog',
-                ]
+            test: ['CMD', 'test', '-f', '/tmp/objectstorage-ready']
             interval: 5s
-            timeout: 10s
+            timeout: 5s
             retries: 30
             start_period: 10s
 
