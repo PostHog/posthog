@@ -914,7 +914,12 @@ class TestDucklingConcurrencyTags:
     # The combined events+persons cap is enforced on the shared key in the charts
     # Dagster deployment settings. If either backfill drops the shared tag, the
     # cap silently stops applying to it — guard against that here.
-    def test_events_and_persons_share_the_combined_concurrency_key(self):
+    @parameterized.expand(
+        [
+            ("events", EVENTS_CONCURRENCY_TAG),
+            ("persons", PERSONS_CONCURRENCY_TAG),
+        ]
+    )
+    def test_backfill_carries_shared_concurrency_key(self, _name, tag_dict):
         ((shared_key, shared_value),) = DUCKLING_BACKFILL_CONCURRENCY_TAG.items()
-        assert EVENTS_CONCURRENCY_TAG[shared_key] == shared_value
-        assert PERSONS_CONCURRENCY_TAG[shared_key] == shared_value
+        assert tag_dict[shared_key] == shared_value
