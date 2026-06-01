@@ -224,12 +224,18 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
     },
 ]
 
-export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
+export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element | null {
     const { augmentedData, rawDataLoading: loading } = useValues(sdkDoctorLogic)
 
-    const sdk = augmentedData[sdkType]!
+    const sdk = augmentedData[sdkType]
     const links = SDK_DOCS_LINKS[sdkType]
     const sdkName = SDK_TYPE_READABLE_NAME[sdkType]
+
+    // Guard against SDK types the backend may add before the frontend knows about them:
+    // skip unknown entries rather than crashing the whole scene on a missing lookup.
+    if (!sdk || !links || !sdkName) {
+        return null
+    }
 
     return (
         <div className="flex flex-col mb-4 p-2">

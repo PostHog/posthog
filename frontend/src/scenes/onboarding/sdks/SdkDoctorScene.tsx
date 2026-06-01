@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconBell, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -17,7 +17,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { SdkSection } from './SdkDoctorComponents'
-import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
+import { type OutdatedTrafficAlert, type SdkDoctorLoadError, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
 
 export const scene: SceneExport = {
@@ -31,6 +31,7 @@ export function SdkDoctorScene(): JSX.Element {
         rawDataLoading: loading,
         needsUpdatingCount,
         hasErrors,
+        loadError,
         snoozedUntil,
     } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
@@ -108,10 +109,13 @@ export function SdkDoctorScene(): JSX.Element {
             </LemonBanner>
 
             <div className="p-3">
-                {loading ? null : hasErrors ? (
-                    <div className="text-center text-muted p-4">
-                        Error loading SDK information. Please try again later.
+                {loading ? (
+                    <div className="flex items-center justify-center gap-2 text-muted p-8">
+                        <Spinner className="text-lg" />
+                        <span>Loading SDK information...</span>
                     </div>
+                ) : hasErrors ? (
+                    <SdkDoctorErrorState loadError={loadError} onRetry={scanEvents} />
                 ) : Object.keys(augmentedData).length === 0 ? (
                     <div className="text-center text-muted p-4">
                         No SDK information found. Are you sure you have our SDK installed? You can scan events to get
@@ -165,5 +169,53 @@ export function SdkDoctorScene(): JSX.Element {
                 <SdkSection key={sdkType} sdkType={sdkType as SdkType} />
             ))}
         </SceneContent>
+    )
+}
+
+function SdkDoctorErrorState({
+    loadError,
+    onRetry,
+}: {
+    loadError: SdkDoctorLoadError | null
+    onRetry: () => void
+}): JSX.Element {
+    if (loadError?.kind === 'auth') {
+        return (
+            <LemonBanner type="error">
+                <p className="font-semibold">We couldn't load your SDK information.</p>
+                <p className="text-sm mt-1">
+                    Your session may have expired or you don't have access to this data. Reload the page to sign in
+                    again.
+                </p>
+                <LemonButton
+                    className="mt-2"
+                    type="primary"
+                    icon={<IconRefresh className="size-4" />}
+                    onClick={() => window.location.reload()}
+                >
+                    Reload page
+                </LemonButton>
+            </LemonBanner>
+        )
+    }
+
+    const isNetwork = loadError?.kind === 'network'
+    return (
+        <LemonBanner type="error">
+            <p className="font-semibold">We couldn't load your SDK information.</p>
+            <p className="text-sm mt-1">
+                {isNetwork
+                    ? "We couldn't reach PostHog - check your connection and try again."
+                    : 'Something went wrong on our end. Try again in a moment.'}
+            </p>
+            <LemonButton
+                className="mt-2"
+                type="primary"
+                icon={<IconRefresh className="size-4" />}
+                onClick={onRetry}
+            >
+                Try again
+            </LemonButton>
+        </LemonBanner>
     )
 }

@@ -1,3 +1,4 @@
+import { retryDynamicImport } from 'lib/utils/retryDynamicImport'
 import { preloadedScenes } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -107,7 +108,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),
     [Scene.HealthAlerts]: () => import('./health-alerts/HealthAlertsScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
-    [Scene.SdkDoctor]: () => import('./onboarding/sdks/SdkDoctorScene'),
+    [Scene.SdkDoctor]: () => retryDynamicImport(() => import('./onboarding/sdks/SdkDoctorScene')),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.Subscriptions]: () => import('./subscriptions/SubscriptionsScene'),
     [Scene.Subscription]: () => import('./subscriptions/SubscriptionScene'),

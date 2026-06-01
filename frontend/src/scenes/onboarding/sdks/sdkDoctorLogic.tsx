@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SemanticVersion, diffVersions, parseVersion, versionToString } from 'lib/utils/semver'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -84,6 +85,45 @@ export type AugmentedTeamSdkVersionsInfoRelease = {
 export type SdkHealthStatus = 'danger' | 'warning' | 'success'
 
 /**
+ * Classifies why an SDK Doctor data load failed so the UI can give the user an
+ * actionable message instead of an opaque "try again later".
+ * - `auth`: 401/403 - the session expired or lacks access; retrying as-is won't help.
+ * - `network`: the request never reached the server (offline, dropped connection); retrying may help.
+ * - `unknown`: a server-side (5xx) or otherwise unexpected error; retrying may help.
+ */
+export type SdkDoctorLoadErrorKind = 'auth' | 'network' | 'unknown'
+
+export type SdkDoctorLoadError = {
+    kind: SdkDoctorLoadErrorKind
+    status?: number
+}
+
+/**
+ * Turns a thrown API error into a user-facing classification, or `null` when the
+ * failure is an aborted request (navigation away or a superseded load) - those are
+ * expected and must not surface as an error to the user.
+ */
+function classifyLoadError(error: unknown): SdkDoctorLoadError | null {
+    // Aborted requests (component unmount, a newer load superseding this one) are not failures.
+    if (error && typeof error === 'object' && (error as { name?: string }).name === 'AbortError') {
+        return null
+    }
+
+    if (error instanceof ApiError) {
+        if (error.status === 401 || error.status === 403) {
+            return { kind: 'auth', status: error.status }
+        }
+        // No status means the underlying fetch threw before a response (network failure).
+        if (error.status === undefined) {
+            return { kind: 'network' }
+        }
+        return { kind: 'unknown', status: error.status }
+    }
+
+    return { kind: 'unknown' }
+}
+
+/**
  * SDK Doctor - PostHog SDK Health Monitoring
  *
  * Detects installed SDKs and their versions across a team's events.
@@ -129,6 +169,7 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
     actions({
         snoozeSdkDoctor: true,
         unsnooze: true,
+        setLoadError: (error: SdkDoctorLoadError | null) => ({ error }),
     }),
 
     reducers(() => ({
@@ -140,9 +181,18 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
                 unsnooze: () => null,
             },
         ],
+        loadError: [
+            null as SdkDoctorLoadError | null,
+            {
+                // Clear any prior error the moment a new load starts so the retry button
+                // reflects the in-flight attempt rather than the stale failure.
+                loadRawData: () => null,
+                setLoadError: (_, { error }) => error,
+            },
+        ],
     })),
 
-    loaders(() => ({
+    loaders(({ values, actions }) => ({
         rawData: [
             null as SdkDoctorResponse | null,
             {
@@ -154,7 +204,13 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
 
                         return response
                     } catch (error) {
+                        const classified = classifyLoadError(error)
+                        if (classified === null) {
+                            // Aborted request - keep whatever we had and stay silent.
+                            return values.rawData
+                        }
                         console.error('Error loading SDK doctor data', error)
+                        actions.setLoadError(classified)
                         return null
                     }
                 },
@@ -285,9 +341,9 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
         ],
 
         hasErrors: [
-            (s) => [s.rawData, s.rawDataLoading],
-            (rawData: SdkDoctorResponse | null, rawDataLoading: boolean): boolean => {
-                return !rawDataLoading && rawData === null
+            (s) => [s.loadError, s.rawDataLoading],
+            (loadError: SdkDoctorLoadError | null, rawDataLoading: boolean): boolean => {
+                return !rawDataLoading && loadError !== null
             },
         ],
     }),
