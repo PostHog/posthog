@@ -158,13 +158,20 @@ describe('PersonHogReadRepository', () => {
     })
 
     describe('retry behavior', () => {
-        it('retries on UNAVAILABLE and succeeds', async () => {
+        it.each([
+            ['Unavailable', Code.Unavailable],
+            ['DeadlineExceeded', Code.DeadlineExceeded],
+            ['ResourceExhausted', Code.ResourceExhausted],
+            ['Aborted', Code.Aborted],
+            ['Internal', Code.Internal],
+            ['Unknown', Code.Unknown],
+        ])('retries on %s and succeeds', async (_name, code) => {
             const { client, handlers } = createMockClientAndHandlers()
             let callCount = 0
             handlers.getPersonsByDistinctIds.mockImplementation(() => {
                 callCount++
                 if (callCount === 1) {
-                    throw new ConnectError('connection refused', Code.Unavailable)
+                    throw new ConnectError('transient', code)
                 }
                 return {
                     results: [{ person: makeProtoPerson(), key: { teamId: BigInt(TEAM_ID), distinctId: 'user-1' } }],
@@ -178,28 +185,21 @@ describe('PersonHogReadRepository', () => {
             expect(callCount).toBe(2)
         })
 
-        it('retries on DEADLINE_EXCEEDED and succeeds', async () => {
-            const { client, handlers } = createMockClientAndHandlers()
-            let callCount = 0
-            handlers.getPersonsByDistinctIds.mockImplementation(() => {
-                callCount++
-                if (callCount === 1) {
-                    throw new ConnectError('timeout', Code.DeadlineExceeded)
-                }
-                return { results: [] }
-            })
-
-            const repo = new PersonHogReadRepository(client)
-            const result = await repo.fetchPerson(TEAM_ID, 'user-1')
-
-            expect(result).toBeUndefined()
-            expect(callCount).toBe(2)
-        })
-
-        it('does not retry on non-transient errors', async () => {
+        it.each([
+            ['InvalidArgument', Code.InvalidArgument],
+            ['NotFound', Code.NotFound],
+            ['AlreadyExists', Code.AlreadyExists],
+            ['PermissionDenied', Code.PermissionDenied],
+            ['Unauthenticated', Code.Unauthenticated],
+            ['Unimplemented', Code.Unimplemented],
+            ['FailedPrecondition', Code.FailedPrecondition],
+            ['OutOfRange', Code.OutOfRange],
+            ['DataLoss', Code.DataLoss],
+            ['Canceled', Code.Canceled],
+        ])('does not retry on %s', async (_name, code) => {
             const { client, handlers } = createMockClientAndHandlers()
             handlers.getPersonsByDistinctIds.mockImplementation(() => {
-                throw new ConnectError('bad request', Code.InvalidArgument)
+                throw new ConnectError('non-retryable', code)
             })
 
             const repo = new PersonHogReadRepository(client)
@@ -219,18 +219,6 @@ describe('PersonHogReadRepository', () => {
 
             // 1 initial + 2 retries = 3 total
             expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(3)
-        })
-
-        it('does not retry non-retryable ConnectError codes', async () => {
-            const { client, handlers } = createMockClientAndHandlers()
-            handlers.getPersonsByDistinctIds.mockImplementation(() => {
-                throw new ConnectError('not found', Code.NotFound)
-            })
-
-            const repo = new PersonHogReadRepository(client)
-            await expect(repo.fetchPerson(TEAM_ID, 'user-1')).rejects.toThrow(ConnectError)
-
-            expect(handlers.getPersonsByDistinctIds).toHaveBeenCalledTimes(1)
         })
     })
 })
