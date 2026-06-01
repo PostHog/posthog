@@ -32,8 +32,6 @@ import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
-import products.wizard.backend.presentation.views as wizard_sessions
-import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
@@ -66,6 +64,7 @@ from products.ai_observability.backend.api import (
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
+from products.customer_analytics.backend.routes import register_routes as register_customer_analytics_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
 from products.data_warehouse.backend.api import (
@@ -105,9 +104,9 @@ from products.messaging.backend.api.message_categories import MessageCategoryVie
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
 from products.notebooks.backend.api.notebook import NotebookViewSet
-from products.notifications.backend.presentation.views import NotificationsViewSet
+from products.notifications.backend.routes import register_routes as register_notifications_routes
 from products.posthog_ai.backend.api import MCPToolsViewSet
-from products.product_tours.backend.api import ProductTourViewSet
+from products.product_tours.backend.routes import register_routes as register_product_tours_routes
 from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
     ReplayScannerViewSet,
@@ -135,6 +134,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SavedHeatmapViewSet,
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.wizard.backend.routes import register_routes as register_wizard_routes
 from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -343,12 +343,7 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
-projects_router.register(
-    r"wizard/sessions",
-    wizard_sessions.WizardSessionViewSet,
-    "project_wizard_sessions",
-    ["project_id"],
-)
+register_wizard_routes(routers)
 # Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
 # Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
 # /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
@@ -393,7 +388,7 @@ projects_router.register(
 # Surveys registers its own routes from products/surveys/backend/routes.py (pilot for
 # product-local route registration via RouterRegistry).
 register_survey_routes(routers)
-projects_router.register(r"product_tours", ProductTourViewSet, "project_product_tours", ["project_id"])
+register_product_tours_routes(routers)
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
@@ -452,33 +447,7 @@ register_grandfathered_environment_nested_viewset(
     ["team_id"],
 )
 
-environments_router.register(
-    r"customer_profile_configs",
-    customer_analytics.CustomerProfileConfigViewSet,
-    "environment_customer_profile_configs",
-    ["team_id"],
-)
-
-environments_router.register(
-    r"customer_journeys",
-    customer_analytics.CustomerJourneyViewSet,
-    "environment_customer_journeys",
-    ["team_id"],
-)
-
-environment_accounts_router = environments_router.register(
-    r"accounts",
-    customer_analytics.AccountViewSet,
-    "environment_accounts",
-    ["team_id"],
-)
-
-environment_accounts_router.register(
-    r"notebooks",
-    customer_analytics.AccountNotebookViewSet,
-    "environment_account_notebooks",
-    ["team_id", "account_id"],
-)
+register_customer_analytics_routes(routers)
 
 projects_router.register(
     r"data_management",
@@ -696,12 +665,7 @@ environments_router.register(
     ["team_id"],
 )
 
-environments_router.register(
-    r"notifications",
-    NotificationsViewSet,
-    "environment_notifications",
-    ["team_id"],
-)
+register_notifications_routes(routers)
 
 # Organizations nested endpoints
 organizations_router = routers.add(
