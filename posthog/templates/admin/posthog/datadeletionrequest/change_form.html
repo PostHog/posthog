@@ -61,7 +61,10 @@
     {% endif %}
 
     {# Stats are calculated from this page (works for any status). These buttons use
-       formaction= to post the surrounding admin <form> to the stats views. #}
+       formaction= to post the surrounding admin <form> to the stats views.
+       Guarded on `original` — the stats URLs only exist for a saved object, and on the
+       add view an empty formaction would post back and create a record. #}
+    {% if original %}
     <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
         <h2>ClickHouse stats</h2>
         {% if original.stats_calculated_at %}
@@ -84,6 +87,7 @@
             {% endif %}
         </div>
     </fieldset>
+    {% endif %}
 
     {% if preview_stats %}
     <fieldset style="margin: 20px 0; padding: 16px; border: 1px dashed #0c5460; border-radius: 4px; background: #d1ecf1; color: #0c5460;">
