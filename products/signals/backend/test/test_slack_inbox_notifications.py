@@ -1,7 +1,7 @@
 import json
-from unittest.mock import MagicMock, patch
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
@@ -18,10 +18,10 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
-    _RecipientPresentation,
     _build_message_blocks,
     _meets_min_priority,
     _recipient_presentation,
+    _RecipientPresentation,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
