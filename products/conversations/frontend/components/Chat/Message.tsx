@@ -74,7 +74,7 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                         </div>
                         <div className="flex items-center justify-end gap-1">
                             {message.emailDeliveryStatus === 'failed' ? (
-                                <Tooltip title="We couldn't deliver this email reply. It will be retried automatically; if it keeps failing, check the email channel settings.">
+                                <Tooltip title="We couldn't deliver this email reply. Please check the email channel settings and contact support if the issue persists.">
                                     <span className="inline-flex items-center gap-0.5 text-xs text-danger">
                                         <IconWarning className="text-xs" />
                                         Failed to send
