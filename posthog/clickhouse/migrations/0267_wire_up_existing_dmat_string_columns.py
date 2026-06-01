@@ -116,7 +116,7 @@ operations += [
             start=_STRING_RANGE_START,
             end_exclusive=_STRING_RANGE_END,
         ),
-        node_roles=[NodeRole.DATA] + ([NodeRole.INGESTION_EVENTS] if _is_cloud else []),
+        node_roles=([NodeRole.INGESTION_EVENTS] if _is_cloud else [NodeRole.DATA]),
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
