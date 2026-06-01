@@ -9,6 +9,7 @@ import dagster
 from posthog.models import Organization, Team
 
 from products.web_analytics.dags.web_dimensional_precompute import (
+    PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
     chunk_ranges,
@@ -38,6 +39,10 @@ class TestChunkRanges:
         start = datetime(2024, 1, 1, tzinfo=UTC)
         end = datetime(2024, 1, 5, tzinfo=UTC)
         assert chunk_ranges(start, end, 90) == [(start, end)]
+
+    def test_default_chunk_is_one_day(self):
+        # Conservative default: each INSERT scans a single day to bound CH memory.
+        assert PRECOMPUTE_CHUNK_DAYS == 1
 
 
 class TestGetSelectedTeamIds:
@@ -83,8 +88,8 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_bounces_dimensional_precomputed")
     @patch("products.web_analytics.dags.web_dimensional_precompute.ensure_web_stats_dimensional_precomputed")
     def test_chunking_issues_multiple_bounded_calls(self, stats_mock, bounces_mock):
-        # With a 7-day chunk over the (>=14d) window, each team/table is ensured in
-        # several bounded calls rather than one window-wide query that could overload CH.
+        # Chunking bounds each ensure call to <= chunk_days so no single INSERT
+        # scans the whole window. Exercised here with a 7-day chunk for clarity.
         t1 = self._make_team("A")
         with patch(_SINGLE_CHUNK, 7), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{t1.pk}"}):
             ensure_web_dimensional_precompute_op(dagster.build_op_context())

@@ -45,10 +45,13 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # Each ensure_precomputed call covers at most this many days. The framework merges
 # a fully-missing range into ONE INSERT, so without chunking a cold backfill would
 # scan the entire window (e.g. 90 days of raw sessions+events) in a single query —
-# the real overload risk for a high-volume team. Chunking bounds each INSERT's scan;
-# combined with the job's max_runtime and ensure_precomputed's idempotency, a cold
-# backfill self-paces across runs (a killed run resumes from the first unfilled chunk).
-PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "7"))
+# the real memory/overload risk for a high-volume team. Chunking bounds each INSERT's
+# scan; combined with the job's max_runtime and ensure_precomputed's idempotency, a
+# cold backfill self-paces across runs (a killed run resumes from the first unfilled
+# chunk). Defaults to 1 so every INSERT scans a single UTC day — the safest memory
+# profile, matching v2's per-day partition granularity. Raise via the env var to
+# trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
+PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
 # Comma-separated team IDs to precompute. Empty/unset → the job is a no-op.
 SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
