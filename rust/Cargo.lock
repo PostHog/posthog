@@ -2194,6 +2194,7 @@ dependencies = [
  "envconfig",
  "health",
  "lz4",
+ "metrics",
  "rdkafka",
  "serde",
  "serde_json",
