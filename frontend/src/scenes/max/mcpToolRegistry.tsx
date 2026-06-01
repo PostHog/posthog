@@ -1,9 +1,10 @@
 import type { ComponentType } from 'react'
 
-import { IconDashboard, IconGraph, IconRewindPlay, IconWarning, IconWrench } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconNotebook, IconRewindPlay, IconWarning, IconWrench } from '@posthog/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
 import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
+import { CREATE_NOTEBOOK_TOOL_KEY, CreateNotebookAdapter } from './messages/adapters/CreateNotebookAdapter'
 import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
 import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
 import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
@@ -113,6 +114,13 @@ for (const key of [
         Renderer: ErrorTrackingAdapter,
     })
 }
+
+mcpToolRegistry.register({
+    key: CREATE_NOTEBOOK_TOOL_KEY,
+    displayName: 'Notebook',
+    icon: <IconNotebook />,
+    Renderer: CreateNotebookAdapter,
+})
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
 export function lookupMcpToolRenderer(resolvedKey: string): McpToolRegistryEntry {
