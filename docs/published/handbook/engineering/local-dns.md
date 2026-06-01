@@ -1,50 +1,27 @@
-# Local DNS (alternative to editing /etc/hosts)
+# Local DNS
 
-> **Status: draft / opt-in.** This is an alternative to the manual `/etc/hosts`
-> edit described in [developing-locally.md](./developing-locally.md). It is not
-> yet the recommended default — it exists so we can try it and discuss.
+PostHog's local stack refers to its services by `*.posthog.test` hostnames
+(`db.posthog.test`, `clickhouse.posthog.test`, `kafka.posthog.test`, …) in the
+shared `.env.services`. One config string resolves everywhere:
 
-## Why this exists
+- **inside containers** via Docker network aliases (`docker-compose.base.yml`),
+- **on your host** via a local DNS resolver — `./bin/setup-local-dns`,
+- **in CI** via the `/etc/hosts` lines in the workflows.
 
-Local PostHog dev runs the **app processes on your host** (Django, the
-plugin-server, the Rust services) while the **data services run in Docker**
-(`db`, `redis7`, `kafka`, `clickhouse`, `objectstorage`, `temporal`, …). One
-shared `.env.services` is used both inside containers _and_ by host processes,
-and it refers to services by their Docker names (`CLICKHOUSE_HOST=clickhouse`,
-`KAFKA_HOSTS=kafka:9092`, …).
+This replaces the old hand-maintained `/etc/hosts` line that mapped each bare
+Docker service name to `127.0.0.1`.
 
-Inside the Docker network those names resolve via Docker's embedded DNS. On the
-host they don't resolve at all — which is why every contributor has to add a
-line to `/etc/hosts`:
+## Why
 
-```text
-127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
-```
+Local dev runs the app processes on your host while data services run in
+Docker. Inside the Docker network, names resolve via Docker's embedded DNS; on
+the host they don't. The previous fix was a static `/etc/hosts` line per
+contributor — easy to forget, drifts over time, and can't express wildcards. A
+local resolver answers the whole `*.posthog.test` suffix at once.
 
-That line is static, easy to forget, and can't express wildcards. A local DNS
-resolver replaces it with a single rule that covers every current and future
-service name.
-
-## How it works
-
-A local [dnsmasq](https://thekelleys.org.uk/dnsmasq/doc.html) answers the whole
-`*.posthog.test` suffix and points it at loopback:
-
-```ini
-address=/posthog.test/127.0.0.1
-```
-
-On macOS, `/etc/resolver/posthog.test` tells the system to send only
-`*.posthog.test` queries to dnsmasq — no global DNS change. (macOS keys this on
-the domain **suffix**, which is why a TLD like `.posthog.test` is required and
-bare single-label names such as `db` can't use it — that's the reason
-`/etc/hosts` is used for them today.) `.test` is reserved by
-[RFC 6761](https://www.rfc-editor.org/rfc/rfc6761) for exactly this, so it never
-resolves publicly and carries none of the HSTS/real-TLD risk of `.dev`/`.local`.
-
-The host then resolves e.g. `clickhouse.posthog.test:9000` → `127.0.0.1:9000`,
-which is the same published port the `/etc/hosts` mapping reaches today. The
-mechanism changes; the target (loopback + published ports) does not.
+`.test` is reserved by [RFC 6761](https://www.rfc-editor.org/rfc/rfc6761) for
+exactly this — it never resolves publicly and carries none of the HSTS/real-TLD
+risk of `.dev`/`.local`.
 
 ## Setup
 
@@ -52,62 +29,41 @@ mechanism changes; the target (loopback + published ports) does not.
 ./bin/setup-local-dns
 ```
 
-Idempotent. Installs and configures dnsmasq on macOS; prints manual steps on
-Linux (where keeping `/etc/hosts` is usually simpler).
+Idempotent. On macOS it installs and configures dnsmasq with
+`address=/posthog.test/127.0.0.1` and a `/etc/resolver/posthog.test` entry (no
+global DNS change — macOS only routes that suffix to dnsmasq). On Linux it
+prints the manual steps; keeping the `/etc/hosts` line there is also fine.
 
-## Opt in (host-only, gitignored)
+After running it, `clickhouse.posthog.test:9000` resolves to
+`127.0.0.1:9000` — the published container port — and `hogli start` works.
 
-Because precedence in `bin/start` is
-`shell env > .env.local > .env.development > .env.services`, you opt in by
-overriding the hostnames in your **`.env.local`** (gitignored, host-only —
-containers keep the bare names from `.env.services`):
-
-```bash
-# .env.local
-PGHOST=db.posthog.test
-CLICKHOUSE_HOST=clickhouse.posthog.test
-REDIS_URL=redis://redis7.posthog.test:6379/
-OBJECT_STORAGE_ENDPOINT=http://objectstorage.posthog.test:19000
-TEMPORAL_HOST=temporal.posthog.test
-```
-
-With this you can drop the PostHog line from `/etc/hosts` entirely (see the
-Kafka caveat below).
+> macOS keys `/etc/resolver` on the domain **suffix**, which is why these are
+> `*.posthog.test` names and not bare `db`/`kafka`: a resolver can't scope a
+> single-label name. That's the same reason `/etc/hosts` was used for them
+> before.
 
 ## How it composes
 
-- **In-docker / sandbox:** unaffected. Containers resolve bare names (`clickhouse`)
-  via Docker's embedded DNS and never touch your host's dnsmasq. If we later move
-  the suffix into `.env.services` (shared config), each service needs a Docker
-  **network alias** (`aliases: [clickhouse.posthog.test]`) so containers resolve
-  the suffixed name locally instead of forwarding it upstream.
+- **In-docker / sandbox:** containers reach the services by both the bare
+  service name (`clickhouse`) and the suffixed alias
+  (`clickhouse.posthog.test`); the aliases live in `docker-compose.base.yml`
+  (and the sandbox's inline `db`/`kafka`). Containers never touch your host
+  resolver.
+- **Kafka:** the broker advertises `internal://kafka.posthog.test:9092`, so
+  both host and container clients resolve whatever they reconnect to. The
+  external listener stays `localhost:19092`.
 - **OrbStack:** orthogonal. dnsmasq owns `*.posthog.test`; OrbStack owns
-  `*.orb.local`. They don't conflict as long as you keep publishing ports to
-  loopback. (Don't also enable OrbStack's "Allow access to container domains &
-  IPs" custom-DNS path at the same time — it has a history of colliding with
-  user-run resolvers.)
-- **CI / Linux:** keep the existing `/etc/hosts` line. This opt-in targets macOS
-  dev machines; it doesn't need to change CI.
+  `*.orb.local`. Don't also enable OrbStack's "Allow access to container
+  domains & IPs" custom-DNS path at the same time — it has a history of
+  colliding with user-run resolvers.
+- **CI / Linux:** the workflow `/etc/hosts` lines list both the bare and
+  suffixed names, so either form resolves.
 
-## Known caveat: Kafka
+## Fallback: /etc/hosts
 
-Kafka clients reconnect to whatever the broker **advertises**, and the dev
-broker advertises the bare name `kafka:9092`. So even if the host first dials
-`kafka.posthog.test`, the second hop needs bare `kafka` to resolve — which
-dnsmasq on `.posthog.test` does not cover. For now, either:
+If you'd rather not run a resolver, the suffixed names work in `/etc/hosts` too
+(the flox activation hook still offers this line):
 
-- keep just the `kafka` entry in `/etc/hosts`, or
-- point the host at Kafka's **external** listener (`localhost:19092`), which
-  needs no DNS.
-
-A full migration would advertise `kafka.posthog.test` instead. Left open for
-discussion.
-
-## Open questions for discussion
-
-1. Keep this as an opt-in convenience alongside `/etc/hosts`, or commit to it?
-2. If we commit: move the suffix into `.env.services` (shared config) + add
-   Docker network aliases + update the ~17 hardcoded host defaults in
-   `posthog/settings/`, and resolve the Kafka advertised-listener question.
-3. Do we want the flox `on-activate` hook to detect a working resolver and skip
-   the `/etc/hosts` nudge when one is present?
+```text
+127.0.0.1 db.posthog.test redis7.posthog.test kafka.posthog.test clickhouse.posthog.test objectstorage.posthog.test seaweedfs.posthog.test temporal.posthog.test
+```

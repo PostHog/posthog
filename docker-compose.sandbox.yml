@@ -202,6 +202,9 @@ services:
         # causing duplicate /docker-entrypoint-initdb.d mounts.
         image: postgres:15.12-alpine
         restart: on-failure
+        networks:
+            default:
+                aliases: [db.posthog.test]
         environment:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
@@ -301,7 +304,7 @@ services:
             - redpanda
             - start
             - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
-            - --advertise-kafka-addr internal://kafka:9092,external://localhost:19092
+            - --advertise-kafka-addr internal://kafka.posthog.test:9092,external://localhost:19092
             - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
             - --advertise-pandaproxy-addr internal://kafka:8082,external://localhost:18082
             - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081

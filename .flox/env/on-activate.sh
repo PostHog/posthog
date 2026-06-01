@@ -369,15 +369,20 @@ else
 fi
 
 # ── Step 3: /etc/hosts ──────────────────────────────────────────────
-POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal # posthog"
-if grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
+POSTHOG_HOSTS="127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal db.posthog.test redis7.posthog.test kafka.posthog.test clickhouse.posthog.test objectstorage.posthog.test seaweedfs.posthog.test temporal.posthog.test # posthog"
+# A local DNS resolver (bin/setup-local-dns) makes *.posthog.test resolve with
+# no /etc/hosts edits — if one is configured, skip the nudge.
+if [[ "$(dig +short +timeout=1 db.posthog.test 2>/dev/null)" == "127.0.0.1" ]]; then
+  done_step "System hosts (local DNS)"
+elif grep -qF "$POSTHOG_HOSTS" /etc/hosts; then
   done_step "System hosts"
 else
   echo ""
   echo -e "  ${C_YELLOW}┃${C_RESET} ${C_YELLOW}${C_BOLD}Action required${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
-  echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need hostnames in /etc/hosts."
-  echo -e "  ${C_YELLOW}┃${C_RESET} Copy and run this to update them:"
+  echo -e "  ${C_YELLOW}┃${C_RESET} PostHog services need their hostnames to resolve."
+  echo -e "  ${C_YELLOW}┃${C_RESET} Either run ${C_BOLD}./bin/setup-local-dns${C_RESET} (recommended), or"
+  echo -e "  ${C_YELLOW}┃${C_RESET} copy and run this to update /etc/hosts:"
   echo -e "  ${C_YELLOW}┃${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}   ${C_DIM}sudo sed -i.bak '/clickhouse-coordinator objectstorage/d' /etc/hosts; echo '${POSTHOG_HOSTS}' | sudo tee -a /etc/hosts${C_RESET}"
   echo -e "  ${C_YELLOW}┃${C_RESET}"

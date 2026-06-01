@@ -136,13 +136,7 @@ To get PostHog running in a dev environment:
 
 3. After successful environment activation, run `hogli start`. This launches the Docker infrastructure and all PostHog processes together via phrocs, a terminal UI that aggregates logs from all processes in one place.
 
-   > Note on connection errors: If you see connection errors on `hogli start`, ensure the following entry exists in `/etc/hosts`:
-   >
-   > ```text
-   > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
-   > ```
-   >
-   > As an alternative to maintaining this line by hand, see [local DNS](./local-dns.md) (opt-in, draft).
+   > Note on connection errors: PostHog's services use `*.posthog.test` hostnames that must resolve on your host. Run `./bin/setup-local-dns` once (see [local DNS](./local-dns.md)). The flox activation hook also nudges you if they don't resolve yet.
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 

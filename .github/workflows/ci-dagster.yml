@@ -298,7 +298,7 @@ jobs:
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add service hostnames to /etc/hosts
-              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+              run: sudo echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal db.posthog.test redis7.posthog.test kafka.posthog.test clickhouse.posthog.test objectstorage.posthog.test seaweedfs.posthog.test temporal.posthog.test" | sudo tee -a /etc/hosts
 
             - name: Create Dagster test database
               run: |

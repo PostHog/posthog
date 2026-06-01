@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 #
-# Opt-in replacement for the manual /etc/hosts edit that local PostHog dev
-# requires. Instead of hand-maintaining a static line mapping each service
-# hostname to 127.0.0.1, this points a local DNS resolver at the whole
-# `*.posthog.test` suffix so every current (and future) service name resolves
-# with no further edits.
+# Sets up local DNS so the *.posthog.test service hostnames in .env.services
+# resolve on your host, replacing the manual /etc/hosts edit. Points a local
+# dnsmasq at the whole `*.posthog.test` suffix → 127.0.0.1, so every current
+# (and future) service name resolves with no further edits.
 #
-# This is ADDITIVE and host-only: it changes nothing about how containers talk
-# to each other (Docker DNS still resolves bare names like `clickhouse`). After
-# running this once, opt in per-machine by setting the suffixed hostnames in
-# your gitignored .env.local — see docs/published/handbook/engineering/local-dns.md.
-#
-# DRAFT for discussion — not yet the recommended default.
+# Containers resolve the same names via Docker network aliases
+# (docker-compose.base.yml); this script only covers the host side.
+# See docs/published/handbook/engineering/local-dns.md.
 
 set -euo pipefail
 
@@ -99,8 +95,8 @@ main() {
         *) warn "Unsupported OS: $(uname -s)"; exit 1 ;;
     esac
     echo ""
-    bold "Next step — opt in (host-only, gitignored):"
-    info "Add the suffixed hostnames to your .env.local. See:"
+    bold "Done — *.${SUFFIX} now resolves to 127.0.0.1."
+    info "Run 'hogli start' as usual. See:"
     info "  docs/published/handbook/engineering/local-dns.md"
 }
 
