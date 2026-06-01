@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from posthoganalytics import Posthog
 from posthoganalytics.ai.openai import AsyncOpenAI
 
-from posthog.llm.gateway_client import get_async_llm_client
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
@@ -26,8 +26,6 @@ posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
 
 # Django settings are loaded before conftest, so .env vars aren't picked up.
 # Override settings that need to come from .env.
-if not settings.ANTHROPIC_API_KEY:
-    settings.ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not getattr(settings, "OPENAI_API_KEY", ""):
     settings.OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 if not getattr(settings, "LLM_GATEWAY_URL", ""):
@@ -96,12 +94,12 @@ async def openai_client(posthog_client):
 
 @pytest.fixture
 def gateway_client():
-    """Async OpenAI-compatible client pointed at the internal LLM gateway.
+    """Async Anthropic client pointed at the internal LLM gateway's native Messages endpoint.
 
     Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
-    (`_check_actionability` etc.) through the gateway rather than calling Gemini directly.
+    (`_check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
     """
-    return get_async_llm_client(product="signals", team_id=EVAL_TEAM_ID)
+    return get_async_anthropic_gateway_client(product="signals", team_id=EVAL_TEAM_ID)
 
 
 @pytest.fixture

@@ -6,12 +6,12 @@ from typing import Any
 
 import structlog
 import posthoganalytics
-from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.event_usage import groups
-from posthog.llm.gateway_client import get_async_llm_client
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.signals.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
@@ -21,7 +21,7 @@ from products.signals.backend.facade.api import emit_signal
 logger = structlog.get_logger(__name__)
 
 # Model routed through the internal LLM gateway. Claude Haiku 4.5 is a cheap,
-# fast judgment model that matches the gateway's allowlist for the signals product.
+# fast judgment model — summarization and actionability are simple judgment tasks.
 LLM_MODEL = "claude-haiku-4-5"
 # Concurrent LLM calls limit for actionability/summarization checks
 LLM_CONCURRENCY_LIMIT = 20
@@ -57,6 +57,11 @@ def _signals_extra_headers(output: SignalEmitterOutput, stage: str) -> dict[str,
         "x-posthog-property-source_product": output.source_product,
         "x-posthog-property-source_type": output.source_type,
     }
+
+
+def _extract_text(response: Any) -> str:
+    """Concatenate the text blocks of an Anthropic Messages response (ignores non-text blocks)."""
+    return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
 
 
 def _capture_pipeline_stage(
@@ -126,7 +131,7 @@ def build_emitter_outputs(
 
 
 async def _summarize_description(
-    client: AsyncOpenAI,
+    client: AsyncAnthropic,
     team_id: int,
     output: SignalEmitterOutput,
     summarization_prompt: str,
@@ -140,21 +145,21 @@ async def _summarize_description(
     for attempt in range(LLM_MAX_ATTEMPTS):
         if attempt > 0:
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
+        summary = ""
         try:
             response = await asyncio.wait_for(
-                client.chat.completions.create(
+                client.messages.create(
                     model=LLM_MODEL,
                     messages=messages,  # type: ignore[arg-type]
                     max_tokens=max_tokens,
-                    user=f"team-{team_id}",
+                    metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            choice = response.choices[0]
-            if choice.finish_reason == "length":
+            summary = _extract_text(response).strip()
+            if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
-            summary = (choice.message.content or "").strip()
             if not summary:
                 raise ValueError("Empty response from LLM when summarizing description")
             if len(summary) > threshold:
@@ -172,12 +177,17 @@ async def _summarize_description(
                     "attempt": attempt + 1,
                 },
             )
-            messages.append(
-                {
-                    "role": "user",
-                    "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
-                }
-            )
+            # Anthropic requires user/assistant turns to alternate, so only feed the correction
+            # back when we actually got assistant text to pair it with; otherwise just retry the
+            # existing prompt.
+            if summary:
+                messages.append({"role": "assistant", "content": summary})
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": f"Attempt {attempt + 1} of {LLM_MAX_ATTEMPTS} to summarize description failed with error: {e!r}\nPlease fix your output.",
+                    }
+                )
     # Hard-truncate the description to the threshold if all attempts failed
     return dataclasses.replace(output, description=output.description[:threshold])
 
@@ -192,7 +202,7 @@ async def summarize_long_descriptions(
     needs_summary = [i for i, output in enumerate(outputs) if len(output.description) > threshold]
     if not needs_summary:
         return outputs
-    client = get_async_llm_client(product="signals", team_id=team.id)
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     completed_count = 0
@@ -237,7 +247,7 @@ async def summarize_long_descriptions(
 
 
 async def _check_actionability(
-    client: AsyncOpenAI,
+    client: AsyncAnthropic,
     team_id: int,
     output: SignalEmitterOutput,
     actionability_prompt: str,
@@ -249,16 +259,16 @@ async def _check_actionability(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         try:
             response = await asyncio.wait_for(
-                client.chat.completions.create(
+                client.messages.create(
                     model=LLM_MODEL,
                     messages=[{"role": "user", "content": prompt}],
                     max_tokens=LLM_ACTIONABILITY_MAX_TOKENS,
-                    user=f"team-{team_id}",
+                    metadata={"user_id": f"team-{team_id}"},
                     extra_headers=extra_headers,
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
-            response_text = (response.choices[0].message.content or "").strip().upper()
+            response_text = _extract_text(response).strip().upper()
             return "NOT_ACTION" not in response_text
         except Exception as e:
             posthoganalytics.capture_exception(
@@ -282,7 +292,7 @@ async def filter_actionable(
     actionability_prompt: str,
     extra: dict[str, Any],
 ) -> list[SignalEmitterOutput]:
-    client = get_async_llm_client(product="signals", team_id=team.id)
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team.id)
     semaphore = asyncio.Semaphore(LLM_CONCURRENCY_LIMIT)
     _safe_heartbeat()
     checked_count = 0

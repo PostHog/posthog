@@ -58,9 +58,10 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals allows API keys (shared gateway key) but only claude-haiku-4-5; OAuth rejected (no app IDs configured)
+            # signals allows API keys (shared gateway key) with any model; OAuth rejected (no app IDs configured)
             ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
-            ("signals", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),

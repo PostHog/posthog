@@ -3,6 +3,7 @@ from typing import Literal
 from django.conf import settings
 
 import httpx
+from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
 
 Product = Literal[
@@ -100,6 +101,38 @@ def get_async_llm_client(product: Product = "django", team_id: int | None = None
 
     base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}/v1"
     return AsyncOpenAI(
+        base_url=base_url,
+        api_key=settings.LLM_GATEWAY_API_KEY,
+        default_headers=_team_id_header(team_id) if team_id is not None else None,
+        http_client=httpx.AsyncClient(trust_env=False),
+    )
+
+
+def get_async_anthropic_gateway_client(product: Product = "django", team_id: int | None = None) -> AsyncAnthropic:
+    """
+    Get an Anthropic-native async client pointed at the internal LLM gateway.
+
+    Prefer this over `get_async_llm_client` when you're calling an Anthropic model and want
+    Anthropic-native request features — assistant prefilling, extended thinking, a top-level
+    `system` prompt. The gateway exposes a native Messages endpoint (`/{product}/v1/messages`)
+    that honours the same per-team attribution headers as the OpenAI Chat Completions route, so
+    you get all of that without forcing the request through the OpenAI shape.
+
+    Returns a plain `anthropic.AsyncAnthropic`, NOT `posthoganalytics.ai.anthropic.AsyncAnthropic`:
+    the gateway captures the `$ai_generation` event itself, so wrapping the client would
+    double-capture (and, for billable products, double-bill) every generation.
+
+    The Anthropic SDK posts to `{base_url}/v1/messages` and authenticates via the `x-api-key`
+    header, both of which the gateway accepts. See `get_llm_client` for the `team_id` attribution
+    rationale — it is sent identically as a default `x-posthog-property-team_id` header. For
+    per-call tags, pass `extra_headers={"x-posthog-property-<key>": "<value>"}` on the individual
+    `messages.create(...)` call, and the user identifier as `metadata={"user_id": ...}`.
+    """
+    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
+    return AsyncAnthropic(
         base_url=base_url,
         api_key=settings.LLM_GATEWAY_API_KEY,
         default_headers=_team_id_header(team_id) if team_id is not None else None,

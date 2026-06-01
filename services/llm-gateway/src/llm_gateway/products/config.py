@@ -141,7 +141,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "signals": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         billable=True,
     ),

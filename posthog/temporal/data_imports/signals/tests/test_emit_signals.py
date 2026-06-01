@@ -57,13 +57,17 @@ def _make_config(**overrides: Any) -> SignalSourceTableConfig:
     return SignalSourceTableConfig(**(defaults | overrides))
 
 
-def _make_llm_response(content: str | None, finish_reason: str = "stop") -> MagicMock:
-    """Build a mock OpenAI ChatCompletion response."""
+def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> MagicMock:
+    """Build a mock Anthropic Messages response (None content => no text blocks)."""
     response = MagicMock()
-    choice = MagicMock()
-    choice.message.content = content
-    choice.finish_reason = finish_reason
-    response.choices = [choice]
+    if content is None:
+        response.content = []
+    else:
+        block = MagicMock()
+        block.type = "text"
+        block.text = content
+        response.content = [block]
+    response.stop_reason = stop_reason
     return response
 
 
@@ -261,7 +265,7 @@ class TestCheckActionability:
     )
     async def test_classifies_based_on_llm_response(self, llm_response, expected):
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_llm_response(llm_response))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
         is_actionable = await _check_actionability(mock_client, 1, output, "Is this actionable? {description}")
@@ -271,18 +275,18 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     async def test_assumes_actionable_after_retries_exhausted(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
             is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
-        assert mock_client.chat.completions.create.call_count == LLM_MAX_ATTEMPTS
+        assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
 
     @pytest.mark.asyncio
     async def test_returns_true_on_none_response_content(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_llm_response(None))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
 
         is_actionable = await _check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
@@ -291,13 +295,13 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     async def test_passes_team_attribution_headers(self):
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
         await _check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
-        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["user"] == "team-7"
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["metadata"]["user_id"] == "team-7"
         headers = call_kwargs["extra_headers"]
         assert headers["x-posthog-property-ai_stage"] == "actionability"
         assert headers["x-posthog-property-source_product"] == output.source_product
@@ -327,10 +331,10 @@ class TestFilterActionable:
             call_count += 1
             return resp
 
-        mock_client.chat.completions.create = mock_create
+        mock_client.messages.create = mock_create
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_llm_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             result = await filter_actionable(team, outputs, "prompt {description}", extra={})
@@ -344,7 +348,7 @@ class TestSummarizeDescription:
 
     def _mock_client(self, responses: Sequence[str | None]) -> MagicMock:
         client = MagicMock()
-        client.chat.completions.create = AsyncMock(side_effect=[_make_llm_response(r) for r in responses])
+        client.messages.create = AsyncMock(side_effect=[_make_llm_response(r) for r in responses])
         return client
 
     @pytest.mark.asyncio
@@ -404,8 +408,8 @@ class TestSummarizeDescription:
 
         await _summarize_description(client, 42, output, self.PROMPT, self.THRESHOLD)
 
-        call_kwargs = client.chat.completions.create.call_args.kwargs
-        assert call_kwargs["user"] == "team-42"
+        call_kwargs = client.messages.create.call_args.kwargs
+        assert call_kwargs["metadata"]["user_id"] == "team-42"
         headers = call_kwargs["extra_headers"]
         assert headers["x-posthog-property-ai_stage"] == "summarization"
         # ai_product and $ai_billable are owned by the gateway product config, not headers
@@ -424,10 +428,10 @@ class TestSummarizeLongDescriptions:
         team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        mock_client.chat.completions.create = AsyncMock(return_value=_make_llm_response("Summarized."))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("Summarized."))
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_llm_client", return_value=mock_client),
+            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
         ):
             result = await summarize_long_descriptions(team, [short, long], self.PROMPT, self.THRESHOLD, extra={})
@@ -582,10 +586,10 @@ class TestPipelineStageTelemetry:
                 return _make_llm_response("NOT_ACTIONABLE")
             return _make_llm_response("ACTIONABLE")
 
-        mock_llm_client.chat.completions.create = create
+        mock_llm_client.messages.create = create
 
         with (
-            patch(f"{PIPELINE_MODULE_PATH}.get_async_llm_client", return_value=mock_llm_client),
+            patch(f"{PIPELINE_MODULE_PATH}.get_async_anthropic_gateway_client", return_value=mock_llm_client),
             patch(f"{PIPELINE_MODULE_PATH}.activity"),
             patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock),
             patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture,

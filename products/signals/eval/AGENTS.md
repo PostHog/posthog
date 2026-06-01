@@ -46,15 +46,14 @@ pytest products/signals/eval/eval_grouping_e2e.py -xvs --online
 
 Set in `.env` at the repo root (loaded automatically):
 
-| Variable                       | Purpose                                                                |
-| ------------------------------ | ---------------------------------------------------------------------- |
-| `ANTHROPIC_API_KEY`            | LLM calls (matching, specificity, summarization)                       |
-| `OPENAI_API_KEY`               | Embeddings (text-embedding-3-small)                                    |
-| `LLM_GATEWAY_URL`              | Internal LLM gateway base URL (pre-emit summarization + actionability) |
-| `LLM_GATEWAY_PERSONAL_API_KEY` | Bearer token for the LLM gateway (PostHog personal API key)            |
-| `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)        |
-| `POSTHOG_PROJECT_API_KEY`      | Capturing eval results (skip with `--no-capture`)                      |
-| `POSTHOG_HOST`                 | PostHog instance (defaults to `http://localhost:8010`)                 |
+| Variable                       | Purpose                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | Embeddings (text-embedding-3-small)                                              |
+| `LLM_GATEWAY_URL`              | Internal LLM gateway base URL (all LLM calls: matching, specificity, summarization, actionability, safety) |
+| `LLM_GATEWAY_PERSONAL_API_KEY` | Bearer token for the LLM gateway (PostHog personal API key)                      |
+| `SIGNALS_EVAL_TEAM_ID`         | Team id used for LLM cost attribution headers (defaults to `1`)                  |
+| `POSTHOG_PROJECT_API_KEY`      | Capturing eval results (skip with `--no-capture`)                                |
+| `POSTHOG_HOST`                 | PostHog instance (defaults to `http://localhost:8010`)                           |
 
 ### CLI options
 

@@ -5,11 +5,10 @@ from typing import Optional, TypeVar
 from django.conf import settings
 
 import structlog
-import posthoganalytics
 from anthropic.types import MessageParam
-from posthoganalytics.ai.anthropic import AsyncAnthropic
 
 from posthog.helpers.tiktoken_encoding import TEXT_EMBEDDING_3_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 
 logger = structlog.get_logger(__name__)
 
@@ -29,23 +28,6 @@ MAX_RETRIES = 3
 MAX_RESPONSE_TOKENS = 4096
 MAX_QUERY_TOKENS = 2048
 TIMEOUT = 100.0
-
-
-def get_async_anthropic_client() -> AsyncAnthropic:
-    """Get configured AsyncAnthropic client with PostHog analytics."""
-    posthog_client = posthoganalytics.default_client
-    if not posthog_client:
-        raise ValueError("PostHog analytics client not configured")
-
-    api_key = settings.ANTHROPIC_API_KEY
-    if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY is not configured")
-
-    return AsyncAnthropic(
-        api_key=api_key,
-        posthog_client=posthog_client,
-        timeout=TIMEOUT,
-    )
 
 
 def truncate_query_to_token_limit(query: str, max_tokens: int = MAX_QUERY_TOKENS) -> str:
@@ -94,17 +76,20 @@ T = TypeVar("T")
 # I reached doing ~the same thing in 3 or 4 places and decided to abstract it.
 async def call_llm(
     *,
+    team_id: int | None,
     system_prompt: str,
     user_prompt: str,
     validate: Callable[[str], T],
     thinking: bool = False,
     temperature: Optional[float] = 0.2,
     retries: int = MAX_RETRIES,
+    stage: Optional[str] = None,
 ) -> T:
-    # Worth noting a lot of this code only really works for the Anthropic API, I think (prefilling and thinking in particular). Haven't
-    # looked into the OpenAI SDK yet - that'll be for the switch to the LLM gateway.
+    # Routed through the internal LLM gateway's native Anthropic Messages endpoint, so the
+    # Anthropic-specific request shape (prefilling, extended thinking) carries over unchanged.
+    # The gateway captures the $ai_generation event and attributes spend to team_id.
     thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
-    client = get_async_anthropic_client()
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team_id)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},
@@ -121,7 +106,12 @@ async def call_llm(
         "messages": messages,
         "max_tokens": MAX_RESPONSE_TOKENS,
         "temperature": temperature,
+        "timeout": TIMEOUT,
     }
+    if team_id is not None:
+        create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
+    if stage:
+        create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
