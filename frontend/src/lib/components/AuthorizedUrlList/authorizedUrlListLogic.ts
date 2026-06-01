@@ -232,6 +232,16 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
     return false
 }
 
+/**
+ * Schemes allowed to be rendered in the Site preview iframe. That iframe runs with
+ * `allow-scripts allow-same-origin`, so a `javascript:`/`data:`/`blob:` src would execute in the
+ * PostHog origin. Only ever frame an http(s) URL the team has explicitly authorized.
+ */
+const FRAMEABLE_URL_SCHEME = /^https?:\/\//i
+
+export const checkUrlIsSafeToFrame = (url: string, authorizedUrls: string[]): boolean =>
+    FRAMEABLE_URL_SCHEME.test(url) && checkUrlIsAuthorized(url, authorizedUrls)
+
 export interface SuggestedDomain {
     url: string
     count: number
@@ -555,6 +565,13 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             (s) => [s.authorizedUrls],
             (authorizedUrls) => (url: string) => {
                 return checkUrlIsAuthorized(url, authorizedUrls)
+            },
+        ],
+
+        checkUrlIsSafeToFrame: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => (url: string) => {
+                return checkUrlIsSafeToFrame(url, authorizedUrls)
             },
         ],
     }),
