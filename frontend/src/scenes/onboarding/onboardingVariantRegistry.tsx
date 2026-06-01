@@ -22,7 +22,10 @@ function LegacyOnboarding(): JSX.Element | null {
 
 /**
  * Maps an `ONBOARDING_FLOW_VARIANT` flag value to the component that renders that onboarding.
- * Add a new entry here (and a variant on the PostHog flag) to ship an alternative onboarding.
+ * To ship an alternative onboarding: add the variant on the PostHog flag, add its component
+ * here, and add its chrome (navbar vs. full-viewport) to `ONBOARDING_FLOW_VARIANTS` in
+ * `onboardingVariants.ts`. A variant whose chrome is `none` owns the entire viewport — its
+ * component renders without any navbar, so it can lay out the whole screen itself.
  */
 export const onboardingVariantRegistry: Record<string, () => JSX.Element | null> = {
     control: LegacyOnboarding,

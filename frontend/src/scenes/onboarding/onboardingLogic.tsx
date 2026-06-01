@@ -23,6 +23,7 @@ import { Breadcrumb, OnboardingProduct, OnboardingStepKey } from '~/types'
 
 import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlowUtils'
 import type { onboardingLogicType } from './onboardingLogicType'
+import { resolveOnboardingFlowVariant } from './onboardingVariants'
 import { postOnboardingModalLogic } from './postOnboardingModalLogic'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
@@ -181,7 +182,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     selectors({
         onboardingFlowVariant: [
             (s) => [s.featureFlags],
-            (featureFlags): string => (featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT] as string) || 'control',
+            (featureFlags): string => resolveOnboardingFlowVariant(featureFlags),
         ],
         canInviteTeammates: [
             (s) => [s.currentOrganization, s.user],
