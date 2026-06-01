@@ -23,6 +23,7 @@ use uuid::Uuid;
 
 use crate::utils::MockS3Client;
 
+mod common;
 mod utils;
 
 const STORAGE_BUCKET: &str = "test-bucket";
@@ -185,6 +186,44 @@ impl TestHarness {
                     .unwrap()
             },
             Arc::new(Self::create_s3_mock()),
+        )
+        .await
+    }
+
+    async fn post_events_with_remote_resolution<T: DeserializeOwned>(
+        &self,
+        events: Vec<AnyEvent>,
+        addr: std::net::SocketAddr,
+    ) -> (StatusCode, T) {
+        utils::get_response_with_config(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri("/process")
+                    .body(Body::from(serde_json::to_vec(&events).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+            |config| {
+                config.remote_resolution_enabled = true;
+                config.remote_resolution_host = "127.0.0.1".to_string();
+                config.remote_resolution_port = addr.port();
+                config.internal_api_secret = "test-secret".to_string();
+                // Snapshot-required routing: give the pool a small retry
+                // budget with fast backoff so the first Subscribe tick can
+                // populate the load snapshot before we give up.
+                config.remote_resolution_max_retries = 3;
+                config.remote_resolution_retry_backoff_ms = 25;
+                config.remote_resolution_retry_max_backoff_ms = 100;
+                // Fast tick so the snapshot arrives within the first retry
+                // window even when the stub server runs at default cadence.
+                config.remote_resolution_subscribe_tick_hint_ms = 25;
+                config.remote_resolution_sample_rate = 1.0;
+                config.remote_resolution_dns_refresh_secs = 3600;
+            },
         )
         .await
     }
@@ -551,4 +590,52 @@ async fn handles_missing_sourcemap(db: PgPool) {
     assert_json_snapshot!(exception_list.0, {
         "[].id" => "REDACTED",
     });
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn remote_resolution_http_process_streams_same_team_events_as_items(db: PgPool) {
+    // Per-team routing collapses all of a team's exceptions onto one routing
+    // key, but the final gRPC contract sends them as independent streamed
+    // ResolveItems. The HTTP response shape must still preserve input order
+    // and length.
+    let harness = TestHarness::new(db);
+    let (addr, _streams, items) =
+        common::spawn_recording_stub_server(common::ServerBehavior::Happy).await;
+    let first = load_static_event("javascript_chunk_id");
+    let second = load_static_event("javascript_chunk_id_2");
+    let expected_uuids = [first.uuid, second.uuid];
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_events_with_remote_resolution(vec![first, second], addr)
+        .await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    assert_eq!(body.0.len(), 2, "HTTP response length must match request");
+    assert_eq!(
+        body.0[0].as_ref().map(|event| event.uuid),
+        Some(expected_uuids[0])
+    );
+    assert_eq!(
+        body.0[1].as_ref().map(|event| event.uuid),
+        Some(expected_uuids[1])
+    );
+
+    let recorded = items.lock().unwrap();
+    assert_eq!(
+        recorded.len(),
+        2,
+        "the stream must carry one item per submitted exception",
+    );
+
+    let mut payloads = recorded
+        .iter()
+        .map(|item| String::from_utf8(item.exception_json.clone()).expect("exception JSON is utf8"))
+        .collect::<Vec<_>>();
+    payloads.sort();
+    assert!(payloads
+        .iter()
+        .any(|payload| payload.contains("\"chunk_id\":\"1234\"")));
+    assert!(payloads
+        .iter()
+        .any(|payload| payload.contains("\"chunk_id\":\"124\"")));
 }

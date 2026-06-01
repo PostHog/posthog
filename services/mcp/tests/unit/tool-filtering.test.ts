@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/constants'
+import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -8,6 +9,8 @@ import {
     getRequiredFeatureFlags,
     getToolsForFeatures,
     type ToolDefinition,
+    ToolDefinitionSchema,
+    toolPassesFlagGate,
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
 
@@ -16,8 +19,8 @@ import type { Context } from '@/tools/types'
  * Tests use this to assert that filtered results never drop these tools,
  * without hard-coding the exact set (which grows as utility tools are added).
  */
-const collectAlwaysAvailableToolNames = (version?: number): string[] =>
-    Object.entries(getToolDefinitions(version))
+const collectAlwaysAvailableToolNames = (): string[] =>
+    Object.entries(getToolDefinitions())
         .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
         .map(([name]) => name)
 
@@ -58,7 +61,7 @@ describe('Tool Filtering - Features', () => {
         {
             features: ['workspace'],
             description: 'workspace tools',
-            expectedTools: ['switch-organization', 'projects-get', 'switch-project', 'property-definitions'],
+            expectedTools: ['switch-organization', 'projects-get', 'switch-project'],
         },
         {
             features: ['error_tracking'],
@@ -111,8 +114,8 @@ describe('Tool Filtering - Features', () => {
             }
         })
 
-        it('should expose all annotation tools in v2', () => {
-            const tools = getToolsForFeatures({ features: ['annotations'], version: 2 })
+        it('should expose all annotation tools', () => {
+            const tools = getToolsForFeatures({ features: ['annotations'] })
 
             expect(tools).toContain('annotation-create')
             expect(tools).toContain('annotation-delete')
@@ -209,18 +212,18 @@ describe('Tool Filtering - Tools Allowlist', () => {
 
         it('should still apply aiConsentGiven on top of tools filter', () => {
             const withoutConsent = getToolsForFeatures({
-                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                tools: ['dashboard-get', 'llma-summarization-create'],
                 aiConsentGiven: false,
             })
             expect(withoutConsent).toContain('dashboard-get')
-            expect(withoutConsent).not.toContain('query-generate-hogql-from-question')
+            expect(withoutConsent).not.toContain('llma-summarization-create')
 
             const withConsent = getToolsForFeatures({
-                tools: ['dashboard-get', 'query-generate-hogql-from-question'],
+                tools: ['dashboard-get', 'llma-summarization-create'],
                 aiConsentGiven: true,
             })
             expect(withConsent).toContain('dashboard-get')
-            expect(withConsent).toContain('query-generate-hogql-from-question')
+            expect(withConsent).toContain('llma-summarization-create')
         })
     })
 
@@ -246,6 +249,7 @@ const createMockContext = (scopes: string[]): Context => ({
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
@@ -361,13 +365,15 @@ function expectAllToolsHaveNoRequiredScopes(toolNames: string[]): void {
 }
 
 describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
+    // Minted directly into a server-issued token, never advertised via OAuth metadata
+    // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
+    // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
+    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
 
-        const allDefinitions = {
-            ...getToolDefinitions(1),
-            ...getToolDefinitions(2),
-        }
+        const allDefinitions = getToolDefinitions()
 
         const scopesFromTools = new Set<string>()
         for (const def of Object.values(allDefinitions)) {
@@ -376,7 +382,9 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             }
         }
 
-        const missing = [...scopesFromTools].filter((s) => !supportedScopes.has(s)).sort()
+        const missing = [...scopesFromTools]
+            .filter((s) => !supportedScopes.has(s) && !SERVER_MINT_ONLY_SCOPES.has(s))
+            .sort()
 
         expect(
             missing,
@@ -444,17 +452,17 @@ describe('Tool Filtering - excludeTools', () => {
 describe('Tool Filtering - AI Consent', () => {
     it('should exclude tools requiring AI consent when aiConsentGiven is false', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: false })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
+        expect(tools).not.toContain('llma-summarization-create')
     })
 
     it('should include tools requiring AI consent when aiConsentGiven is true', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: true })
-        expect(tools).toContain('query-generate-hogql-from-question')
+        expect(tools).toContain('llma-summarization-create')
     })
 
     it('should exclude tools requiring AI consent when aiConsentGiven is undefined', () => {
         const tools = getToolsForFeatures({ aiConsentGiven: undefined })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
+        expect(tools).not.toContain('llma-summarization-create')
     })
 
     it('should not exclude tools that do not require AI consent when aiConsentGiven is false', () => {
@@ -464,9 +472,9 @@ describe('Tool Filtering - AI Consent', () => {
     })
 
     it('should combine aiConsentGiven with feature filtering', () => {
-        const tools = getToolsForFeatures({ features: ['insights', 'product_analytics'], aiConsentGiven: false })
-        expect(tools).not.toContain('query-generate-hogql-from-question')
-        expect(tools).toContain('insights-list')
+        const tools = getToolsForFeatures({ features: ['llm_analytics'], aiConsentGiven: false })
+        expect(tools).not.toContain('llma-summarization-create')
+        expect(tools).toContain('get-llm-total-costs-for-project')
     })
 
     it('should filter AI consent tools via getToolsFromContext when org denies consent', async () => {
@@ -478,6 +486,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -491,7 +500,7 @@ describe('Tool Filtering - AI Consent', () => {
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
-        expect(toolNames).not.toContain('query-generate-hogql-from-question')
+        expect(toolNames).not.toContain('llma-summarization-create')
         expect(toolNames).toContain('dashboard-get')
     })
 
@@ -504,6 +513,7 @@ describe('Tool Filtering - AI Consent', () => {
                 POSTHOG_ANALYTICS_API_KEY: undefined,
                 POSTHOG_ANALYTICS_HOST: undefined,
                 POSTHOG_API_BASE_URL: undefined,
+                POSTHOG_PUBLIC_URL: undefined,
                 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                 POSTHOG_UI_APPS_TOKEN: undefined,
             },
@@ -517,7 +527,7 @@ describe('Tool Filtering - AI Consent', () => {
         }
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
-        expect(toolNames).toContain('query-generate-hogql-from-question')
+        expect(toolNames).toContain('llma-summarization-create')
     })
 })
 
@@ -698,40 +708,18 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'replay-vision',
+                'tasks',
             ])
         )
-        expect(flags).toHaveLength(9)
+        expect(flags).toHaveLength(10)
     })
 
-    // Test the filtering logic with a direct unit test approach using
-    // a standalone implementation that mirrors getToolsForFeatures' logic
+    // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
+    // so we can cover variant / behavior / missing-flag matrices without
+    // having to register fake tools into the global tool registry.
     describe('feature flag filter predicate', () => {
-        function filterByFeatureFlags(
-            entries: [string, ToolDefinition][],
-            featureFlags?: Record<string, boolean>
-        ): string[] {
-            let filtered = entries
-
-            if (featureFlags) {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    const flagValue = featureFlags[definition.feature_flag]
-                    const isOn = flagValue === true
-                    const behavior = definition.feature_flag_behavior ?? 'enable'
-                    return behavior === 'enable' ? isOn : !isOn
-                })
-            } else {
-                filtered = filtered.filter(([_, definition]) => {
-                    if (!definition.feature_flag) {
-                        return true
-                    }
-                    return (definition.feature_flag_behavior ?? 'enable') === 'disable'
-                })
-            }
-
-            return filtered.map(([name]) => name)
+        function filterByFeatureFlags(entries: [string, ToolDefinition][], featureFlags?: EvaluatedFlags): string[] {
+            return entries.filter(([_, def]) => toolPassesFlagGate(def, featureFlags)).map(([name]) => name)
         }
 
         it('should include tools with feature_flag when flag is enabled', () => {
@@ -820,6 +808,100 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).not.toContain('new-tool-v2')
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
+        })
+
+        describe('feature_flag_variant matching', () => {
+            const variantToolEntries: [string, ToolDefinition][] = [
+                ['unrelated-tool', { ...baseDef }],
+                [
+                    'variant-gated-tool',
+                    {
+                        ...baseDef,
+                        feature_flag: 'promoted-product',
+                        feature_flag_variant: 'intent_plus',
+                    },
+                ],
+            ]
+
+            it('shows variant-gated tool only when the variant matches', () => {
+                const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': 'intent_plus' })
+                expect(tools).toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it.each(['control_a', 'control_b', 'intent', false, true, undefined])(
+                'hides variant-gated tool when flag value is %p',
+                (flagValue) => {
+                    const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })
+                    expect(tools).not.toContain('variant-gated-tool')
+                    expect(tools).toContain('unrelated-tool')
+                }
+            )
+
+            it('hides variant-gated tool when featureFlags map is omitted entirely', () => {
+                const tools = filterByFeatureFlags(variantToolEntries)
+                expect(tools).not.toContain('variant-gated-tool')
+                expect(tools).toContain('unrelated-tool')
+            })
+
+            it('hides a hand-rolled misconfig tool with feature_flag_variant but no feature_flag', () => {
+                // The Zod `.refine` rejects this at parse time, but a developer
+                // can still construct one in code via cast — the runtime predicate
+                // must treat it as hidden, not ungated.
+                const misconfigEntries: [string, ToolDefinition][] = [
+                    ['orphan-variant', { ...baseDef, feature_flag_variant: 'intent_plus' }],
+                ]
+                expect(filterByFeatureFlags(misconfigEntries, { 'promoted-product': 'intent_plus' })).not.toContain(
+                    'orphan-variant'
+                )
+                expect(filterByFeatureFlags(misconfigEntries)).not.toContain('orphan-variant')
+            })
+        })
+
+        describe('feature_flag_variant schema validation', () => {
+            const baseFields = {
+                description: '',
+                category: 'platform_features',
+                feature: 'platform_features',
+                summary: '',
+                title: '',
+                required_scopes: [],
+                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true },
+            }
+
+            it('rejects feature_flag_variant without feature_flag', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(false)
+                if (!result.success) {
+                    expect(result.error.issues[0]?.message).toMatch(/feature_flag_variant.*requires.*feature_flag/i)
+                    expect(result.error.issues[0]?.path).toEqual(['feature_flag_variant'])
+                }
+            })
+
+            it('accepts feature_flag_variant when feature_flag is also set', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                    feature_flag_variant: 'intent_plus',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts feature_flag alone (no variant)', () => {
+                const result = ToolDefinitionSchema.safeParse({
+                    ...baseFields,
+                    feature_flag: 'promoted-product',
+                })
+                expect(result.success).toBe(true)
+            })
+
+            it('accepts a definition with neither flag field set', () => {
+                const result = ToolDefinitionSchema.safeParse(baseFields)
+                expect(result.success).toBe(true)
+            })
         })
     })
 })

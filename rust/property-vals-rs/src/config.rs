@@ -35,6 +35,12 @@ pub struct Config {
     #[envconfig(default = "500000")]
     pub max_buffered_tuples: usize,
 
+    #[envconfig(default = "0")]
+    pub max_values_per_key: usize,
+
+    #[envconfig(default = "0")]
+    pub merger_seen_cache_capacity: usize,
+
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,
 

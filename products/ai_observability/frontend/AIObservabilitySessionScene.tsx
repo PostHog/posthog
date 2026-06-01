@@ -31,6 +31,7 @@ import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleSt
 import { SessionTurn } from './extractSessionTurns'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
+import { resolveSessionTitle } from './sessionTitle'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -93,8 +94,17 @@ function SessionSceneWrapper(): JSX.Element {
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
-        useValues(aiObservabilitySessionDataLogic)
+    const {
+        traces,
+        responseLoading,
+        responseError,
+        sessionTurns,
+        hasMoreData,
+        nextDataLoading,
+        summariesLoading,
+        fullTraces,
+        traceSummaries,
+    } = useValues(aiObservabilitySessionDataLogic)
     const { sessionId } = useValues(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData } = useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -117,6 +127,14 @@ function SessionSceneWrapper(): JSX.Element {
         { totalCost: 0, totalLatency: 0, traceCount: 0 }
     )
 
+    const firstTrace = traces[0]
+    const firstFullTrace = firstTrace ? fullTraces[firstTrace.id] : undefined
+    const cachedSummaryTitle = firstTrace ? traceSummaries[firstTrace.id]?.title : undefined
+    // Prefer the cached LLM summary when present; otherwise derive a title from
+    // the first trace (full event tree when loaded, else the lite trace for
+    // traceName fallback while loading).
+    const heroTitle = cachedSummaryTitle || resolveSessionTitle(firstFullTrace ?? firstTrace)
+
     if (responseLoading) {
         return <SpinnerOverlay />
     }
@@ -131,6 +149,7 @@ function SessionSceneWrapper(): JSX.Element {
         <div className="relative flex flex-col gap-4">
             <SceneBreadcrumbBackButton />
             <AIObservabilityRenameBanner />
+            {heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>}
             <header className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex gap-1.5 flex-wrap">
                     <LemonTag size="medium" className="bg-surface-primary">
@@ -267,7 +286,10 @@ function SessionTurnView({
     const traceUrl = combineUrl(urls.aiObservabilityTrace(trace.id), baseTraceParams).url
     const summaryUrl = combineUrl(urls.aiObservabilityTrace(trace.id), { ...baseTraceParams, tab: 'summary' }).url
 
-    const canShowSteps = turn.isLoaded && turn.userVisibleTurn
+    const hasTranscript = turn.isLoaded && !!turn.userVisibleTurn
+    // Auto-show the Steps panel for span-only turns — they have no transcript to fall
+    // back to, so the span tree IS the conversation.
+    const showStepsPanel = (hasTranscript && stepsShown) || (turn.isLoaded && !turn.userVisibleTurn)
 
     return (
         <div className="flex flex-col">
@@ -321,7 +343,7 @@ function SessionTurnView({
                         </div>
                     )}
 
-                    {canShowSteps && stepsShown && (
+                    {showStepsPanel && (
                         <StepsPanel
                             traceId={trace.id}
                             fullTrace={fullTrace}
@@ -334,7 +356,7 @@ function SessionTurnView({
                 <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
                     {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
                     <div className="flex flex-col gap-1 items-start">
-                        {canShowSteps && (
+                        {hasTranscript && (
                             <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>
                                 {stepsShown ? 'Hide steps' : 'Show steps'}
                             </LemonButton>
@@ -380,7 +402,7 @@ function TurnBody({
     turn: SessionTurn
     isLoading: boolean
     onLoad: () => void
-}): JSX.Element {
+}): JSX.Element | null {
     if (isLoading) {
         return (
             <div className="flex items-center gap-2 text-muted text-sm py-2">
@@ -399,7 +421,8 @@ function TurnBody({
         )
     }
     if (!turn.userVisibleTurn) {
-        return <div className="text-muted text-sm py-2">No conversational turn to render in this trace.</div>
+        // No chat to render — the parent renders `StepsPanel` inline below as the substitute.
+        return null
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
     return <TranscriptBubbleStream inputs={turn.newInputs} outputs={turn.outputs} />

@@ -61,6 +61,7 @@ Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
+Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
 
 ### Rules
 
@@ -91,6 +92,7 @@ Examples:
 
 - `.nvmrc` controls the Node.js version for all CI workflows (via `actions/setup-node`) — changing it affects every CI job that runs Node
 - Every job in `.github/workflows/` must declare `timeout-minutes` — prevents stuck runners from burning credits indefinitely
+- **CI workflow changes must stay backwards compatible with open PRs that haven't rebased.** A workflow edit hits every in-flight PR immediately (it runs against the PR merged with master), but companion changes — a new dependency, file, or config — only reach a branch once it rebases. If the workflow starts requiring something an unrebased branch lacks, every such PR fails before its tests run. Make the new behavior degrade gracefully when the prerequisite is absent, or gate it so unrebased branches are unaffected. This has broken CI repeatedly.
 
 ## Security
 

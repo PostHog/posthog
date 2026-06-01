@@ -469,7 +469,9 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     return _resolve_baselines_at_ref(repo, github, run_type, branch)
 
 
-def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+def _resolve_baselines_with_merge_base(
+    repo: Repo, run_type: str, branch: str, commit_sha: str | None = None
+) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
     The branch baseline tracks approvals. The merge-base baseline
@@ -480,6 +482,12 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
+
+    When *commit_sha* is provided and the run is on the default branch,
+    the baseline is fetched at that exact commit instead of the branch
+    tip.  This prevents a race where a newer commit updates the
+    baseline file before an older commit's VR run completes.
+
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -490,9 +498,13 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
 
-    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, branch)
-
     default_branch = _get_default_branch(github, repo.repo_full_name)
+
+    # On the default branch, pin the baseline to the exact commit so
+    # that back-to-back pushes don't race against each other.
+    baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
+    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
+
     if branch == default_branch:
         return branch_baseline, 0
 
@@ -811,8 +823,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
+    # Pass commit_sha so default-branch runs fetch the baseline at the
+    # exact commit being tested, avoiding races with concurrent pushes.
     try:
-        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+        baseline, healed_count = _resolve_baselines_with_merge_base(
+            repo, run.run_type, run.branch, commit_sha=run.commit_sha
+        )
     except GitHubRateLimitError:
         # Roll back to PENDING so the caller can retry after the limit resets
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
