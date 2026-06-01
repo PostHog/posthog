@@ -100,7 +100,7 @@ describe('makePerAskerAuth', () => {
                 agent_user_id: carol!.id,
             }),
         ]
-        expect(await isAuthed(conv, 7, ['team_admins'])).toBe(true)
+        expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(true)
     })
 
     it('returns false when the asker is mapped but not a team admin on this team', async () => {
@@ -123,7 +123,7 @@ describe('makePerAskerAuth', () => {
                 agent_user_id: carol!.id,
             }),
         ]
-        expect(await isAuthed(conv, 99, ['team_admins'])).toBe(false)
+        expect(await isAuthed(conv, 99, ['team_admins'], null)).toBe(false)
     })
 
     it('returns false when no AgentUser exists for the sender id', async () => {
@@ -140,7 +140,7 @@ describe('makePerAskerAuth', () => {
                 agent_user_id: 'nonexistent-uuid',
             }),
         ]
-        expect(await isAuthed(conv, 7, ['team_admins'])).toBe(false)
+        expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(false)
     })
 
     it('returns false when the AgentUser exists but has no posthog_user_id (external slack member)', async () => {
@@ -165,7 +165,7 @@ describe('makePerAskerAuth', () => {
                 agent_user_id: ext.id,
             }),
         ]
-        expect(await isAuthed(conv, 7, ['team_admins'])).toBe(false)
+        expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(false)
     })
 
     it('returns false for non-slack principals (service, internal, etc.)', async () => {
@@ -176,7 +176,7 @@ describe('makePerAskerAuth', () => {
             posthogDb: fakePosthogDb([{ user_id: 42, team_id: 7 }]),
         })
         const conv = [userMsg('via pat', { kind: 'service', team_id: 7, id: 'pat-carol' })]
-        expect(await isAuthed(conv, 7, ['team_admins'])).toBe(false)
+        expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(false)
     })
 
     it('returns false when no user-turn carries a sender (legacy rows)', async () => {
@@ -186,10 +186,13 @@ describe('makePerAskerAuth', () => {
         })
         // Both messages predate per-message stamping.
         const conv = [userMsg('legacy'), userMsg('also legacy')]
-        expect(await isAuthed(conv, 7, ['team_admins'])).toBe(false)
+        expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(false)
     })
 
-    it('returns false when the approver scope does not include team_admins (v0 only handles team_admins)', async () => {
+    it('returns false when the approver scope does not include team_admins or session_principal', async () => {
+        // v0 supports two scopes: `team_admins` (B.2 v0) and
+        // `session_principal` (PR 7). Anything else falls through to false
+        // without touching the identity store or the posthog DB.
         const isAuthed = makePerAskerAuth({
             identities: new MemoryIdentityStore(),
             posthogDb: fakePosthogDb([]),
@@ -202,7 +205,93 @@ describe('makePerAskerAuth', () => {
                 agent_user_id: 'au-id',
             }),
         ]
-        expect(await isAuthed(conv, 7, ['session_owner'])).toBe(false)
-        expect(await isAuthed(conv, 7, [])).toBe(false)
+        // `session_owner` isn't in the v0 enum (would be rejected by zod
+        // before reaching here); we still want the runner to fail closed if
+        // a stray scope slips through validation.
+        expect(await isAuthed(conv, 7, ['session_owner'], null)).toBe(false)
+        expect(await isAuthed(conv, 7, [], null)).toBe(false)
+    })
+
+    describe('session_principal scope (PR 7 — concierge fast-path)', () => {
+        const alice: SessionPrincipal = {
+            kind: 'posthog',
+            source: 'oauth',
+            user_id: 'alice',
+            team_id: 7,
+        }
+        const bob: SessionPrincipal = {
+            kind: 'posthog',
+            source: 'oauth',
+            user_id: 'bob',
+            team_id: 7,
+        }
+
+        it('returns true when the session principal matches the most recent user-turn sender', async () => {
+            // Alice authed the session and is the one driving the current
+            // turn — fast-path authorises without touching the posthog DB
+            // (the fake's query throws if called).
+            const isAuthed = makePerAskerAuth({
+                identities: new MemoryIdentityStore(),
+                posthogDb: {
+                    async query() {
+                        throw new Error('should not hit posthog DB on the session_principal fast path')
+                    },
+                } as unknown as import('pg').Pool,
+            })
+            const conv = [userMsg('promote it', alice)]
+            expect(await isAuthed(conv, 7, ['session_principal'], alice)).toBe(true)
+        })
+
+        it('returns false when the last sender is a different principal than the session owner', async () => {
+            // The trigger edge already enforces strict-principal match on
+            // /send, so in practice we expect alice's session to only ever
+            // see alice's senders. Belt-and-braces: if a sender for bob
+            // somehow lands in alice's session, the session_principal scope
+            // still rejects.
+            const isAuthed = makePerAskerAuth({
+                identities: new MemoryIdentityStore(),
+                posthogDb: fakePosthogDb([]),
+            })
+            const conv = [userMsg('promote it', bob)]
+            expect(await isAuthed(conv, 7, ['session_principal'], alice)).toBe(false)
+        })
+
+        it('returns false when sessionPrincipal is null (public agent — nothing to compare against)', async () => {
+            const isAuthed = makePerAskerAuth({
+                identities: new MemoryIdentityStore(),
+                posthogDb: fakePosthogDb([]),
+            })
+            const conv = [userMsg('promote it', alice)]
+            expect(await isAuthed(conv, 7, ['session_principal'], null)).toBe(false)
+        })
+
+        it('falls through to team_admins when session_principal does not match but team_admins is in scope', async () => {
+            // Mixed-scope policy: session principal OR team admin. The
+            // session principal slot doesn't match (bob's sender vs alice's
+            // session), so we fall through and resolve team_admins via the
+            // existing path. Alice is configured as a team admin on team 7
+            // via the posthog-DB fake.
+            const store = new MemoryIdentityStore()
+            const senderAgent = await store.findOrCreate({
+                team_id: 7,
+                application_id: 'app',
+                principal_kind: 'slack',
+                principal_id: 'T01:U-ADMIN',
+            })
+            await store.setPosthogUserId(senderAgent.id, 99)
+            const isAuthed = makePerAskerAuth({
+                identities: store,
+                posthogDb: fakePosthogDb([{ user_id: 99, team_id: 7 }]),
+            })
+            const conv = [
+                userMsg('approve it', {
+                    kind: 'slack' as const,
+                    workspace_id: 'T01',
+                    slack_user_id: senderAgent.id,
+                    agent_user_id: senderAgent.id,
+                }),
+            ]
+            expect(await isAuthed(conv, 7, ['session_principal', 'team_admins'], alice)).toBe(true)
+        })
     })
 })

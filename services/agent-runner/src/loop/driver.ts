@@ -75,6 +75,7 @@ import {
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
 import type { OpenedMcp } from './mcp-clients'
+import { lookupMcpToolApproval } from './mcp-tool-lookup'
 import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
@@ -324,11 +325,22 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             const approvals = deps.approvals
             for (const tool of tools) {
                 const id = tool.name
+                // Native + custom tools carry their approval policy on
+                // `spec.tools[]`. MCP tools materialise at session start
+                // from `client.listTools()` so they can't appear there;
+                // fall through to the lookup that decomposes the
+                // `<prefix>__<remoteName>` shape against `spec.mcps[]`.
+                // Client tools have no approval field today so they skip
+                // either path. (PR 7 — runtime-mcps.md "Resolved design".)
                 const ref = rev.spec.tools.find((t) => t.id === id)
-                // Approval gating applies to native/custom only — client tools
-                // don't carry an `approval_policy` field today.
-                if (ref && ref.kind !== 'client' && ref.requires_approval) {
-                    const policy = ref.approval_policy as ApprovalPolicy
+                const nativeRef = ref && ref.kind !== 'client' && ref.requires_approval ? ref : null
+                const mcpGate = nativeRef ? null : lookupMcpToolApproval(id, rev.spec)
+                const policy: ApprovalPolicy | null = nativeRef
+                    ? (nativeRef.approval_policy as ApprovalPolicy)
+                    : mcpGate?.requires_approval
+                      ? mcpGate.approval_policy
+                      : null
+                if (policy) {
                     const real = realExecute.get(id)
                     tool.execute = async (toolCallId, args) => {
                         // Per-asker shortcut (#23 step 3): when the most recent
@@ -343,7 +355,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 const allowed = await deps.isAskerInApproverScope(
                                     session.conversation,
                                     session.team_id,
-                                    policy.approvers
+                                    policy.approvers,
+                                    session.principal
                                 )
                                 if (allowed) {
                                     log('info', 'tool.dispatch.per_asker_authorised', { tool: id })

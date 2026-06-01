@@ -41,50 +41,11 @@ import {
     SessionPrincipal,
 } from '@posthog/agent-shared'
 
-/**
- * Strict principal match: same kind + same identifying key. Used on /send
- * and on Slack-thread resumes so "alice's session, bob talking" is
- * rejected at the trigger edge.
- */
-export function principalsMatch(stored: SessionPrincipal | null, incoming: SessionPrincipal | null): boolean {
-    if (!stored && !incoming) {
-        return true
-    }
-    if (!stored || !incoming) {
-        return false
-    }
-    if (stored.kind !== incoming.kind) {
-        return false
-    }
-    switch (stored.kind) {
-        case 'anonymous':
-            return true
-        case 'posthog':
-            return (
-                incoming.kind === 'posthog' &&
-                stored.user_id === incoming.user_id &&
-                stored.team_id === incoming.team_id
-            )
-        case 'jwt':
-            return incoming.kind === 'jwt' && stored.sub === incoming.sub
-        case 'slack':
-            return (
-                incoming.kind === 'slack' &&
-                stored.workspace_id === incoming.workspace_id &&
-                stored.slack_user_id === incoming.slack_user_id
-            )
-        case 'posthog_internal':
-        case 'shared_secret':
-            return incoming.kind === stored.kind && stored.team_id === incoming.team_id
-        case 'service':
-            return (
-                incoming.kind === 'service' &&
-                (stored.id != null && incoming.id != null
-                    ? stored.id === incoming.id
-                    : stored.team_id === incoming.team_id)
-            )
-    }
-}
+// `principalsMatch` lives in `@posthog/agent-shared` (PR 7) so the runner's
+// per-asker approval shortcut can use the same exact comparison the ingress
+// edge uses. Re-exported here to keep the local import surface unchanged for
+// the file's existing consumers (acl.ts, triggers/mcp.ts).
+export { principalsMatch } from '@posthog/agent-shared'
 
 export interface VerifyOk {
     ok: true

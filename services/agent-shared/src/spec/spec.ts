@@ -431,6 +431,54 @@ export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type ApproverScope = z.infer<typeof ApproverScopeSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type McpToolEntry = z.infer<typeof McpToolEntrySchema>
+
+/**
+ * Strict principal match: same kind + same identifying key. Used at the
+ * trigger edge (`/send`, Slack-thread resumes) to keep one user's session
+ * scoped to that user, and by the runner's per-asker approval shortcut to
+ * recognise the session principal posting follow-ups to their own session.
+ * Lifted into agent-shared from ingress in PR 7 so the runner can reuse it
+ * without crossing the ingress boundary.
+ */
+export function principalsMatch(stored: SessionPrincipal | null, incoming: SessionPrincipal | null): boolean {
+    if (!stored && !incoming) {
+        return true
+    }
+    if (!stored || !incoming) {
+        return false
+    }
+    if (stored.kind !== incoming.kind) {
+        return false
+    }
+    switch (stored.kind) {
+        case 'anonymous':
+            return true
+        case 'posthog':
+            return (
+                incoming.kind === 'posthog' &&
+                stored.user_id === incoming.user_id &&
+                stored.team_id === incoming.team_id
+            )
+        case 'jwt':
+            return incoming.kind === 'jwt' && stored.sub === incoming.sub
+        case 'slack':
+            return (
+                incoming.kind === 'slack' &&
+                stored.workspace_id === incoming.workspace_id &&
+                stored.slack_user_id === incoming.slack_user_id
+            )
+        case 'posthog_internal':
+        case 'shared_secret':
+            return incoming.kind === stored.kind && stored.team_id === incoming.team_id
+        case 'service':
+            return (
+                incoming.kind === 'service' &&
+                (stored.id != null && incoming.id != null
+                    ? stored.id === incoming.id
+                    : stored.team_id === incoming.team_id)
+            )
+    }
+}
 export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 export type FrameworkPromptSection = z.infer<typeof FrameworkPromptSectionSchema>

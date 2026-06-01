@@ -15,12 +15,18 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    McpRef,
+    MemoryApprovalStore,
     MemoryBundleStore,
+    principalsMatch,
+    SessionPrincipal,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { runSession } from './driver'
+import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
 
 const FAUX_MODEL_ID = 'faux/test'
 
@@ -259,6 +265,179 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             expect(hogqlCalls).toBe(0)
             expect(session.pending_inputs).toHaveLength(0)
+        })
+    })
+
+    /**
+     * MCP-sourced tools materialise at session start from `client.listTools()`,
+     * so they never appear in `spec.tools[]` and the native/custom approval
+     * lookup misses them. PR 7 added a fallback that decomposes
+     * `<prefix>__<remoteName>` against `spec.mcps[].tools[]` — these tests pin
+     * the wrap path for the MCP variant + the `session_principal` per-asker
+     * fast-path that the concierge case relies on.
+     */
+    describe('MCP tool approval gating', () => {
+        // Minimal `OpenedMcp` stub — same shape as `build-agent-tools.test.ts`'s
+        // helper but trimmed to what these cases need. Tracks `callTool`
+        // invocations so we can assert the gated path didn't reach the
+        // remote.
+        function makeFakeMcp(
+            prefix: string,
+            ref: McpRef,
+            tools: Record<string, { description: string; result: unknown }>
+        ): OpenedMcp & { calls: Array<{ name: string; args: Record<string, unknown> }> } {
+            const calls: Array<{ name: string; args: Record<string, unknown> }> = []
+            return {
+                prefix,
+                ref,
+                listTools: async (): Promise<RemoteMcpTool[]> =>
+                    Object.entries(tools).map(([name, t]) => ({
+                        name,
+                        description: t.description,
+                        inputSchema: { type: 'object' },
+                    })),
+                callTool: async (name, args) => {
+                    calls.push({ name, args })
+                    const result = tools[name]?.result ?? null
+                    return {
+                        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+                        structuredContent: result as Record<string, unknown>,
+                    }
+                },
+                close: async () => undefined,
+                calls,
+            } as OpenedMcp & { calls: typeof calls }
+        }
+
+        // Route through `AgentSpecSchema.parse` so the approval-policy
+        // defaults (`allow_edit`, `allow_agent_approver`) get materialised
+        // — the runner reads the strict shape, not the zod input form.
+        const POSTHOG_REF: McpRef = AgentSpecSchema.parse({
+            model: FAUX_MODEL_ID,
+            mcps: [
+                {
+                    kind: 'external',
+                    id: 'posthog',
+                    url: 'https://app.posthog.com/api/mcp',
+                    secrets: [],
+                    tools: [
+                        'agent-applications-list',
+                        {
+                            name: 'agent-applications-revisions-promote-create',
+                            requires_approval: true,
+                            approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                        },
+                    ],
+                },
+            ],
+        }).mcps[0]
+
+        const principalAlice: SessionPrincipal = {
+            kind: 'posthog',
+            source: 'oauth',
+            user_id: 'alice',
+            team_id: 1,
+        }
+
+        it('queues an approval row when the model calls a gated MCP tool', async () => {
+            // Concierge-shape: the model invokes promote-create; the
+            // dispatcher's MCP lookup finds `requires_approval: true` on the
+            // matching tools[] entry; the wrap queues instead of running.
+            const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
+                'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
+            })
+            const approvals = new MemoryApprovalStore()
+            const session = makeSession({
+                principal: principalAlice,
+                conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
+            })
+            const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
+                script: [
+                    toolUse([
+                        call('posthog__agent-applications-revisions-promote-create', {
+                            application_id: 'app',
+                        }),
+                    ]),
+                    stop('queued'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+                // No `isAskerInApproverScope` wired → no fast-path → the
+                // gated call must take the queue path.
+            })
+            expect(out.state).toBe('completed')
+            // Remote tool was NEVER called.
+            expect(mcp.calls).toEqual([])
+            // Exactly one approval row queued for this session.
+            const rows = await approvals.listBySession('sess1')
+            expect(rows).toHaveLength(1)
+            expect(rows[0].tool_name).toBe('posthog__agent-applications-revisions-promote-create')
+            expect(rows[0].state).toBe('queued')
+        })
+
+        it('does NOT queue when the matching tools[] entry is bare-string (inclusion only)', async () => {
+            // `agent-applications-list` is in tools[] as a bare string —
+            // included but no gating. The dispatcher's MCP lookup returns
+            // null, the native lookup doesn't match either, so the tool
+            // dispatches directly.
+            const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
+                'agent-applications-list': { description: 'd', result: { results: [] } },
+            })
+            const approvals = new MemoryApprovalStore()
+            const session = makeSession({ principal: principalAlice })
+            const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
+                script: [toolUse([call('posthog__agent-applications-list', {})]), stop('listed')],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            // Remote was hit normally — no approval interception.
+            expect(mcp.calls).toEqual([{ name: 'agent-applications-list', args: {} }])
+            expect(await approvals.listBySession('sess1')).toHaveLength(0)
+        })
+
+        it('session_principal per-asker fast-path: dispatches directly when last sender matches session.principal', async () => {
+            // Alice authed the session (`session.principal === alice`) and
+            // is the one driving this turn (`conversation[last].sender === alice`).
+            // The per-asker check returns true on the `session_principal`
+            // branch (no DB roundtrip), the wrap runs the real tool, and no
+            // approval row is created.
+            const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
+                'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
+            })
+            const approvals = new MemoryApprovalStore()
+            const session = makeSession({
+                principal: principalAlice,
+                conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
+            })
+            // Direct stub — same contract as `makePerAskerAuth` returns. We
+            // route through `principalsMatch` to mirror the production check.
+            const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
+                script: [
+                    toolUse([
+                        call('posthog__agent-applications-revisions-promote-create', {
+                            application_id: 'app',
+                        }),
+                    ]),
+                    stop('done'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+                isAskerInApproverScope: (async (conversation, _teamId, scope, sessionPrincipal) => {
+                    if (!scope.includes('session_principal')) {
+                        return false
+                    }
+                    const sender = findLastUserSender(conversation)
+                    return Boolean(sender && principalsMatch(sessionPrincipal, sender))
+                }) satisfies IsAskerInApproverScope,
+            })
+            expect(out.state).toBe('completed')
+            // Fast-path ran the real remote tool exactly once.
+            expect(mcp.calls).toEqual([
+                { name: 'agent-applications-revisions-promote-create', args: { application_id: 'app' } },
+            ])
+            // No approval row queued — that's the whole point of the fast-path.
+            expect(await approvals.listBySession('sess1')).toHaveLength(0)
         })
     })
 
