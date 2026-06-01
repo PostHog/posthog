@@ -141,6 +141,8 @@ To get PostHog running in a dev environment:
    > ```text
    > 127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal
    > ```
+   >
+   > As an alternative to maintaining this line by hand, see [local DNS](./local-dns.md) (opt-in, draft).
 
 This is it – you should be seeing the PostHog app at <a href="http://localhost:8010" target="_blank">http://localhost:8010</a>.
 

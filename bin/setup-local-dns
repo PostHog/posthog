@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+#
+# Opt-in replacement for the manual /etc/hosts edit that local PostHog dev
+# requires. Instead of hand-maintaining a static line mapping each service
+# hostname to 127.0.0.1, this points a local DNS resolver at the whole
+# `*.posthog.test` suffix so every current (and future) service name resolves
+# with no further edits.
+#
+# This is ADDITIVE and host-only: it changes nothing about how containers talk
+# to each other (Docker DNS still resolves bare names like `clickhouse`). After
+# running this once, opt in per-machine by setting the suffixed hostnames in
+# your gitignored .env.local — see docs/published/handbook/engineering/local-dns.md.
+#
+# DRAFT for discussion — not yet the recommended default.
+
+set -euo pipefail
+
+SUFFIX="posthog.test"
+RESOLVER_FILE="/etc/resolver/${SUFFIX}"
+
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+info() { printf '  %s\n' "$1"; }
+ok() { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
+
+setup_macos() {
+    if ! command -v brew >/dev/null 2>&1; then
+        warn "Homebrew not found — install it first: https://brew.sh"
+        exit 1
+    fi
+
+    if ! brew list dnsmasq >/dev/null 2>&1; then
+        info "Installing dnsmasq..."
+        brew install dnsmasq
+    fi
+    ok "dnsmasq installed"
+
+    # dnsmasq's config dir varies by brew prefix (Intel vs Apple Silicon).
+    local conf_dir conf_file
+    conf_dir="$(brew --prefix)/etc"
+    conf_file="${conf_dir}/dnsmasq.conf"
+    mkdir -p "${conf_dir}"
+    touch "${conf_file}"
+
+    local rule="address=/${SUFFIX}/127.0.0.1"
+    if grep -qxF "${rule}" "${conf_file}"; then
+        ok "dnsmasq rule already present"
+    else
+        printf '\n# PostHog local dev — resolve *.%s to loopback\n%s\n' "${SUFFIX}" "${rule}" >>"${conf_file}"
+        ok "Added rule: ${rule}"
+    fi
+
+    # The resolver file tells macOS to send *.posthog.test queries to dnsmasq.
+    # macOS keys this on the domain suffix — which is why a TLD is required and
+    # bare single-label names (`db`, `kafka`) cannot use this mechanism.
+    if [[ -f "${RESOLVER_FILE}" ]] && grep -q "127.0.0.1" "${RESOLVER_FILE}"; then
+        ok "Resolver ${RESOLVER_FILE} already configured"
+    else
+        info "Creating ${RESOLVER_FILE} (requires sudo)..."
+        sudo mkdir -p /etc/resolver
+        printf 'nameserver 127.0.0.1\n' | sudo tee "${RESOLVER_FILE}" >/dev/null
+        ok "Created ${RESOLVER_FILE}"
+    fi
+
+    info "Restarting dnsmasq (requires sudo — runs on privileged port 53)..."
+    sudo brew services restart dnsmasq >/dev/null
+    ok "dnsmasq restarted"
+
+    echo ""
+    if dig +short +timeout=2 "db.${SUFFIX}" @127.0.0.1 | grep -q "127.0.0.1"; then
+        ok "Verified: db.${SUFFIX} → 127.0.0.1"
+    else
+        warn "Verification query did not return 127.0.0.1 — check 'sudo brew services list'"
+    fi
+}
+
+setup_linux() {
+    # Linux desktops vary too much (systemd-resolved / NetworkManager / plain
+    # resolv.conf) to safely mutate automatically. Print the two common paths
+    # rather than guess and break someone's networking.
+    bold "Linux detected — manual setup (one of):"
+    echo ""
+    info "systemd-resolved (most modern distros):"
+    info "  1. sudo apt install dnsmasq   # or your package manager"
+    info "  2. Add to /etc/dnsmasq.conf:   address=/${SUFFIX}/127.0.0.1"
+    info "  3. Route the suffix to it via a systemd-resolved drop-in, e.g.:"
+    info "       [Resolve] with Domains=~${SUFFIX} pointing at 127.0.0.1"
+    echo ""
+    info "Or simplest: keep the existing /etc/hosts approach on Linux/CI."
+    info "This opt-in primarily targets macOS dev machines."
+}
+
+main() {
+    bold "PostHog local DNS setup (*.${SUFFIX} → 127.0.0.1)"
+    echo ""
+    case "$(uname -s)" in
+        Darwin) setup_macos ;;
+        Linux) setup_linux ;;
+        *) warn "Unsupported OS: $(uname -s)"; exit 1 ;;
+    esac
+    echo ""
+    bold "Next step — opt in (host-only, gitignored):"
+    info "Add the suffixed hostnames to your .env.local. See:"
+    info "  docs/published/handbook/engineering/local-dns.md"
+}
+
+main "$@"
