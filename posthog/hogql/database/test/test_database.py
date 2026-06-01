@@ -289,14 +289,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert first.children["events"].table is ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
 
     def test_copy_on_write_isolates_table_mutations_from_frozen_catalog(self):
-        frozen_events_fields = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields.keys())
+        frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert isinstance(frozen_events, Table)
+        frozen_events_fields = set(frozen_events.fields.keys())
 
         database = Database()
         events = database.get_table("events")
         events.fields["__cow_marker__"] = StringDatabaseField(name="__cow_marker__")
 
-        assert "__cow_marker__" not in ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields
-        assert set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields.keys()) == frozen_events_fields
+        assert "__cow_marker__" not in frozen_events.fields
+        assert set(frozen_events.fields.keys()) == frozen_events_fields
 
         other_database = Database()
         assert "__cow_marker__" not in other_database.get_table("events").fields
@@ -310,7 +312,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     def test_frozen_catalog_singletons_reject_in_place_edits(self):
         frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
-        assert frozen_events is not None
+        assert isinstance(frozen_events, Table)
 
         with self.assertRaises(TypeError):
             frozen_events.fields["__should_not_write__"] = StringDatabaseField(name="__should_not_write__")
@@ -321,13 +323,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # nested virtual tables on the frozen base are protected too
         poe = frozen_events.fields.get("poe")
-        assert poe is not None
+        assert isinstance(poe, Table)
         with self.assertRaises(TypeError):
             poe.fields["__should_not_write__"] = StringDatabaseField(name="__should_not_write__")
 
     def test_frozen_catalog_singletons_reject_attribute_writes(self):
         frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
-        assert frozen_events is not None
+        assert isinstance(frozen_events, Table)
 
         with self.assertRaises(TypeError):
             frozen_events.name = "renamed"
@@ -339,7 +341,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         clone = database.get_table("events")
         clone.name = "renamed"
         assert clone.name == "renamed"
-        assert ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.name != "renamed"
+        assert frozen_events.name != "renamed"
 
     def test_materialized_table_is_mutable_including_nested_tables(self):
         database = Database()
@@ -347,19 +349,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         events.fields["__ok__"] = StringDatabaseField(name="__ok__")
         poe = events.fields.get("poe")
-        assert poe is not None
+        assert isinstance(poe, Table)
         poe.fields["__ok_nested__"] = StringDatabaseField(name="__ok_nested__")
 
         assert "__ok__" in events.fields
         assert "__ok_nested__" in poe.fields
-        assert "__ok__" not in ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields
+        frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert isinstance(frozen_events, Table)
+        assert "__ok__" not in frozen_events.fields
 
     def test_remove_lazy_joins_materializes_before_deleting_from_frozen_table(self):
         # The restricted-access / direct-query prune path is the one tree walk that deletes table
         # fields; under the freeze it must clone before deleting or it would raise. The admin-path
         # snapshot suite never triggers a removal, so force it here with a frozen table carrying a
         # lazy join to a disallowed (string-named) table.
-        frozen_table = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.model_copy(deep=True)
+        source = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert isinstance(source, Table)
+        frozen_table = source.model_copy(deep=True)
         frozen_table.fields["__removable_join__"] = LazyJoin(
             from_field=["event"],
             join_table="__disallowed_table__",
