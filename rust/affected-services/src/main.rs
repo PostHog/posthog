@@ -191,6 +191,10 @@ fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<Pac
 fn parse_images_yaml(path: &Path) -> Result<Vec<ImageConfig>> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
+    parse_images_yaml_content(&content)
+}
+
+fn parse_images_yaml_content(content: &str) -> Result<Vec<ImageConfig>> {
     let mut items = Vec::new();
     let mut current: Option<ImageConfig> = None;
 
@@ -614,6 +618,83 @@ mod tests {
         DeterminatorRules::parse(RULES_TOML).expect("rules TOML should parse");
     }
 
+    // ── parse_images_yaml_content unit tests ─────────────────────
+
+    #[test]
+    fn parse_images_simple_entry() {
+        let yaml = "- image: capture\n  dockerfile: ./rust/Dockerfile\n";
+        let items = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].image, "capture");
+        assert!(items[0].bin.is_none());
+    }
+
+    #[test]
+    fn parse_images_with_bin_override() {
+        let yaml = "- image: flags-cache-warmer\n  bin: warm-flags-cache\n";
+        let items = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].image, "flags-cache-warmer");
+        assert_eq!(items[0].bin.as_deref(), Some("warm-flags-cache"));
+    }
+
+    #[test]
+    fn parse_images_multiple_entries() {
+        let yaml = "\
+- image: capture
+  dockerfile: ./rust/Dockerfile
+
+- image: cymbal
+  dockerfile: ./rust/Dockerfile
+
+- image: flags-cache-warmer
+  bin: warm-flags-cache
+  dockerfile: ./rust/Dockerfile
+";
+        let items = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].image, "capture");
+        assert_eq!(items[1].image, "cymbal");
+        assert_eq!(items[2].image, "flags-cache-warmer");
+        assert_eq!(items[2].bin.as_deref(), Some("warm-flags-cache"));
+    }
+
+    #[test]
+    fn parse_images_skips_comments_and_blank_lines() {
+        let yaml = "\
+# This is a comment
+- image: capture
+
+  # inline comment
+  dockerfile: ./rust/Dockerfile
+
+";
+        let items = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].image, "capture");
+    }
+
+    #[test]
+    fn parse_images_ignores_unknown_fields() {
+        let yaml = "- image: capture\n  dockerfile: ./rust/Dockerfile\n  project: abc123\n  features: some-feature\n  target: runtime-jumphost\n";
+        let items = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].image, "capture");
+        assert!(items[0].bin.is_none());
+    }
+
+    #[test]
+    fn parse_images_empty_input() {
+        let items = parse_images_yaml_content("").unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[test]
+    fn parse_images_comments_only() {
+        let items = parse_images_yaml_content("# just a comment\n# another one\n").unwrap();
+        assert!(items.is_empty());
+    }
+
     // ── Integration tests against real workspace ──────────────────
     //
     // Two kinds of integration tests:
@@ -801,5 +882,193 @@ mod tests {
         assert!(!result.rebuild_all);
         assert!(result.images.contains(&"feature-flags".into()));
         assert!(result.images.contains(&"flags-cache-warmer".into()));
+    }
+
+    // ── Determinator two-graph tests ─────────────────────────────
+    //
+    // These exercise the `old_graph` path in `compute_affected`,
+    // which all other tests skip by passing `None`.
+
+    #[test]
+    fn e2e_same_old_and_new_graph_matches_none_fallback() {
+        let (graph, images) = load_test_fixtures();
+        let changed = vec!["rust/capture/src/main.rs".into()];
+
+        let result_none = compute_affected(&changed, None, &graph, &images).unwrap();
+        let result_some = compute_affected(&changed, Some(&graph), &graph, &images).unwrap();
+
+        assert_eq!(result_none.crates, result_some.crates);
+        assert_eq!(result_none.images, result_some.images);
+        assert_eq!(result_none.rebuild_all, result_some.rebuild_all);
+        assert_eq!(result_none.directly_changed, result_some.directly_changed);
+    }
+
+    #[test]
+    fn e2e_old_graph_no_changed_files_produces_empty() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(&[], Some(&graph), &graph, &images).unwrap();
+        assert!(!result.rebuild_all);
+        assert!(result.crates.is_empty());
+        assert!(result.images.is_empty());
+    }
+
+    #[test]
+    fn e2e_old_graph_rebuild_all_on_lockfile() {
+        let (graph, images) = load_test_fixtures();
+        let result =
+            compute_affected(&["rust/Cargo.lock".into()], Some(&graph), &graph, &images).unwrap();
+        assert!(result.rebuild_all);
+        let workspace_count = graph.workspace().iter().count();
+        assert_eq!(result.crates.len(), workspace_count);
+    }
+
+    #[test]
+    fn e2e_old_graph_leaf_service() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["rust/capture/src/main.rs".into()],
+            Some(&graph),
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert_eq!(result.directly_changed, vec!["capture"]);
+        assert!(result.crates.contains(&"capture".into()));
+    }
+
+    #[test]
+    fn e2e_old_graph_proto_propagation() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["proto/personhog.proto".into()],
+            Some(&graph),
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert!(result.directly_changed.contains(&"personhog-proto".into()));
+        assert!(
+            result.images.len() > 2,
+            "proto change should propagate to multiple images via old_graph path"
+        );
+    }
+
+    #[test]
+    fn e2e_old_graph_from_master() {
+        let repo_root = find_repo_root().expect("must be in a git repo");
+        let old_graph = match build_old_package_graph("master", "rust") {
+            Some(g) => g,
+            None => {
+                eprintln!("skipping: could not build old graph from master");
+                return;
+            }
+        };
+        let new_graph = build_package_graph(&repo_root.join("rust")).expect("cargo metadata");
+        let images =
+            parse_images_yaml(&repo_root.join(".github/rust-images.yml")).expect("images YAML");
+
+        let result = compute_affected(
+            &["rust/capture/src/main.rs".into()],
+            Some(&old_graph),
+            &new_graph,
+            &images,
+        )
+        .unwrap();
+        assert!(result.crates.contains(&"capture".into()));
+    }
+
+    // ── YAML parsing unit tests ─────────────────────────────────
+
+    #[test]
+    fn parse_yaml_single_image() {
+        let yaml = "- image: capture\n  dockerfile: ./rust/Dockerfile\n  project: abc123\n";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].image, "capture");
+        assert_eq!(images[0].bin, None);
+    }
+
+    #[test]
+    fn parse_yaml_image_with_bin() {
+        let yaml = "- image: flags-cache-warmer\n  bin: warm-flags-cache\n  dockerfile: ./rust/Dockerfile\n";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].image, "flags-cache-warmer");
+        assert_eq!(images[0].bin.as_deref(), Some("warm-flags-cache"));
+    }
+
+    #[test]
+    fn parse_yaml_multiple_images() {
+        let yaml = "\
+- image: capture
+  dockerfile: ./rust/Dockerfile
+
+- image: cymbal
+  dockerfile: ./rust/Dockerfile
+
+- image: feature-flags
+  bin: feature-flags
+  dockerfile: ./rust/Dockerfile
+";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 3);
+        assert_eq!(images[0].image, "capture");
+        assert_eq!(images[1].image, "cymbal");
+        assert_eq!(images[2].image, "feature-flags");
+    }
+
+    #[test]
+    fn parse_yaml_skips_comments_and_blank_lines() {
+        let yaml = "\
+# This is a comment
+- image: capture
+  dockerfile: ./rust/Dockerfile
+
+# Another comment
+
+- image: cymbal
+  dockerfile: ./rust/Dockerfile
+";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 2);
+        assert_eq!(images[0].image, "capture");
+        assert_eq!(images[1].image, "cymbal");
+    }
+
+    #[test]
+    fn parse_yaml_empty_input() {
+        let images = parse_images_yaml_content("").unwrap();
+        assert!(images.is_empty());
+    }
+
+    #[test]
+    fn parse_yaml_comments_only() {
+        let images = parse_images_yaml_content("# just a comment\n# another\n").unwrap();
+        assert!(images.is_empty());
+    }
+
+    #[test]
+    fn parse_yaml_unknown_fields_ignored() {
+        let yaml = "\
+- image: capture
+  dockerfile: ./rust/Dockerfile
+  project: abc123
+  target: runtime-jumphost
+  features: warm-flags-cache
+";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].image, "capture");
+        assert_eq!(images[0].bin, None);
+    }
+
+    #[test]
+    fn parse_yaml_inline_image_on_dash_line() {
+        let yaml = "- image: capture\n";
+        let images = parse_images_yaml_content(yaml).unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].image, "capture");
     }
 }
