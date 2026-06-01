@@ -9,11 +9,16 @@ from typing import Any, ParamSpec, TypeVar, cast
 import django.db
 from django.conf import settings
 
+import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 
+from posthog.exceptions_capture import capture_exception
+
 P = ParamSpec("P")
 T = TypeVar("T")
+
+logger = structlog.get_logger(__name__)
 
 
 def make_sync_retryable_with_exponential_backoff(
@@ -164,6 +169,14 @@ def retry_once_on_read_only_connection(fn: Callable[P, T]) -> Callable[P, T]:
         except Exception as exc:
             if not is_read_only_connection_error(exc):
                 raise
+            # Surface the failover: a silent recovery would make a stale-replica
+            # event invisible (the call looks like it just succeeded).
+            logger.warning(
+                "Recycling read-only DB connection and retrying once",
+                function=fn.__name__,
+                error=str(exc),
+            )
+            capture_exception(exc, {"function": fn.__name__, "recovery": "read_only_connection_retry"})
             recycle_db_connections()
             return fn(*args, **kwargs)
 

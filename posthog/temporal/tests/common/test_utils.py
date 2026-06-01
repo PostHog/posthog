@@ -243,11 +243,15 @@ def test_retry_once_on_read_only_connection_retries_once_then_succeeds():
 
     wrapped = retry_once_on_read_only_connection(fn)
 
-    with patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle:
+    with (
+        patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle,
+        patch("posthog.temporal.common.utils.capture_exception") as mock_capture,
+    ):
         assert wrapped() == "ok"
 
     assert calls == 2
     mock_recycle.assert_called_once()
+    mock_capture.assert_called_once()
 
 
 def test_retry_once_on_read_only_connection_propagates_after_second_failure():
@@ -260,7 +264,10 @@ def test_retry_once_on_read_only_connection_propagates_after_second_failure():
 
     wrapped = retry_once_on_read_only_connection(fn)
 
-    with patch("posthog.temporal.common.utils.recycle_db_connections"):
+    with (
+        patch("posthog.temporal.common.utils.recycle_db_connections"),
+        patch("posthog.temporal.common.utils.capture_exception"),
+    ):
         with pytest.raises(InternalError):
             wrapped()
 
