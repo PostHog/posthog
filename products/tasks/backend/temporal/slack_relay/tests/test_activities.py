@@ -50,7 +50,7 @@ class TestRelaySlackMessage(TestCase):
         )
         cls.integration = Integration.objects.create(
             team=cls.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T123",
             config={},
         )

@@ -27,6 +27,12 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Observed in production: requesting metrics against a manager (MCC) account.
+            (
+                "errors {\n  error_code {\n    query_error: REQUESTED_METRICS_FOR_MANAGER\n  }\n  "
+                'message: "Metrics cannot be requested for a manager account. To retrieve metrics, '
+                'issue separate requests against each client account under the manager account."\n}\n'
+            ),
             # Other Google Ads specific failures that should stop retrying.
             "PERMISSION_DENIED: The caller does not have permission",
             "UNAUTHENTICATED: Request had invalid authentication credentials",
@@ -61,11 +67,17 @@ class TestGoogleAdsNonRetryableErrors:
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
             "Account has been deleted",
             "INVALID_CUSTOMER_ID",
+            "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
         ],
     )
     def test_documented_patterns_present(self, pattern):
         assert pattern in self.non_retryable
+
+    def test_requested_metrics_for_manager_has_user_facing_message(self):
+        message = self.non_retryable["REQUESTED_METRICS_FOR_MANAGER"]
+        assert message is not None
+        assert "manager" in message.lower()
 
     def test_invalid_grant_has_friendly_message(self):
         friendly = self.non_retryable["invalid_grant"]
