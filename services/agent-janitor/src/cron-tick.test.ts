@@ -12,7 +12,7 @@ import {
     MemorySessionQueue,
 } from '@posthog/agent-shared'
 
-import { cronTick, newCronTickState } from './cron-tick'
+import { cronTick, fireCronManually, newCronTickState } from './cron-tick'
 
 interface SetupOpts {
     triggers: Array<{
@@ -299,5 +299,51 @@ describe('cronTick', () => {
         const out = await cronTick({ revisions, queue, now: () => t1 }, state)
         expect(out.errors).toBeGreaterThan(0)
         expect(out.fired).toBe(0)
+    })
+
+    describe('fireCronManually', () => {
+        it('fires a session with the cron-manual idempotency-key shape', async () => {
+            const revisions = new MemoryRevisionStore()
+            const queue = new MemorySessionQueue()
+            const { app, rev } = await deploy(revisions, {
+                triggers: [minimalCron({ schedule: '0 9 * * MON', prompt: 'manual test' })],
+            })
+            const result = await fireCronManually(
+                { revisions, queue },
+                { rev, app, cronName: 'digest', requestId: 'req-1' }
+            )
+            expect(result.idempotency_key).toBe(`cron-manual:${rev.id}:digest:req-1`)
+            const session = await queue.get(result.session_id)
+            expect((session!.conversation[0] as { content: string }).content).toBe('manual test')
+            expect(session!.trigger_metadata).toMatchObject({ kind: 'cron', manual: true })
+        })
+
+        it('same request_id is idempotent — second call returns the original session id', async () => {
+            const revisions = new MemoryRevisionStore()
+            const queue = new MemorySessionQueue()
+            const { app, rev } = await deploy(revisions, {
+                triggers: [minimalCron({ schedule: '0 9 * * MON' })],
+            })
+            const a = await fireCronManually(
+                { revisions, queue },
+                { rev, app, cronName: 'digest', requestId: 'click-1' }
+            )
+            const b = await fireCronManually(
+                { revisions, queue },
+                { rev, app, cronName: 'digest', requestId: 'click-1' }
+            )
+            expect(b.session_id).toBe(a.session_id)
+        })
+
+        it('throws when the cron name is unknown', async () => {
+            const revisions = new MemoryRevisionStore()
+            const queue = new MemorySessionQueue()
+            const { app, rev } = await deploy(revisions, {
+                triggers: [minimalCron({ schedule: '0 9 * * MON' })],
+            })
+            await expect(
+                fireCronManually({ revisions, queue }, { rev, app, cronName: 'ghost', requestId: 'r' })
+            ).rejects.toThrow(/unknown_cron:ghost/)
+        })
     })
 })

@@ -488,7 +488,13 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ requeued: 0, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(res.body).toEqual({
+            requeued: 0,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+        })
     })
 
     it('enforces internal secret when configured', async () => {
@@ -568,6 +574,87 @@ describe('janitor HTTP', () => {
         const { app } = await mkRevisionApp()
         const res = await request(app).get('/revisions/00000000-0000-0000-0000-000000000000/system-prompt')
         expect(res.status).toBe(404)
+    })
+
+    it('POST /revisions/:id/cron/fire enqueues a session for the named cron', async () => {
+        const revisions = new MemoryRevisionStore()
+        const bundles = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+        const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: apprec.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 'mem://b',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [
+                    {
+                        type: 'cron',
+                        config: { name: 'digest', schedule: '0 9 * * MON', prompt: 'Run the digest.' },
+                    },
+                ],
+            }),
+        })
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            revisions,
+            bundles,
+        })
+        const res = await request(app)
+            .post(`/revisions/${rev.id}/cron/fire`)
+            .send({ cron_name: 'digest', request_id: 'click-1' })
+        expect(res.status).toBe(200)
+        expect(res.body.ok).toBe(true)
+        expect(res.body.session_id).toBeTruthy()
+        expect(res.body.idempotency_key).toBe(`cron-manual:${rev.id}:digest:click-1`)
+        const session = await queue.get(res.body.session_id)
+        expect((session!.conversation[0] as { content: string }).content).toBe('Run the digest.')
+    })
+
+    it('POST /revisions/:id/cron/fire dedupes repeat clicks with the same request_id', async () => {
+        const revisions = new MemoryRevisionStore()
+        const bundles = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+        const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: apprec.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 'mem://b',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [
+                    {
+                        type: 'cron',
+                        config: { name: 'digest', schedule: '0 9 * * MON', prompt: 'p' },
+                    },
+                ],
+            }),
+        })
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            revisions,
+            bundles,
+        })
+        const a = await request(app)
+            .post(`/revisions/${rev.id}/cron/fire`)
+            .send({ cron_name: 'digest', request_id: 'click-1' })
+        const b = await request(app)
+            .post(`/revisions/${rev.id}/cron/fire`)
+            .send({ cron_name: 'digest', request_id: 'click-1' })
+        expect(a.body.session_id).toBe(b.body.session_id)
+    })
+
+    it('POST /revisions/:id/cron/fire 404s when the cron name is not declared', async () => {
+        const { app, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .post(`/revisions/${revisionId}/cron/fire`)
+            .send({ cron_name: 'ghost', request_id: 'r' })
+        expect(res.status).toBe(404)
+        expect(res.body.error).toBe('unknown_cron')
     })
 
     it('GET /revisions/:id/manifest returns the file list + state', async () => {

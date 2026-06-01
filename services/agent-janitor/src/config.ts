@@ -46,6 +46,16 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
                 'Agents that opt into `spec.resume.enabled` may extend this via `max_completed_age_ms`.'
         ),
     maxRetries: z.coerce.number().int().nonnegative().default(3).describe('Poison-pill threshold for re-queues.'),
+    idempotencyKeyTtlMs: z.coerce
+        .number()
+        .int()
+        .nonnegative()
+        .default(30 * 24 * 60 * ONE_MINUTE_MS)
+        .describe(
+            'Sweep nulls out `idempotency_key` on sessions older than this so the partial unique index ' +
+                'stays compact. By default 30d — by then any redelivery / cron-replay that would have ' +
+                'collided already has. Set to 0 to disable.'
+        ),
     sweepIntervalMs: z.coerce
         .number()
         .int()
@@ -81,6 +91,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     STUCK_WAITING_MS: 'stuckWaitingMs',
     IDLE_COMPLETED_MS: 'idleCompletedMs',
     MAX_RETRIES: 'maxRetries',
+    IDEMPOTENCY_KEY_TTL_MS: 'idempotencyKeyTtlMs',
     SWEEP_INTERVAL_MS: 'sweepIntervalMs',
     AGENT_MEMORY_S3_ENDPOINT: 'memoryS3Endpoint',
     AGENT_MEMORY_S3_REGION: 'memoryS3Region',

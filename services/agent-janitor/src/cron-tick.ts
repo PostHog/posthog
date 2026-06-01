@@ -80,6 +80,68 @@ export function newCronTickState(): CronTickState {
     return { lastTickAt: null }
 }
 
+/**
+ * Fire one cron job out-of-band, bypassing the scheduler's window logic.
+ * Used by the manual-fire endpoint (`POST /revisions/:id/cron/fire`) for
+ * authoring — the user clicks "fire now" and gets the same execution path
+ * a scheduled firing would walk. Dedupe key shape differs from the
+ * scheduled path: `cron-manual:<rev>:<name>:<requestId>`, so a real
+ * scheduled firing at the same minute doesn't collide.
+ */
+export async function fireCronManually(
+    deps: CronTickDeps,
+    input: {
+        rev: AgentRevision
+        app: AgentApplication
+        cronName: string
+        requestId: string
+        firedAt?: Date
+    }
+): Promise<{ session_id: string; fired_at: string; idempotency_key: string }> {
+    const trigger = input.rev.spec.triggers.find((t) => t.type === 'cron' && t.config.name === input.cronName)
+    if (!trigger || trigger.type !== 'cron') {
+        throw new Error(`unknown_cron:${input.cronName}`)
+    }
+    const firedAt = input.firedAt ?? (deps.now ?? (() => new Date()))()
+    const renderedPrompt = expandPlaceholders(trigger.config.prompt, trigger.config, firedAt)
+    const renderedExternalKey = trigger.config.external_key
+        ? expandPlaceholders(trigger.config.external_key, trigger.config, firedAt)
+        : null
+
+    const triggerMetadata = {
+        kind: 'cron' as const,
+        cron_name: trigger.config.name,
+        schedule: trigger.config.schedule,
+        fired_at: firedAt.toISOString(),
+        manual: true,
+    }
+    const idempotencyKey = `cron-manual:${input.rev.id}:${trigger.config.name}:${input.requestId}`
+
+    const outcome = await enqueueOrResume(
+        { queue: deps.queue, teamId: input.app.team_id },
+        {
+            application: input.app,
+            revision: input.rev,
+            externalKey: renderedExternalKey,
+            idempotencyKey,
+            triggerMetadata,
+            seed: {
+                role: 'user',
+                content: renderedPrompt,
+                timestamp: firedAt.getTime(),
+                sender: CRON_PRINCIPAL,
+            },
+            principal: CRON_PRINCIPAL,
+            trigger: 'webhook',
+        }
+    )
+    return {
+        session_id: outcome.sessionId,
+        fired_at: firedAt.toISOString(),
+        idempotency_key: idempotencyKey,
+    }
+}
+
 export async function cronTick(deps: CronTickDeps, state: CronTickState): Promise<CronTickResult> {
     const now = (deps.now ?? (() => new Date()))()
     const lastTickAt = state.lastTickAt ?? now

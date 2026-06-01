@@ -59,6 +59,7 @@ async function main(): Promise<void> {
         stuckRunningThresholdMs: config.stuckRunningMs,
         stuckWaitingThresholdMs: config.stuckWaitingMs,
         idleCompletedThresholdMs: config.idleCompletedMs,
+        idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
         maxRetries: config.maxRetries,
         // Pull idle completed candidates past the floor TTL; the sweep then
         // checks per-agent `spec.resume.max_completed_age_ms` before closing.

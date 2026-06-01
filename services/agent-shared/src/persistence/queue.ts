@@ -68,6 +68,14 @@ export interface SessionQueue {
      */
     findByIdempotencyKey(applicationId: string, idempotencyKey: string): Promise<AgentSession | null>
     /**
+     * Null out `idempotency_key` on sessions older than `cutoff`. The
+     * platform-wide janitor sweep runs this on a 30-day retention to keep
+     * the partial unique index compact — by that point any retry that
+     * would have collided has long since happened. Returns the count of
+     * rows updated. Plan `cron-trigger-scheduler.md` §6 "Retention."
+     */
+    clearStaleIdempotencyKeys(cutoff: Date): Promise<number>
+    /**
      * List sessions for one application, newest first. `limit` defaults to 100
      * so a buggy caller can't accidentally page through every session in the
      * project; supply an explicit larger value if needed (capped at 500
@@ -193,6 +201,21 @@ export class MemorySessionQueue implements SessionQueue {
             }
         }
         return null
+    }
+
+    async clearStaleIdempotencyKeys(cutoff: Date): Promise<number> {
+        let cleared = 0
+        for (const s of this.sessions.values()) {
+            if (s.idempotency_key === null) {
+                continue
+            }
+            const created = Date.parse(s.created_at)
+            if (Number.isFinite(created) && created < cutoff.getTime()) {
+                s.idempotency_key = null
+                cleared++
+            }
+        }
+        return cleared
     }
 
     async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {

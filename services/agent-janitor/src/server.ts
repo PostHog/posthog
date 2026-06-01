@@ -40,6 +40,7 @@
  */
 
 import express, { Express, NextFunction, Request, Response } from 'express'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
@@ -62,6 +63,7 @@ import { listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
 import { buildApprovalDecidedMarker } from './approval-marker'
+import { fireCronManually } from './cron-tick'
 import { asyncHandler, errorHandler } from './http-utils'
 import { SweepDeps, sweepOnce } from './sweep'
 import { validateRevisionBundle } from './validate-spec'
@@ -164,6 +166,24 @@ const FileUpdateBodySchema = z.object({
     content: z
         .string()
         .refine((s) => utf8Bytes(s) <= MAX_FILE_BYTES, { message: `file content exceeds ${MAX_FILE_BYTES} bytes` }),
+})
+
+const CronFireBodySchema = z.object({
+    /** Cron `name` from `spec.triggers[].config.name`. */
+    cron_name: z.string().min(1),
+    /**
+     * Optional client-supplied id so repeated clicks of the same UI "fire
+     * now" button dedupe. Without it, every call generates a fresh UUID and
+     * fires unconditionally. Stripe-shaped — same convention the
+     * Idempotency-Key header uses on the webhook trigger.
+     */
+    request_id: z.string().min(1).optional(),
+    /**
+     * Override the firing timestamp. Defaults to "now." Lets the authoring
+     * UI replay a historical firing for debugging — placeholder expansion
+     * resolves against this timestamp.
+     */
+    fired_at: z.string().datetime({ offset: true }).optional(),
 })
 
 const BundleFilesSchema = z.record(z.string(), z.string()).superRefine((files, ctx) => {
@@ -777,6 +797,56 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             }
             const report = await validateRevisionBundle(rev, opts.bundles!)
             res.json(report)
+        })
+    )
+
+    // Manually fire one cron job — same execution path the scheduler walks,
+    // but on demand. Authoring path: the user clicks "fire now" in the
+    // console (or the concierge MCP tool
+    // `agent-applications-revisions-cron-fire-create`) and gets back the
+    // session id without having to wait for the next real firing. Without
+    // this, "did my cron prompt do the right thing?" is unanswerable until
+    // the cron actually fires. Plan §9 "Manual fire".
+    //
+    // Dedupe shape `cron-manual:<rev>:<name>:<request_id>` — distinct from
+    // the scheduled `cron:<rev>:<name>:<minute>` form, so manual + scheduled
+    // firings at the same minute don't collide. The caller can supply
+    // `request_id` to make repeated clicks idempotent (the UI does this);
+    // omitting it generates a fresh UUID, which makes every call a new fire.
+    app.post(
+        '/revisions/:id/cron/fire',
+        asyncHandler(async (req, res) => {
+            if (!needRevisionStore(res)) {
+                return
+            }
+            const rev = await opts.revisions!.getRevision(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const app_ = await opts.revisions!.getApplication(rev.application_id)
+            if (!app_) {
+                res.status(404).json({ error: 'application_not_found' })
+                return
+            }
+            const body = CronFireBodySchema.parse(req.body)
+            const trigger = rev.spec.triggers.find((t) => t.type === 'cron' && t.config.name === body.cron_name)
+            if (!trigger || trigger.type !== 'cron') {
+                res.status(404).json({ error: 'unknown_cron', cron_name: body.cron_name })
+                return
+            }
+            const requestId = body.request_id ?? randomUUID()
+            const result = await fireCronManually(
+                { revisions: opts.revisions!, queue: opts.queue },
+                {
+                    rev,
+                    app: app_,
+                    cronName: body.cron_name,
+                    requestId,
+                    firedAt: body.fired_at ? new Date(body.fired_at) : undefined,
+                }
+            )
+            res.json({ ok: true, ...result, request_id: requestId })
         })
     )
 

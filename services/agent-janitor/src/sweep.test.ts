@@ -157,19 +157,65 @@ describe('sweepOnce', () => {
         }
 
         let r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await queue.get('p'))!.retry_count).toBe(1)
 
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await queue.get('p'))!.retry_count).toBe(2)
 
         // Third reap: retry_count would go to 3, exceeds maxRetries=2 → poisoned.
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0 })
+        expect(r).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await queue.get('p'))!.state).toBe('failed')
         expect((await queue.get('p'))!.retry_count).toBe(3)
+    })
+
+    describe('idempotency_key retention sweep', () => {
+        it('nulls keys on sessions older than the TTL; recent ones untouched', async () => {
+            const queue = new MemorySessionQueue()
+            const now = Date.now()
+            // Old session — older than 30d default; should be cleared.
+            const old = session('old', 'completed', new Date(now - 40 * 86_400_000).toISOString())
+            old.idempotency_key = 'cron:rev:digest:1'
+            await queue.enqueue(old)
+            // Recent session — within 30d; should stay.
+            const fresh = session('fresh', 'completed', new Date(now - 7 * 86_400_000).toISOString())
+            fresh.idempotency_key = 'cron:rev:digest:2'
+            await queue.enqueue(fresh)
+            // Old session that never had a key — should be a no-op.
+            const empty = session('empty', 'completed', new Date(now - 100 * 86_400_000).toISOString())
+            await queue.enqueue(empty)
+
+            const r = await sweepOnce({ queue, now: () => new Date(now) })
+            expect(r.cleared_idempotency_keys).toBe(1)
+            expect((await queue.get('old'))!.idempotency_key).toBeNull()
+            expect((await queue.get('fresh'))!.idempotency_key).toBe('cron:rev:digest:2')
+            expect((await queue.get('empty'))!.idempotency_key).toBeNull()
+        })
+
+        it('respects a custom TTL', async () => {
+            const queue = new MemorySessionQueue()
+            const now = Date.now()
+            const s = session('s', 'completed', new Date(now - 2 * 86_400_000).toISOString())
+            s.idempotency_key = 'k'
+            await queue.enqueue(s)
+            // TTL of 1d → 2-day-old session is past the cap.
+            const r = await sweepOnce({ queue, now: () => new Date(now), idempotencyKeyTtlMs: 86_400_000 })
+            expect(r.cleared_idempotency_keys).toBe(1)
+            expect((await queue.get('s'))!.idempotency_key).toBeNull()
+        })
+
+        it('TTL=0 disables the sweep', async () => {
+            const queue = new MemorySessionQueue()
+            const s = session('s', 'completed', new Date(Date.now() - 100 * 86_400_000).toISOString())
+            s.idempotency_key = 'k'
+            await queue.enqueue(s)
+            const r = await sweepOnce({ queue, idempotencyKeyTtlMs: 0 })
+            expect(r.cleared_idempotency_keys).toBe(0)
+            expect((await queue.get('s'))!.idempotency_key).toBe('k')
+        })
     })
 })

@@ -203,6 +203,21 @@ export class PgSessionQueue implements SessionQueue {
         return rowToSession(r.rows[0])
     }
 
+    async clearStaleIdempotencyKeys(cutoff: Date): Promise<number> {
+        // Index-friendly: the partial unique index makes the WHERE NOT NULL
+        // filter cheap (it's only scanning rows that still have a key). The
+        // update also frees slots in the partial index — by the time a row
+        // is 30 days old, any retry that would have collided already has.
+        const r = await this.pool.query(
+            `UPDATE agent_session
+             SET idempotency_key = NULL
+             WHERE idempotency_key IS NOT NULL
+               AND created_at < $1`,
+            [cutoff]
+        )
+        return r.rowCount ?? 0
+    }
+
     async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
