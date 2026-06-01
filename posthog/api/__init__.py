@@ -32,6 +32,7 @@ import products.business_knowledge.backend.api as business_knowledge
 import products.marketing_analytics.backend.api as marketing_analytics
 import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
+import products.wizard.backend.presentation.views as wizard_sessions
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
@@ -134,7 +135,6 @@ from products.web_analytics.backend.api.heatmaps_api import (
     SavedHeatmapViewSet,
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
-from products.wizard.backend.routes import register_routes as register_wizard_routes
 from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -358,7 +358,12 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
-register_wizard_routes(routers)
+projects_router.register(
+    r"wizard/sessions",
+    wizard_sessions.WizardSessionViewSet,
+    "project_wizard_sessions",
+    ["project_id"],
+)
 # Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
 # Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
 # /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
