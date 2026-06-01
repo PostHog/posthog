@@ -1,6 +1,8 @@
 version: 2
 updates:
     - package-ecosystem: 'github-actions'
+      cooldown:
+          default-days: 7
       directory: '/'
       schedule:
           interval: weekly
@@ -10,6 +12,8 @@ updates:
     # Without this, automatic security updates may try to update from subdirectories
     # which fails with "Updating workspaces from inside a workspace subdirectory is not supported"
     - package-ecosystem: 'npm'
+      cooldown:
+          default-days: 7
       directory: '/'
       schedule:
           interval: weekly

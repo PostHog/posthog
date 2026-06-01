@@ -17,13 +17,14 @@ export interface GroupRepository {
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
     ): Promise<Group | undefined>
 
     fetchGroupsByKeys(
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[]
+        groupKeys: string[],
+        callerTag?: string
     ): Promise<
         {
             team_id: TeamId
@@ -68,11 +69,13 @@ export interface GroupRepository {
     // Group Type Methods
 
     fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[]
+        projectIds: ProjectId[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 
     fetchGroupTypesByTeamIds(
-        teamIds: TeamId[]
+        teamIds: TeamId[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>>
 
     insertGroupType(

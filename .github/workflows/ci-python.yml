@@ -69,6 +69,8 @@ jobs:
                         - '.github/scripts/**/*.py'
                         # PR approval agent
                         - 'tools/pr-approval-agent/**'
+                        # query-performance-ai dev tool
+                        - 'tools/query-performance-ai/**'
 
     code-quality:
         needs: changes
@@ -187,6 +189,11 @@ jobs:
               run: |
                   pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
+            - name: Run query-performance-ai tests
+              shell: bash
+              run: |
+                  pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -195,6 +202,7 @@ jobs:
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
+                      junit-query-performance-ai.xml
 
             - name: Run dependency detection script tests
               shell: bash

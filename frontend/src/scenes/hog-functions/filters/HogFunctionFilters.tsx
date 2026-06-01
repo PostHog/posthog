@@ -141,7 +141,9 @@ export function HogFunctionFilters({
         return types
     }, [isTransformation, groupsTaxonomicTypes, isDataWarehouse])
 
-    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions
+    // Masking trigger options are event/person based (hashes of person.id / event.event and
+    // event-count thresholds), so they don't apply to data-warehouse row triggers.
+    const showMasking = type === 'destination' && !isLegacyPlugin && showTriggerOptions && !isDataWarehouse
 
     if (type === 'internal_destination') {
         return <HogFunctionFiltersInternal />
@@ -173,8 +175,8 @@ export function HogFunctionFilters({
                             <br />
                             <b>Person updates</b> will trigger whenever a Person is created, updated or deleted.
                             <br />
-                            <b>Data warehouse</b> will trigger whenever a new row has been synced into the data
-                            warehouse.
+                            <b>Warehouse table</b> will trigger whenever a new row is synced into a data warehouse
+                            table.
                         </>
                     }
                 >
@@ -187,7 +189,7 @@ export function HogFunctionFilters({
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse-table', label: 'Data warehouse' }]
+                                        ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
                                 ]}
                                 value={value?.source ?? 'events'}
