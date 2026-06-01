@@ -64,7 +64,7 @@ exports[`NativeDestinationExecutorService native plugins should handle non retry
   },
   {
     "level": "error",
-    "message": "Function failed: Error executing function on event uuid: Request failed with status 403 ({"error":"Forbidden"})",
+    "message": "Function failed: Error executing function on trigger uuid: Request failed with status 403 ({"error":"Forbidden"})",
     "timestamp": "2025-01-01T00:00:00.000Z",
   },
 ]
