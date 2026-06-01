@@ -17,7 +17,7 @@ from products.dashboards.backend.widget_registry import (
     get_widget_registry_entry,
     validate_widget_config,
 )
-from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT
+from products.dashboards.backend.widgets.config import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 
 
@@ -42,7 +42,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
-        assert validated["limit"] == MAX_WIDGET_CONFIG_LIMIT
+        assert validated["limit"] == MAX_WIDGET_RESULT_LIMIT
         assert validated["orderBy"] == "occurrences"
         assert "filterTestAccounts" not in validated
 

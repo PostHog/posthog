@@ -11,7 +11,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.dashboards.backend.widgets.config import (
-    MAX_WIDGET_CONFIG_LIMIT,
+    MAX_WIDGET_RESULT_LIMIT,
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
     validate_widget_date_range,
@@ -32,9 +32,9 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
-    limit = config.get("limit", MAX_WIDGET_CONFIG_LIMIT)
-    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_CONFIG_LIMIT:
-        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_CONFIG_LIMIT}."})
+    limit = config.get("limit", MAX_WIDGET_RESULT_LIMIT)
+    if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
+        raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
 
     order_by = config.get("orderBy", "occurrences")
     if order_by not in ERROR_TRACKING_ORDER_BY:

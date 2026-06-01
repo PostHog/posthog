@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, NotRequired, TypedDict
 
 from products.dashboards.backend.widget_registry import normalize_widget_type
-from products.dashboards.backend.widgets.config import MAX_WIDGET_CONFIG_LIMIT, WIDGET_DATE_FROM_VALUES
+from products.dashboards.backend.widgets.config import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 
 
@@ -31,7 +31,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
             "limit": {
                 "type": "integer",
                 "min": 1,
-                "max": MAX_WIDGET_CONFIG_LIMIT,
+                "max": MAX_WIDGET_RESULT_LIMIT,
                 "default": 10,
             },
             "orderBy": {
