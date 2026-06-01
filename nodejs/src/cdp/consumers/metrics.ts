@@ -49,6 +49,6 @@ export const histogramHogflowMatcherFindParkedJobs = new Histogram({
 
 export const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
-    help: 'An incoming event was dropped before matching: no person_id, or unknown team.',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), or unknown team.',
     labelNames: ['reason'],
 })

@@ -358,8 +358,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             messages.map(async (message) => {
                 try {
                     const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-                    if (!clickHouseEvent.person_id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_person_id' }).inc()
+                    // A job can be parked by distinct_id or person_id, so an event needs at least
+                    // one of them to match anything. Drop only events that carry neither.
+                    if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                         return
                     }
                     const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)

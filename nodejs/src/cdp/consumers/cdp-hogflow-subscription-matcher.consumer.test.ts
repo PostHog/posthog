@@ -663,4 +663,50 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(stateLoad!.params[0]).toEqual(['job-match'])
         })
     })
+
+    describe('_parseKafkaBatch', () => {
+        const rawMessage = (overrides: Record<string, any>): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    uuid: 'e-uuid',
+                    event: 'wuc_subscribed',
+                    team_id: 1,
+                    distinct_id: 'user-1',
+                    person_id: 'person-uuid-1',
+                    timestamp: '2024-01-01 00:00:00.000',
+                    properties: '{}',
+                    elements_chain: '',
+                    ...overrides,
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+        })
+
+        it('keeps events with a distinct_id but no person_id, drops events with neither', async () => {
+            // A job can be parked by distinct_id alone (the lookup has a (team_id, distinct_id)
+            // branch), so an event carrying only a distinct_id must still flow into matching.
+            const result = await (matcher as any)._parseKafkaBatch([
+                rawMessage({ person_id: '', distinct_id: 'only-distinct' }),
+                rawMessage({ person_id: '', distinct_id: '' }),
+                rawMessage({ person_id: 'person-uuid-1', distinct_id: 'user-1' }),
+            ])
+
+            const distinctIds = result.map((g: HogFunctionInvocationGlobals) => g.event.distinct_id).sort()
+            expect(distinctIds).toEqual(['only-distinct', 'user-1'])
+
+            // The distinct-only event has no resolved person, which downstream indexing handles.
+            const distinctOnly = result.find(
+                (g: HogFunctionInvocationGlobals) => g.event.distinct_id === 'only-distinct'
+            )!
+            expect(distinctOnly.person).toBeUndefined()
+        })
+    })
 })
