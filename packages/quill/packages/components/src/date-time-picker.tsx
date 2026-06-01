@@ -242,7 +242,7 @@ function Calendar({
                 </Button>
                 <Select
                     value={currentKey}
-                    onValueChange={(v: number) => handleMonthYearSelect(v)}
+                    onValueChange={(v: number | null) => v !== null && handleMonthYearSelect(v)}
                 >
                     <SelectTrigger size="sm" aria-label="Month and year" className="h-6 px-2 text-xs">
                         <SelectValue>
