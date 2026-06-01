@@ -158,6 +158,7 @@ class TestLivenessTracker:
         (settings.DATA_WAREHOUSE_TASK_QUEUE, True),
         (settings.MAX_AI_TASK_QUEUE, True),
         (settings.TASKS_TASK_QUEUE, True),
+        (settings.SIGNALS_SCOUT_TASK_QUEUE, True),
         ("some-other-queue", False),
     ),
 )
