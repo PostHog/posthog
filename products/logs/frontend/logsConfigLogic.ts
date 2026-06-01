@@ -24,10 +24,6 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
             null as LogsConfig | null,
             {
                 loadLogsConfig: async (): Promise<LogsConfig> => {
-                    // The `logs_config` sub-endpoint is a `@action` on TeamViewSet without
-                    // `@extend_schema`, so it isn't in the generated client (same as
-                    // `experiments_config`). The codegen path opens up when the action
-                    // gets a proper request/response schema annotation.
                     // nosemgrep: prefer-codegen-api
                     return await api.get(`api/projects/${values.currentTeamId}/logs_config/`)
                 },

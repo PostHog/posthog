@@ -136,6 +136,7 @@ function BarChartInner<Meta = unknown>({
         maxBandRange,
         bandPadding,
         minBandSize,
+        valueDomain,
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
@@ -221,6 +222,7 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                valueDomain,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -270,7 +272,17 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange, bandPadding]
+        [
+            yScaleType,
+            barLayout,
+            axisOrientation,
+            stackedData,
+            isHorizontal,
+            divergingStack,
+            maxBandRange,
+            bandPadding,
+            valueDomain,
+        ]
     )
 
     const drawStatic = useCallback(

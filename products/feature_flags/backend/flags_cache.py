@@ -773,7 +773,7 @@ def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     return Team.objects.filter(Exists(has_flags))
 
 
-def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+def get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
     """
     Batch check which teams have active flags updated within the grace period.
 
@@ -810,7 +810,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=update_flags_cache,
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
-    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
+    get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
 )
 
 
