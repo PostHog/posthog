@@ -2,9 +2,6 @@ import 'jest-canvas-mock'
 
 import { configure } from '@testing-library/react'
 
-// fetch / Request / Response / TextEncoder and friends are polyfilled in jest.polyfills.js,
-// which runs first in setupFiles so MSW v2's interceptors see spec-compliant primitives.
-
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(
     (query: string) =>

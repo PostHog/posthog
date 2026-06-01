@@ -58,8 +58,7 @@ const esmModules = [
     'longest-streak',
     'markdown-table',
     '@mathjax/src',
-    // MSW v2 and its dependencies ship ESM that resolves under the forced `default` export
-    // condition (see customExportConditions below); transform them so Jest can load them.
+    // MSW v2 and its dependencies ship ESM that resolves under the forced `default` export condition
     'msw',
     '@mswjs/.*',
     '@bundled-es-modules/.*',
