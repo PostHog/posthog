@@ -115,14 +115,8 @@ test.describe('Quick create survey from feature flag', () => {
         await saveFeatureFlag(page)
 
         await clickCreateSurvey(page, name)
-        const createButton = page.getByTestId('quick-survey-create')
-        await expect(createButton).toBeEnabled()
-        const responsePromise = page.waitForResponse(
-            (resp) => resp.url().includes('/surveys') && resp.request().method() === 'POST'
-        )
-        await createButton.click()
-        await responsePromise
-        await page.waitForURL(/project\/(\d+)\/surveys\/([\w-]+)/)
+
+        await launchSurvey(page, name)
 
         await goToSurveyOverview(page)
         await expectFlagEnabled(page, name)
