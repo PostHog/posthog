@@ -476,29 +476,30 @@ class TestSlackSourceChannelMessagesWebhookOnly:
             channel_id="C123",
         )
 
-    def test_reads_webhook_items_and_skips_backfill_when_webhook_enabled(self) -> None:
+    @parameterized.expand(
+        [
+            ("webhook_enabled", True, ["webhook-item"], True),
+            ("webhook_disabled", False, [], False),
+        ]
+    )
+    def test_channel_messages_are_webhook_only_and_never_backfill(
+        self,
+        _name: str,
+        webhook_on: bool,
+        expected_items: list[Any],
+        expect_get_items_called: bool,
+    ) -> None:
         manager = MagicMock(spec=WebhookSourceManager)
-        manager.webhook_enabled = AsyncMock(return_value=True)
+        manager.webhook_enabled = AsyncMock(return_value=webhook_on)
         manager.get_items.return_value = ["webhook-item"]
-
-        with patch("posthog.temporal.data_imports.sources.slack.slack._channel_messages_generator") as mock_backfill:
-            response = self._build_channel_source(manager)
-            items = response.items()
-
-        # Webhook mode is activated from the first sync (skip the initial-sync-complete gate).
-        manager.webhook_enabled.assert_awaited_once_with(True)
-        assert items == ["webhook-item"]
-        mock_backfill.assert_not_called()
-
-    def test_returns_empty_and_never_backfills_when_webhook_not_enabled(self) -> None:
-        manager = MagicMock(spec=WebhookSourceManager)
-        manager.webhook_enabled = AsyncMock(return_value=False)
 
         with patch("posthog.temporal.data_imports.sources.slack.slack._channel_messages_generator") as mock_backfill:
             response = self._build_channel_source(manager)
             items = list(response.items())
 
-        # No historical backfill: the table stays empty until webhook events arrive.
-        assert items == []
-        manager.get_items.assert_not_called()
+        # Webhook mode is activated from the first sync (skip the initial-sync-complete gate).
+        # When disabled the table stays empty until webhook events arrive — never a historical backfill.
+        manager.webhook_enabled.assert_awaited_once_with(True)
+        assert items == expected_items
+        assert manager.get_items.called == expect_get_items_called
         mock_backfill.assert_not_called()
