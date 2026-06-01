@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 from products.tasks.backend.models import Task
 from products.tasks.backend.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
@@ -26,6 +25,10 @@ from products.tasks.backend.repo_selection import (
 )
 
 if TYPE_CHECKING:
+    # Deferred (see _select below): importing temporal.types runs the signals temporal package
+    # __init__ (agentic -> back into report_generation), a circular import. SignalData is
+    # annotation-only here (module uses `from __future__ import annotations`).
+    from products.signals.backend.temporal.types import SignalData
     from products.tasks.backend.services.custom_prompt_internals import OutputFn
 
 logger = logging.getLogger(__name__)
@@ -49,6 +52,8 @@ async def select_repository_for_report(
     output_fn: OutputFn = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals."""
+    from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
+
     context = render_signals_to_text(signals)
     try:
         return await select_repository(
