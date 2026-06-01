@@ -36,7 +36,7 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { fetchTaxonomicListPage } from './fetchTaxonomicListPage'
-import { useTaxonomicResource } from './useTaxonomicResource'
+import { peekTaxonomicResource, useTaxonomicResource } from './useTaxonomicResource'
 
 export const NO_ITEM_SELECTED = -1
 
@@ -205,6 +205,15 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         ]
     )
 
+    // Don't pin an empty unsearched result for the full staleTime. An empty
+    // base list almost always means the request resolved before its data was
+    // available (e.g. a fetch that raced mock/worker setup in stories, or an
+    // in-flight dependency), not that the group is genuinely empty; caching
+    // it for 60s left tabs stuck at 0. Empty results for an actual search term
+    // are legitimate and stay cached. Peek the existing cache entry (we can't
+    // read `remote` before it's assigned) to decide.
+    const cachedRemote = peekTaxonomicResource<ListStorage>(remoteKey)
+    const cachedEmptyUnsearched = !!cachedRemote && cachedRemote.count === 0 && !trimmedSearch
     const remote = useTaxonomicResource<ListStorage>(
         remoteKey,
         ({ signal }) =>
@@ -218,7 +227,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 hideBehavioralCohorts,
                 signal,
             }),
-        { enabled: remoteEnabled, staleTime: 60_000, keepPreviousData: true }
+        { enabled: remoteEnabled, staleTime: cachedEmptyUnsearched ? 0 : 60_000, keepPreviousData: true }
     )
 
     const remoteItems: ListStorage = remote.data ?? EMPTY_LIST_STORAGE
