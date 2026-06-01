@@ -1,6 +1,6 @@
 import { HogFlow } from '../../schema/hogflow'
-import { logger } from '../../utils/logger'
 import { parseJSON } from '../../utils/json-parse'
+import { logger } from '../../utils/logger'
 import * as posthogUtils from '../../utils/posthog'
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
@@ -217,14 +217,20 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     person_id: null,
                 },
             ]
-            matcher.wakeRows = [
-                { ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) },
-            ]
+            matcher.wakeRows = [{ ...matcher.findRows[0], state: stateBuffer({ currentAction: { id: 'wait_node' } }) }]
             matcher.updateRowCount = 1
 
             await matcher.runWake([
-                makeGlobals({ project: { id: 1, name: 'T1', url: '' }, event: { ...makeGlobals({}).event, distinct_id: 'alice', uuid: 'e1' }, person: undefined }),
-                makeGlobals({ project: { id: 2, name: 'T2', url: '' }, event: { ...makeGlobals({}).event, distinct_id: 'bob', uuid: 'e2' }, person: undefined }),
+                makeGlobals({
+                    project: { id: 1, name: 'T1', url: '' },
+                    event: { ...makeGlobals({}).event, distinct_id: 'alice', uuid: 'e1' },
+                    person: undefined,
+                }),
+                makeGlobals({
+                    project: { id: 2, name: 'T2', url: '' },
+                    event: { ...makeGlobals({}).event, distinct_id: 'bob', uuid: 'e2' },
+                    person: undefined,
+                }),
             ])
 
             // The correlated lookup params zip (team, distinct_id) row-wise: {(1,alice),(2,bob)}.
