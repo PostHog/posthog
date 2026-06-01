@@ -32,6 +32,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { loadAgentJanitorConfig } from './config'
+import { cronTick, newCronTickState } from './cron-tick'
 import { buildJanitorApp } from './server'
 import { sweepOnce } from './sweep'
 
@@ -111,13 +112,41 @@ async function main(): Promise<void> {
         log.info({ port: config.port }, 'listening')
     })
 
+    // Cron tick state lives in-process — restart resets `lastTickAt`, the
+    // catch-up policy handles missed firings, the unique index on
+    // `(application_id, idempotency_key)` keeps two janitor replicas from
+    // double-firing. See `cron-tick.ts` for the contract.
+    const cronTickState = newCronTickState()
+    const cronTickDeps = { revisions, queue }
+
     setInterval(async () => {
-        try {
-            const result = await sweepOnce(sweep)
-            log.debug({ ...result }, 'sweep.done')
-        } catch (err) {
-            log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'sweep.failed')
-        }
+        // Sweep + cron tick run on the same interval but as independent
+        // promises — a slow cron tick (cron-parser parsing a pathological
+        // schedule, a slow listLiveCronRevisions roundtrip) doesn't starve
+        // the sweep, and vice versa. Both wrap their own try/catch so a
+        // single throw can't take the loop down.
+        await Promise.all([
+            (async () => {
+                try {
+                    const result = await sweepOnce(sweep)
+                    log.debug({ ...result }, 'sweep.done')
+                } catch (err) {
+                    log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'sweep.failed')
+                }
+            })(),
+            (async () => {
+                try {
+                    const result = await cronTick(cronTickDeps, cronTickState)
+                    if (result.fired > 0 || result.errors > 0) {
+                        log.info({ ...result }, 'cron_tick.done')
+                    } else {
+                        log.debug({ ...result }, 'cron_tick.done')
+                    }
+                } catch (err) {
+                    log.error({ err: (err as Error).message, stack: (err as Error).stack }, 'cron_tick.failed')
+                }
+            })(),
+        ])
     }, config.sweepIntervalMs)
 }
 

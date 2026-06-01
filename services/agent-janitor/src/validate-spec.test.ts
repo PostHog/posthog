@@ -148,7 +148,7 @@ describe('validateRevisionBundle', () => {
     describe('cron triggers', () => {
         const cronTrigger = (
             overrides: Record<string, unknown> = {}
-        ): z.input<typeof AgentSpecSchema>['triggers'][number] => ({
+        ): NonNullable<z.input<typeof AgentSpecSchema>['triggers']>[number] => ({
             type: 'cron',
             config: {
                 name: 'digest',
@@ -159,7 +159,7 @@ describe('validateRevisionBundle', () => {
         })
 
         async function setup(
-            triggers: Array<z.input<typeof AgentSpecSchema>['triggers'][number]>
+            triggers: Array<NonNullable<z.input<typeof AgentSpecSchema>['triggers']>[number]>
         ): ReturnType<typeof validateRevisionBundle> {
             const bundles = new MemoryBundleStore()
             await bundles.write('rev1', 'agent.md', 'hi')

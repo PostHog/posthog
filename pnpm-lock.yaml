@@ -3819,6 +3819,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.723.0
         version: 3.975.0
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
       '@posthog/agent-migrations':
         specifier: workspace:*
         version: link:../agent-migrations
