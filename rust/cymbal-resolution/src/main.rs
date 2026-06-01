@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting cymbal-resolution service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!("Metrics port: {}", config.metrics_port);
+    tracing::info!("Max concurrent requests: {}", config.max_concurrent_requests);
 
     let app_context = AppContext::from_config(config.clone(), &cymbal_config)
         .await
