@@ -55,10 +55,7 @@ export async function submitAddWidgetPayloads(
         return
     }
 
-    try {
-        await onAdd(payloads)
-        onClose()
-    } catch {
-        // caller handles toast
-    }
+    // onAdd (dashboardLogic.addWidgetTiles) toasts and rethrows on failure — keep the modal open.
+    await onAdd(payloads)
+    onClose()
 }

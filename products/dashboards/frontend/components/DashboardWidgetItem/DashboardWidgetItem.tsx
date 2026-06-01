@@ -8,14 +8,12 @@ import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dash
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import type { DashboardWidgetProductAccess } from '../../types'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { getDashboardWidgetDefinition, type DashboardWidgetComponentProps } from '../../widgets/registry'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
 import { WidgetCardBody } from '../WidgetCard/WidgetCardBody'
@@ -113,7 +111,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             }
         }
 
-        const hasProductAccess = userHasWidgetProductAccess(definition?.productAccess)
+        const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
 
         const titleHref =
             hasProductAccess && placement !== DashboardPlacement.Public && catalogEntry?.titleHref
@@ -293,19 +291,3 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
         )
     }
 )
-
-function userHasWidgetProductAccess(productAccess: DashboardWidgetProductAccess | undefined): boolean {
-    if (!productAccess) {
-        return true
-    }
-
-    switch (productAccess) {
-        // New gated widget types: add a case here — CONTRIBUTING.md
-        case 'error_tracking':
-            return userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
-        default: {
-            const _exhaustive: never = productAccess
-            return _exhaustive
-        }
-    }
-}

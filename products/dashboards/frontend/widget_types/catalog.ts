@@ -65,7 +65,7 @@ export type DashboardWidgetCatalogGroup = {
     }>
 }
 
-export function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
+function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
     const groupOrder: string[] = []
 

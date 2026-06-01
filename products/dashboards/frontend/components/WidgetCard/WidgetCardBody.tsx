@@ -102,8 +102,10 @@ export function WidgetCardBodyMessage({
     refreshing = false,
     children,
 }: WidgetCardBodyMessageProps): JSX.Element {
-    const content =
-        variant === 'locked' ? (
+    let content: React.ReactNode = children
+
+    if (variant === 'locked') {
+        content = (
             <div
                 className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                 data-attr="widget-card-body-locked"
@@ -111,7 +113,9 @@ export function WidgetCardBodyMessage({
                 <IconLock className="text-4xl text-muted" />
                 <span>{children}</span>
             </div>
-        ) : variant === 'error' ? (
+        )
+    } else if (variant === 'error') {
+        content = (
             <div
                 className="flex max-w-xs flex-col items-center gap-3 px-2 text-balance"
                 data-attr="widget-card-body-error"
@@ -130,9 +134,8 @@ export function WidgetCardBodyMessage({
                     </LemonButton>
                 ) : null}
             </div>
-        ) : (
-            children
         )
+    }
 
     return (
         <div

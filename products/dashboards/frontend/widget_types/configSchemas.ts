@@ -33,12 +33,25 @@ export const WIDGET_DATE_RANGE_SELECT_OPTIONS: { value: WidgetDateFromValue; lab
     { value: '-90d', label: 'Last 90 days' },
 ]
 
-export const widgetDateRangeSchema = z
+const widgetDateRangeObjectSchema = z
     .object({
         date_from: widgetDateFromSchema.optional(),
         date_to: z.string().optional(),
         explicitDate: z.boolean().optional(),
     })
-    .optional()
+    .superRefine((value, ctx) => {
+        const hasDateFrom = value.date_from !== undefined
+        const hasDateTo = value.date_to !== undefined && value.date_to !== ''
+        const hasExplicitDate = value.explicitDate === true
+
+        if (!hasDateFrom && !hasDateTo && !hasExplicitDate) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: 'Select a date range or enable explicit dates.',
+            })
+        }
+    })
+
+export const widgetDateRangeSchema = widgetDateRangeObjectSchema.optional()
 
 // New widget types: add per-type schemas here — CONTRIBUTING.md
