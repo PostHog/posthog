@@ -945,7 +945,8 @@ class TestOAuthAPI(APIBaseTest):
                 self.client.get("/.well-known/jwks.json")
 
     def test_configured_inactive_keys_never_contain_empty_strings(self):
-        self.assertNotIn("", settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEYS_INACTIVE"])
+        inactive_keys = cast(list[str], settings.OAUTH2_PROVIDER["OIDC_RSA_PRIVATE_KEYS_INACTIVE"])
+        self.assertNotIn("", inactive_keys)
 
     def test_id_token_not_returned_without_openid_scope(self):
         data_without_openid = {
