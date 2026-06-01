@@ -121,6 +121,42 @@ export interface PaginatedDashboardTemplateListApi {
     results: DashboardTemplateApi[]
 }
 
+export interface PatchedDashboardTemplateApi {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown
+    variables?: unknown
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasicApi
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id?: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
 export interface CopyDashboardTemplateApi {
     /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
     source_template_id: string
@@ -305,28 +341,6 @@ export interface DashboardCollaboratorApi {
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
-}
-
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -7447,6 +7461,11 @@ export interface DashboardTileApi {
     transparent_background?: boolean | null
 }
 
+export interface DeleteTileRequestApi {
+    /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+    tile_id: number
+}
+
 export interface MoveTileTileApi {
     /** Dashboard tile ID to move. */
     id: number
@@ -7856,6 +7875,17 @@ export type DashboardsCreateTextTileCreateFormat =
     (typeof DashboardsCreateTextTileCreateFormat)[keyof typeof DashboardsCreateTextTileCreateFormat]
 
 export const DashboardsCreateTextTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat
+}
+
+export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
+
+export const DashboardsDeleteTileFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
