@@ -97,18 +97,25 @@ export function applyEvent(session: ChatSession, event: SessionEvent): ChatSessi
         }
 
         case 'tool_result': {
+            // Runner emits `{ name, id, ok: boolean, error?: string, output?: unknown }`
+            // (see services/agent-runner/src/loop/driver.ts). The reducer
+            // used to read `outcome` / `output` which silently failed on
+            // every tool call — `outcome` was always undefined, so every
+            // live tool call rendered as `{ ok: false, error: "" }` until
+            // a reload pulled the right shape from the persisted
+            // conversation. Read the actual keys instead.
             const id = asString(event.data.id)
-            const outcome = asString(event.data.outcome)
+            const ok = event.data.ok === true
             const output = event.data.output
+            const errorText = typeof event.data.error === 'string' ? event.data.error : ''
             return updateActiveAssistant(session, (parts) =>
                 parts.map((p) => {
                     if (p.kind !== 'tool_call' || p.callId !== id) {
                         return p
                     }
-                    const result =
-                        outcome === 'ok' || outcome === 'success'
-                            ? ({ ok: true, body: output } as const)
-                            : ({ ok: false, error: String(output ?? outcome) } as const)
+                    const result = ok
+                        ? ({ ok: true, body: output } as const)
+                        : ({ ok: false, error: errorText || 'tool_failed' } as const)
                     return { ...p, result }
                 })
             )

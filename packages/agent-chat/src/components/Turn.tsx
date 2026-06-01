@@ -10,7 +10,7 @@
  * or design tweaks added there light up here automatically.
  */
 
-import type { ClientToolHandler, Turn } from '../types'
+import type { AssistantTurnPart, ClientToolHandler, Turn } from '../types'
 import type { ClientToolOutcome } from './parts'
 import { PartRenderer } from './parts'
 
@@ -22,6 +22,8 @@ interface TurnProps {
     handlers?: ClientToolHandler[]
     sessionId?: string
     onClientToolResolve?: (callId: string, outcome: ClientToolOutcome) => void
+    /** Forwarded to PartRenderer; host-provided per-tool summary renderer. */
+    renderToolSummary?: (part: Extract<AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null
 }
 
 export function TurnRow({
@@ -30,6 +32,7 @@ export function TurnRow({
     handlers,
     sessionId,
     onClientToolResolve,
+    renderToolSummary,
 }: TurnProps): React.ReactElement {
     if (turn.kind === 'user') {
         const pending = turn.pending === true
@@ -63,6 +66,7 @@ export function TurnRow({
                     handlers={handlers}
                     sessionId={sessionId}
                     onClientToolResolve={onClientToolResolve}
+                    renderToolSummary={renderToolSummary}
                 />
             ))}
             {turn.streaming ? <StreamingDots /> : null}

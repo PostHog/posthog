@@ -19,12 +19,15 @@
 
 'use client'
 
+import { ArrowRightIcon } from 'lucide-react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { AgentChat, useFakeRunner, type ClientToolHandler, type TransportError } from '@posthog/agent-chat'
 import type {
     AgentApplicationRef,
+    AssistantTurnPart,
     ChatContext,
     FocusArgs,
     FocusResult,
@@ -185,6 +188,109 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
     }, [context, focus, router])
 }
 
+/**
+ * Per-tool summary renderer the dock passes into `<AgentChat>` — turns
+ * focus_* tool calls into a one-line "Open X →" link plus an inline
+ * error reason on failure, so the user never has to expand the JSON
+ * drawer to know what the agent tried to do or why it didn't work.
+ *
+ * Non-focus tools return null and fall back to the bare collapsed card.
+ */
+function useToolSummaryRenderer(
+    context: ChatContext
+): (part: Extract<AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null {
+    return useMemo(() => {
+        const contextSlug =
+            context.mode === 'concierge' && 'agent' in context.page
+                ? context.page.agent.slug
+                : context.mode === 'playground'
+                  ? context.agent.slug
+                  : undefined
+
+        return (part) => {
+            if (!part.toolId.startsWith('focus_')) {
+                return null
+            }
+            const target = describeFocusTarget(part.toolId, part.args)
+            if (!target) {
+                return null
+            }
+            const url = contextSlug ? urlForFocusToolId(part.toolId, part.args, contextSlug) : null
+            const failed = part.result !== undefined && !part.result.ok
+            const errorText = failed && part.result && !part.result.ok ? part.result.error : null
+
+            return (
+                <div className="flex items-center gap-2 text-xs">
+                    {errorText ? (
+                        <span className="font-medium text-destructive-foreground">
+                            Couldn't focus · <span className="font-mono normal-case opacity-80">{errorText}</span>
+                        </span>
+                    ) : null}
+                    {url ? (
+                        <Link
+                            href={url}
+                            className="ml-auto inline-flex shrink-0 items-center gap-1 text-foreground/80 underline decoration-foreground/40 underline-offset-2 hover:text-foreground hover:decoration-foreground"
+                        >
+                            Open {target} <ArrowRightIcon className="h-3 w-3" />
+                        </Link>
+                    ) : (
+                        <span className="ml-auto text-muted-foreground">{target}</span>
+                    )}
+                </div>
+            )
+        }
+    }, [context])
+}
+
+/**
+ * Pretty label for the focus target — what the user sees in the
+ * inline link / fallback text. Mirrors the kinds in `FocusArgs`.
+ */
+function describeFocusTarget(toolId: string, args: Record<string, unknown>): string | null {
+    switch (toolId) {
+        case 'focus_tab':
+            return typeof args.tab === 'string' ? `${args.tab} tab` : null
+        case 'focus_revision':
+            return typeof args.revisionId === 'string' ? `revision ${shortRevisionId(args.revisionId)}` : null
+        case 'focus_session':
+            return typeof args.sessionId === 'string' ? `session ${shortRevisionId(args.sessionId)}` : null
+        case 'focus_spec_section':
+            return typeof args.section === 'string' ? `${args.section} section` : null
+        case 'focus_file':
+            return typeof args.path === 'string' ? args.path : null
+        default:
+            return null
+    }
+}
+
+/** Translate a `focus_*` tool id + args into a destination URL. */
+function urlForFocusToolId(toolId: string, args: Record<string, unknown>, slug: string): string | null {
+    switch (toolId) {
+        case 'focus_tab':
+            return typeof args.tab === 'string' ? urlForFocus({ kind: 'tab', tab: args.tab as never }, slug) : null
+        case 'focus_revision':
+            return typeof args.revisionId === 'string'
+                ? urlForFocus({ kind: 'revision', revisionId: args.revisionId }, slug)
+                : null
+        case 'focus_session':
+            return typeof args.sessionId === 'string'
+                ? urlForFocus({ kind: 'session', sessionId: args.sessionId }, slug)
+                : null
+        case 'focus_spec_section':
+            return typeof args.section === 'string'
+                ? urlForFocus({ kind: 'spec_section', section: args.section as never }, slug)
+                : null
+        case 'focus_file':
+            return typeof args.path === 'string' ? urlForFocus({ kind: 'file', path: args.path }, slug) : null
+        default:
+            return null
+    }
+}
+
+function shortRevisionId(id: string): string {
+    return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
+}
+
 function useDockHandlers(context: ChatContext): ClientToolHandler[] {
     const focusHandlers = useFocusHandlers(context)
     const { info } = useSession()
@@ -341,6 +447,7 @@ function PlaygroundDock({
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
     const { layout, setMode, setVisible } = useDockLayout()
+    const renderToolSummary = useToolSummaryRenderer(context)
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
 
@@ -350,6 +457,7 @@ function PlaygroundDock({
             session={runner.session}
             handlers={handlers}
             onClientToolResolve={runner.resolveClientTool}
+            renderToolSummary={renderToolSummary}
             headerSlot={
                 <DockHeader
                     context={context}
@@ -525,6 +633,7 @@ function RealConciergeDock({
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible } = useDockLayout()
+    const renderToolSummary = useToolSummaryRenderer(context)
 
     return (
         <AgentChat
@@ -532,6 +641,7 @@ function RealConciergeDock({
             session={runner.session}
             handlers={handlers}
             onClientToolResolve={runner.resolveClientTool}
+            renderToolSummary={renderToolSummary}
             headerSlot={
                 <DockHeader
                     context={context}
@@ -576,12 +686,14 @@ function FixtureConciergeDock(): React.ReactElement {
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible } = useDockLayout()
+    const renderToolSummary = useToolSummaryRenderer(context)
 
     return (
         <AgentChat
             context={context}
             session={runner.session}
             handlers={handlers}
+            renderToolSummary={renderToolSummary}
             headerSlot={
                 <DockHeader
                     context={context}

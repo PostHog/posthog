@@ -35,6 +35,14 @@ export interface ToolCallCardProps {
      * result JSON drops behind a "details" toggle.
      */
     inlineSlot?: React.ReactNode
+    /**
+     * Optional summary row rendered between the header and the args /
+     * result drawer. Hosts use this to surface a rich, one-line view
+     * of what the tool did — e.g. a clickable destination link for
+     * `focus_*` tools, or a styled error reason for failures — so the
+     * user gets useful context without expanding the JSON.
+     */
+    summarySlot?: React.ReactNode
 }
 
 export function ToolCallCard({
@@ -42,6 +50,7 @@ export function ToolCallCard({
     highlighted = false,
     onSelectCallId,
     inlineSlot,
+    summarySlot,
 }: ToolCallCardProps): React.ReactElement {
     const hasInline = inlineSlot !== undefined && inlineSlot !== null && inlineSlot !== false
     // With an inline slot, the details drawer hides by default — the
@@ -82,6 +91,7 @@ export function ToolCallCard({
                     )}
                 </span>
             </button>
+            {summarySlot ? <div className="border-t border-border/60 px-2.5 py-1.5">{summarySlot}</div> : null}
             {hasInline ? <div className="border-t border-border/60 p-2.5">{inlineSlot}</div> : null}
             {detailsOpen ? (
                 <div className="space-y-2 border-t border-border/60 px-2.5 py-2">

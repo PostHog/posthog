@@ -85,6 +85,15 @@ export interface AgentChatProps {
      * pass it through; the chat lib itself only consumes the value.
      */
     renderMarkdown?: boolean
+    /**
+     * Optional host-provided summary renderer for tool-call cards.
+     * Receives a resolved tool-call part and returns a node rendered
+     * between the card header and the JSON drawer — used to surface
+     * a clickable destination link for `focus_*` tools, styled error
+     * reasons for failures, etc. Returning `null` (or omitting the
+     * prop) falls back to the bare collapsed card.
+     */
+    renderToolSummary?: (part: Extract<import('./types').AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null
 }
 
 /**
@@ -117,6 +126,7 @@ export function AgentChat({
     transportError,
     onDismissTransportError,
     renderMarkdown = true,
+    renderToolSummary,
 }: AgentChatProps): React.ReactElement {
     const [draft, setDraft] = useState('')
     const inputId = useId()
@@ -207,6 +217,7 @@ export function AgentChat({
                                 handlers={handlers}
                                 sessionId={session.id}
                                 onClientToolResolve={onClientToolResolve}
+                                renderToolSummary={renderToolSummary}
                             />
                         ))}
                         {session.pendingApprovals.map((a) => (

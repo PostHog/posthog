@@ -60,6 +60,14 @@ export interface PartRendererProps {
      * in production hosts. Stories can pass a no-op or a logger.
      */
     onClientToolResolve?: (callId: string, outcome: ClientToolOutcome) => void
+    /**
+     * Optional host-provided summary renderer for tool-call parts.
+     * Returns a node rendered between the card header and the JSON
+     * drawer — used to surface clickable destination links for
+     * `focus_*` tools, styled error reasons, etc. Returning `null`
+     * (or omitting the prop) falls back to the bare collapsed card.
+     */
+    renderToolSummary?: (part: Extract<AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null
 }
 
 export function PartRenderer({
@@ -71,6 +79,7 @@ export function PartRenderer({
     handlers,
     sessionId,
     onClientToolResolve,
+    renderToolSummary,
 }: PartRendererProps): React.ReactElement {
     if (part.kind === 'text') {
         if (textVariant === 'bubble') {
@@ -100,12 +109,14 @@ export function PartRenderer({
     // once the result arrives — keeping a stale form around after the
     // agent has moved on is just visual noise.
     const inlineSlot = pendingInlineSlot({ part, handlers, sessionId, onClientToolResolve })
+    const summarySlot = renderToolSummary?.(part) ?? null
     return (
         <ToolCallCard
             part={part}
             highlighted={highlightedCallId === part.callId}
             onSelectCallId={onSelectCallId}
             inlineSlot={inlineSlot}
+            summarySlot={summarySlot}
         />
     )
 }

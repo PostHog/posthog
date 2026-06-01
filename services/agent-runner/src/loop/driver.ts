@@ -420,6 +420,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         id: event.toolCallId,
                         ok: !event.isError,
                         error: errorText,
+                        // Surface the structured output so the live SSE
+                        // reducer can render the same result the persisted
+                        // session conversation shows on reload. Without
+                        // this the client sees only `ok`/`error`.
+                        output: event.isError ? undefined : (details?.output ?? null),
                         ...(details?.queued ? { approval: { request_id: details.requestId, state: 'queued' } } : {}),
                     })
                     // A queued gated call didn't really execute — no span for it
