@@ -22,10 +22,10 @@ class ExperimentQueryContext:
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     filter_test_accounts: bool
     multiple_variant_handling: MultipleVariantHandling
-    variants: list[str]
+    variants: tuple[str, ...]
     date_range_query: QueryDateRange
     entity_key: str
-    breakdowns: list[Breakdown]
+    breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
     funnel_steps_data_disabled: bool
     cuped_config: CupedQueryConfig
