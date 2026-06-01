@@ -82,7 +82,13 @@ def build_task_run_artifact_size_error(
 
 
 class TaskSerializer(serializers.ModelSerializer):
-    repository = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    repository = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+    )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=UserIntegration.objects.filter(kind="github"),
@@ -93,9 +99,22 @@ class TaskSerializer(serializers.ModelSerializer):
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
 
-    title = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    description = serializers.CharField(required=False, allow_blank=True)
-    origin_product = serializers.ChoiceField(choices=Task.OriginProduct.choices, required=False)
+    title = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Short human-readable title. Auto-generated from `description` when omitted.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Free-form description of the work to be done. Used as the prompt passed to the agent.",
+    )
+    origin_product = serializers.ChoiceField(
+        choices=Task.OriginProduct.choices,
+        required=False,
+        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+    )
     # Write-only: which SignalReportTask row to create when linking a task to a report from the
     # public task API (e.g. PostHog Code inbox). Only implementation is supported; research/repo
     # selection links are created by server-side flows.

@@ -261,6 +261,15 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    /**
+     * Pre-fetch the first page (empty-query) once, cache it, and filter
+     * subsequent typed queries client-side via Fuse rather than firing a
+     * fresh request per keystroke. Used by groups whose total population
+     * comfortably fits in a single page (e.g. Cohorts) where the snappy
+     * local feel is worth losing access to results past the first page.
+     * Per-keystroke remote fetches are suppressed when this is on.
+     */
+    clientFilterFirstPage?: boolean
 }
 
 export enum TaxonomicFilterGroupType {

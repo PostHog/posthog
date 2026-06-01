@@ -12583,6 +12583,7 @@ export namespace Schemas {
     * `Plain` - Plain
     * `Resend` - Resend
     * `PgAnalyze` - PgAnalyze
+    * `Custom` - Custom
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -12733,6 +12734,7 @@ export namespace Schemas {
       Plain: 'Plain',
       Resend: 'Resend',
       PgAnalyze: 'PgAnalyze',
+      Custom: 'Custom',
     } as const;
 
     /**
@@ -12889,7 +12891,8 @@ export namespace Schemas {
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
       * `Resend` - Resend
-      * `PgAnalyze` - PgAnalyze */
+      * `PgAnalyze` - PgAnalyze
+      * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -12962,6 +12965,11 @@ export namespace Schemas {
       Bayesian: 'bayesian',
       Frequentist: 'frequentist',
     } as const;
+
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
 
     /**
      * * `pending` - Pending
@@ -14038,6 +14046,95 @@ export namespace Schemas {
       text?: string;
       html?: string;
       design?: unknown;
+    }
+
+    /**
+     * One citation attached to a finding. Mirrors `SignalsScoutEvidenceEntry`.
+     */
+    export interface EvidenceEntry {
+      /** Source the citation came from (`error_tracking`, `session_replay`, `logs`, ...). */
+      source_product: string;
+      /** One-sentence prose about why this evidence supports the finding. */
+      summary: string;
+      /**
+         * Optional ID of the cited entity (issue id, recording id, log query id).
+         * @nullable
+         */
+      entity_id?: string | null;
+    }
+
+    export interface TimeRange {
+      /** ISO-8601 inclusive lower bound for the finding's window. */
+      date_from: string;
+      /** ISO-8601 inclusive upper bound for the finding's window. */
+      date_to: string;
+    }
+
+    /**
+     * Request body for `emit-finding`. Run attribution is taken from the URL path.
+     */
+    export interface EmitFindingRequest {
+      /**
+         * Canonical evidence-bundle prose. Becomes the signal's `description`.
+         * @maxLength 50000
+         */
+      description: string;
+      /**
+         * Agent's weight for the signal in [0, 1]. Drives ranking in the inbox.
+         * @minimum 0
+         * @maximum 1
+         */
+      weight: number;
+      /**
+         * Agent's confidence the finding is real in [0, 1]. Persisted in `extra`.
+         * @minimum 0
+         * @maximum 1
+         */
+      confidence: number;
+      /**
+         * Citations supporting the finding. Capped at 20 entries.
+         * @maxItems 20
+         */
+      evidence: EvidenceEntry[];
+      /**
+         * Optional one-line hypothesis the finding tests.
+         * @nullable
+         */
+      hypothesis?: string | null;
+      /** Optional severity tag — one of P0, P1, P2, P3, P4. Informational only.
+
+      * `P0` - P0
+      * `P1` - P1
+      * `P2` - P2
+      * `P3` - P3
+      * `P4` - P4 */
+      severity?: AutonomyPriorityEnum | null;
+      /** Optional keys for downstream dedupe (e.g. `error_tracking_issue:<id>`). */
+      dedupe_keys?: string[];
+      /** Optional time window the finding refers to. */
+      time_range?: TimeRange | null;
+      /**
+         * Optional MCP trace id for cross-system debugging.
+         * @nullable
+         */
+      mcp_trace_id?: string | null;
+      /**
+         * Stable id for this finding, baked into the signal's source_id for traceability. NOT a dedupe key — re-emitting the same id creates another signal.
+         * @nullable
+         */
+      finding_id?: string | null;
+    }
+
+    export interface EmitFindingResponse {
+      /** Stable id for the finding (echoed back from request, or generated). */
+      finding_id: string;
+      /** Whether `emit_signal` was actually fired. */
+      emitted: boolean;
+      /**
+         * `ai_processing_not_approved` | `source_disabled` | null when emitted normally.
+         * @nullable
+         */
+      skipped_reason: string | null;
     }
 
     export interface EndExperiment {
@@ -16300,6 +16397,26 @@ export namespace Schemas {
     }
 
     /**
+     * One bucket in `inventory.existing_inbox_reports.by_status`.
+     */
+    export interface InboxReportStatusBucket {
+      /** Report status (e.g. `potential`, `candidate`, `ready`). */
+      status: string;
+      /** Number of reports in this status (excludes deleted/suppressed). */
+      count: number;
+    }
+
+    /**
+     * `inventory.existing_inbox_reports` — what's already been surfaced to the inbox.
+     */
+    export interface ExistingInboxReports {
+      /** Total non-deleted, non-suppressed reports for this team. */
+      total: number;
+      /** Per-status breakdown of inbox reports. */
+      by_status: InboxReportStatusBucket[];
+    }
+
+    /**
      * * `exit_on_conversion` - Conversion
     * `exit_on_trigger_not_matched` - Trigger Not Matched
     * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
@@ -16509,7 +16626,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown;
       readonly saved_metrics: readonly ExperimentToSavedMetric[];
@@ -17105,7 +17222,8 @@ export namespace Schemas {
       * `ClickHouse` - ClickHouse
       * `Plain` - Plain
       * `Resend` - Resend
-      * `PgAnalyze` - PgAnalyze */
+      * `PgAnalyze` - PgAnalyze
+      * `Custom` - Custom */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -17132,6 +17250,23 @@ export namespace Schemas {
       * `api` - api
       * `mcp` - mcp */
       created_via?: CreatedViaEnum;
+    }
+
+    /**
+     * One row in `inventory.external_data_sources`.
+     */
+    export interface ExternalDataSourceEntry {
+      /** Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`). */
+      source_type: string;
+      /** Current sync status (`Running`, `Failed`, `Paused`, etc.). */
+      status: string;
+      /** Schema prefix used by this source, if any. */
+      prefix: string;
+      /**
+         * ISO-8601 timestamp the source was connected.
+         * @nullable
+         */
+      created_at: string | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -17979,6 +18114,22 @@ export namespace Schemas {
       refreshing: boolean;
     }
 
+    /**
+     * Request body for `forget`.
+     */
+    export interface ForgetRequest {
+      /**
+         * Memory key to delete.
+         * @maxLength 300
+         */
+      key: string;
+    }
+
+    export interface ForgetResponse {
+      /** Whether a row was actually removed (false if the key didn't exist). */
+      deleted: boolean;
+    }
+
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -18371,6 +18522,9 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
     }
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type HogFlowVariablesItem = {[key: string]: string};
 
     /**
@@ -18389,15 +18543,47 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
+         * Hash TTL in seconds (60 to ~94M / 3y).
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
-      /** @nullable */
+      /**
+         * Min matching events before triggering (k-anonymity).
+         * @nullable
+         */
       threshold?: number | null;
+      /** HogQL template, e.g. '{person.properties.email}'. */
       hash: string;
+      /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
+    }
+
+    /**
+     * * `continue` - continue
+    * `branch` - branch
+     */
+    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
+
+
+    export const HogFlowEdgeTypeEnum = {
+      Continue: 'continue',
+      Branch: 'branch',
+    } as const;
+
+    export interface HogFlowEdge {
+      /** Target action id. */
+      to: string;
+      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+
+      * `continue` - continue
+      * `branch` - branch */
+      type: HogFlowEdgeTypeEnum;
+      /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
+      index?: number;
+      /** Source action id. */
+      from: string;
     }
 
     /**
@@ -18451,43 +18637,96 @@ export namespace Schemas {
     }
 
     export interface HogFlowAction {
+      /** Unique node ID within the workflow. */
       id: string;
-      /** @maxLength 400 */
+      /**
+         * Display name.
+         * @maxLength 400
+         */
       name: string;
+      /** Optional description. */
       description?: string;
+      /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+
+      * `continue` - continue
+      * `abort` - abort
+      * `complete` - complete
+      * `branch` - branch */
       on_error?: OnErrorEnum | null;
+      /** Created at (epoch ms). Frontend-managed. */
       created_at?: number;
+      /** Updated at (epoch ms). Frontend-managed. */
       updated_at?: number;
+      /** Property filters gating this action. */
       filters?: HogFunctionFilters | null;
-      /** @maxLength 100 */
+      /**
+         * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+         * @maxLength 100
+         */
       type: string;
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
       config: unknown;
+      /** Output variable definition for downstream actions. */
       output_variable?: unknown;
     }
 
     export interface HogFlow {
       readonly id: string;
       /**
+         * Workflow name.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional description. */
       description?: string;
       readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+
+      * `draft` - Draft
+      * `active` - Active
+      * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
-      trigger?: unknown;
+      readonly trigger: unknown;
+      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+
+      * `exit_on_conversion` - Conversion
+      * `exit_on_trigger_not_matched` - Trigger Not Matched
+      * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+      * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
-      edges?: unknown;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions: HogFlowAction[];
       /** @nullable */
       readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+    }
+
+    /**
+     * Test trigger payload, typically {event, person, groups}.
+     */
+    export type HogFlowInvocationGlobals = { [key: string]: unknown };
+
+    export interface HogFlowInvocation {
+      /** Optional override; omit to use saved definition. */
+      configuration?: HogFlow;
+      /** Test trigger payload, typically {event, person, groups}. */
+      globals?: HogFlowInvocationGlobals;
+      /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
+      mock_async_functions?: boolean;
+      /** Start from this action ID instead of the trigger. */
+      current_action_id?: string;
     }
 
     export interface HogFlowMinimal {
@@ -18545,6 +18784,9 @@ export namespace Schemas {
      */
     export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type HogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
@@ -20224,6 +20466,19 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+    }
+
+    /**
+     * One row in `inventory.integrations`. Sensitive config is intentionally excluded.
+     */
+    export interface IntegrationEntry {
+      /** Integration kind (e.g. `slack`, `github`, `linear`). */
+      kind: string;
+      /**
+         * ISO-8601 timestamp the integration was connected.
+         * @nullable
+         */
+      created_at: string | null;
     }
 
     export interface InterestingNote {
@@ -22628,6 +22883,7 @@ export namespace Schemas {
     * `support_queue` - Support Queue
     * `session_summaries` - Session Summaries
     * `signal_report` - Signal Report
+    * `signals_scout` - Signals Scout
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -22641,6 +22897,7 @@ export namespace Schemas {
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
       SignalReport: 'signal_report',
+      SignalsScout: 'signals_scout',
     } as const;
 
     /**
@@ -24000,7 +24257,6 @@ export namespace Schemas {
     * `classifier` - Classifier
     * `scorer` - Scorer
     * `summarizer` - Summarizer
-    * `indexer` - Indexer
      */
     export type ScannerTypeEnum = typeof ScannerTypeEnum[keyof typeof ScannerTypeEnum];
 
@@ -24010,7 +24266,6 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
-      Indexer: 'indexer',
     } as const;
 
     /**
@@ -24041,13 +24296,12 @@ export namespace Schemas {
     export interface ScannerSnapshot {
       /** Scanner name at run time. */
       name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.
+      /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
@@ -24067,11 +24321,6 @@ export namespace Schemas {
     }
 
     /**
-     * Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited.
-     */
-    export type ScannerResultEventIdMapping = { [key: string]: unknown };
-
-    /**
      * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
      */
     export interface ScannerResult {
@@ -24082,8 +24331,6 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
-      /** Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: `{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited. */
-      event_id_mapping: ScannerResultEventIdMapping;
     }
 
     export interface ReplayObservation {
@@ -24140,15 +24387,14 @@ export namespace Schemas {
       name: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -24759,6 +25005,8 @@ export namespace Schemas {
     * `conversations` - Conversations
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
+    * `signals_scout` - Signals scout
+    * `logs` - Logs
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -24772,6 +25020,8 @@ export namespace Schemas {
       Conversations: 'conversations',
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
+      SignalsScout: 'signals_scout',
+      Logs: 'logs',
     } as const;
 
     /**
@@ -24782,6 +25032,8 @@ export namespace Schemas {
     * `issue_created` - Issue created
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
+    * `cross_source_issue` - Cross source issue
+    * `alert_state_change` - Alert state change
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -24794,6 +25046,8 @@ export namespace Schemas {
       IssueCreated: 'issue_created',
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
+      CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
     } as const;
 
     export interface SignalSourceConfig {
@@ -25607,12 +25861,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -28180,7 +28450,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). */
       parameters?: ExperimentParameters | null;
       secondary_metrics?: unknown;
       readonly saved_metrics?: readonly ExperimentToSavedMetric[];
@@ -28603,29 +28873,50 @@ export namespace Schemas {
       readonly exception?: string | null;
     }
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
+         * Workflow name.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional description. */
       description?: string;
       readonly version?: number;
+      /** draft (no execution), active (live), archived (disabled).
+
+      * `draft` - Draft
+      * `active` - Active
+      * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
-      trigger?: unknown;
+      readonly trigger?: unknown;
+      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+
+      * `exit_on_conversion` - Conversion
+      * `exit_on_trigger_not_matched` - Trigger Not Matched
+      * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+      * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
-      edges?: unknown;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions?: HogFlowAction[];
       /** @nullable */
       readonly abort_action?: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
     }
@@ -28635,6 +28926,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type PatchedHogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
@@ -30497,15 +30791,14 @@ export namespace Schemas {
       name?: string;
       /** Free-form description shown in the scanner management UI. */
       description?: string;
-      /** What the scanner does: monitor, classifier, scorer, summarizer, or indexer.
+      /** What the scanner does: monitor, classifier, scorer, or summarizer.
 
       * `monitor` - Monitor
       * `classifier` - Classifier
       * `scorer` - Scorer
-      * `summarizer` - Summarizer
-      * `indexer` - Indexer */
+      * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`. */
+      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -31642,12 +31935,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -32622,6 +32931,24 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.product_intents`.
+     */
+    export interface ProductIntentEntry {
+      /** Product key the team signaled intent to use. */
+      product_type: string;
+      /**
+         * ISO-8601 timestamp the team activated the product, or null if intent only.
+         * @nullable
+         */
+      activated_at: string | null;
+      /**
+         * ISO-8601 timestamp the intent was first recorded.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
      * Serializer for creating and updating ProductTour.
      */
     export interface ProductTourSerializerCreateUpdateOnly {
@@ -33442,6 +33769,487 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * `inventory.project_context` — free-form orientation about the project's product.
+     */
+    export interface ProjectContext {
+      /**
+         * Human-set product description on the project (max 1000 chars). When present, the most direct "what does this team's product do" answer. `null` when unset.
+         * @nullable
+         */
+      product_description: string | null;
+      /** Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`. */
+      app_urls: string[];
+    }
+
+    /**
+     * One row in either bucket of `inventory.signal_source_configs`.
+     */
+    export interface SignalSourceConfigEntry {
+      /** Source product the config applies to. */
+      source_product: string;
+      /** Source type within the product. */
+      source_type: string;
+    }
+
+    /**
+     * `inventory.signal_source_configs` split into enabled and disabled buckets.
+     */
+    export interface SignalSourceConfigsBuckets {
+      /** Source configs the team has explicitly enabled. */
+      enabled: SignalSourceConfigEntry[];
+      /** Source configs the team has explicitly disabled (different from never wired up). */
+      disabled: SignalSourceConfigEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_activity.by_scope`.
+     */
+    export interface ScopeActivityEntry {
+      /** Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`. */
+      scope: string;
+      /** Total activity-log entries for this scope in the window (write velocity). */
+      edits: number;
+      /** Distinct users who edited this scope in the window. */
+      users: number;
+      /**
+         * ISO-8601 timestamp of the most recent edit in the window.
+         * @nullable
+         */
+      last_edit: string | null;
+    }
+
+    /**
+     * `inventory.recent_activity` — per-scope counts off the activity log.
+     */
+    export interface RecentActivity {
+      /** Lookback window in days the per-scope counts cover. */
+      window_days: number;
+      /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
+      by_scope: ScopeActivityEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_dashboards`.
+     */
+    export interface RecentDashboardEntry {
+      /** Dashboard ID — pass to `dashboard-get` to pull the full payload. */
+      id: number;
+      /** Dashboard name (may be blank if unnamed). */
+      name: string;
+      /**
+         * ISO-8601 timestamp of the most recent view in the PostHog UI.
+         * @nullable
+         */
+      last_accessed_at: string | null;
+      /**
+         * ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.
+         * @nullable
+         */
+      last_refresh: string | null;
+      /**
+         * ISO-8601 timestamp the dashboard was created.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * One row in `inventory.recent_surveys.recent`.
+     */
+    export interface RecentSurveyEntry {
+      /** Survey UUID — pass to `survey-get` for full question shape. */
+      id: string;
+      /** Survey name (may be blank if unnamed). */
+      name: string;
+      /** Survey mode: `popover`, `widget`, `external_survey`, or `api`. */
+      type: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_surveys` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentSurveys {
+      /** Total surveys on the team. */
+      total_count: number;
+      /** Surveys that are live (not archived, started, and not yet ended). */
+      active_count: number;
+      /** The 5 most recently updated surveys. */
+      recent: RecentSurveyEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_feature_flags.recent`.
+     */
+    export interface RecentFeatureFlagEntry {
+      /** Feature flag ID. */
+      id: number;
+      /** Flag key used in code (`posthog.isFeatureEnabled('<key>')`). */
+      key: string;
+      /** Human-set description; falls back to the key when blank. */
+      name: string;
+      /** Whether the flag is currently evaluating (a user could be hitting it). */
+      active: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified.
+     */
+    export interface RecentFeatureFlags {
+      /** Total non-deleted feature flags on the team. */
+      total_count: number;
+      /** Flags currently evaluating (`active=true`). */
+      active_count: number;
+      /** The 5 most recently updated non-deleted flags. */
+      recent: RecentFeatureFlagEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_experiments.recent`.
+     */
+    export interface RecentExperimentEntry {
+      /** Experiment ID. */
+      id: number;
+      /** Experiment name. */
+      name: string;
+      /** Derived status: `draft`, `running`, `stopped`, or `archived`. */
+      status: string;
+      /**
+         * Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.
+         * @nullable
+         */
+      feature_flag_key: string | null;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified.
+     */
+    export interface RecentExperiments {
+      /** Total experiments on the team. */
+      total_count: number;
+      /** Experiments currently running (started, not ended, not archived). */
+      running_count: number;
+      /** The 5 most recently updated experiments. */
+      recent: RecentExperimentEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_alerts.recent`.
+     */
+    export interface RecentAlertEntry {
+      /** Alert configuration UUID. */
+      id: string;
+      /** Alert name. */
+      name: string;
+      /** Whether the alert is currently armed. */
+      enabled: boolean;
+      /** Alert state (e.g. `not_firing`, `firing`). */
+      state: string;
+      /**
+         * How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.
+         * @nullable
+         */
+      calculation_interval: string | null;
+      /**
+         * ID of the insight the alert watches; null if none.
+         * @nullable
+         */
+      insight_id: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created.
+     */
+    export interface RecentAlerts {
+      /** Total insight alerts on the team. */
+      total_count: number;
+      /** Alerts currently armed (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently created alerts. */
+      recent: RecentAlertEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_functions.recent`.
+     */
+    export interface RecentHogFunctionEntry {
+      /** Hog function UUID. */
+      id: string;
+      /** Hog function name. */
+      name: string;
+      /**
+         * Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.
+         * @nullable
+         */
+      type: string | null;
+      /**
+         * Function kind sub-classifier; null if unset.
+         * @nullable
+         */
+      kind: string | null;
+      /** Whether the function is currently enabled. */
+      enabled: boolean;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFunctions {
+      /** Total non-deleted hog functions on the team. */
+      total_count: number;
+      /** Hog functions currently enabled (`enabled=true`). */
+      enabled_count: number;
+      /** The 5 most recently updated hog functions. */
+      recent: RecentHogFunctionEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_hog_flows.recent`.
+     */
+    export interface RecentHogFlowEntry {
+      /** Hog flow UUID. */
+      id: string;
+      /** Hog flow name. */
+      name: string;
+      /** Flow lifecycle state (e.g. `draft`, `active`, `archived`). */
+      status: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified.
+     */
+    export interface RecentHogFlows {
+      /** Total hog flows on the team. */
+      total_count: number;
+      /** Hog flows that are not archived. */
+      active_count: number;
+      /** The 5 most recently updated hog flows. */
+      recent: RecentHogFlowEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_notebooks.recent`.
+     */
+    export interface RecentNotebookEntry {
+      /** Notebook short ID — pass to the notebooks API to open it. */
+      short_id: string;
+      /** Notebook title (may be blank if untitled). */
+      title: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      last_modified_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_notebooks` — total + the 5 most recently modified.
+     */
+    export interface RecentNotebooks {
+      /** Total non-deleted notebooks on the team. */
+      total_count: number;
+      /** The 5 most recently modified notebooks. */
+      recent: RecentNotebookEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_cohorts.recent`.
+     */
+    export interface RecentCohortEntry {
+      /** Cohort ID. */
+      id: number;
+      /** Cohort name. */
+      name: string;
+      /** True for a one-shot snapshot cohort; false for a dynamic-filter cohort. */
+      is_static: boolean;
+      /**
+         * Membership size when last calculated; null if never calculated.
+         * @nullable
+         */
+      count: number | null;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_cohorts` — total + the 5 most recently created.
+     */
+    export interface RecentCohorts {
+      /** Total non-deleted cohorts on the team. */
+      total_count: number;
+      /** The 5 most recently created cohorts. */
+      recent: RecentCohortEntry[];
+    }
+
+    /**
+     * One row in `inventory.recent_actions.recent`.
+     */
+    export interface RecentActionEntry {
+      /** Action ID. */
+      id: number;
+      /** Action name. */
+      name: string;
+      /**
+         * ISO-8601 last-modified timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+    }
+
+    /**
+     * `inventory.recent_actions` — total + the 5 most recently modified.
+     */
+    export interface RecentActions {
+      /** Total non-deleted actions on the team. */
+      total_count: number;
+      /** The 5 most recently updated actions. */
+      recent: RecentActionEntry[];
+    }
+
+    /**
+     * One row in `inventory.top_events`.
+     */
+    export interface TopEventEntry {
+      /** Event name as captured. */
+      event: string;
+      /** Number of occurrences in the lookback window (last 7 days). */
+      count: number;
+      /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
+      distinct_users: number;
+      /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+      recent_24h_count: number;
+      /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
+      recent_24h_users: number;
+      /**
+         * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+         * @nullable
+         */
+      first_seen: string | null;
+      /**
+         * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    /**
+     * The deterministic inventory layer of a project profile.
+
+    Read this to orient on the team's product mix, integrations, warehouse sources, signal
+    coverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:
+    profile is ground truth from authoritative tables; memory is agent inference.
+     */
+    export interface ProjectProfileInventory {
+      /** Free-form orientation: human-set product description + registered app URLs. */
+      project_context: ProjectContext;
+      /** Product keys this team has completed onboarding for, sorted alphabetically. */
+      products_in_use: string[];
+      /** Products the team signaled intent to use; useful for spotting stuck onboardings. */
+      product_intents: ProductIntentEntry[];
+      /** Connected integrations (kind + connection time only — config never surfaced). */
+      integrations: IntegrationEntry[];
+      /** Connected warehouse sources (excludes soft-deleted). */
+      external_data_sources: ExternalDataSourceEntry[];
+      /** Signal source configs split into enabled / disabled buckets. */
+      signal_source_configs: SignalSourceConfigsBuckets;
+      /** Counts of reports already in the inbox, grouped by status. */
+      existing_inbox_reports: ExistingInboxReports;
+      /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
+      recent_activity: RecentActivity;
+      /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
+      recent_dashboards: RecentDashboardEntry[];
+      /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
+      recent_surveys: RecentSurveys;
+      /** Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at. */
+      recent_feature_flags: RecentFeatureFlags;
+      /** Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section. */
+      recent_experiments: RecentExperiments;
+      /** Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata. */
+      recent_alerts: RecentAlerts;
+      /** Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines. */
+      recent_hog_functions: RecentHogFunctions;
+      /** Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows. */
+      recent_hog_flows: RecentHogFlows;
+      /** Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating. */
+      recent_notebooks: RecentNotebooks;
+      /** Cohort orientation: total + the 5 most recently created cohorts on the team. */
+      recent_cohorts: RecentCohorts;
+      /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
+      recent_actions: RecentActions;
+      /**
+         * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+         * @nullable
+         */
+      top_events: TopEventEntry[] | null;
+    }
+
+    /**
+     * Top-level `payload` shape on a `SignalProjectProfile` row.
+
+    v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
+    `narrative` slots — they're absent (not null) in v1 responses.
+     */
+    export interface ProjectProfilePayload {
+      /** Deterministic snapshot of what's true about the project. */
+      inventory: ProjectProfileInventory;
+    }
+
+    /**
+     * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
+
+    Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
+    is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
+    latest cached profile or a freshly-built one if the cache was stale or the caller passed
+    `force_refresh=true`.
+     */
+    export interface ProjectProfile {
+      /** UUID of the `SignalProjectProfile` row. */
+      profile_id: string;
+      /** ISO-8601 timestamp the profile was built. */
+      computed_at: string;
+      /** ISO-8601 timestamp after which the profile is considered stale. */
+      expires_at: string;
+      /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
+      source_version: string;
+      /** Structured profile content. v1 has `inventory` only. */
+      payload: ProjectProfilePayload;
     }
 
     export interface Property {
@@ -35772,6 +36580,27 @@ export namespace Schemas {
       ci_rerun_error?: string | null;
     }
 
+    /**
+     * Request body for `remember`.
+     */
+    export interface RememberRequest {
+      /**
+         * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+         * @maxLength 300
+         */
+      key: string;
+      /**
+         * Prose to write. Read verbatim into future prompts.
+         * @maxLength 50000
+         */
+      content: string;
+      /**
+         * Run that authored this memory; persisted as `created_by_run_id` for lineage. Must reference a run on this same project — cross-project run UUIDs are rejected.
+         * @nullable
+         */
+      run_id?: string | null;
+    }
+
     export interface ReorderTilesRequest {
       /**
          * Array of tile IDs in the desired display order (top to bottom, left to right).
@@ -36031,6 +36860,31 @@ export namespace Schemas {
          * @minimum 1
          */
       base_version?: number;
+    }
+
+    /**
+     * `SignalScratchpad` projection used by `search-memory` and `remember`.
+     */
+    export interface ScratchpadEntry {
+      /** Agent-chosen semantic key, unique per team. */
+      key: string;
+      /** Prose content for prompt injection. */
+      content: string;
+      /**
+         * ISO-8601 creation timestamp.
+         * @nullable
+         */
+      created_at: string | null;
+      /**
+         * ISO-8601 last-write timestamp.
+         * @nullable
+         */
+      updated_at: string | null;
+      /**
+         * Run that wrote this entry, or null if human-authored.
+         * @nullable
+         */
+      created_by_run_id: string | null;
     }
 
     /**
@@ -36323,6 +37177,86 @@ export namespace Schemas {
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
       release_to_everyone?: boolean;
+    }
+
+    /**
+     * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
+    today; kept distinct so future detail-only extensions (linked Signal rows,
+    LLMA token-cost join) can land here without bloating the list response.
+     */
+    export interface SignalScoutRunDetail {
+      /** UUID of the bridge row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+      status: string;
+      /** ISO-8601 timestamp the TaskRun was created. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the TaskRun completed; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * UUID of the Tasks `Task` the scout span ran inside.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+         * @nullable
+         */
+      task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
+    }
+
+    /**
+     * Lightweight projection of a `SignalScoutRun` row used by `search-recent-runs`.
+
+    Status and timestamps flow from the linked `tasks.TaskRun`.
+     */
+    export interface SignalScoutRunSummary {
+      /** UUID of the bridge row. */
+      run_id: string;
+      /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
+      skill_name: string;
+      /** Skill version snapshotted at run start. */
+      skill_version: number;
+      /** Status from the linked TaskRun: not_started | queued | in_progress | completed | failed | cancelled. */
+      status: string;
+      /** ISO-8601 timestamp the TaskRun was created. */
+      started_at: string;
+      /**
+         * ISO-8601 timestamp the TaskRun completed; null while still running.
+         * @nullable
+         */
+      completed_at: string | null;
+      /**
+         * UUID of the Tasks `Task` the scout span ran inside.
+         * @nullable
+         */
+      task_id?: string | null;
+      /**
+         * UUID of the Tasks `TaskRun`. Pairs with `task_id` to deep-link.
+         * @nullable
+         */
+      task_run_id?: string | null;
+      /**
+         * Relative deep-link to the Tasks UI for this run, e.g. `/project/{team_id}/tasks/{task_id}?runId={task_run_id}`.
+         * @nullable
+         */
+      task_url?: string | null;
+      /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
+      summary: string;
     }
 
     export interface _User {
@@ -39140,6 +40074,56 @@ export namespace Schemas {
       query: _TracingTreeQueryBody;
     }
 
+    export type EnvironmentsAccountsListParams = {
+    /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
+     */
+    tags?: string;
+    };
+
+    export type EnvironmentsAccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -39168,6 +40152,17 @@ export namespace Schemas {
      * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
      */
     checks_offset?: number;
+    };
+
+    export type EnvironmentsApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsBatchExportsListParams = {
@@ -39265,6 +40260,80 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type EnvironmentsChangeRequestsListParams = {
+    action_key?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    requester?: number;
+    resource_id?: string;
+    resource_type?: string;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[];
+    };
+
+    export type EnvironmentsColumnConfigurationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsConversationsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCustomerJourneysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsCustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsDashboardsListParams = {
@@ -39391,6 +40460,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsCreateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -39567,6 +40648,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsDataModelingDagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsDataModelingEdgesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type EnvironmentsDataModelingJobsListParams = {
     /**
      * The pagination cursor value.
@@ -39577,6 +40680,17 @@ export namespace Schemas {
      */
     limit?: number;
     saved_query_id?: string;
+    };
+
+    export type EnvironmentsDataModelingNodesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
@@ -39630,6 +40744,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsDesktopRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsElementsListParams = {
     /**
      * Number of results to return per page.
@@ -39674,7 +40799,141 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingFingerprintsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type EnvironmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type EnvironmentsErrorTrackingIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingRecommendationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingSpikeEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingSuppressionRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -39730,6 +40989,42 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
+
+    export type EnvironmentsEvaluationRunsCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsEvaluationsListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -39964,6 +41259,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsFixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsGroupsListParams = {
     /**
      * Pagination cursor returned in the `next` URL of a previous response
@@ -40038,6 +41344,17 @@ export namespace Schemas {
     group_type_index: number;
     };
 
+    export type EnvironmentsHealthIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsHeatmapsListParams = {
     /**
      * Number of results to return per page.
@@ -40104,8 +41421,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsListStatus = typeof EnvironmentsHogFlowsListStatus[keyof typeof EnvironmentsHogFlowsListStatus];
+
+
+    export const EnvironmentsHogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsLogsRetrieveParams = {
     /**
@@ -40275,8 +41607,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -40290,8 +41637,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
@@ -41033,6 +42395,393 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsLlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLlmAnalyticsEvaluationReportsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string;
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: EnvironmentsLlmAnalyticsModelsRetrieveProvider;
+    };
+
+    export type EnvironmentsLlmAnalyticsModelsRetrieveProvider = typeof EnvironmentsLlmAnalyticsModelsRetrieveProvider[keyof typeof EnvironmentsLlmAnalyticsModelsRetrieveProvider];
+
+
+    export const EnvironmentsLlmAnalyticsModelsRetrieveProvider = {
+      Anthropic: 'anthropic',
+      AzureOpenai: 'azure_openai',
+      Fireworks: 'fireworks',
+      Gemini: 'gemini',
+      Openai: 'openai',
+      Openrouter: 'openrouter',
+      TogetherAi: 'together_ai',
+    } as const;
+
+    export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsProviderKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsLlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string;
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string;
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
+    export type EnvironmentsLlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    name?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search review queue names.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsLlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean;
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string;
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsLlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmAnalyticsTraceReviewsListParams = {
+    /**
+     * Filter by a stable scorer definition ID.
+     */
+    definition_id?: string;
+    /**
+     * Filter by multiple scorer definition IDs separated by commas.
+     */
+    definition_id__in?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `updated_at` or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search trace IDs and comments.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
+    export type EnvironmentsLlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsLlmPromptsListParams = {
+    /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: EnvironmentsLlmPromptsListContent;
+    /**
+     * Filter prompts by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsLlmPromptsListContent = typeof EnvironmentsLlmPromptsListContent[keyof typeof EnvironmentsLlmPromptsListContent];
+
+
+    export const EnvironmentsLlmPromptsListContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
+
+    export type EnvironmentsLlmPromptsNameRetrieveParams = {
+    /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: EnvironmentsLlmPromptsNameRetrieveContent;
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type EnvironmentsLlmPromptsNameRetrieveContent = typeof EnvironmentsLlmPromptsNameRetrieveContent[keyof typeof EnvironmentsLlmPromptsNameRetrieveContent];
+
+
+    export const EnvironmentsLlmPromptsNameRetrieveContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
+
+    export type EnvironmentsLlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string;
+    };
+
+    export type EnvironmentsLlmSkillsListParams = {
+    /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsLlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type EnvironmentsLlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type EnvironmentsLlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number;
+    };
+
+    export type EnvironmentsLlmSkillsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact skill version UUID to resolve.
+     */
+    version_id?: string;
+    };
+
     export type EnvironmentsLogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -41173,6 +42922,107 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type EnvironmentsLogsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMarketingAnalyticsUtmAuditRetrieveParams = {
+    /**
+     * Start date for the audit period
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the audit period
+     * @nullable
+     */
+    date_to?: string | null;
+    };
+
+    export type EnvironmentsMaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpServerInstallationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpServerInstallationsAuthorizeRetrieveParams = {
+    /**
+     * * `posthog` - posthog
+    * `posthog-code` - posthog-code
+     * @minLength 1
+     */
+    install_source?: EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource;
+    installation_id?: string;
+    posthog_code_callback_url?: string;
+    template_id?: string;
+    };
+
+    export type EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource = typeof EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource];
+
+
+    export const EnvironmentsMcpServerInstallationsAuthorizeRetrieveInstallSource = {
+      Posthog: 'posthog',
+      PosthogCode: 'posthog-code',
+    } as const;
+
+    export type EnvironmentsMcpServersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMcpToolsCreate200 = { [key: string]: unknown };
+
+    export type EnvironmentsMessagingCategoriesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsMessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsMetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
@@ -41184,6 +43034,45 @@ export namespace Schemas {
      * Substring filter (case-insensitive) applied to metric names.
      */
     value?: string;
+    };
+
+    export type EnvironmentsNotificationsListParams = {
+    /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
     };
 
     export type EnvironmentsPersistedFolderListParams = {
@@ -41590,7 +43479,29 @@ export namespace Schemas {
 
     export type EnvironmentsQueryDraftSqlRetrieve200 = { [key: string]: unknown };
 
+    export type EnvironmentsQuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsSavedListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsSessionRecordingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -41688,6 +43599,168 @@ export namespace Schemas {
       at_limit: boolean;
     };
 
+    export type EnvironmentsTaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsTracingSpansAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
+    attribute_type?: EnvironmentsTracingSpansAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsTracingSpansAttributesRetrieveAttributeType = typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansAttributesRetrieveAttributeType];
+
+
+    export const EnvironmentsTracingSpansAttributesRetrieveAttributeType = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export type EnvironmentsTracingSpansServiceNamesRetrieveParams = {
+    /**
+     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Search filter for service names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsTracingSpansValuesRetrieveParams = {
+    /**
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+
+    * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
+    attribute_type?: EnvironmentsTracingSpansValuesRetrieveAttributeType;
+    /**
+     * The attribute key to get values for.
+     * @minLength 1
+     */
+    key: string;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute values.
+     * @minLength 1
+     */
+    value?: string;
+    };
+
+    export type EnvironmentsTracingSpansValuesRetrieveAttributeType = typeof EnvironmentsTracingSpansValuesRetrieveAttributeType[keyof typeof EnvironmentsTracingSpansValuesRetrieveAttributeType];
+
+
+    export const EnvironmentsTracingSpansValuesRetrieveAttributeType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export type EnvironmentsUserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsUserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsUserInterviewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    topic?: string;
+    };
+
     export type EnvironmentsUserProductListListParams = {
     /**
      * Number of results to return per page.
@@ -41699,6 +43772,136 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsVisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
+    };
+
+    export type EnvironmentsVisionScannersListParams = {
+    /**
+     * Filter to scanners that emit Signals.
+     */
+    emits_signals?: boolean;
+    /**
+     * Filter to enabled vs disabled scanners.
+     */
+    enabled?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+
+    * `name` - Name
+    * `-name` - Name (descending)
+    * `created_at` - Created at
+    * `-created_at` - Created at (descending)
+    * `updated_at` - Updated at
+    * `-updated_at` - Updated at (descending)
+    * `scanner_type` - Scanner type
+    * `-scanner_type` - Scanner type (descending)
+     */
+    order_by?: string[];
+    /**
+     * Filter by scanner type (monitor, classifier, scorer, summarizer).
+
+    * `monitor` - Monitor
+    * `classifier` - Classifier
+    * `scorer` - Scorer
+    * `summarizer` - Summarizer
+     */
+    scanner_type?: EnvironmentsVisionScannersListScannerType;
+    };
+
+    export type EnvironmentsVisionScannersListScannerType = typeof EnvironmentsVisionScannersListScannerType[keyof typeof EnvironmentsVisionScannersListScannerType];
+
+
+    export const EnvironmentsVisionScannersListScannerType = {
+      Classifier: 'classifier',
+      Monitor: 'monitor',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    export type EnvironmentsVisionScannersObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+
+    * `created_at` - Created at
+    * `-created_at` - Created at (descending)
+    * `started_at` - Started at
+    * `-started_at` - Started at (descending)
+    * `completed_at` - Completed at
+    * `-completed_at` - Completed at (descending)
+    * `status` - Status
+    * `-status` - Status (descending)
+     */
+    order_by?: string[];
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status.
+
+    * `pending` - Pending
+    * `running` - Running
+    * `succeeded` - Succeeded
+    * `failed` - Failed
+    * `ineligible` - Ineligible
+     */
+    status?: EnvironmentsVisionScannersObservationsListStatus;
+    /**
+     * Filter by trigger source (schedule or on_demand).
+
+    * `schedule` - Schedule
+    * `on_demand` - On demand
+     */
+    triggered_by?: EnvironmentsVisionScannersObservationsListTriggeredBy;
+    };
+
+    export type EnvironmentsVisionScannersObservationsListStatus = typeof EnvironmentsVisionScannersObservationsListStatus[keyof typeof EnvironmentsVisionScannersObservationsListStatus];
+
+
+    export const EnvironmentsVisionScannersObservationsListStatus = {
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+    } as const;
+
+    export type EnvironmentsVisionScannersObservationsListTriggeredBy = typeof EnvironmentsVisionScannersObservationsListTriggeredBy[keyof typeof EnvironmentsVisionScannersObservationsListTriggeredBy];
+
+
+    export const EnvironmentsVisionScannersObservationsListTriggeredBy = {
+      OnDemand: 'on_demand',
+      Schedule: 'schedule',
+    } as const;
+
     export type EnvironmentsWarehouseSavedQueriesListParams = {
     /**
      * A page number within the paginated result set.
@@ -41708,6 +43911,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsWarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsWarehouseTablesListParams = {
@@ -41755,46 +43969,19 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type AccountsListParams = {
+    export type EnvironmentsWebAnalyticsWeeklyDigestParams = {
     /**
-     * Filter by account executive. Use 'unassigned' or an integer user id.
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
      */
-    account_executive?: string;
+    compare?: boolean;
     /**
-     * Filter by account owner. Use 'unassigned' or an integer user id.
+     * Lookback window in days (1–90). Defaults to 7.
      */
-    account_owner?: string;
-    /**
-     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
-     */
-    all_roles_unassigned?: boolean;
-    /**
-     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
-     */
-    csm?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort order. Defaults to '-created_at'.
-     */
-    ordering?: string;
-    /**
-     * Case-insensitive substring search across account name and external ID.
-     */
-    search?: string;
-    /**
-     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
-     */
-    tags?: string;
+    days?: number;
     };
 
-    export type AccountsNotebooksListParams = {
+    export type EnvironmentsWebAnalyticsFilterPresetsListParams = {
+    created_by?: number;
     /**
      * Number of results to return per page.
      */
@@ -41803,48 +43990,17 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    short_id?: string;
     };
 
-    export type ApprovalPoliciesListParams = {
+    export type EnvironmentsWebVitalsRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Filter web vitals by pathname
      */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
+    pathname: string;
     };
 
-    export type ChangeRequestsListParams = {
-    action_key?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    requester?: number;
-    resource_id?: string;
-    resource_type?: string;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    state?: string[];
-    };
-
-    export type ColumnConfigurationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
+    export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type ConversationsListParams = {
     /**
@@ -41857,709 +44013,7 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type ConversationsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CoreEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CustomerJourneysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CustomerProfileConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DataModelingEdgesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DataModelingNodesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingExternalReferencesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingFingerprintsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type ErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingRecommendationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingSpikeEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingStackFramesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
-
-    export type EvaluationsListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-
-    * `created_at` - Created At
-    * `-created_at` - Created At (descending)
-    * `updated_at` - Updated At
-    * `-updated_at` - Updated At (descending)
-    * `name` - Name
-    * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
-    };
-
-    export type FixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type HealthIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringJobsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationReportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationReportsRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsModelsRetrieveParams = {
-    /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
-     */
-    key_id?: string;
-    /**
-     * LLM provider to list models for. Must be one of the supported providers.
-     */
-    provider: LlmAnalyticsModelsRetrieveProvider;
-    };
-
-    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
-
-
-    export const LlmAnalyticsModelsRetrieveProvider = {
-      Anthropic: 'anthropic',
-      AzureOpenai: 'azure_openai',
-      Fireworks: 'fireworks',
-      Gemini: 'gemini',
-      Openai: 'openai',
-      Openrouter: 'openrouter',
-      TogetherAi: 'together_ai',
-    } as const;
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsProviderKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsReviewQueueItemsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `created_at` or `updated_at`.
-     */
-    order_by?: string;
-    /**
-     * Filter by a specific review queue ID.
-     */
-    queue_id?: string;
-    /**
-     * Search pending trace IDs.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type LlmAnalyticsReviewQueuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    name?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `name`, `updated_at`, or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search review queue names.
-     */
-    search?: string;
-    };
-
-    export type LlmAnalyticsScoreDefinitionsListParams = {
-    /**
-     * Filter by archived state.
-     */
-    archived?: boolean;
-    /**
-     * Filter by scorer kind.
-     */
-    kind?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort by name, kind, created_at, updated_at, or current_version.
-     */
-    order_by?: string;
-    /**
-     * Search scorers by name or description.
-     */
-    search?: string;
-    };
-
-    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTraceReviewsListParams = {
-    /**
-     * Filter by a stable scorer definition ID.
-     */
-    definition_id?: string;
-    /**
-     * Filter by multiple scorer definition IDs separated by commas.
-     */
-    definition_id__in?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `updated_at` or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search trace IDs and comments.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
-
-    export type LlmPromptsListParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-    * `full` - full
-    * `preview` - preview
-    * `none` - none
-     * @minLength 1
-     */
-    content?: LlmPromptsListContent;
-    /**
-     * Filter prompts by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to prompt names and prompt content.
-     */
-    search?: string;
-    };
-
-    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
-
-
-    export const LlmPromptsListContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type LlmPromptsNameRetrieveParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-    * `full` - full
-    * `preview` - preview
-    * `none` - none
-     * @minLength 1
-     */
-    content?: LlmPromptsNameRetrieveContent;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmPromptsNameRetrieveContent = typeof LlmPromptsNameRetrieveContent[keyof typeof LlmPromptsNameRetrieveContent];
-
-
-    export const LlmPromptsNameRetrieveContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type LlmPromptsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
-     */
-    version_id?: string;
-    };
-
-    export type LlmSkillsListParams = {
-    /**
-     * Filter skills by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to skill names and descriptions.
-     */
-    search?: string;
-    };
-
-    export type LlmSkillsNameRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmSkillsNameFilesDestroyParams = {
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number;
-    };
-
-    export type LlmSkillsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact skill version UUID to resolve.
-     */
-    version_id?: string;
-    };
-
-    export type LogsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MarketingAnalyticsUtmAuditRetrieveParams = {
-    /**
-     * Start date for the audit period
-     * @minLength 1
-     */
-    date_from?: string;
-    /**
-     * End date for the audit period
-     * @nullable
-     */
-    date_to?: string | null;
-    };
-
-    export type MaterializedColumnSlotsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -42626,111 +44080,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type McpServerInstallationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpServerInstallationsAuthorizeRetrieveParams = {
-    /**
-     * * `posthog` - posthog
-    * `posthog-code` - posthog-code
-     * @minLength 1
-     */
-    install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
-    installation_id?: string;
-    posthog_code_callback_url?: string;
-    template_id?: string;
-    };
-
-    export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
-
-
-    export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
-      Posthog: 'posthog',
-      PosthogCode: 'posthog-code',
-    } as const;
-
-    export type McpServersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type McpToolsCreate200 = { [key: string]: unknown };
-
-    export type MessagingCategoriesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MessagingTemplatesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type NotificationsListParams = {
-    /**
-     * ISO 8601 timestamp; only events at or after this time
-     */
-    created_after?: string;
-    /**
-     * ISO 8601 timestamp; only events strictly before this time
-     */
-    created_before?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Filter by notification type
-     */
-    notification_type?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Filter by the ID of the resource the notification refers to
-     */
-    resource_id?: string;
-    /**
-     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
-     */
-    resource_type?: string;
-    /**
-     * Filter by recipient target ID (e.g. a user ID)
-     */
-    target_id?: string;
-    /**
-     * Filter by recipient target type (e.g. `user`, `team`)
-     */
-    target_type?: string;
-    };
-
     export type PropertyAccessControlsRetrieveParams = {
     /**
      * The property definition ID to fetch access control rules for.
@@ -42753,28 +44102,6 @@ export namespace Schemas {
     role?: string;
     };
 
-    export type QuickFiltersListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type SessionRecordingExternalReferencesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type SubscriptionsDeliveriesListParams = {
     /**
      * The pagination cursor value.
@@ -42795,344 +44122,6 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
-
-    export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-
-    * `created_at` - Created At
-    * `-created_at` - Created At (descending)
-    * `updated_at` - Updated At
-    * `-updated_at` - Updated At (descending)
-    * `name` - Name
-    * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
-    };
-
-    export type TracingSpansAttributesRetrieveParams = {
-    /**
-     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-     * @minLength 1
-     */
-    attribute_type?: TracingSpansAttributesRetrieveAttributeType;
-    /**
-     * Max results (default: 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0).
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute names.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];
-
-
-    export const TracingSpansAttributesRetrieveAttributeType = {
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export type TracingSpansServiceNamesRetrieveParams = {
-    /**
-     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
-     * @minLength 1
-     */
-    dateRange?: string;
-    /**
-     * Search filter for service names.
-     * @minLength 1
-     */
-    search?: string;
-    };
-
-    export type TracingSpansValuesRetrieveParams = {
-    /**
-     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
-
-    * `span` - span
-    * `span_attribute` - span_attribute
-    * `span_resource_attribute` - span_resource_attribute
-     * @minLength 1
-     */
-    attribute_type?: TracingSpansValuesRetrieveAttributeType;
-    /**
-     * The attribute key to get values for.
-     * @minLength 1
-     */
-    key: string;
-    /**
-     * Max results (default: 100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Pagination offset (default: 0).
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Search filter for attribute values.
-     * @minLength 1
-     */
-    value?: string;
-    };
-
-    export type TracingSpansValuesRetrieveAttributeType = typeof TracingSpansValuesRetrieveAttributeType[keyof typeof TracingSpansValuesRetrieveAttributeType];
-
-
-    export const TracingSpansValuesRetrieveAttributeType = {
-      Span: 'span',
-      SpanAttribute: 'span_attribute',
-      SpanResourceAttribute: 'span_resource_attribute',
-    } as const;
-
-    export type UserInterviewTopicsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type UserInterviewTopicsIntervieweesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type UserInterviewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    topic?: string;
-    };
-
-    export type VisionObservationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Session recording id to return observations for.
-     */
-    session_id: string;
-    };
-
-    export type VisionScannersListParams = {
-    /**
-     * Filter to scanners that emit Signals.
-     */
-    emits_signals?: boolean;
-    /**
-     * Filter to enabled vs disabled scanners.
-     */
-    enabled?: boolean;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
-
-    * `name` - Name
-    * `-name` - Name (descending)
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `updated_at` - Updated at
-    * `-updated_at` - Updated at (descending)
-    * `scanner_type` - Scanner type
-    * `-scanner_type` - Scanner type (descending)
-     */
-    order_by?: string[];
-    /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
-    * `indexer` - Indexer
-     */
-    scanner_type?: VisionScannersListScannerType;
-    };
-
-    export type VisionScannersListScannerType = typeof VisionScannersListScannerType[keyof typeof VisionScannersListScannerType];
-
-
-    export const VisionScannersListScannerType = {
-      Classifier: 'classifier',
-      Indexer: 'indexer',
-      Monitor: 'monitor',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
-
-    export type VisionScannersObservationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
-
-    * `created_at` - Created at
-    * `-created_at` - Created at (descending)
-    * `started_at` - Started at
-    * `-started_at` - Started at (descending)
-    * `completed_at` - Completed at
-    * `-completed_at` - Completed at (descending)
-    * `status` - Status
-    * `-status` - Status (descending)
-     */
-    order_by?: string[];
-    /**
-     * Filter to observations of a specific session recording.
-     */
-    session_id?: string;
-    /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
-     */
-    status?: VisionScannersObservationsListStatus;
-    /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
-     */
-    triggered_by?: VisionScannersObservationsListTriggeredBy;
-    };
-
-    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
-
-
-    export const VisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
-
-
-    export const VisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
-
-    export type WarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type WebAnalyticsWeeklyDigestParams = {
-    /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
-     */
-    compare?: boolean;
-    /**
-     * Lookback window in days (1–90). Defaults to 7.
-     */
-    days?: number;
-    };
-
-    export type WebAnalyticsFilterPresetsListParams = {
-    created_by?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    short_id?: string;
-    };
-
-    export type WebVitalsRetrieveParams = {
-    /**
-     * Filter web vitals by pathname
-     */
-    pathname: string;
-    };
-
-    export type WebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
@@ -43437,6 +44426,56 @@ export namespace Schemas {
     };
 
     export type RolesRoleMembershipsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type AccountsListParams = {
+    /**
+     * Filter by account executive. Use 'unassigned' or an integer user id.
+     */
+    account_executive?: string;
+    /**
+     * Filter by account owner. Use 'unassigned' or an integer user id.
+     */
+    account_owner?: string;
+    /**
+     * When true, returns only accounts where CSM, account executive, and account owner are all unset.
+     */
+    all_roles_unassigned?: boolean;
+    /**
+     * Filter by CSM. Use 'unassigned' for accounts with no CSM, or an integer user id.
+     */
+    csm?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort order. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Case-insensitive substring search across account name and external ID.
+     */
+    search?: string;
+    /**
+     * JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts that have any of the listed tags. Malformed values (not a JSON-encoded list of strings) return a 400.
+     */
+    tags?: string;
+    };
+
+    export type AccountsNotebooksListParams = {
     /**
      * Number of results to return per page.
      */
@@ -43955,6 +44994,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -44067,6 +45117,25 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type ChangeRequestsListParams = {
+    action_key?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    requester?: number;
+    resource_id?: string;
+    resource_type?: string;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[];
+    };
+
     export type CohortsListParams = {
     /**
      * Number of results to return per page.
@@ -44097,6 +45166,17 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type ColumnConfigurationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type CommentsListParams = {
     /**
@@ -44254,6 +45334,50 @@ export namespace Schemas {
       OnTrack: 'on-track',
     } as const;
 
+    export type ConversationsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CoreEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CustomerJourneysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type DashboardTemplatesListParams = {
     /**
      * Omit for all templates. When set, filter by featured flag; parsed with str_to_bool (same as other API query booleans).
@@ -44410,6 +45534,18 @@ export namespace Schemas {
 
 
     export const DashboardsCreateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
+    };
+
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
+
+
+    export const DashboardsDeleteTileFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -44586,6 +45722,28 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DataModelingDagsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DataModelingEdgesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
     export type DataModelingJobsListParams = {
     /**
      * The pagination cursor value.
@@ -44596,6 +45754,17 @@ export namespace Schemas {
      */
     limit?: number;
     saved_query_id?: string;
+    };
+
+    export type DataModelingNodesListParams = {
+    /**
+     * A page number within the paginated result set.
+     */
+    page?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
@@ -44706,6 +45875,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type DesktopRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EarlyAccessFeatureListParams = {
     /**
      * Number of results to return per page.
@@ -44772,7 +45952,141 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingExternalReferencesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingFingerprintsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
+    /**
+     * Code snippet to search for in repository files.
+     * @minLength 1
+     */
+    code_sample: string;
+    /**
+     * File name to match in search results.
+     * @minLength 1
+     */
+    file_name: string;
+    /**
+     * Repository owner or namespace.
+     * @minLength 1
+     */
+    owner: string;
+    /**
+     * Repository name.
+     * @minLength 1
+     */
+    repository: string;
+    };
+
+    export type ErrorTrackingIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingRecommendationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSpikeEventsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingStackFramesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSuppressionRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -44828,6 +46142,42 @@ export namespace Schemas {
       Valid: 'valid',
       Invalid: 'invalid',
     } as const;
+
+    export type EvaluationRunsCreate200 = { [key: string]: unknown };
+
+    export type EvaluationsListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
 
     export type EventDefinitionsListParams = {
     /**
@@ -45322,6 +46672,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type FlagValueValuesRetrieveParams = {
     /**
      * The flag ID
@@ -45414,6 +46775,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HealthIssuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type HeatmapsListParams = {
     /**
      * Number of results to return per page.
@@ -45480,8 +46852,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
+
+
+    export const HogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsLogsRetrieveParams = {
     /**
@@ -45651,8 +47038,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
+
+
+    export const HogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -45666,8 +47068,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
+
+
+    export const HogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFunctionTemplatesListParams = {
     /**
@@ -46481,6 +47898,393 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
+
+    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
+
+    export type LlmAnalyticsClusteringJobsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationReportsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
+
+    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
+
+    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsModelsRetrieveParams = {
+    /**
+     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
+     */
+    key_id?: string;
+    /**
+     * LLM provider to list models for. Must be one of the supported providers.
+     */
+    provider: LlmAnalyticsModelsRetrieveProvider;
+    };
+
+    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
+
+
+    export const LlmAnalyticsModelsRetrieveProvider = {
+      Anthropic: 'anthropic',
+      AzureOpenai: 'azure_openai',
+      Fireworks: 'fireworks',
+      Gemini: 'gemini',
+      Openai: 'openai',
+      Openrouter: 'openrouter',
+      TogetherAi: 'together_ai',
+    } as const;
+
+    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
+
+    export type LlmAnalyticsProviderKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string;
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string;
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
+    export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    name?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search review queue names.
+     */
+    search?: string;
+    };
+
+    export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean;
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string;
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string;
+    };
+
+    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
+
+    export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
+
+    export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
+
+    export type LlmAnalyticsTraceReviewsListParams = {
+    /**
+     * Filter by a stable scorer definition ID.
+     */
+    definition_id?: string;
+    /**
+     * Filter by multiple scorer definition IDs separated by commas.
+     */
+    definition_id__in?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `updated_at` or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search trace IDs and comments.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
+    export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
+
+    export type LlmPromptsListParams = {
+    /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsListContent;
+    /**
+     * Filter prompts by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string;
+    };
+
+    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
+
+
+    export const LlmPromptsListContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
+
+    export type LlmPromptsNameRetrieveParams = {
+    /**
+     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
+
+    * `full` - full
+    * `preview` - preview
+    * `none` - none
+     * @minLength 1
+     */
+    content?: LlmPromptsNameRetrieveContent;
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmPromptsNameRetrieveContent = typeof LlmPromptsNameRetrieveContent[keyof typeof LlmPromptsNameRetrieveContent];
+
+
+    export const LlmPromptsNameRetrieveContent = {
+      Full: 'full',
+      Preview: 'preview',
+      None: 'none',
+    } as const;
+
+    export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string;
+    };
+
+    export type LlmSkillsListParams = {
+    /**
+     * Filter skills by the ID of the user who created them.
+     */
+    created_by_id?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Optional substring filter applied to skill names and descriptions.
+     */
+    search?: string;
+    };
+
+    export type LlmSkillsNameRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsNameFilesRetrieveParams = {
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
+    export type LlmSkillsNameFilesDestroyParams = {
+    /**
+     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
+     * @minimum 1
+     */
+    base_version?: number;
+    };
+
+    export type LlmSkillsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number;
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Specific skill version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number;
+    /**
+     * Exact skill version UUID to resolve.
+     */
+    version_id?: string;
+    };
+
     export type LogsAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -46621,6 +48425,17 @@ export namespace Schemas {
       Resource: 'resource',
     } as const;
 
+    export type LogsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ManagedMigrationsListParams = {
     /**
      * Number of results to return per page.
@@ -46656,6 +48471,96 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type MarketingAnalyticsUtmAuditRetrieveParams = {
+    /**
+     * Start date for the audit period
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End date for the audit period
+     * @nullable
+     */
+    date_to?: string | null;
+    };
+
+    export type MaterializedColumnSlotsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpServerInstallationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpServerInstallationsAuthorizeRetrieveParams = {
+    /**
+     * * `posthog` - posthog
+    * `posthog-code` - posthog-code
+     * @minLength 1
+     */
+    install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    installation_id?: string;
+    posthog_code_callback_url?: string;
+    template_id?: string;
+    };
+
+    export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
+
+
+    export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
+      Posthog: 'posthog',
+      PosthogCode: 'posthog-code',
+    } as const;
+
+    export type McpServersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type McpToolsCreate200 = { [key: string]: unknown };
+
+    export type MessagingCategoriesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type MessagingTemplatesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
@@ -46701,6 +48606,45 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotificationsListParams = {
+    /**
+     * ISO 8601 timestamp; only events at or after this time
+     */
+    created_after?: string;
+    /**
+     * ISO 8601 timestamp; only events strictly before this time
+     */
+    created_before?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * Filter by notification type
+     */
+    notification_type?: string;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Filter by the ID of the resource the notification refers to
+     */
+    resource_id?: string;
+    /**
+     * Filter by the type of the resource the notification refers to (e.g. `insight`, `dashboard`)
+     */
+    resource_type?: string;
+    /**
+     * Filter by recipient target ID (e.g. a user ID)
+     */
+    target_id?: string;
+    /**
+     * Filter by recipient target type (e.g. `user`, `team`)
+     */
+    target_type?: string;
     };
 
     export type ObjectMediaPreviewsListParams = {
@@ -47230,6 +49174,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type SandboxListParams = {
     /**
      * Number of results to return per page.
@@ -47290,6 +49245,17 @@ export namespace Schemas {
     };
 
     export type SessionGroupSummariesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SessionRecordingExternalReferencesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -47364,6 +49330,48 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    };
+
+    export type SignalsScoutProjectProfileGetParams = {
+    /**
+     * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
+     */
+    force_refresh?: boolean;
+    };
+
+    export type SignalsScoutRunsListParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `started_at` of the oldest run from the prior page).
+     */
+    date_to?: string;
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
+     * @minLength 1
+     */
+    text?: string;
+    };
+
+    export type SignalsScoutScratchpadSearchParams = {
+    /**
+     * Max rows to return (default 20, hard cap 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     */
+    text?: string;
     };
 
     export type SignalsSourceConfigsListParams = {
@@ -47478,6 +49486,40 @@ export namespace Schemas {
     date_to?: string;
     };
 
+    export type TaggersListParams = {
+    /**
+     * Filter by enabled status
+     */
+    enabled?: boolean;
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[];
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering
+
+    * `created_at` - Created At
+    * `-created_at` - Created At (descending)
+    * `updated_at` - Updated At
+    * `-updated_at` - Updated At (descending)
+    * `name` - Name
+    * `-name` - Name (descending)
+     */
+    order_by?: string[];
+    /**
+     * Search in name or description
+     */
+    search?: string;
+    };
+
     export type TagsListParams = {
     /**
      * Number of results to return per page.
@@ -47520,10 +49562,13 @@ export namespace Schemas {
     internal?: boolean;
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -47588,10 +49633,13 @@ export namespace Schemas {
     export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     };
@@ -47657,7 +49705,135 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type TracingSpansAttributesRetrieveParams = {
+    /**
+     * Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
+    attribute_type?: TracingSpansAttributesRetrieveAttributeType;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type TracingSpansAttributesRetrieveAttributeType = typeof TracingSpansAttributesRetrieveAttributeType[keyof typeof TracingSpansAttributesRetrieveAttributeType];
+
+
+    export const TracingSpansAttributesRetrieveAttributeType = {
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
+    export type TracingSpansServiceNamesRetrieveParams = {
+    /**
+     * JSON-encoded date range, e.g. '{"date_from": "-1h"}'.
+     * @minLength 1
+     */
+    dateRange?: string;
+    /**
+     * Search filter for service names.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
+    export type TracingSpansValuesRetrieveParams = {
+    /**
+     * Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.
+
+    * `span` - span
+    * `span_attribute` - span_attribute
+    * `span_resource_attribute` - span_resource_attribute
+     * @minLength 1
+     */
+    attribute_type?: TracingSpansValuesRetrieveAttributeType;
+    /**
+     * The attribute key to get values for.
+     * @minLength 1
+     */
+    key: string;
+    /**
+     * Max results (default: 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Pagination offset (default: 0).
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Search filter for attribute values.
+     * @minLength 1
+     */
+    value?: string;
+    };
+
+    export type TracingSpansValuesRetrieveAttributeType = typeof TracingSpansValuesRetrieveAttributeType[keyof typeof TracingSpansValuesRetrieveAttributeType];
+
+
+    export const TracingSpansValuesRetrieveAttributeType = {
+      Span: 'span',
+      SpanAttribute: 'span_attribute',
+      SpanResourceAttribute: 'span_resource_attribute',
+    } as const;
+
     export type UploadedMediaCreate201 = { [key: string]: unknown };
+
+    export type UserInterviewTopicsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type UserInterviewTopicsIntervieweesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type UserInterviewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    topic?: string;
+    };
 
     export type UserProductListListParams = {
     /**
@@ -47669,6 +49845,136 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type VisionObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Session recording id to return observations for.
+     */
+    session_id: string;
+    };
+
+    export type VisionScannersListParams = {
+    /**
+     * Filter to scanners that emit Signals.
+     */
+    emits_signals?: boolean;
+    /**
+     * Filter to enabled vs disabled scanners.
+     */
+    enabled?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+
+    * `name` - Name
+    * `-name` - Name (descending)
+    * `created_at` - Created at
+    * `-created_at` - Created at (descending)
+    * `updated_at` - Updated at
+    * `-updated_at` - Updated at (descending)
+    * `scanner_type` - Scanner type
+    * `-scanner_type` - Scanner type (descending)
+     */
+    order_by?: string[];
+    /**
+     * Filter by scanner type (monitor, classifier, scorer, summarizer).
+
+    * `monitor` - Monitor
+    * `classifier` - Classifier
+    * `scorer` - Scorer
+    * `summarizer` - Summarizer
+     */
+    scanner_type?: VisionScannersListScannerType;
+    };
+
+    export type VisionScannersListScannerType = typeof VisionScannersListScannerType[keyof typeof VisionScannersListScannerType];
+
+
+    export const VisionScannersListScannerType = {
+      Classifier: 'classifier',
+      Monitor: 'monitor',
+      Scorer: 'scorer',
+      Summarizer: 'summarizer',
+    } as const;
+
+    export type VisionScannersObservationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+
+    * `created_at` - Created at
+    * `-created_at` - Created at (descending)
+    * `started_at` - Started at
+    * `-started_at` - Started at (descending)
+    * `completed_at` - Completed at
+    * `-completed_at` - Completed at (descending)
+    * `status` - Status
+    * `-status` - Status (descending)
+     */
+    order_by?: string[];
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status.
+
+    * `pending` - Pending
+    * `running` - Running
+    * `succeeded` - Succeeded
+    * `failed` - Failed
+    * `ineligible` - Ineligible
+     */
+    status?: VisionScannersObservationsListStatus;
+    /**
+     * Filter by trigger source (schedule or on_demand).
+
+    * `schedule` - Schedule
+    * `on_demand` - On demand
+     */
+    triggered_by?: VisionScannersObservationsListTriggeredBy;
+    };
+
+    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
+
+
+    export const VisionScannersObservationsListStatus = {
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+    } as const;
+
+    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
+
+
+    export const VisionScannersObservationsListTriggeredBy = {
+      OnDemand: 'on_demand',
+      Schedule: 'schedule',
+    } as const;
 
     export type VisualReviewReposListParams = {
     /**
@@ -47816,6 +50122,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type WarehouseTablesListParams = {
     /**
      * Number of results to return per page.
@@ -47861,6 +50178,30 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type WebAnalyticsWeeklyDigestParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
+    };
+
+    export type WebAnalyticsFilterPresetsListParams = {
+    created_by?: number;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    short_id?: string;
+    };
+
     export type WebExperimentsListParams = {
     /**
      * Number of results to return per page.
@@ -47871,6 +50212,15 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type WebVitalsRetrieveParams = {
+    /**
+     * Filter web vitals by pathname
+     */
+    pathname: string;
+    };
+
+    export type WebVitalsRetrieve200 = { [key: string]: unknown };
 
     export type WizardSessionsListParams = {
     /**
