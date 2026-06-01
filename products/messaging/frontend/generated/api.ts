@@ -83,7 +83,7 @@ export const messagingCategoriesCreate = async (
 }
 
 export const getMessagingCategoriesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_categories/${id}/`
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
 export const messagingCategoriesRetrieve = async (
@@ -98,7 +98,7 @@ export const messagingCategoriesRetrieve = async (
 }
 
 export const getMessagingCategoriesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_categories/${id}/`
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
 export const messagingCategoriesUpdate = async (
@@ -116,7 +116,7 @@ export const messagingCategoriesUpdate = async (
 }
 
 export const getMessagingCategoriesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_categories/${id}/`
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
 export const messagingCategoriesPartialUpdate = async (
@@ -134,7 +134,7 @@ export const messagingCategoriesPartialUpdate = async (
 }
 
 export const getMessagingCategoriesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_categories/${id}/`
+    return `/api/projects/${projectId}/messaging_categories/${id}/`
 }
 
 /**
@@ -442,7 +442,7 @@ export const messagingTemplatesCreate = async (
 }
 
 export const getMessagingTemplatesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_templates/${id}/`
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
 export const messagingTemplatesRetrieve = async (
@@ -457,7 +457,7 @@ export const messagingTemplatesRetrieve = async (
 }
 
 export const getMessagingTemplatesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_templates/${id}/`
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
 export const messagingTemplatesUpdate = async (
@@ -475,7 +475,7 @@ export const messagingTemplatesUpdate = async (
 }
 
 export const getMessagingTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_templates/${id}/`
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
 export const messagingTemplatesPartialUpdate = async (
@@ -493,7 +493,7 @@ export const messagingTemplatesPartialUpdate = async (
 }
 
 export const getMessagingTemplatesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/messaging_templates/${id}/`
+    return `/api/projects/${projectId}/messaging_templates/${id}/`
 }
 
 /**

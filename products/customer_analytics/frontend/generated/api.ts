@@ -276,7 +276,7 @@ export const customerJourneysCreate = async (
 }
 
 export const getCustomerJourneysRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_journeys/${id}/`
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
 }
 
 export const customerJourneysRetrieve = async (
@@ -291,7 +291,7 @@ export const customerJourneysRetrieve = async (
 }
 
 export const getCustomerJourneysUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_journeys/${id}/`
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
 }
 
 export const customerJourneysUpdate = async (
@@ -309,7 +309,7 @@ export const customerJourneysUpdate = async (
 }
 
 export const getCustomerJourneysPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_journeys/${id}/`
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
 }
 
 export const customerJourneysPartialUpdate = async (
@@ -327,7 +327,7 @@ export const customerJourneysPartialUpdate = async (
 }
 
 export const getCustomerJourneysDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_journeys/${id}/`
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
 }
 
 export const customerJourneysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -382,7 +382,7 @@ export const customerProfileConfigsCreate = async (
 }
 
 export const getCustomerProfileConfigsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
 }
 
 export const customerProfileConfigsRetrieve = async (
@@ -397,7 +397,7 @@ export const customerProfileConfigsRetrieve = async (
 }
 
 export const getCustomerProfileConfigsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
 }
 
 export const customerProfileConfigsUpdate = async (
@@ -415,7 +415,7 @@ export const customerProfileConfigsUpdate = async (
 }
 
 export const getCustomerProfileConfigsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
 }
 
 export const customerProfileConfigsPartialUpdate = async (
@@ -433,7 +433,7 @@ export const customerProfileConfigsPartialUpdate = async (
 }
 
 export const getCustomerProfileConfigsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/${id}/`
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
 }
 
 export const customerProfileConfigsDestroy = async (

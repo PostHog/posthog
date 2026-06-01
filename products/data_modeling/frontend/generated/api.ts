@@ -85,7 +85,7 @@ export const dataModelingDagsCreate = async (
 }
 
 export const getDataModelingDagsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_dags/${id}/`
+    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
 export const dataModelingDagsRetrieve = async (
@@ -100,7 +100,7 @@ export const dataModelingDagsRetrieve = async (
 }
 
 export const getDataModelingDagsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_dags/${id}/`
+    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
 export const dataModelingDagsPartialUpdate = async (
@@ -118,7 +118,7 @@ export const dataModelingDagsPartialUpdate = async (
 }
 
 export const getDataModelingDagsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_dags/${id}/`
+    return `/api/projects/${projectId}/data_modeling_dags/${id}/`
 }
 
 export const dataModelingDagsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -173,7 +173,7 @@ export const dataModelingEdgesCreate = async (
 }
 
 export const getDataModelingEdgesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_edges/${id}/`
+    return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
 export const dataModelingEdgesRetrieve = async (
@@ -188,7 +188,7 @@ export const dataModelingEdgesRetrieve = async (
 }
 
 export const getDataModelingEdgesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_edges/${id}/`
+    return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
 export const dataModelingEdgesUpdate = async (
@@ -206,7 +206,7 @@ export const dataModelingEdgesUpdate = async (
 }
 
 export const getDataModelingEdgesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_edges/${id}/`
+    return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
 export const dataModelingEdgesPartialUpdate = async (
@@ -224,7 +224,7 @@ export const dataModelingEdgesPartialUpdate = async (
 }
 
 export const getDataModelingEdgesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_edges/${id}/`
+    return `/api/projects/${projectId}/data_modeling_edges/${id}/`
 }
 
 export const dataModelingEdgesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -279,7 +279,7 @@ export const dataModelingNodesCreate = async (
 }
 
 export const getDataModelingNodesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesRetrieve = async (
@@ -294,7 +294,7 @@ export const dataModelingNodesRetrieve = async (
 }
 
 export const getDataModelingNodesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesUpdate = async (
@@ -312,7 +312,7 @@ export const dataModelingNodesUpdate = async (
 }
 
 export const getDataModelingNodesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesPartialUpdate = async (
@@ -330,7 +330,7 @@ export const dataModelingNodesPartialUpdate = async (
 }
 
 export const getDataModelingNodesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/`
 }
 
 export const dataModelingNodesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -341,7 +341,7 @@ export const dataModelingNodesDestroy = async (projectId: string, id: string, op
 }
 
 export const getDataModelingNodesLineageRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/lineage/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/lineage/`
 }
 
 /**
@@ -359,7 +359,7 @@ export const dataModelingNodesLineageRetrieve = async (
 }
 
 export const getDataModelingNodesMaterializeCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/materialize/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/materialize/`
 }
 
 /**
@@ -380,7 +380,7 @@ export const dataModelingNodesMaterializeCreate = async (
 }
 
 export const getDataModelingNodesRunCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/${id}/run/`
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/run/`
 }
 
 /**
