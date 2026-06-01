@@ -33,7 +33,6 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
         activeFieldErrors,
         saving,
         saveDisabledReason,
-        defaultTitle,
     } = useValues(editErrorTrackingWidgetModalLogic)
     const {
         setLimit,
@@ -87,7 +86,7 @@ function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLog
                                 <LemonInput
                                     value={tileName}
                                     onChange={setTileName}
-                                    placeholder={defaultTitle}
+                                    placeholder={props.defaultTitle ?? 'Untitled'}
                                     maxLength={400}
                                     disabled={saving}
                                 />

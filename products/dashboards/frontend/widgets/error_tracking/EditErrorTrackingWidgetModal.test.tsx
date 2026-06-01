@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -17,6 +19,7 @@ import * as errorTrackingWidgetUtils from './utils'
 describe('EditErrorTrackingWidgetModal', () => {
     beforeEach(() => {
         initKeaTests(true, {
+            ...MOCK_DEFAULT_TEAM,
             test_account_filters: [
                 {
                     key: 'email',
