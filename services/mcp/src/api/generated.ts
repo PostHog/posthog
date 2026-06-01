@@ -18431,6 +18431,48 @@ export namespace Schemas {
       output_variable?: unknown;
     }
 
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface HogFlow {
       readonly id: string;
       /**
@@ -18472,6 +18514,50 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `queued` - Queued
+    * `active` - Active
+    * `completed` - Completed
+    * `cancelled` - Cancelled
+    * `failed` - Failed
+     */
+    export type HogFlowBatchJobStatusEnum = typeof HogFlowBatchJobStatusEnum[keyof typeof HogFlowBatchJobStatusEnum];
+
+
+    export const HogFlowBatchJobStatusEnum = {
+      Waiting: 'waiting',
+      Queued: 'queued',
+      Active: 'active',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    export interface HogFlowBatchJob {
+      readonly id: string;
+      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+      * `waiting` - Waiting
+      * `queued` - Queued
+      * `active` - Active
+      * `completed` - Completed
+      * `cancelled` - Cancelled
+      * `failed` - Failed */
+      status?: HogFlowBatchJobStatusEnum;
+      /** ID of the workflow this batch run belongs to. */
+      hog_flow: string;
+      /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+      filters?: unknown;
+      /** Variable value overrides applied to this run. */
+      variables?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
     }
 
     /**
@@ -18510,34 +18596,6 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
-    }
-
-    /**
-     * * `active` - Active
-    * `paused` - Paused
-    * `completed` - Completed
-     */
-    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
-
-
-    export const HogFlowScheduleStatusEnum = {
-      Active: 'active',
-      Paused: 'paused',
-      Completed: 'completed',
-    } as const;
-
-    export interface HogFlowSchedule {
-      readonly id: string;
-      rrule: string;
-      starts_at: string;
-      /** @maxLength 64 */
-      timezone?: string;
-      variables?: unknown;
-      readonly status: HogFlowScheduleStatusEnum;
-      /** @nullable */
-      readonly next_run_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -23313,15 +23371,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
-    }
-
-    export interface PaginatedHogFlowScheduleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -28638,6 +28687,36 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowSchedule {
+      readonly id?: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule?: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at?: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status?: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -40084,66 +40163,6 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
-    export type EnvironmentsHogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
     created_by?: number;
@@ -45503,66 +45522,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type HogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
-
-
-    export const HogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type HogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
-
-
-    export const HogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type HogFunctionTemplatesListParams = {

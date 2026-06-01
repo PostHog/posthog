@@ -1,5 +1,7 @@
 import { hasScopes } from '@/lib/api'
 
+// AI observability
+import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
@@ -11,8 +13,6 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
-// AI observability
-import getLLMCosts from './aiObservability/getLLMCosts'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
@@ -48,6 +48,8 @@ import {
     getToolDefinition,
 } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
+// Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
 // Workflows (lifecycle — CRUD lives in generated/workflows.ts)
 import { workflowsArchive, workflowsDisable, workflowsEnable } from './workflows/lifecycle'
 
@@ -110,6 +112,12 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-enable': workflowsEnable,
     'workflows-disable': workflowsDisable,
     'workflows-archive': workflowsArchive,
+
+    // Workflows batch (hand-rolled: blast-radius sizing + echo-back guard before fan-out,
+    // composing the existing user_blast_radius / batch_jobs / schedules endpoints).
+    'workflows-blast-radius': workflowsBlastRadius,
+    'workflows-run-batch': workflowsRunBatch,
+    'workflows-schedule-create': workflowsScheduleCreate,
 }
 
 export const getToolsFromContext = async (

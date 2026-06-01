@@ -5872,7 +5872,7 @@
         }
     },
     "workflows-create": {
-        "description": "Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type: event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.",
+        "description": "Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type: event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Always created as a draft — enable it with workflows-enable once built and tested. A 'batch' trigger broadcasts to an audience (config.filters; one run per matching person) — use it for emailing/messaging users. The audience is person properties or static cohort membership, not event behavior; for 'users who did event X', create a cohort first and target that. A 'schedule' trigger runs once per occurrence with no audience. Both fire only once the workflow is enabled (workflows-enable) and has a schedule attached (workflows-schedule-create); workflows-get returns the attached 'schedules' to confirm.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Create workflow",
@@ -5887,7 +5887,7 @@
         }
     },
     "workflows-get": {
-        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
+        "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, variables, and any recurring 'schedules' (read-only here). For a batch/schedule workflow, check status=='active' plus an active entry in 'schedules' to confirm it will actually fire.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow",
@@ -5907,6 +5907,21 @@
         "feature": "workflows",
         "summary": "List workflows",
         "title": "List workflows",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-list-batch-jobs": {
+        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow batch runs",
+        "title": "List workflow batch runs",
         "required_scopes": ["hog_flow:read"],
         "new_mcp": true,
         "annotations": {
@@ -5937,6 +5952,21 @@
         "feature": "workflows",
         "summary": "Update workflow",
         "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update-schedule": {
+        "description": "Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience. To stop and restart a workflow's runs, disable/enable the workflow (workflows-disable / workflows-enable).",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update workflow schedule",
+        "title": "Update workflow schedule",
         "required_scopes": ["hog_flow:write"],
         "new_mcp": true,
         "annotations": {

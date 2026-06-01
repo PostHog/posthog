@@ -39,9 +39,21 @@ tools:
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
         enabled: false
-    hog-flows-batch-jobs-retrieve:
-        operation: hog_flows_batch_jobs_retrieve
-        enabled: false
+    workflows-list-batch-jobs:
+        operation: hog_flows_batch_jobs_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflow batch runs
+        description: >
+            List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry
+            shows the audience filters and variable overrides the run used, plus when it was created. The status
+            field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
         enabled: false
@@ -98,9 +110,20 @@ tools:
     hog-flows-schedules-list:
         operation: hog_flows_schedules_list
         enabled: false
-    hog-flows-schedules-partial-update:
+    workflows-update-schedule:
         operation: hog_flows_schedules_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update workflow schedule
+        description: >
+            Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence
+            reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience. To stop
+            and restart a workflow's runs, disable/enable the workflow (workflows-disable / workflows-enable).
     hog-flows-update:
         operation: hog_flows_update
         enabled: false
@@ -131,7 +154,14 @@ tools:
             Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type:
             event|webhook|manual|batch|schedule|tracking_pixel). Other action types:
             function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch,
-            wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.
+            wait_until_condition. Connect via edges. Always created as a draft — enable it with workflows-enable once
+            built and tested.
+            A 'batch' trigger broadcasts to an audience (config.filters; one run per matching person) — use it for
+            emailing/messaging users. The audience is person properties or static cohort membership, not event
+            behavior; for 'users who did event X', create a cohort first and target that.
+            A 'schedule' trigger runs once per occurrence with no audience.
+            Both fire only once the workflow is enabled (workflows-enable) and has a schedule attached
+            (workflows-schedule-create); workflows-get returns the attached 'schedules' to confirm.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -146,7 +176,8 @@ tools:
         title: Get workflow
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
-            condition, and variables.
+            condition, variables, and any recurring 'schedules' (read-only here). For a batch/schedule workflow, check
+            status=='active' plus an active entry in 'schedules' to confirm it will actually fire.
         ui_app: workflow
     workflows-list:
         operation: hog_flows_list

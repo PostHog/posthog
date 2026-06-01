@@ -12,6 +12,7 @@ import {
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from '@/tools/workflows/batch'
 import { workflowsArchive, workflowsDisable, workflowsEnable } from '@/tools/workflows/lifecycle'
 
 describe('Workflows', { concurrent: false }, () => {
@@ -26,6 +27,11 @@ describe('Workflows', { concurrent: false }, () => {
     const enableTool = workflowsEnable()
     const disableTool = workflowsDisable()
     const archiveTool = workflowsArchive()
+    const blastRadiusTool = workflowsBlastRadius()
+    const runBatchTool = workflowsRunBatch()
+    const scheduleCreateTool = workflowsScheduleCreate()
+    const listBatchJobsTool = GENERATED_TOOLS['workflows-list-batch-jobs']!()
+    const updateScheduleTool = GENERATED_TOOLS['workflows-update-schedule']!()
 
     const createdWorkflowIds: string[] = []
 
@@ -80,6 +86,34 @@ describe('Workflows', { concurrent: false }, () => {
             edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
             ...overrides,
         }
+    }
+
+    // A batch-trigger workflow (empty properties = audience is all persons). Drafts are fine for
+    // these tests — the echo-back guard lives in the MCP handler, not the API.
+    function makeBatchWorkflowParams(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+        const ts = Date.now()
+        return makeWorkflowParams({
+            actions: [
+                {
+                    id: 'trigger_node',
+                    name: 'Trigger',
+                    type: 'trigger',
+                    created_at: ts,
+                    updated_at: ts,
+                    config: { type: 'batch', filters: { properties: [] } },
+                },
+                {
+                    id: 'exit_node',
+                    name: 'Exit',
+                    type: 'exit',
+                    created_at: ts,
+                    updated_at: ts,
+                    config: { reason: 'Default exit' },
+                },
+            ],
+            edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+            ...overrides,
+        })
     }
 
     describe('workflows-list tool', () => {
@@ -326,6 +360,114 @@ describe('Workflows', { concurrent: false }, () => {
 
             const archived = parseToolResponse(await archiveTool.handler(context, { id }))
             expect(archived.status).toBe('archived')
+        })
+    })
+
+    describe('workflows-blast-radius tool', () => {
+        it('sizes the batch trigger audience for a workflow', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const { affected, total } = parseToolResponse(
+                await blastRadiusTool.handler(context, { workflow_id: created.id })
+            )
+
+            expect(typeof affected).toBe('number')
+            expect(typeof total).toBe('number')
+            expect(affected).toBeLessThanOrEqual(total)
+        })
+
+        it('throws for a non-existent workflow', async () => {
+            await expect(blastRadiusTool.handler(context, { workflow_id: crypto.randomUUID() })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-run-batch tool', () => {
+        it('rejects a stale acknowledged count without firing, surfacing the fresh count', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
+
+            await expect(
+                runBatchTool.handler(context, { workflow_id: created.id, acknowledged_affected_count: affected + 1 })
+            ).rejects.toThrow(String(affected))
+        })
+
+        it('rejects a workflow whose trigger is not a batch trigger', async () => {
+            // makeWorkflowParams() builds an event-trigger workflow.
+            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            await expect(
+                runBatchTool.handler(context, { workflow_id: created.id, acknowledged_affected_count: 0 })
+            ).rejects.toThrow(/batch/)
+        })
+
+        // The happy path (matching count → POST batch_jobs) forwards to the CDP plugin server
+        // (CDP_API_URL), which isn't running in MCP CI — see the workflows-run note above. Fire-path
+        // coverage lives in the backend test and the unit handler test
+        // (tests/unit/workflows-batch-handlers.test.ts).
+    })
+
+    describe('workflows schedule tools', () => {
+        it('creates a schedule, surfaces it on workflows-get, and updates it', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
+
+            const schedule = parseToolResponse(
+                await scheduleCreateTool.handler(context, {
+                    workflow_id: created.id,
+                    rrule: 'FREQ=DAILY;INTERVAL=1',
+                    starts_at: new Date().toISOString(),
+                    timezone: 'UTC',
+                    acknowledged_affected_count: affected,
+                })
+            )
+            expect(schedule.id).toBeTypeOf('string')
+            expect(schedule.rrule).toBe('FREQ=DAILY;INTERVAL=1')
+
+            // The schedule is surfaced inline on the workflow (no separate list tool).
+            const workflow = parseToolResponse(await getTool.handler(context, { id: created.id }))
+            expect(Array.isArray(workflow.schedules)).toBe(true)
+            expect(workflow.schedules.map((s: any) => s.id)).toContain(schedule.id)
+
+            const updated = parseToolResponse(
+                await updateScheduleTool.handler(context, {
+                    id: created.id,
+                    schedule_id: schedule.id,
+                    rrule: 'FREQ=WEEKLY;INTERVAL=1',
+                })
+            )
+            expect(updated.rrule).toBe('FREQ=WEEKLY;INTERVAL=1')
+        })
+
+        it('rejects schedule creation when the acknowledged count is stale', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
+
+            await expect(
+                scheduleCreateTool.handler(context, {
+                    workflow_id: created.id,
+                    rrule: 'FREQ=DAILY;INTERVAL=1',
+                    starts_at: new Date().toISOString(),
+                    acknowledged_affected_count: affected + 1,
+                })
+            ).rejects.toThrow(String(affected))
+        })
+    })
+
+    describe('workflows-list-batch-jobs tool', () => {
+        it('returns a bare array of batch runs for a workflow', async () => {
+            const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
+            createdWorkflowIds.push(created.id)
+
+            const jobs = parseToolResponse(await listBatchJobsTool.handler(context, { id: created.id }))
+            expect(Array.isArray(jobs)).toBe(true)
         })
     })
 })

@@ -1,6 +1,6 @@
 {
     "agent-feedback": {
-        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out \u2014 friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done \u2014 keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
         "category": "Feedback",
         "feature": "feedback",
         "summary": "Optional: submit feedback about the PostHog MCP server.",
@@ -17,7 +17,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
+        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` \u2014 `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs \u2014 check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself \u2014 the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples \u2014 `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -47,7 +47,7 @@
         }
     },
     "insight-query": {
-        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
+        "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS \u2014 the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Run a saved insight's query and return results.",
@@ -62,7 +62,7 @@
         }
     },
     "query-run": {
-        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns — set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
+        "description": "You should use this to answer questions that a user has about their data and for when you want to create a new insight. You can use 'event-definitions-list' to get events to use in the query, and 'event-properties-list' to get properties for those events. It can run a trend, funnel, paths or HogQL query. For existing PostHog-created data, use system tables with the system. prefix; for example, count SQL insight variables with SELECT count() AS total FROM system.insight_variables. Where possible, use a trend, funnel or paths query rather than a HogQL query, unless you know the HogQL is correct (e.g. it came from a previous insight.). Use PathsQuery to visualize user flows and navigation patterns \u2014 set includeEventTypes to ['hogql'] with a pathsHogQLExpression for custom path steps. To target a Postgres or DuckDB direct-query data warehouse source instead of ClickHouse, set 'connectionId' on a HogQLQuery (call external-data-sources-list to discover ids).",
         "category": "Insights & analytics",
         "summary": "Run a trend, funnel, paths or HogQL query.",
         "feature": "insights",
@@ -92,7 +92,7 @@
         }
     },
     "hogql-schema": {
-        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap — no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
+        "description": "Return the HogQL catalog for the active project: every queryable table (PostHog, system, warehouse, view, materialized view, batch export, endpoint) keyed by name, with each table's fields, plus the join graph between data-warehouse tables. Call this once up front when building a HogQL query from scratch so you pick real table and column names on the first attempt instead of guessing. Cheap \u2014 no ClickHouse cost. Pass 'connectionId' to introspect a Postgres or DuckDB direct-query data warehouse source instead of the ClickHouse catalog (use external-data-sources-list to find ids).",
         "category": "Insights & analytics",
         "summary": "List tables and columns available to HogQL queries.",
         "feature": "insights",
@@ -123,7 +123,7 @@
         }
     },
     "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events \u2014 to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List AI observability evaluations.",
@@ -198,7 +198,7 @@
         }
     },
     "evaluation-run": {
-        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
+        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async \u2014 it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Run an evaluation on a specific event.",
@@ -228,7 +228,7 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook \u2014 text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it \u2014 call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -538,7 +538,7 @@
         }
     },
     "session-recording-summarize": {
-        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
+        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings \u2014 it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow \u2014 expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 \u2192 `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Generate AI-powered summaries of session recordings via streaming.",
@@ -552,6 +552,96 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow. Event/webhook triggers start processing; for batch/schedule workflows this is what starts their scheduled runs firing (a workflow must be active AND have an active schedule to run). Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-disable": {
+        "description": "Disable / deactivate a live workflow back to draft. Stops event/webhook processing and halts any scheduled (batch/schedule) runs \u2014 this is how you stop a scheduled workflow. Reversible with workflows-enable. Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Disable workflow",
+        "title": "Disable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-archive": {
+        "description": "Archive a draft or disabled workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Archive workflow",
+        "title": "Archive workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-blast-radius": {
+        "description": "Size a batch workflow's audience: how many users its batch-trigger filters currently match. The audience is defined by person properties or cohort membership (not event behavior) \u2014 for 'users who did event X', target a cohort. Call this before workflows-run-batch / workflows-schedule-create and show the count to the user \u2014 those tools require it back as acknowledgement.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Size workflow audience",
+        "title": "Size workflow audience",
+        "required_scopes": ["hog_flow:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-run-batch": {
+        "description": "Run a batch workflow now, broadcasting to every user its batch trigger currently matches. The workflow must be enabled first (workflows-enable) \u2014 this sends real messages. Requires acknowledged_affected_count from workflows-blast-radius; rejects if the audience has drifted or exceeds the safety cap. Confirm the count with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Run batch workflow",
+        "title": "Run batch workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-schedule-create": {
+        "description": "Create a recurring schedule for a batch or schedule workflow (RRULE + timezone). For a batch (audience) workflow each firing re-broadcasts to the current audience, so acknowledged_affected_count from workflows-blast-radius is required (rejects on drift or over-cap); a 'schedule' (person-less) workflow has no audience and needs no count. The schedule only fires once the workflow is enabled (workflows-enable). Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Schedule workflow runs",
+        "title": "Schedule workflow runs",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }

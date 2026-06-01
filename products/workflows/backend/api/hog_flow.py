@@ -175,6 +175,19 @@ class HogFlowActionSerializer(serializers.Serializer):
                     properties = filters.get("properties", None)
                     if properties is not None and not isinstance(properties, list):
                         raise serializers.ValidationError({"filters": {"properties": "Properties must be an array."}})
+                    # The audience targets who a person is (properties / cohort membership), not what they did.
+                    # Event/action filters are silently dropped by the person-based blast radius (resolving to
+                    # "everyone"), so reject them outright — mirrors the guard on conditional branches. The UI
+                    # already prevents this; this closes the same gap for API/MCP callers.
+                    if filters.get("events") or filters.get("actions"):
+                        raise serializers.ValidationError(
+                            {
+                                "filters": (
+                                    "Batch trigger audiences can't filter on event behavior. Target person "
+                                    "properties or a cohort instead (create a cohort for 'users who did event X')."
+                                )
+                            }
+                        )
             elif data.get("config", {}).get("type") == "schedule":
                 # Schedule triggers have no extra validation - the schedule definition
                 # lives on a separate HogFlowSchedule row keyed by hog_flow_id.
@@ -307,6 +320,19 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "status", "next_run_at", "created_at", "updated_at"]
+        extra_kwargs = {
+            "rrule": {
+                "help_text": (
+                    "iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once "
+                    "per hour."
+                )
+            },
+            "starts_at": {"help_text": "ISO 8601 datetime the schedule starts from."},
+            "timezone": {"help_text": "IANA timezone for interpreting the RRULE (default 'UTC')."},
+            "variables": {"help_text": "Variable value overrides merged with the workflow defaults on each run."},
+            "status": {"help_text": "active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted)."},
+            "next_run_at": {"help_text": "Next scheduled fire time, computed by the scheduler."},
+        }
 
     def validate(self, data):
         # For partial updates, fall back to instance values
@@ -429,6 +455,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         help_text="Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",
     )
     variables = HogFlowVariableSerializer(required=False, help_text="Workflow vars (key, type, default). Total <5KB.")
+    schedules = HogFlowScheduleSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). "
+            "A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for "
+            "non-scheduled workflows."
+        ),
+    )
 
     def to_internal_value(self, data):
         status = data.get("status")
@@ -458,6 +493,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
+            "schedules",
         ]
         read_only_fields = [
             "id",
@@ -468,6 +504,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger",  # Derived from the trigger action in the actions array
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
+            "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
         ]
 
     def validate(self, data):
@@ -744,7 +781,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         return Response({"deleted": deleted_count})
 
-    @action(detail=True, methods=["GET", "POST"])
+    @extend_schema(methods=["GET"], responses=HogFlowBatchJobSerializer(many=True))
+    @extend_schema(methods=["POST"], request=HogFlowBatchJobSerializer, responses=HogFlowBatchJobSerializer)
+    # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
+    # generated schema matches the actual response shape.
+    @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
     def batch_jobs(self, request: Request, *args, **kwargs):
         try:
             hog_flow = self.get_object()
@@ -765,8 +806,11 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             serializer = HogFlowBatchJobSerializer(batch_jobs, many=True)
             return Response(serializer.data)
 
-    @extend_schema(responses=HogFlowScheduleSerializer(many=True))
-    @action(detail=True, methods=["GET", "POST"])
+    @extend_schema(methods=["GET"], responses=HogFlowScheduleSerializer(many=True))
+    @extend_schema(methods=["POST"], request=HogFlowScheduleSerializer, responses=HogFlowScheduleSerializer)
+    # GET returns a bare list (no pagination) and ignores the viewset's HogFlow filterset; disable both so the
+    # generated schema matches the actual response shape.
+    @action(detail=True, methods=["GET", "POST"], pagination_class=None, filter_backends=[])
     def schedules(self, request: Request, *args, **kwargs):
         hog_flow = self.get_object()
 
@@ -780,7 +824,17 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         serializer = HogFlowScheduleSerializer(schedules, many=True)
         return Response(serializer.data)
 
-    @extend_schema(parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)])
+    @extend_schema(
+        methods=["PATCH"],
+        request=HogFlowScheduleSerializer,
+        responses=HogFlowScheduleSerializer,
+        parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        responses={204: None},
+        parameters=[OpenApiParameter("schedule_id", str, OpenApiParameter.PATH)],
+    )
     @action(detail=True, methods=["PATCH", "DELETE"], url_path="schedules/(?P<schedule_id>[^/.]+)")
     def schedule_detail(self, request: Request, schedule_id=None, *args, **kwargs):
         hog_flow = self.get_object()
