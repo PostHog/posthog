@@ -149,16 +149,25 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_admin_can_always_create_project_when_members_blocked(self):
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    def test_admins_and_owners_can_always_create_project_when_members_blocked(self, _name, level):
         self._set_unlimited_projects()
         self.organization.members_can_create_projects = False
         self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = level
         self.organization_membership.save()
 
-        response = self.client.post("/api/projects/", {"name": "Admin Project"})
+        with patch("posthog.api.project.create_notification") as mock_create_notification:
+            response = self.client.post("/api/projects/", {"name": f"{_name} Project"})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        # Admins/owners are the recipients, never the trigger — creating their own project must not notify
+        mock_create_notification.assert_not_called()
 
     @patch("posthog.api.project.create_notification")
     def test_member_project_creation_notifies_org_admins(self, mock_create_notification):
