@@ -112,25 +112,39 @@ function asTransportError(err: Error | null): TransportError | null {
  * Maps a focus call to the URL the console should land on. Returns
  * `null` if the call references an agent we can't resolve (e.g. no
  * agent in context, no slug in args).
+ *
+ * Routes are **path-segment per tab** — each tab is its own Next.js
+ * route under `app/agents/[slug]/`:
+ *
+ *     overview      → `/agents/<slug>`
+ *     configuration → `/agents/<slug>/configuration`
+ *     connections   → `/agents/<slug>/connections`
+ *     sessions      → `/agents/<slug>/sessions`
+ *     memory        → `/agents/<slug>/memory`
+ *
+ * Sub-state for the segment (selected revision, file path, session id,
+ * etc.) lives in `?…` query params on the matching segment — defined
+ * by each segment's page comment, see e.g. configuration/page.tsx.
  */
 function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string | null {
     const slug = contextSlug
     if (!slug) {
         return null
     }
+    const base = `/agents/${slug}`
     switch (args.kind) {
         case 'tab':
-            // Mirrors the actual AgentDetail tab set
-            // (`overview | configuration | connections | sessions | memory`).
-            return `/agents/${slug}?tab=${args.tab}`
+            // Overview is the root segment of `[slug]`, the other tabs
+            // are their own child segments.
+            return args.tab === 'overview' ? base : `${base}/${args.tab}`
         case 'revision':
-            return `/agents/${slug}?tab=configuration&revision=${encodeURIComponent(args.revisionId)}`
+            return `${base}/configuration?revision=${encodeURIComponent(args.revisionId)}`
         case 'spec_section':
-            return `/agents/${slug}?tab=configuration&section=${args.section}`
+            return `${base}/configuration?section=${args.section}`
         case 'file':
-            return `/agents/${slug}?tab=configuration&file=${encodeURIComponent(args.path)}`
+            return `${base}/configuration?file=${encodeURIComponent(args.path)}`
         case 'session':
-            return `/agents/${slug}?tab=sessions&session=${encodeURIComponent(args.sessionId)}`
+            return `${base}/sessions?session=${encodeURIComponent(args.sessionId)}`
         default:
             return null
     }
@@ -469,7 +483,7 @@ function PlaygroundDock({
                     }}
                     onNewSession={() => void runner.reset()}
                     onOpenSession={(sessionId) =>
-                        router.push(`/agents/${agentRef.slug}?tab=sessions&session=${encodeURIComponent(sessionId)}`)
+                        router.push(`/agents/${agentRef.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
                     }
                     busy={sending}
                     reconnectAttempt={runner.reconnectAttempt}
@@ -649,7 +663,7 @@ function RealConciergeDock({
                     onFollowingChange={focus.setEnabled}
                     onNewSession={() => void runner.reset()}
                     onOpenSession={(sessionId) =>
-                        router.push(`/agents/${agentRef.slug}?tab=sessions&session=${encodeURIComponent(sessionId)}`)
+                        router.push(`/agents/${agentRef.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
                     }
                     busy={sending}
                     reconnectAttempt={runner.reconnectAttempt}

@@ -82,9 +82,7 @@ export function AgentsListClient(): React.ReactElement {
             onOpenSession={(sessionId) => {
                 const session = liveSessions.find((s) => s.id === sessionId)
                 if (session) {
-                    router.push(
-                        `/agents/${session.application.slug}?tab=sessions&session=${encodeURIComponent(sessionId)}`
-                    )
+                    router.push(`/agents/${session.application.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
                 }
             }}
             onCreateAgent={() => {
