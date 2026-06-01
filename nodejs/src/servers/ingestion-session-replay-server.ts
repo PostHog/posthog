@@ -2,8 +2,10 @@ import { initializePrometheusLabels } from '../api/router'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import {
+    KafkaDownstreamProducerEnvConfig,
     KafkaIngestionProducerEnvConfig,
     KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaIngestionProducerEnvConfig,
     getDefaultKafkaWarpstreamProducerEnvConfig,
 } from '../ingestion/common/config'
@@ -19,7 +21,9 @@ import { createProducerRegistry } from '../session-recording/outputs/producer-re
 import { createOutputsRegistry } from '../session-recording/outputs/registry'
 import {
     KafkaDefaultProducerEnvConfig,
+    KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaDefaultProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '../session-replay/shared/outputs/producer-config'
 import { RedisPool } from '../types'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
@@ -46,6 +50,8 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
     KafkaDefaultProducerEnvConfig &
     KafkaWarpstreamProducerEnvConfig &
     KafkaIngestionProducerEnvConfig &
+    KafkaDownstreamProducerEnvConfig &
+    KafkaSessionreplayProducerEnvConfig &
     SessionReplayOutputsConfig &
     RedisConnectionsConfig &
     PostgresRouterConfig &
@@ -69,6 +75,8 @@ export class IngestionSessionReplayServer implements NodeServer {
             ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaDownstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultSessionReplayOutputsConfig()),
             ...config,
         }

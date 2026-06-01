@@ -13,19 +13,25 @@ import {
     DEFAULT_PRODUCER,
     type DefaultProducer,
     INGESTION_PRODUCER,
+    type IngestionDownstreamProducer,
     type IngestionProducer,
     type WarpstreamProducer,
 } from '../ingestion/common/outputs'
+import { type IngestionSessionreplayProducer } from '../session-replay/shared/outputs/producer-config'
 import { isDevEnv } from '../utils/env-utils'
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
 
 /**
- * Session replay uses DEFAULT, WARPSTREAM, and INGESTION producers.
- *
- * INGESTION is for the dedicated Kafka cluster between capture and ingestion —
- * the natural target for the DLQ and overflow topics that live there.
+ * Session replay's producer slots: legacy DEFAULT/WARPSTREAM/INGESTION plus the consolidated
+ * slots it is migrating to — DOWNSTREAM (warpstream-ingestion, defined in ingestion common)
+ * and SESSIONREPLAY (warpstream-replay, defined in the session-replay folder).
  */
-export type SessionReplayProducerName = DefaultProducer | WarpstreamProducer | IngestionProducer
+export type SessionReplayProducerName =
+    | DefaultProducer
+    | WarpstreamProducer
+    | IngestionProducer
+    | IngestionDownstreamProducer
+    | IngestionSessionreplayProducer
 
 export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_HOST: string
