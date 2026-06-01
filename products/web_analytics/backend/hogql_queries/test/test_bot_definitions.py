@@ -1,9 +1,30 @@
 import pytest
 
+from posthog.models.bot_definition.sql import _bot_definition_rows
+
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
 
 class TestBotDefinitionsDataStructure:
+    def test_empty_ua_sentinel_row_appended(self):
+        # The ^$ pattern is the empty-UA sentinel — appended in _bot_definition_rows() rather
+        # than in BOT_DEFINITIONS, so it isn't covered by the parametrized fixture checks.
+        # Assert it's present and shaped as expected: regexp=^$, name="", category="no_user_agent",
+        # traffic_type="Automation", operator="".
+        rows = _bot_definition_rows()
+        empty_ua_rows = [r for r in rows if r[2] == "^$"]
+        assert len(empty_ua_rows) == 1, "expected exactly one ^$ sentinel row"
+        row = empty_ua_rows[0]
+        keys, values = row[3], row[4]
+        attrs = dict(zip(keys, values))
+        assert attrs["name"] == "", f"^$ row name should be empty, got: {attrs['name']!r}"
+        assert attrs["category"] == "no_user_agent", f"^$ row category mismatch: {attrs['category']!r}"
+        assert attrs["traffic_type"] == "Automation", f"^$ row traffic_type mismatch: {attrs['traffic_type']!r}"
+        assert attrs["operator"] == "", f"^$ row operator should be empty, got: {attrs['operator']!r}"
+        # ^$ should sort last (highest id) so it never wins over a real pattern.
+        max_id = max(r[0] for r in rows)
+        assert row[0] == max_id, "^$ row should have the highest id (sorts last for REGEXP_TREE)"
+
     def test_all_bot_definitions_have_required_fields(self):
         for pattern, bot_def in BOT_DEFINITIONS.items():
             assert bot_def.name, f"Bot definition for {pattern} missing name"
