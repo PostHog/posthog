@@ -5,8 +5,8 @@ import { ProductSelection } from 'scenes/onboarding/productSelection/ProductSele
 import { OnboardingFlowHost } from './OnboardingFlowHost'
 import { onboardingLogic } from './onboardingLogic'
 
-/** Control = the entire existing onboarding flow (product selection + step host). */
-function ControlOnboarding(): JSX.Element | null {
+/** Control = the entire existing (legacy) onboarding flow (product selection + step host). */
+function LegacyOnboarding(): JSX.Element | null {
     const { productKey } = useValues(onboardingLogic)
 
     if (!productKey) {
@@ -25,5 +25,5 @@ function ControlOnboarding(): JSX.Element | null {
  * Add a new entry here (and a variant on the PostHog flag) to ship an alternative onboarding.
  */
 export const onboardingVariantRegistry: Record<string, () => JSX.Element | null> = {
-    control: ControlOnboarding,
+    control: LegacyOnboarding,
 }
