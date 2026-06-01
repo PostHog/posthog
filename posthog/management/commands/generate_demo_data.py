@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
@@ -22,7 +23,6 @@ from posthog.models.file_system.user_product_list import UserProductList
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_project
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 
@@ -175,11 +175,10 @@ class Command(BaseCommand):
                             raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
-                    # Hand the deterministic token to the new demo team. It's unique, so release it from
-                    # any team that claimed it on a previous run first.
-                    Team.objects.filter(api_token=DEMO_PROJECT_API_TOKEN).update(
-                        api_token=generate_random_token_project()
-                    )
+                    # Hand the demo team a deterministic token in local dev only. In tests (e.g. Playwright
+                    # setup, which seeds many workspaces) and shared/cloud environments, keep random tokens
+                    # so runs don't fight over the unique token or mutate unrelated projects.
+                    demo_api_token = DEMO_PROJECT_API_TOKEN if (settings.DEBUG and not settings.TEST) else None
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -187,7 +186,7 @@ class Command(BaseCommand):
                         is_staff=bool(options.get("staff")),
                         password=password,
                         email_collision_handling="disambiguate",
-                        api_token=DEMO_PROJECT_API_TOKEN,
+                        api_token=demo_api_token,
                     )
 
                     # Optionally generate demo issues for issue tracker if extension is available
@@ -244,7 +243,7 @@ class Command(BaseCommand):
                     "Pre-fill the login form with this link:\n"
                     f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
-                    f"The project API token is:\n{DEMO_PROJECT_API_TOKEN}\n\n"
+                    f"The project API token is:\n{team.api_token if team is not None else 'unknown'}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
                     f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )

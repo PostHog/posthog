@@ -22,7 +22,7 @@ from posthog.models import (
     Team,
     User,
 )
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_project
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
@@ -91,6 +91,10 @@ class MatrixManager:
                     theme_mode="system",
                     role_at_organization="engineering",
                 )
+                if api_token:
+                    # api_token is unique, so release it from any team that claimed it on a previous run
+                    # before the new team claims it. Kept in the same transaction so a failure can't orphan it.
+                    Team.objects.filter(api_token=api_token).update(api_token=generate_random_token_project())
                 team = self.create_team(organization, **({"api_token": api_token} if api_token else {}))
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
