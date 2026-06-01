@@ -1,26 +1,43 @@
 /**
  * Example bundle wiring check — `services/agent-tests/src/examples/agent-concierge/`.
  *
- * The concierge bundle is a forward-looking reference: it uses
- * `kind: "client"` tool refs and `spec.mcps[]` that today's runner
- * doesn't fully wire (see `docs/agent-platform/plans/agent-concierge.md`
- * §8 for the gap list). So this case can't deploy + drive the agent
- * end-to-end the way `example-sre-bot.test.ts` does.
- *
- * Instead it pins the wiring net: every skill path declared in spec
- * exists as a file, every MCP tool the concierge declares matches
- * the authoring MCP catalog, and `agent.md` is non-trivial. If any
- * of these drifts, the bundle is broken regardless of platform
- * readiness — this case catches it before review.
+ * Post-PR-7: the concierge spec now uses the platform's discriminated
+ * `McpRefSchema` shape (`kind: 'external'`, `tools[]` carrying inline
+ * `requires_approval` + `approval_policy`). `seed.py` no longer strips
+ * `mcps[]`, so the bundle deploys end-to-end. This case still pins the
+ * wiring net (skill paths exist, MCP tools match the authoring MCP
+ * catalog, approval gating intact on destructive tools) — drift here
+ * means the bundle is broken regardless of platform readiness, so it's
+ * worth catching before review.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { AgentSpecSchema } from '@posthog/agent-shared'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_ROOT = resolve(__dirname, '../examples/agent-concierge')
 const AGENT_STACK_YAML = resolve(__dirname, '../../../mcp/definitions/agent_stack.yaml')
+
+type ConciergeMcpToolEntry =
+    | string
+    | {
+          name: string
+          requires_approval?: boolean
+          approval_policy?: { approvers: string[]; ttl_ms?: number }
+      }
+
+type ConciergeMcpRef =
+    | { kind: 'agent'; slug: string }
+    | {
+          kind: 'external'
+          id: string
+          url: string
+          secrets?: string[]
+          tools?: ConciergeMcpToolEntry[]
+      }
 
 interface ConciergeSpec {
     model: string
@@ -34,13 +51,7 @@ interface ConciergeSpec {
         required?: boolean
         timeout_ms?: number
     }>
-    mcps: Array<{
-        id: string
-        endpoint: string
-        tools: string[]
-        secrets: string[]
-        approval_policies?: Record<string, { approvers: string[]; ttl_ms: number }>
-    }>
+    mcps: ConciergeMcpRef[]
     skills: Array<{ id: string; path: string; description: string }>
     integrations: string[]
     secrets: string[]
@@ -50,6 +61,10 @@ interface ConciergeSpec {
     }
     reasoning?: string
     resume?: { enabled: boolean; max_completed_age_ms: number }
+}
+
+function toolEntryName(entry: ConciergeMcpToolEntry): string {
+    return typeof entry === 'string' ? entry : entry.name
 }
 
 async function loadBundle(): Promise<{ spec: ConciergeSpec; files: Record<string, string> }> {
@@ -96,10 +111,12 @@ describe('example: agent-concierge bundle', () => {
     it('every MCP tool the concierge declares matches the authoring MCP catalog', async () => {
         const { spec } = await loadBundle()
         const catalog = await loadAgentStackToolIds()
-        const posthog = spec.mcps.find((m) => m.id === 'posthog')
+        const posthog = spec.mcps.find((m): m is Extract<ConciergeMcpRef, { kind: 'external' }> => {
+            return m.kind === 'external' && m.id === 'posthog'
+        })
         expect(posthog).toBeTruthy()
-        for (const toolId of posthog!.tools) {
-            expect(catalog.has(toolId)).toBe(true)
+        for (const entry of posthog!.tools ?? []) {
+            expect(catalog.has(toolEntryName(entry))).toBe(true)
         }
     })
 
@@ -159,16 +176,35 @@ describe('example: agent-concierge bundle', () => {
     it('declares approval policies for destructive MCP tools', async () => {
         const { spec } = await loadBundle()
         // Promote / set-env / destroy are gated at the platform layer, not just
-        // in the prompt — see plan §8 (MCP-tool-level approvals gap).
-        const posthog = spec.mcps.find((m) => m.id === 'posthog')
-        const policies = posthog?.approval_policies ?? {}
-        expect(Object.keys(policies)).toEqual(
-            expect.arrayContaining([
-                'agent-applications-revisions-promote-create',
-                'agent-applications-set-env-create',
-                'agent-applications-destroy',
-            ])
+        // in the prompt. Post-PR-7 the gating lives inline on `tools[]` object
+        // entries with `requires_approval: true` + `approval_policy.approvers`.
+        const posthog = spec.mcps.find((m): m is Extract<ConciergeMcpRef, { kind: 'external' }> => {
+            return m.kind === 'external' && m.id === 'posthog'
+        })
+        expect(posthog).toBeTruthy()
+        const gatedNames = new Set(
+            (posthog!.tools ?? [])
+                .filter(
+                    (e): e is Exclude<ConciergeMcpToolEntry, string> =>
+                        typeof e === 'object' && e.requires_approval === true
+                )
+                .map((e) => e.name)
         )
+        for (const required of [
+            'agent-applications-revisions-promote-create',
+            'agent-applications-set-env-create',
+            'agent-applications-destroy',
+        ]) {
+            expect(gatedNames.has(required), `${required} should be gated`).toBe(true)
+        }
+        // session_principal — the concierge wires every gated tool to the
+        // session owner via the per-asker fast-path (decision B1 + C1 in the
+        // PR 7 plan).
+        for (const entry of posthog!.tools ?? []) {
+            if (typeof entry === 'object' && entry.requires_approval) {
+                expect(entry.approval_policy?.approvers).toEqual(['session_principal'])
+            }
+        }
     })
 
     it('every bundle/tests/*.json case parses and declares the required fields', async () => {
@@ -191,16 +227,44 @@ describe('example: agent-concierge bundle', () => {
         }
     })
 
+    it('the spec parses through AgentSpecSchema — runner accepts it as-is', async () => {
+        // The runner reads `revision.spec` via zod. Before PR 7 the
+        // concierge spec couldn't be deployed because `seed.py` had to
+        // strip `mcps[]` (the flat shape pre-dated the runtime-mcps
+        // schema). After PR 7 the spec uses `kind: 'external'` +
+        // `tools[]` and parses cleanly — this assertion pins that contract
+        // so a future schema tightening doesn't silently re-break the
+        // bundle.
+        const { spec } = await loadBundle()
+        const parsed = AgentSpecSchema.parse(spec)
+        expect(parsed.mcps).toHaveLength(1)
+        const posthog = parsed.mcps[0]
+        if (posthog.kind !== 'external') {
+            throw new Error('expected external posthog mcp')
+        }
+        // Spot-check that the destructive entries arrived as object form
+        // with their approval policy populated.
+        const promote = posthog.tools?.find(
+            (t): t is Exclude<typeof t, string> =>
+                typeof t === 'object' && t.name === 'agent-applications-revisions-promote-create'
+        )
+        expect(promote).not.toBeUndefined()
+        expect(promote!.requires_approval).toBe(true)
+        expect(promote!.approval_policy.approvers).toEqual(['session_principal'])
+        expect(promote!.approval_policy.ttl_ms).toBe(900_000)
+    })
+
     it('seed.py script exists and is executable as Python', async () => {
         const scriptPath = join(BUNDLE_ROOT, 'scripts', 'seed.py')
         const src = await readFile(scriptPath, 'utf-8')
-        // Three things that would silently break the deploy if removed:
+        // Two things that would silently break the deploy if removed:
         // - shebang for direct exec
-        // - load_v0_spec strips spec features the current platform rejects
         // - per_file_sha256 powers the no-op idempotency check
+        // PR 7 removed the `spec["mcps"] = []` strip — the bundle now ships
+        // `mcps[]` in the discriminated union shape the platform accepts.
         expect(src.startsWith('#!/usr/bin/env python3')).toBe(true)
         expect(src).toContain('def load_v0_spec()')
         expect(src).toContain('def per_file_sha256(')
-        expect(src).toContain('spec["mcps"] = []')
+        expect(src).not.toContain('spec["mcps"] = []')
     })
 })

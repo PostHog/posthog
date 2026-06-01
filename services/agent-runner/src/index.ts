@@ -52,9 +52,11 @@ import {
 } from '@posthog/agent-shared'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
+import type { AgentMcpResolver } from './loop/mcp-clients'
 import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
+import { makeAgentMcpResolver } from './resolvers/agent-mcp-resolver'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { Worker } from './workers/worker'
 
@@ -192,6 +194,24 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
+    // Resolver for `kind: agent` MCP refs (PR 7). Skipped when either env
+    // is unset so dev / CI without a configured ingress base URL still
+    // boot — any spec that declares an `agent` ref then fails at session
+    // start with `agent_mcp_resolver_not_wired` (loudly, not silently).
+    let agentMcpResolver: AgentMcpResolver | undefined
+    if (config.agentIngressBaseUrl && config.internalSecret) {
+        agentMcpResolver = makeAgentMcpResolver({
+            revisions,
+            ingressBaseUrl: config.agentIngressBaseUrl,
+            internalSecret: config.internalSecret,
+        })
+    } else {
+        log.warn(
+            { hasBaseUrl: !!config.agentIngressBaseUrl, hasInternalSecret: !!config.internalSecret },
+            'agent_mcp_resolver_disabled — set AGENT_INGRESS_BASE_URL + INTERNAL_SECRET to enable kind: agent MCP refs'
+        )
+    }
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -237,6 +257,7 @@ async function main(): Promise<void> {
         maxConcurrency: config.maxConcurrency,
         memoryStore,
         isAskerInApproverScope,
+        agentMcpResolver,
     })
 
     const shutdown = (sig: string): void => {
