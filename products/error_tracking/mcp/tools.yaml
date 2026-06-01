@@ -262,9 +262,6 @@ tools:
     error-tracking-recommendations-restore-create:
         operation: error_tracking_recommendations_restore_create
         enabled: false
-    error-tracking-recommendations-source-maps-setup-check-retrieve:
-        operation: error_tracking_recommendations_source_maps_setup_check_retrieve
-        enabled: false
     error-tracking-releases-create:
         operation: error_tracking_releases_create
         enabled: false

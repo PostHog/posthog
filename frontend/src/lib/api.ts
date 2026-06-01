@@ -4192,18 +4192,6 @@ const api = {
                 .create()
         },
 
-        async sourceMapsSetupCheck({ sinceMinutes = 15 }: { sinceMinutes?: number } = {}): Promise<{
-            since_minutes: number
-            symbol_sets: { id: string; ref: string; created_at: string; has_uploaded_file: boolean }[]
-            frames: { total: number; resolved: number; unresolved: number }
-        }> {
-            return await new ApiRequest()
-                .errorTrackingRecommendations()
-                .withAction('source_maps_setup_check')
-                .withQueryString({ since_minutes: sinceMinutes })
-                .get()
-        },
-
         async createRule(
             ruleType: ErrorTrackingRuleType,
             { id: _, ...data }: ErrorTrackingRule

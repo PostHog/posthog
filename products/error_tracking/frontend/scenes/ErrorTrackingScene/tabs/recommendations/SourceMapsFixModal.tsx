@@ -22,8 +22,8 @@ export function SourceMapsFixModal(): JSX.Element {
             <div className="flex flex-col gap-4">
                 <div className="flex items-start gap-3">
                     <p className="text-secondary mb-0">
-                        The PostHog wizard detects your framework, wires up source map uploads, and verifies everything
-                        works — so your stack traces become readable. Just run this in your project's root directory:
+                        The PostHog wizard detects your framework and wires up source map uploads, and verifies
+                        everything works. Just run this in your project's root directory:
                     </p>
                 </div>
 

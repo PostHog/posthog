@@ -28,12 +28,12 @@ export function SourceMapsBanner(): JSX.Element | null {
         <>
             <LemonBanner
                 type="warning"
+                className="mb-2"
                 dismissKey={DISMISS_KEY}
                 action={{ children: 'Fix with wizard', icon: <IconMagicWand />, onClick: openModal }}
             >
-                We detected that {percent}% of your JavaScript stack frames in the last {sourceMaps.meta.lookback_hours}{' '}
-                hours are missing source maps, so their stack traces aren't readable. Run the setup wizard to upload
-                them.
+                We detected that {percent}% of your stack frames in the last {sourceMaps.meta.lookback_hours} hours are
+                missing source maps, so their stack traces aren't readable. Run the setup wizard to upload them.
             </LemonBanner>
             <SourceMapsFixModal />
         </>
