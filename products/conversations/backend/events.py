@@ -15,11 +15,16 @@ from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
 logger = structlog.get_logger(__name__)
 
 EVENT_SOURCE = "conversations_events"
+
+# Channels whose customer email is tied to a provider-verified identity and is therefore safe
+# to use for organization attribution.
+_EMAIL_FALLBACK_CHANNELS = frozenset({Channel.EMAIL.value, Channel.SLACK.value, Channel.TEAMS.value})
 
 
 def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
@@ -34,7 +39,9 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
     back to looking the person up by ``properties.email`` in ClickHouse and
     resolving the membership through that person's real distinct_ids.
     """
-    # 1. Real distinct_id (web widget)
+    # 1. Real distinct_id (web widget). An identified person is authoritative: if they
+    # have no org membership, don't guess via email (a shared email could resolve to a
+    # different person's org), so return early instead of falling through.
     if ticket.distinct_id:
         persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id])
         if any(p.is_identified for p in persons):
@@ -45,8 +52,13 @@ def _resolve_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict | None]:
             )
             if membership:
                 return True, build_groups(membership.organization, team)
+            return False, None
 
-    # 2. Email fallback (Slack / Email / MS Teams)
+    # 2. Email fallback, restricted to channels with a provider-verified email identity.
+    # Never trust the public widget's attacker-controlled anonymous_traits.email here.
+    if ticket.channel_source not in _EMAIL_FALLBACK_CHANNELS:
+        return False, None
+
     email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
     if email:
         person = _get_persons_by_email(team, [email]).get(email.lower())

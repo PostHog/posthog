@@ -405,18 +405,54 @@ class TestConversationEvents(BaseTest):
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events._get_persons_by_email")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
-    def test_capture_ticket_created_github_no_email_skips_lookup(
+    def test_capture_ticket_created_identified_person_without_membership_skips_email_fallback(
         self, mock_get_persons, mock_get_by_email, mock_capture
     ):
-        """GitHub tickets carry no email, so the email fallback is never attempted."""
+        """An identified person resolved via distinct_id is authoritative: no email fallback even if traits.email could match another org."""
+        from posthog.models.person.person import Person
+
+        # The widget distinct_id resolves to an identified person, but they have no org membership.
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_by_email.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            # Channels NOT in the email-fallback allowlist must never run the email lookup.
+            ("widget_anonymous_spoofed_email", "widget"),
+            ("github_no_email", "github"),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_non_verified_channels_skip_email_fallback(
+        self, _name, channel, mock_get_persons, mock_get_by_email, mock_capture
+    ):
+        """anonymous_traits.email is attacker-controlled on the public widget, so it must never resolve an org.
+
+        Even when an anonymous distinct_id resolves to no identified person and a victim org exists for the
+        supplied email, non-allowlisted channels (widget, github) skip the email lookup entirely.
+        """
+        # A victim org/person that the spoofed email would resolve to if the lookup ran.
+        victim_org = Organization.objects.create(name="Victim Corp")
+        victim_user = User.objects.create(email="victim@bigcorp.com", distinct_id="victim-did")
+        OrganizationMembership.objects.create(user=victim_user, organization=victim_org)
+
+        # Anonymous distinct_id resolves to no identified person -> step 1 does not early-return.
         mock_get_persons.return_value = []
 
         ticket = Ticket.objects.create_with_number(
             team=self.team,
             widget_session_id="",
-            distinct_id="github:octocat",
-            channel_source="github",
-            anonymous_traits={"name": "octocat", "github_login": "octocat"},
+            distinct_id="anon-attacker",
+            channel_source=channel,
+            anonymous_traits={"name": "Attacker", "email": "victim@bigcorp.com"},
         )
 
         capture_ticket_created(ticket)
