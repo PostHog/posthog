@@ -25869,7 +25869,8 @@ export namespace Schemas {
       * `slack` - Slack
       * `support_queue` - Support Queue
       * `session_summaries` - Session Summaries
-      * `signal_report` - Signal Report */
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -31942,7 +31943,8 @@ export namespace Schemas {
       * `slack` - Slack
       * `support_queue` - Support Queue
       * `session_summaries` - Session Summaries
-      * `signal_report` - Signal Report */
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).

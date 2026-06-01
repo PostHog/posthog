@@ -18,14 +18,38 @@ tools:
     sandbox-create:
         operation: sandbox_create
         enabled: false
+    sandbox-destroy:
+        operation: sandbox_destroy
+        enabled: false
     sandbox-list:
         operation: sandbox_list
+        enabled: false
+    sandbox-partial-update:
+        operation: sandbox_partial_update
+        enabled: false
+    sandbox-retrieve:
+        operation: sandbox_retrieve
         enabled: false
     task-automations-create:
         operation: task_automations_create
         enabled: false
+    task-automations-destroy:
+        operation: task_automations_destroy
+        enabled: false
     task-automations-list:
         operation: task_automations_list
+        enabled: false
+    task-automations-partial-update:
+        operation: task_automations_partial_update
+        enabled: false
+    task-automations-retrieve:
+        operation: task_automations_retrieve
+        enabled: false
+    task-automations-run-create:
+        operation: task_automations_run_create
+        enabled: false
+    task-automations-update:
+        operation: task_automations_update
         enabled: false
     tasks-create:
         operation: tasks_create
@@ -203,6 +227,9 @@ tools:
         enabled: false
     tasks-runs-stream-retrieve:
         operation: tasks_runs_stream_retrieve
+        enabled: false
+    tasks-slack-thread-context-retrieve:
+        operation: tasks_slack_thread_context_retrieve
         enabled: false
     tasks-staged-artifacts-finalize-upload-create:
         operation: tasks_staged_artifacts_finalize_upload_create
