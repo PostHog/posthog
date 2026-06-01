@@ -1553,12 +1553,17 @@ describe('Hog Executor', () => {
 
                 const maxRetries = executor['config'].fetchRetries
                 let result = await executor.executeFetch(invocation)
+                // Verify every intermediate attempt also logged at 'info' — regression guard
+                // against any future change that re-raises retry logs to 'error' when the
+                // status is in the non-failure list.
+                expect(result.logs.every((l) => l.level === 'info')).toBe(true)
 
                 for (let attempt = 1; attempt < maxRetries; attempt++) {
                     expect(result.error).toBeUndefined()
                     expect(result.invocation.queueScheduledAt).toBeDefined()
                     expect(result.invocation.state.attempts).toBe(attempt)
                     result = await executor.executeFetch(result.invocation)
+                    expect(result.logs.every((l) => l.level === 'info')).toBe(true)
                 }
 
                 expect(result.error).toBeUndefined()

@@ -4,7 +4,7 @@ export function isNonFailureStatus(
     status: number | undefined,
     config: Array<number | string> | null | undefined
 ): boolean {
-    if (!status || !Array.isArray(config) || config.length === 0) {
+    if (typeof status !== 'number' || !Array.isArray(config) || config.length === 0) {
         return false
     }
 
