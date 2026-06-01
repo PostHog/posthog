@@ -140,7 +140,7 @@ export interface RunSessionDeps {
      * these with a per-turn `Idempotency-Key` + `X-Request-Id` of the form
      * `agent:<session>:<turn>` and forwards them to pi-ai's per-call
      * `options.headers`. Presence also signals `errorContext()` to mark
-     * failures as `source: llm_gateway`.
+     * failures as `source: ai_gateway`.
      */
     gatewayHeaders?: Record<string, string>
     /**
@@ -754,7 +754,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         // upstream provider. Defined inline so it closes over `deps`.
         function errorContext(): Record<string, unknown> {
             return {
-                source: deps.gatewayHeaders ? 'llm_gateway' : 'provider',
+                source: deps.gatewayHeaders ? 'ai_gateway' : 'provider',
                 model: deps.model.id,
                 provider: deps.model.provider,
                 api: deps.model.api,
