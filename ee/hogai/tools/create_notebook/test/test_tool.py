@@ -7,11 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from products.notebooks.backend.models import Notebook
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.tools.create_notebook.tool import (
-    CREATE_NOTEBOOK_PROMPT,
-    CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS,
-    CreateNotebookTool,
-)
+from ee.hogai.tools.create_notebook.tool import CREATE_NOTEBOOK_PROMPT, CreateNotebookTool, build_create_notebook_prompt
 from ee.hogai.utils.types.base import AssistantState, NodePath
 from ee.models.assistant import Conversation
 
@@ -45,12 +41,14 @@ class TestCreateNotebookTool(BaseTest):
         assert artifact is None
 
     def test_base_prompt_does_not_advertise_executable_analysis_cell_tags(self):
+        executable_prompt = build_create_notebook_prompt(allow_executable_analysis_blocks=True)
+
         assert "<hogql" not in CREATE_NOTEBOOK_PROMPT
         assert "<ducksql" not in CREATE_NOTEBOOK_PROMPT
         assert "<python" not in CREATE_NOTEBOOK_PROMPT
-        assert "<hogql" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
-        assert "<ducksql" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
-        assert "<python" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+        assert "<hogql" in executable_prompt
+        assert "<ducksql" in executable_prompt
+        assert "<python" in executable_prompt
 
     def test_returns_error_when_neither_content_nor_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(

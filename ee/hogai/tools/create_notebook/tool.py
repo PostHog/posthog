@@ -20,93 +20,16 @@ from ee.hogai.tools.create_notebook.tiptap import content_uses_executable_analys
 from ee.hogai.utils.feature_flags import has_notebook_python_feature_flag
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
-CREATE_NOTEBOOK_PROMPT = """
-Use this tool to create a notebook document with rich content.
-
-# Use this when:
-- The user asks for a report, summary, or document
-- You want to combine multiple insights with explanatory text
-- The user requests a structured analysis or investigation summary
-- You want to write a draft notebook for yourself, to review later
-
-# Content vs Draft Content:
-You must use EXACTLY ONE of these parameters:
-- `content`: Use this when you want to show the notebook to the user immediately. The notebook will be streamed as you write it.
-- `draft_content`: Use this when you want to save a draft without showing it to the user. Useful for writing a first version before it's ready, or for taking intermediate finding notes before writing the final version.
-
-# When creating notebook content:
+_CREATE_NOTEBOOK_STANDARD_CONTENT_GUIDANCE = """
 1. Use markdown headings to structure sections (# for main headings, ## for subsections)
 2. Reference existing visualization artifacts using <insight>insight_id</insight> tags
 3. Use `<query title="...">{...query JSON...}</query>` for inline query visualization nodes, including old-style HogQLQuery nodes
 4. Include explanatory text around insights and query nodes to provide context
 5. Use bullet points and numbered lists for clarity
 6. Use fenced code blocks for code examples
+""".strip()
 
-# How to use the <insight>insight_id</insight> tag:
-You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
-Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
-
-# Complex analysis workflow:
-Before writing query nodes, inspect live values with read_data, execute_sql, or create_insight as needed.
-Then create the notebook with multiple markdown, visualization, and query nodes. If follow-up analysis changes are needed,
-use edit_notebook to add or replace the relevant nodes in the saved notebook.
-
-# Best practices:
-The document should be structured as a series of sections, each with a heading and a body.
-Try to use each section to answer a single question or provide a single insight.
-Don't be verbose, get straight to the point. Data-heavy short documents are preferred over long documents.
-Don't repeat yourself. If you've already mentioned an insight or artifact in a previous section, don't mention it again.
-
-# Example content format:
-```
-# Weekly Analytics Report
-
-## Key Metrics Overview
-
-Here's the main trends insight showing our weekly active users:
-
-<insight>abc123</insight>
-
-As we can see, there's been a 15% increase week-over-week.
-
-## Funnel Analysis
-
-Our signup funnel shows the following conversion rates:
-
-<insight>def456</insight>
-
-### Recommendations
-
-1. Focus on improving step 2 to 3 conversion
-2. Consider A/B testing the signup flow
-```
-
-# Updating existing notebooks:
-- Use `edit_notebook` when the user asks to change an existing saved notebook, especially a notebook they are viewing.
-- If you want to update an existing transient notebook artifact, use the `artifact_id` parameter to specify the ID of the existing artifact.
-- *IMPORTANT*: Updating a notebook artifact will replace the existing artifact content with the new content.
-
-# Transient vs saved notebooks:
-- By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
-- Set save_to_notebook=True ONLY when the user explicitly asks to save, persist, or create a permanent notebook.
-- When updating an artifact that is already saved to the database, the saved notebook is automatically updated too.
-"""
-
-CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS = """
-Use this tool to create a notebook document with rich content.
-
-# Use this when:
-- The user asks for a report, summary, or document
-- You want to combine multiple insights with explanatory text
-- The user requests a structured analysis or investigation summary
-- You want to write a draft notebook for yourself, to review later
-
-# Content vs Draft Content:
-You must use EXACTLY ONE of these parameters:
-- `content`: Use this when you want to show the notebook to the user immediately. The notebook will be streamed as you write it.
-- `draft_content`: Use this when you want to save a draft without showing it to the user. Useful for writing a first version before it's ready, or for taking intermediate finding notes before writing the final version.
-
-# When creating notebook content:
+_CREATE_NOTEBOOK_EXECUTABLE_CONTENT_GUIDANCE = """
 1. Use markdown headings to structure sections (# for main headings, ## for subsections)
 2. Reference existing visualization artifacts using <insight>insight_id</insight> tags
 3. Prefer `<query title="...">{...query JSON...}</query>` blocks containing HogQLQuery or InsightVizNode query JSON for SQL analysis today
@@ -117,16 +40,57 @@ You must use EXACTLY ONE of these parameters:
 5. Include explanatory text around insights and cells to provide context
 6. Use bullet points and numbered lists for clarity
 7. Use fenced code blocks only for code examples that should not be runnable notebook cells
+""".strip()
+
+_CREATE_NOTEBOOK_STANDARD_COMPLEX_ANALYSIS_WORKFLOW = """
+Before writing query nodes, inspect live values with read_data, execute_sql, or create_insight as needed.
+Then create the notebook with multiple markdown, visualization, and query nodes. If follow-up analysis changes are needed,
+use edit_notebook to add or replace the relevant nodes in the saved notebook.
+""".strip()
+
+_CREATE_NOTEBOOK_EXECUTABLE_COMPLEX_ANALYSIS_WORKFLOW = """
+Before writing query or analysis cells, inspect live values with read_data, execute_sql, or create_insight as needed.
+Then create the notebook with multiple markdown, visualization, and query nodes. Prefer old-style HogQLQuery nodes for SQL
+until executable SQL notebook cells are fully rolled out. If follow-up analysis changes are needed, use edit_notebook to
+add or replace the relevant nodes in the saved notebook.
+""".strip()
+
+
+def build_create_notebook_prompt(*, allow_executable_analysis_blocks: bool) -> str:
+    content_guidance = (
+        _CREATE_NOTEBOOK_EXECUTABLE_CONTENT_GUIDANCE
+        if allow_executable_analysis_blocks
+        else _CREATE_NOTEBOOK_STANDARD_CONTENT_GUIDANCE
+    )
+    complex_analysis_workflow = (
+        _CREATE_NOTEBOOK_EXECUTABLE_COMPLEX_ANALYSIS_WORKFLOW
+        if allow_executable_analysis_blocks
+        else _CREATE_NOTEBOOK_STANDARD_COMPLEX_ANALYSIS_WORKFLOW
+    )
+
+    return f"""
+Use this tool to create a notebook document with rich content.
+
+# Use this when:
+- The user asks for a report, summary, or document
+- You want to combine multiple insights with explanatory text
+- The user requests a structured analysis or investigation summary
+- You want to write a draft notebook for yourself, to review later
+
+# Content vs Draft Content:
+You must use EXACTLY ONE of these parameters:
+- `content`: Use this when you want to show the notebook to the user immediately. The notebook will be streamed as you write it.
+- `draft_content`: Use this for internal research drafts or intermediate notes that should not stream as a notebook preview. It creates or updates a transient draft artifact unless you explicitly persist it.
+
+# When creating notebook content:
+{content_guidance}
 
 # How to use the <insight>insight_id</insight> tag:
 You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
 Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
 
 # Complex analysis workflow:
-Before writing query or analysis cells, inspect live values with read_data, execute_sql, or create_insight as needed.
-Then create the notebook with multiple markdown, visualization, and query nodes. Prefer old-style HogQLQuery nodes for SQL
-until executable SQL notebook cells are fully rolled out. If follow-up analysis changes are needed, use edit_notebook to
-add or replace the relevant nodes in the saved notebook.
+{complex_analysis_workflow}
 
 # Best practices:
 The document should be structured as a series of sections, each with a heading and a body.
@@ -167,7 +131,10 @@ Our signup funnel shows the following conversion rates:
 - By default, notebooks are created as transient artifacts visible only in this conversation. Do NOT share URLs or references to notebook pages for transient artifacts.
 - Set save_to_notebook=True ONLY when the user explicitly asks to save, persist, or create a permanent notebook.
 - When updating an artifact that is already saved to the database, the saved notebook is automatically updated too.
-"""
+""".strip()
+
+
+CREATE_NOTEBOOK_PROMPT = build_create_notebook_prompt(allow_executable_analysis_blocks=False)
 
 
 class CreateNotebookToolArgs(BaseModel):
@@ -182,9 +149,10 @@ class CreateNotebookToolArgs(BaseModel):
     draft_content: str | None = Field(
         default=None,
         description=(
-            "The notebook content in markdown format for a draft. Use this to save a draft without showing it to "
-            "the user. Use <insight>artifact_id</insight> tags to reference existing visualization artifacts and "
-            "<query> blocks for inline query nodes."
+            "The notebook content in markdown format for an internal draft. Use this for research drafts or "
+            "intermediate notes that should not stream as a notebook preview. It creates or updates a transient "
+            "draft artifact unless you explicitly persist it. Use <insight>artifact_id</insight> tags to reference "
+            "existing visualization artifacts and <query> blocks for inline query nodes."
         ),
     )
     title: str = Field(description="A descriptive title for the notebook.")
@@ -213,10 +181,8 @@ class CreateNotebookTool(MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        description = (
-            CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
-            if has_notebook_python_feature_flag(team, user)
-            else CREATE_NOTEBOOK_PROMPT
+        description = build_create_notebook_prompt(
+            allow_executable_analysis_blocks=has_notebook_python_feature_flag(team, user)
         )
         return cls(
             team=team,

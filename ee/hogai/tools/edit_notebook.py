@@ -35,65 +35,12 @@ from ee.hogai.utils.feature_flags import has_notebook_python_feature_flag
 from ee.hogai.utils.types.base import AssistantState, NodePath
 from ee.models.assistant import AgentArtifact
 
-EDIT_NOTEBOOK_PROMPT = """
-Use this tool to edit an existing saved notebook. Prefer it whenever the user asks you to change, update, append to, or replace content in a notebook they are viewing or have referenced.
-
-This tool applies anchored edits to the latest notebook content through the same collaboration save path used by the notebook editor. Open notebook pages receive the change live.
-
-# When to use this instead of create_notebook
-- The user asks to modify an existing notebook.
-- The user asks to replace a placeholder block in the current notebook.
-- Notebook context contains instructions like "replace this block", "add an insight here", or "fill this in".
-- You created an insight and now need to place it into the notebook.
-
-# Targeting notebooks
-- If the user is viewing a notebook, you may omit `short_id`; the current notebook from UI context will be used.
-- If multiple notebooks are in context, provide the exact `short_id`.
-
-# Inserting insights
-Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
-
+_EDIT_NOTEBOOK_QUERY_NODE_GUIDANCE = """
 # Inserting query nodes
 Markdown `content` supports `<query title="...">{...query JSON...}</query>` for inline query visualization nodes, including old-style HogQLQuery nodes.
-
-Example:
-{
-  "edits": [
-    {
-      "type": "replace_block",
-      "anchor": "replace this block with an insight showing number of active users last 30 days",
-      "content": "<insight>abc123</insight>"
-    }
-  ]
-}
-
-# Edit operations
-- `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
-- `insert_after`, `insert_before`, `insert_after_heading`, `insert_between`: insert content around exact text anchors.
-- `append`: add content to the end of the notebook.
-- `replace_text`: replace exact text within normal text and inside query/code node attributes. For small SQL edits like changing `LIMIT 25` to `LIMIT 200`, prefer `replace_text` with `anchor` set to the query title or section heading; do not rebuild the whole query block.
-
-Use exact anchors copied from notebook context. When the anchor is a heading, `replace_text` searches that heading section until the next same-or-higher-level heading. Do not use create_notebook to edit a saved notebook.
 """.strip()
 
-EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS = """
-Use this tool to edit an existing saved notebook. Prefer it whenever the user asks you to change, update, append to, or replace content in a notebook they are viewing or have referenced.
-
-This tool applies anchored edits to the latest notebook content through the same collaboration save path used by the notebook editor. Open notebook pages receive the change live.
-
-# When to use this instead of create_notebook
-- The user asks to modify an existing notebook.
-- The user asks to replace a placeholder block in the current notebook.
-- Notebook context contains instructions like "replace this block", "add an insight here", or "fill this in".
-- You created an insight and now need to place it into the notebook.
-
-# Targeting notebooks
-- If the user is viewing a notebook, you may omit `short_id`; the current notebook from UI context will be used.
-- If multiple notebooks are in context, provide the exact `short_id`.
-
-# Inserting insights
-Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
-
+_EDIT_NOTEBOOK_EXECUTABLE_ANALYSIS_GUIDANCE = """
 # Inserting analysis cells
 Prefer `<query title="...">{...query JSON...}</query>` blocks containing HogQLQuery or InsightVizNode query JSON for SQL analysis today.
 Markdown `content` also supports executable notebook cells when the user specifically needs Python, DuckDB, or executable cells:
@@ -101,17 +48,46 @@ Markdown `content` also supports executable notebook cells when the user specifi
 - `<ducksql title="..." return_variable="summary_df">SELECT ...</ducksql>` for DuckDB SQL cells.
 - `<python title="...">print(events_df)</python>` for Python cells.
 - `<query title="...">{...query JSON...}</query>` for inline query visualization nodes.
+""".strip()
+
+
+def build_edit_notebook_prompt(*, allow_executable_analysis_blocks: bool) -> str:
+    content_guidance = (
+        _EDIT_NOTEBOOK_EXECUTABLE_ANALYSIS_GUIDANCE
+        if allow_executable_analysis_blocks
+        else _EDIT_NOTEBOOK_QUERY_NODE_GUIDANCE
+    )
+
+    return f"""
+Use this tool to edit an existing saved notebook. Prefer it whenever the user asks you to change, update, append to, or replace content in a notebook they are viewing or have referenced.
+
+This tool applies anchored edits to the latest notebook content through the same collaboration save path used by the notebook editor. Open notebook pages receive the change live.
+
+# When to use this instead of create_notebook
+- The user asks to modify an existing notebook.
+- The user asks to replace a placeholder block in the current notebook.
+- Notebook context contains instructions like "replace this block", "add an insight here", or "fill this in".
+- You created an insight and now need to place it into the notebook.
+
+# Targeting notebooks
+- If the user is viewing a notebook, you may omit `short_id`; the current notebook from UI context will be used.
+- If multiple notebooks are in context, provide the exact `short_id`.
+
+# Inserting insights
+Use `<insight>artifact_id</insight>` in `content` to insert a visualization artifact created earlier in the conversation.
+
+{content_guidance}
 
 Example:
-{
+{{
   "edits": [
-    {
+    {{
       "type": "replace_block",
       "anchor": "replace this block with an insight showing number of active users last 30 days",
       "content": "<insight>abc123</insight>"
-    }
+    }}
   ]
-}
+}}
 
 # Edit operations
 - `replace_block`: replace the whole top-level notebook block containing exact anchor text. Use this for placeholders.
@@ -121,6 +97,9 @@ Example:
 
 Use exact anchors copied from notebook context. When the anchor is a heading, `replace_text` searches that heading section until the next same-or-higher-level heading. Do not use create_notebook to edit a saved notebook.
 """.strip()
+
+
+EDIT_NOTEBOOK_PROMPT = build_edit_notebook_prompt(allow_executable_analysis_blocks=False)
 
 
 ProseMirrorNode = dict[str, Any]
@@ -917,10 +896,8 @@ class EditNotebookTool(MaxTool):
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        description = (
-            EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
-            if has_notebook_python_feature_flag(team, user)
-            else EDIT_NOTEBOOK_PROMPT
+        description = build_edit_notebook_prompt(
+            allow_executable_analysis_blocks=has_notebook_python_feature_flag(team, user)
         )
         return cls(
             team=team,
