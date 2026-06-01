@@ -359,7 +359,8 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(OAuthValidator().validate_silent_login(req))
 
     def test_validate_silent_login_returns_false_for_unauthenticated_request(self):
-        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=SimpleNamespace(is_authenticated=False))))
+        unauthenticated = SimpleNamespace(user=SimpleNamespace(is_authenticated=False))
+        self.assertFalse(OAuthValidator().validate_silent_login(unauthenticated))
         # request object with no `user` attribute at all
         self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace()))
         self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=None)))
