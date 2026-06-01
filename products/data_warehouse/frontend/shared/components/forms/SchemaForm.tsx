@@ -69,6 +69,7 @@ export default function SchemaForm(): JSX.Element {
         isDirectQueryMode,
         tablesAllToggledOn,
         source,
+        selectedConnector,
         groupedDirectQueryDatabaseSchema,
         expandedDirectQuerySchemaKeys,
     } = useValues(sourceWizardLogic)
@@ -84,7 +85,7 @@ export default function SchemaForm(): JSX.Element {
         toggleSchemaShouldSync(schema, checked)
     }
 
-    const shouldShowSyncColumns = !isDirectQueryMode
+    const shouldShowSyncColumns = !isDirectQueryMode && !!selectedConnector?.supportsColumnSelection
 
     // scroll to top of container
     useEffect(() => {

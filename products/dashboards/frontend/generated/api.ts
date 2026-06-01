@@ -43,10 +43,10 @@ import type {
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
+    PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
-    SharingConfigurationApi,
     UpdateTextTileRequestApi,
 } from './api.schemas'
 
@@ -108,6 +108,75 @@ export const dashboardTemplatesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
+}
+
+export const dashboardTemplatesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
+}
+
+export const dashboardTemplatesUpdate = async (
+    projectId: string,
+    id: string,
+    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
+}
+
+export const dashboardTemplatesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDashboardTemplateApi?: NonReadonly<PatchedDashboardTemplateApi>,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const dashboardTemplatesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getDashboardTemplatesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 
@@ -246,79 +315,6 @@ export const dashboardsCollaboratorsDestroy = async (
     return apiMutator<void>(getDashboardsCollaboratorsDestroyUrl(projectId, dashboardId, userUuid), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
-}
-
-export const dashboardsSharingList = async (
-    projectId: string,
-    dashboardId: number,
-    options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
-}
-
-/**
- * Create a new password for the sharing configuration.
- */
-export const dashboardsSharingPasswordsCreate = async (
-    projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreateUrl(projectId, dashboardId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
-}
-
-/**
- * Delete a password from the sharing configuration.
- */
-export const dashboardsSharingPasswordsDestroy = async (
-    projectId: string,
-    dashboardId: number,
-    passwordId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSharingPasswordsDestroyUrl(projectId, dashboardId, passwordId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
-}
-
-export const dashboardsSharingRefreshCreate = async (
-    projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreateUrl(projectId, dashboardId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
     })
 }
 

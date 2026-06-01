@@ -104,7 +104,11 @@ const getSavedQuerySchemaTable = (
 }
 
 const FUSE_OPTIONS: IFuseOptions<any> = {
-    keys: [{ name: 'name', weight: 2 }],
+    keys: [
+        { name: 'name', weight: 2 },
+        // Warehouse tables are queryable by alternate names (e.g. the flat underscore form) too
+        { name: 'search_aliases', weight: 1 },
+    ],
     ignoreLocation: true,
     includeMatches: true,
 }

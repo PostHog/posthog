@@ -224,8 +224,6 @@ interface SearchContextValue {
     showAskAiLink: boolean
     onAskAiClick?: () => void
     highlightedItemRef: MutableRefObject<SearchItem | null>
-    isShiftHeld: boolean
-    setIsShiftHeld: (held: boolean) => void
 }
 
 const SearchContext = createContext<SearchContextValue | null>(null)
@@ -406,7 +404,6 @@ function SearchRoot({
     const reRankEnabled = useFeatureFlag('SEARCH_RE_RANK')
 
     const [searchValue, setSearchValue] = useState(defaultSearchValue)
-    const [isShiftHeld, setIsShiftHeld] = useState(false)
 
     useEffect(() => {
         if (defaultSearchValue) {
@@ -604,8 +601,6 @@ function SearchRoot({
             showAskAiLink,
             onAskAiClick,
             highlightedItemRef,
-            isShiftHeld,
-            setIsShiftHeld,
         }),
         [
             logicKey,
@@ -617,7 +612,6 @@ function SearchRoot({
             handleItemClick,
             showAskAiLink,
             onAskAiClick,
-            isShiftHeld,
         ]
     )
 
@@ -653,8 +647,7 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick, setIsShiftHeld } =
-        useSearchContext()
+    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -667,41 +660,14 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
 
     const handleInputKeyDown = useCallback(
         (e: React.KeyboardEvent) => {
-            if (e.key === 'Shift') {
-                setIsShiftHeld(true)
-            }
-            if (e.key === 'Enter' && e.shiftKey) {
-                e.preventDefault()
-                e.stopPropagation()
-                // The highlighted item already has target="_blank" applied because
-                // isShiftHeld flipped on the prior Shift keydown — clicking the anchor
-                // routes through the browser's native new-tab handling.
-                const highlightedAnchor = document.querySelector<HTMLAnchorElement>(
-                    '[data-highlighted] a, a[data-highlighted]'
-                )
-                highlightedAnchor?.click()
-            }
             if (e.key === 'Tab' && showAskAiLink && searchValue.trim()) {
                 e.preventDefault()
                 onAskAiClick?.()
                 router.actions.push(urls.ai(undefined, searchValue.trim()))
             }
         },
-        [showAskAiLink, searchValue, onAskAiClick, setIsShiftHeld]
+        [showAskAiLink, searchValue, onAskAiClick]
     )
-
-    const handleInputKeyUp = useCallback(
-        (e: React.KeyboardEvent) => {
-            if (e.key === 'Shift') {
-                setIsShiftHeld(false)
-            }
-        },
-        [setIsShiftHeld]
-    )
-
-    const handleInputBlur = useCallback(() => {
-        setIsShiftHeld(false)
-    }, [setIsShiftHeld])
 
     useEffect(() => {
         if (autoFocus && inputRef.current) {
@@ -736,8 +702,6 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                     value={searchValue}
                     onChange={(e) => handleInputChange(e.target.value)}
                     onKeyDown={handleInputKeyDown}
-                    onKeyUp={handleInputKeyUp}
-                    onBlur={handleInputBlur}
                     aria-label="Search"
                     id="app-autocomplete-search"
                     className="w-full px-1 py-1 text-sm focus:outline-none border-transparent"
@@ -839,8 +803,7 @@ function SearchResults({
     listClassName?: string
     groupLabelClassName?: string
 }): JSX.Element {
-    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue, isShiftHeld } =
-        useSearchContext()
+    const { groupedItems, handleItemClick, highlightedItemRef, isSearching, searchValue } = useSearchContext()
 
     // Don't show "no results" while any category is still loading
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
@@ -907,10 +870,6 @@ function SearchResults({
                                                         <Autocomplete.Item
                                                             value={item}
                                                             onClick={(e) => {
-                                                                if (isShiftHeld || e.shiftKey) {
-                                                                    // Let the anchor's target="_blank" open a new tab natively.
-                                                                    return
-                                                                }
                                                                 e.preventDefault()
                                                                 handleItemClick(item)
                                                             }}
@@ -930,11 +889,6 @@ function SearchResults({
                                                                                 fullWidth: true,
                                                                             }}
                                                                             {...props}
-                                                                            target={
-                                                                                isShiftHeld && isHighlighted
-                                                                                    ? '_blank'
-                                                                                    : undefined
-                                                                            }
                                                                             tabIndex={-1}
                                                                         >
                                                                             {icon}
@@ -1035,9 +989,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     )}
                     <span>
                         <KeyboardShortcut enter /> to activate
-                    </span>
-                    <span>
-                        <KeyboardShortcut shift enter /> to open in new tab
                     </span>
                     {searchValue.trim() && (
                         <span>

@@ -47,8 +47,8 @@ logger = logging.getLogger(__name__)
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
 
-# Deep link opened by the PostHog Code desktop app. Override via env for prod (`posthog-code`).
-POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code-dev")
+# Deep link opened by the PostHog Code desktop app. Override via env for dev (`posthog-code-dev`).
+POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
 
 # Priority ranking — lower index is higher priority. Index used for threshold comparison.
 _PRIORITY_ORDER: tuple[str, ...] = (
