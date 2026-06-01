@@ -809,12 +809,25 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
+        # Capture the name before deletion; the soft-delete path scrambles `name`.
+        name = instance.name
         try:
             delete_saved_query(instance)
         except HasDependentsError:
             raise serializers.ValidationError(
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="DataWarehouseSavedQuery",
+            activity="deleted",
+            detail=Detail(name=name),
+        )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
