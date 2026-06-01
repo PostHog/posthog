@@ -213,16 +213,20 @@ def record_cohort_size(size: int) -> None:
     hist.record(size)
 
 
-CohortSaveFallbackReason = typing.Literal["integrity_error"]
+CohortSaveFallbackReason = typing.Literal["integrity_error", "read_only_connection"]
 CohortQueryFallbackReason = typing.Literal["batched_failure", "transient_no_fallback"]
 
 
 def increment_cohort_save_fallback(reason: CohortSaveFallbackReason) -> None:
-    """Counts cohort bulk-save failures that triggered the per-alert fallback path."""
+    """Counts cohort bulk-save failures that triggered a recovery path.
+
+    `integrity_error` falls back to per-alert UPDATEs; `read_only_connection`
+    recycles the stale connection and retries the bulk save once.
+    """
     meter = get_metric_meter({"reason": reason})
     counter = meter.create_counter(
         "logs_alerting_cohort_save_fallback_total",
-        "Cohort bulk-save fell back to per-alert UPDATEs (e.g. IntegrityError)",
+        "Cohort bulk-save hit a recoverable error and took a recovery path (per-alert fallback or connection recycle + retry)",
     )
     counter.add(1)
 

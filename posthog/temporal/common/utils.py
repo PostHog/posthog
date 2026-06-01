@@ -98,10 +98,76 @@ def _close_initialized_connections() -> None:
         conn.close()
 
 
-def _close_db_connections() -> None:
-    """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
+def recycle_db_connections() -> None:
+    """Hard-close this thread's initialized Django connections (skipped under TEST).
+
+    Stronger than ``close_old_connections()``: that only evicts connections Django
+    deems obsolete or unusable, so a connection pinned to a now-read-only Postgres
+    replica (after an Aurora failover or pgbouncer reroute) survives — it still
+    answers ``SELECT 1`` and reads succeed. This closes unconditionally so the next
+    query dials a fresh, writable connection. Call it in the same thread that holds
+    the stale handle (Django connections are thread-local).
+
+    Skipped under ``settings.TEST`` to avoid tearing down the test DB connection
+    that ``transaction=True`` fixtures rely on.
+    """
     if not settings.TEST:
         _close_initialized_connections()
+
+
+# Read-only SQL transaction (PostgreSQL SQLSTATE 25006). psycopg raises
+# ``ReadOnlySqlTransaction`` with this code; Django re-wraps it as
+# ``django.db.utils.InternalError``, keeping the original as ``__cause__``.
+_READ_ONLY_SQL_TRANSACTION_SQLSTATE = "25006"
+
+
+def is_read_only_connection_error(exc: BaseException) -> bool:
+    """True when ``exc`` was raised because the current connection points at a
+    read-only Postgres host — typically a long-lived Temporal worker connection
+    left pinned to a replica after a failover or pgbouncer reroute.
+
+    Walks the exception chain so it matches both the raw psycopg error and the
+    ``django.db.utils.InternalError`` Django wraps it in, falling back to the
+    message when the SQLSTATE isn't carried through.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if getattr(current, "sqlstate", None) == _READ_ONLY_SQL_TRANSACTION_SQLSTATE:
+            return True
+        current = current.__cause__ or current.__context__
+    return "read-only transaction" in str(exc).lower()
+
+
+def retry_once_on_read_only_connection(fn: Callable[P, T]) -> Callable[P, T]:
+    """Wrap a SYNC DB callable so a read-only-connection failure recycles this
+    thread's connections and retries the call once on a fresh, writable connection.
+
+    Must wrap the callable that runs the ORM write itself: the connection close has
+    to happen in the same worker thread that holds the stale handle. Wrapping an
+    async activity that delegates its writes to a thread pool (e.g. via
+    ``database_sync_to_async``) would close the wrong thread's connections and not
+    help. The wrapped call must be safe to run twice (the first attempt's
+    transaction never committed).
+    """
+    if inspect.iscoroutinefunction(fn):
+        raise TypeError(
+            f"retry_once_on_read_only_connection wraps sync DB callables; '{fn.__name__}' is async. "
+            "Apply it to the sync function that runs inside the worker thread."
+        )
+
+    @wraps(fn)
+    def inner(*args: P.args, **kwargs: P.kwargs) -> T:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            if not is_read_only_connection_error(exc):
+                raise
+            recycle_db_connections()
+            return fn(*args, **kwargs)
+
+    return inner
 
 
 def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
@@ -127,21 +193,21 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
 
         @wraps(fn)
         async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            await sync_to_async(_close_db_connections)()
+            await sync_to_async(recycle_db_connections)()
             try:
                 return await fn(*args, **kwargs)
             finally:
-                await sync_to_async(_close_db_connections)()
+                await sync_to_async(recycle_db_connections)()
 
         return cast(Callable[P, T], async_wrapper)
 
     @wraps(fn)
     def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-        _close_db_connections()
+        recycle_db_connections()
         try:
             return fn(*args, **kwargs)
         finally:
-            _close_db_connections()
+            recycle_db_connections()
 
     return sync_wrapper
 

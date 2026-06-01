@@ -3,7 +3,14 @@ import inspect
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.common.utils import close_db_connections, make_sync_retryable_with_exponential_backoff
+from django.db.utils import IntegrityError, InternalError, OperationalError
+
+from posthog.temporal.common.utils import (
+    close_db_connections,
+    is_read_only_connection_error,
+    make_sync_retryable_with_exponential_backoff,
+    retry_once_on_read_only_connection,
+)
 
 
 def test_make_sync_retryable_with_exponential_backoff_called_max_attempts():
@@ -189,3 +196,99 @@ def test_close_db_connections_preserves_sync_signature_for_temporal():
     assert not inspect.iscoroutinefunction(wrapped)
     assert wrapped.__name__ == "fn"
     assert wrapped.__annotations__ == {"value": int, "return": str}
+
+
+def _read_only_error() -> InternalError:
+    """Mirror how Django surfaces psycopg's ReadOnlySqlTransaction: an InternalError
+    whose chained cause carries SQLSTATE 25006."""
+    cause = Exception("cannot execute INSERT in a read-only transaction")
+    cause.sqlstate = "25006"  # type: ignore[attr-defined]
+    err = InternalError("cannot execute INSERT in a read-only transaction")
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (_read_only_error(), True),
+        (InternalError("cannot execute UPDATE in a read-only transaction"), True),
+        (OperationalError("connection lost"), False),
+        (IntegrityError("duplicate key value violates unique constraint"), False),
+        (ValueError("unrelated"), False),
+    ],
+)
+def test_is_read_only_connection_error(exc, expected):
+    assert is_read_only_connection_error(exc) is expected
+
+
+def test_is_read_only_connection_error_matches_sqlstate_on_cause_without_message():
+    cause = Exception("boom")
+    cause.sqlstate = "25006"  # type: ignore[attr-defined]
+    err = InternalError("opaque wrapped error")
+    err.__cause__ = cause
+
+    assert is_read_only_connection_error(err) is True
+
+
+def test_retry_once_on_read_only_connection_retries_once_then_succeeds():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _read_only_error()
+        return "ok"
+
+    wrapped = retry_once_on_read_only_connection(fn)
+
+    with patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle:
+        assert wrapped() == "ok"
+
+    assert calls == 2
+    mock_recycle.assert_called_once()
+
+
+def test_retry_once_on_read_only_connection_propagates_after_second_failure():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise _read_only_error()
+
+    wrapped = retry_once_on_read_only_connection(fn)
+
+    with patch("posthog.temporal.common.utils.recycle_db_connections"):
+        with pytest.raises(InternalError):
+            wrapped()
+
+    # One retry only — not an unbounded loop.
+    assert calls == 2
+
+
+def test_retry_once_on_read_only_connection_does_not_retry_unrelated_errors():
+    calls = 0
+
+    def fn() -> str:
+        nonlocal calls
+        calls += 1
+        raise OperationalError("connection lost")
+
+    wrapped = retry_once_on_read_only_connection(fn)
+
+    with patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle:
+        with pytest.raises(OperationalError):
+            wrapped()
+
+    assert calls == 1
+    mock_recycle.assert_not_called()
+
+
+def test_retry_once_on_read_only_connection_rejects_async_callables():
+    async def fn() -> str:
+        return "ok"
+
+    with pytest.raises(TypeError):
+        retry_once_on_read_only_connection(fn)

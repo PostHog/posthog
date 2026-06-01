@@ -12,7 +12,7 @@ from itertools import batched
 
 from django.db import transaction
 from django.db.models import Q
-from django.db.utils import IntegrityError
+from django.db.utils import IntegrityError, InternalError, OperationalError
 
 import structlog
 import temporalio.activity
@@ -24,6 +24,7 @@ from posthog.cdp.internal_events import InternalEventEvent, produce_internal_eve
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.utils import is_read_only_connection_error, recycle_db_connections
 
 from products.logs.backend.alert_check_query import (
     AlertCheckQuery,
@@ -953,7 +954,12 @@ def _save_cohort_outcomes(
 
     On `IntegrityError` (constraint shaped — a row hit a DB constraint we didn't
     anticipate), fall back to per-alert UPDATEs so the rest still advance.
-    `OperationalError`/`DataError` are propagated so the caller advances each
+
+    On a read-only-connection error (a Postgres failover left this thread's
+    connection pinned to a replica), recycle the connection and retry the save
+    once on a fresh, writable connection rather than erroring the whole cohort.
+
+    Other `OperationalError`/`DataError` are propagated so the caller advances each
     alert's `consecutive_failures` via the standard error path; per-alert
     fallback against the same broken cluster wouldn't help.
     """
@@ -979,16 +985,42 @@ def _save_cohort_outcomes(
     update_ms: int | None = None
     saved: list[_DispatchedAlert] = list(dispatched)
     failed: list[_DispatchedAlert] = []
-    try:
+
+    def _run_bulk_save() -> tuple[int | None, int | None]:
+        e_ms: int | None = None
+        u_ms: int | None = None
         with transaction.atomic():
             if events:
                 event_insert_start = time.perf_counter()
                 LogsAlertEvent.objects.bulk_create(events)
-                event_insert_ms = int((time.perf_counter() - event_insert_start) * 1000)
+                e_ms = int((time.perf_counter() - event_insert_start) * 1000)
 
             update_start = time.perf_counter()
             LogsAlertConfiguration.objects.bulk_update(alerts, fields=_COHORT_UPDATE_FIELDS)
-            update_ms = int((time.perf_counter() - update_start) * 1000)
+            u_ms = int((time.perf_counter() - update_start) * 1000)
+        return e_ms, u_ms
+
+    try:
+        try:
+            event_insert_ms, update_ms = _run_bulk_save()
+        except (InternalError, OperationalError) as e:
+            # A Postgres failover or pgbouncer reroute can leave this worker
+            # thread's connection pinned to a read-only replica. Django won't
+            # recycle it (the connection still answers reads), so the whole cohort
+            # would otherwise be treated as errored. Recycle the connection and
+            # retry the save once on a fresh, writable connection. Other
+            # operational errors (a genuinely down cluster) still propagate.
+            if not is_read_only_connection_error(e):
+                raise
+            logger.warning(
+                "Cohort bulk save hit a read-only connection; recycling and retrying once",
+                error=str(e),
+                cohort_size=len(dispatched),
+            )
+            capture_exception(e, {"cohort_size": len(dispatched), "fallback": "read_only_connection"})
+            increment_cohort_save_fallback("read_only_connection")
+            recycle_db_connections()
+            event_insert_ms, update_ms = _run_bulk_save()
     except IntegrityError as e:
         # Recover the rest of the cohort via per-alert UPDATEs using the
         # already-staged data.

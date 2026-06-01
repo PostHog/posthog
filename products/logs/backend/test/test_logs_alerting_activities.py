@@ -272,6 +272,49 @@ class TestSaveCohortOutcomesFallback(APIBaseTest):
         with self.assertRaises(OperationalError):
             _save_cohort_outcomes(dispatched, now)
 
+    @patch("products.logs.backend.temporal.activities.increment_cohort_save_fallback")
+    @patch("products.logs.backend.temporal.activities.recycle_db_connections")
+    @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
+    def test_read_only_connection_recycles_and_retries(self, mock_bulk_update, mock_recycle, mock_fallback):
+        # First save hits a connection pinned to a read-only replica; recycle the
+        # connection and the retry on a fresh, writable connection succeeds.
+        from django.db.utils import InternalError
+
+        mock_bulk_update.side_effect = [
+            InternalError("cannot execute UPDATE in a read-only transaction"),
+            None,
+        ]
+        alerts = [self._make_alert(name=f"a{i}") for i in range(3)]
+        dispatched = [self._make_dispatched(a) for a in alerts]
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        saved, failed = _save_cohort_outcomes(dispatched, now)
+
+        assert mock_bulk_update.call_count == 2
+        mock_recycle.assert_called_once()
+        mock_fallback.assert_called_once_with("read_only_connection")
+        assert len(saved) == 3
+        assert failed == []
+
+    @patch("products.logs.backend.temporal.activities.recycle_db_connections")
+    @patch("products.logs.backend.temporal.activities.LogsAlertConfiguration.objects.bulk_update")
+    def test_read_only_connection_propagates_if_retry_still_read_only(self, mock_bulk_update, mock_recycle):
+        # A persistent read-only host fails the retry too — propagate so the caller
+        # errors the cohort instead of looping.
+        from django.db.utils import InternalError
+
+        mock_bulk_update.side_effect = InternalError("cannot execute UPDATE in a read-only transaction")
+        alerts = [self._make_alert(name=f"a{i}") for i in range(2)]
+        dispatched = [self._make_dispatched(a) for a in alerts]
+        now = datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC)
+
+        with self.assertRaises(InternalError):
+            _save_cohort_outcomes(dispatched, now)
+
+        # Exactly one retry — bounded, not an unbounded loop.
+        assert mock_bulk_update.call_count == 2
+        mock_recycle.assert_called_once()
+
 
 class TestRunCohortQueryFallback(unittest.TestCase):
     @staticmethod

@@ -397,3 +397,64 @@ async def test_finish_batch_export_run_records_failed_none_when_not_set(activity
     assert run.status == "Completed"
     assert run.records_completed == 100
     assert run.records_failed is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_create_batch_export_run_retries_on_read_only_connection(batch_export):
+    """A failover can pin a worker connection to a read-only replica.
+
+    `create_batch_export_run` should recycle the connection and retry the INSERT
+    once rather than failing the run with `ReadOnlySqlTransaction`.
+    """
+    from django.db.utils import InternalError
+
+    from products.batch_exports.backend.service import create_batch_export_run
+
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    with (
+        unittest.mock.patch(
+            "posthog.batch_exports.models.BatchExportRun.save",
+            side_effect=[InternalError("cannot execute INSERT in a read-only transaction"), None],
+        ) as mock_save,
+        unittest.mock.patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle,
+    ):
+        run = create_batch_export_run(
+            batch_export_id=batch_export.id,
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
+
+    assert mock_save.call_count == 2
+    mock_recycle.assert_called_once()
+    assert isinstance(run, BatchExportRun)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_update_batch_export_run_retries_on_read_only_connection(batch_export):
+    """`update_batch_export_run` should recycle a read-only connection and retry the UPDATE once."""
+    from django.db.utils import InternalError
+
+    from products.batch_exports.backend.service import create_batch_export_run, update_batch_export_run
+
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+    run = create_batch_export_run(
+        batch_export_id=batch_export.id,
+        data_interval_start=start.isoformat(),
+        data_interval_end=end.isoformat(),
+    )
+
+    with (
+        unittest.mock.patch(
+            "django.db.models.query.QuerySet.update",
+            side_effect=[InternalError("cannot execute UPDATE in a read-only transaction"), 1],
+        ) as mock_update,
+        unittest.mock.patch("posthog.temporal.common.utils.recycle_db_connections") as mock_recycle,
+    ):
+        updated = update_batch_export_run(run.id, status=BatchExportRun.Status.COMPLETED)
+
+    assert mock_update.call_count == 2
+    mock_recycle.assert_called_once()
+    assert updated.id == run.id
