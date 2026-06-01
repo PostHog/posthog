@@ -376,7 +376,9 @@ async def test_file_download_create_rejects_future_data_interval_end(
 
     await async_client.aforce_login(user)
 
-    with unittest.mock.patch("posthog.batch_exports.api.file_download.start_file_download_batch_export") as mock_start:
+    with unittest.mock.patch(
+        "products.batch_exports.backend.api.file_download.start_file_download_batch_export"
+    ) as mock_start:
         data_interval_end_iso = (now + dt.timedelta(hours=1)).isoformat()
         response = await async_client.post(
             f"/api/projects/{team.pk}/file_download_batch_exports",
