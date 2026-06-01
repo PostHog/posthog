@@ -1,36 +1,29 @@
+import importlib
+import importlib.util
 from typing import TYPE_CHECKING, Any
 
 # The API route aggregator (the DRF router build + ~200 viewset imports) lives in
-# `posthog.api.rest_router`. It is imported lazily — only when one of the router objects
-# below is first accessed, which happens when the URLconf resolves (i.e. on the first web
-# request). This keeps `import posthog.api.<submodule>` cheap: a plain `django.setup()`
-# (shell, migrate, celery, CI) no longer builds 160 routes or drags every product's views
-# (and the AI core) onto the startup path. See posthog/api/rest_router.py.
-_ROUTER_EXPORTS = frozenset(
-    {
-        "router",
-        "routers",
-        "projects_router",
-        "environments_router",
-        "organizations_router",
-        "legacy_project_dashboards_router",
-        "environment_dashboards_router",
-        "register_legacy_dual_route_team_nested_viewset",
-        "api_not_found",
-        # Re-exported view modules the root URLconf pulls from here (not submodules of this package).
-        "hog_flow",
-        "hog_flow_template",
-        "hog_function_template",
-    }
-)
+# `posthog.api.rest_router`, imported lazily — only when a name it defines or re-exports
+# (the router objects, view modules like `feature_flag`) is first accessed, which in practice
+# is when the URLconf resolves (first web request). Real submodules (`posthog.api.monitoring`,
+# `.file_system`, ...) resolve directly without building the aggregator, so a plain
+# `django.setup()` (shell, migrate, celery, CI) stays cheap. See posthog/api/rest_router.py.
 
 
 def __getattr__(name: str) -> Any:
-    if name in _ROUTER_EXPORTS:
-        from posthog.api import rest_router  # noqa: PLC0415
+    # A real submodule — import it directly, cheaply, without building the aggregator. This is
+    # what keeps django.setup() off the route-building path (the setup-time importers all hit
+    # real submodules).
+    if importlib.util.find_spec(f"{__name__}.{name}") is not None:
+        return importlib.import_module(f"{__name__}.{name}")
+    # Otherwise it's a name the aggregator defines or re-exports (router objects, plus view
+    # modules like `feature_flag` that come from other packages). Build it lazily and delegate.
+    from posthog.api import rest_router  # noqa: PLC0415
 
+    try:
         return getattr(rest_router, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    except AttributeError:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
 
 
 if TYPE_CHECKING:
