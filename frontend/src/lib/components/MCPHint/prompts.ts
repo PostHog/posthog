@@ -1,3 +1,5 @@
+import { UserRole } from '~/types'
+
 export const SURFACE_KEYS = [
     'feature_flags.create',
     'feature_flags.update',
@@ -24,32 +26,29 @@ export type SurfacePromptContext = {
 }
 
 export type SurfacePrompts = {
-    toast: (ctx?: SurfacePromptContext) => string
+    toast: string
     examples: string[]
 }
 
-const quote = (name: string | undefined, fallback: string): string => name?.trim() || fallback
-
-export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
+export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'feature_flags.create': {
-        toast: (ctx) =>
-            `"Create a feature flag called ${quote(ctx?.entityName, 'new-checkout')} rolled out to 20% of users"`,
+        toast: `"Create a feature flag called \`new-checkout\` rolled out to 20% of users"`,
         examples: [
             '"Create a feature flag for the new pricing page"',
-            '"Roll out checkout-v2 to 25% of EU users"',
-            '"Schedule pricing-flag to enable Friday at noon"',
+            '"Roll out \`checkout-v2\` to 25% of EU users"',
+            '"Schedule \`pricing-flag\` to enable Friday at noon"',
         ],
     },
     'feature_flags.update': {
-        toast: (ctx) => `"Bump rollout for ${quote(ctx?.entityName, 'new-checkout')} to 50%"`,
+        toast: `"Bump rollout for \`new-checkout\` to 50%"`,
         examples: [
-            '"Bump rollout for new-checkout to 50%"',
-            '"Disable beta-banner flag"',
-            '"Add eu-only condition to pricing-flag"',
+            '"Bump rollout for \`new-checkout\` to 50%"',
+            '"Disable \`beta-banner\` flag"',
+            '"Add eu-only condition to \`pricing-flag\`"',
         ],
     },
     'experiments.create': {
-        toast: () => '"Create an A/B experiment for the new pricing page"',
+        toast: '"Create an A/B experiment for the new pricing page"',
         examples: [
             '"Create an A/B experiment for the new pricing page"',
             '"Launch a multivariate test on the signup CTA"',
@@ -57,15 +56,15 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'experiments.launch': {
-        toast: (ctx) => `"Launch experiment ${quote(ctx?.entityName, 'pricing-test')}"`,
+        toast: `"Launch experiment pricing-test"`,
         examples: [
-            '"Launch experiment pricing-test"',
-            '"Archive the old signup-cta experiment"',
-            '"Check the results of checkout-flow-v2"',
+            '"Launch experiment \`pricing-test\`"',
+            '"Archive the old \`signup-cta\` experiment"',
+            '"Check the results of \`checkout-flow-v2\`"',
         ],
     },
     'dashboards.create': {
-        toast: () => '"Build a retention dashboard for signups last 30 days"',
+        toast: '"Build a retention dashboard for signups last 30 days"',
         examples: [
             '"Build a retention dashboard for signups last 30 days"',
             '"Make me a dashboard tracking checkout funnel drop-off"',
@@ -73,7 +72,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'insights.create': {
-        toast: () => '"Run a trends query for signup_completed last 30 days"',
+        toast: '"Run a trends query for signup_completed last 30 days"',
         examples: [
             '"Show me sign-up trends for the last 30 days"',
             '"Build a funnel for the onboarding flow"',
@@ -81,7 +80,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'surveys.create': {
-        toast: () => '"Create an NPS survey targeted at paid users"',
+        toast: '"Create an NPS survey targeted at paid users"',
         examples: [
             '"Create an NPS survey targeted at paid users"',
             '"Ask churned users why they left"',
@@ -89,7 +88,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'alerts.create': {
-        toast: () => '"Alert me if signups drop more than 20% week over week"',
+        toast: '"Alert me if signups drop more than 20% week over week"',
         examples: [
             '"Alert me if signups drop more than 20% week over week"',
             '"Notify the team when checkout errors spike"',
@@ -97,7 +96,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'cohorts.create': {
-        toast: () => '"Build a cohort of users who signed up last week and never returned"',
+        toast: '"Build a cohort of users who signed up last week and never returned"',
         examples: [
             '"Build a cohort of users who signed up last week and never returned"',
             '"Make a cohort of EU paid customers"',
@@ -105,7 +104,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'actions.create': {
-        toast: () => '"Create an action for clicks on the upgrade button"',
+        toast: '"Create an action for clicks on the upgrade button"',
         examples: [
             '"Create an action for clicks on the upgrade button"',
             '"Define a pageview action for the pricing page"',
@@ -113,7 +112,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'annotations.create': {
-        toast: () => '"Annotate today as the launch of v2 checkout"',
+        toast: '"Annotate today as the launch of v2 checkout"',
         examples: [
             '"Annotate today as the launch of v2 checkout"',
             '"Mark the deploy on the conversion dashboard"',
@@ -121,7 +120,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'error_tracking.assign': {
-        toast: () => '"Assign all TypeError issues to the frontend team"',
+        toast: '"Assign all TypeError issues to the frontend team"',
         examples: [
             '"Assign all TypeError issues to the frontend team"',
             '"Show me the top 10 unresolved errors this week"',
@@ -129,7 +128,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'early_access_features.create': {
-        toast: () => '"Create an early-access feature for the new editor"',
+        toast: '"Create an early-access feature for the new editor"',
         examples: [
             '"Create an early-access feature for the new editor"',
             '"Promote ai-suggestions to general availability"',
@@ -137,7 +136,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'sql.execute': {
-        toast: () => '"Run this SQL: select count() from events where event = $pageview"',
+        toast: '"Run this SQL: select count() from events where event = $pageview"',
         examples: [
             '"How many users viewed the pricing page yesterday?"',
             '"What\'s our DAU trend for the last 90 days?"',
@@ -145,7 +144,7 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         ],
     },
     'workflows.create': {
-        toast: () => '"Build a workflow that emails new signups a welcome message after 1 day"',
+        toast: '"Build a workflow that emails new signups a welcome message after 1 day"',
         examples: [
             '"Build a workflow that emails new signups a welcome message after 1 day"',
             '"Send a Slack alert when a paid user hits the error_rate threshold"',
@@ -154,20 +153,22 @@ export const SURFACE_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     },
 }
 
-// Roles we tailor prompts for. The `security` role doesn't exist in the UserRole enum;
-// we route security-flavored copy through `engineering` instead. Any other role value
-// (including `sales`, `other`, and null) falls back to the defaults in SURFACE_PROMPTS.
-export const TAILORED_ROLES = ['founder', 'product', 'leadership', 'marketing', 'engineering', 'data'] as const
+// Roles we tailor prompts for. Not every role is catered to; fallback to defaults for `sales`, `other`, and null.
+export const TAILORED_ROLES = [
+    UserRole.Founder,
+    UserRole.Product,
+    UserRole.Leadership,
+    UserRole.Marketing,
+    UserRole.Engineering,
+    UserRole.Data,
+] as const satisfies UserRole[]
 export type TailoredRole = (typeof TAILORED_ROLES)[number]
 
 function isTailoredRole(role: string | null | undefined): role is TailoredRole {
     return typeof role === 'string' && (TAILORED_ROLES as readonly string[]).includes(role)
 }
 
-type SurfacePromptsOverride = Partial<SurfacePrompts>
-type RoleOverrides = Partial<Record<SurfaceKey, SurfacePromptsOverride>>
-
-const ROLE_OVERRIDES: Record<TailoredRole, RoleOverrides> = {
+const PROMPT_OVERRIDES: Record<TailoredRole, Partial<Record<SurfaceKey, SurfacePrompts>>> = {
     founder: {
         'dashboards.create': {
             toast: '"Build me an exec dashboard: MRR, MAU, churn, and the top events this month"',
@@ -426,24 +427,25 @@ function buildSqlExamplesFromEvents(topEvents: string[]): string[] {
     if (owned.length === 0) {
         return []
     }
+
     const [first, second, third] = owned
-    const examples: string[] = []
-    examples.push(`"How many users triggered ${backtick(first)} yesterday?"`)
-    if (second) {
-        examples.push(`"What's the trend of ${backtick(second)} over the last 30 days?"`)
-    }
-    if (third) {
-        examples.push(`"Funnel: ${backtick(first)} → ${backtick(second)} → ${backtick(third)}"`)
-    } else if (second) {
-        examples.push(`"Funnel: ${backtick(first)} → ${backtick(second)}"`)
-    }
+    const examples: string[] = [
+        `"How many users triggered ${backtick(first)} yesterday?"`,
+        second ? `"What's the trend of ${backtick(second)} over the last 30 days?"` : undefined,
+        third
+            ? `"Funnel: ${backtick(first)} → ${backtick(second)} → ${backtick(third)}"`
+            : second
+              ? `"Funnel: ${backtick(first)} → ${backtick(second)}"`
+              : undefined,
+    ].filter(Boolean) as string[]
+
     return examples
 }
 
 export function getSurfacePrompts(surfaceKey: SurfaceKey, options: ResolveOptions = {}): SurfacePrompts {
-    const defaults = SURFACE_PROMPTS[surfaceKey]
+    const defaults = FALLBACK_PROMPTS[surfaceKey]
     const role = options.role
-    const roleOverride = isTailoredRole(role) ? (ROLE_OVERRIDES[role]?.[surfaceKey] ?? {}) : {}
+    const roleOverride = isTailoredRole(role) ? (PROMPT_OVERRIDES[role]?.[surfaceKey] ?? {}) : {}
     const merged: SurfacePrompts = { ...defaults, ...roleOverride }
 
     if (surfaceKey === 'sql.execute' && options.topEvents && options.topEvents.length > 0) {
