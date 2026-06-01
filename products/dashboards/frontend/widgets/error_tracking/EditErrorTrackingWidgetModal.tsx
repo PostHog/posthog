@@ -1,148 +1,55 @@
-import { useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
-
-import { isWidgetConfigValidationError } from '../../utils'
 import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
-import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
-    WidgetSettingsModalDivider,
-    WidgetSettingsModalSection,
-    WidgetSettingsModalSections,
-} from '../WidgetSettingsModalSections'
-import {
-    validateErrorTrackingWidgetConfigInput,
-    type ErrorTrackingWidgetFieldErrors,
-} from './errorTrackingWidgetConfigValidation'
-import { canConfigureErrorTrackingWidgetIssues, ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
+    editErrorTrackingWidgetModalLogic,
+    type EditErrorTrackingWidgetModalLogicProps,
+} from './editErrorTrackingWidgetModalLogic'
+import { ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
 
 const widgetSettingsFieldFullWidthClass = 'sm:col-span-2'
 
-type EditErrorTrackingWidgetModalFormProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
-
-function EditErrorTrackingWidgetModalForm({
-    onClose,
-    config,
-    onSave,
-    name = '',
-    defaultTitle = 'Untitled',
-    description = '',
-    onSaveMetadata,
-}: EditErrorTrackingWidgetModalFormProps): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-    const { filterTestAccountsDefault } = useValues(filterTestAccountsDefaultsLogic)
-    const { hasSentExceptionEvent, hasSentExceptionEventLoading } = useValues(exceptionIngestionLogic)
-    const showIssueSettings =
-        canConfigureErrorTrackingWidgetIssues(currentTeam, hasSentExceptionEvent) &&
-        !hasSentExceptionEventLoading &&
-        !!currentTeam
-    const initialDateRange = (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d'
-    const [limit, setLimit] = useState<number>((config.limit as number) ?? 10)
-    const [orderBy, setOrderBy] = useState<string>((config.orderBy as string) ?? 'occurrences')
-    const [dateFrom, setDateFrom] = useState<string>(initialDateRange)
-    const [tileName, setTileName] = useState<string>(name)
-    const [tileDescription, setTileDescription] = useState<string>(description)
-    const [filterTestAccounts, setFilterTestAccounts] = useState<boolean>(
-        resolveWidgetFilterTestAccounts(config.filterTestAccounts as boolean | undefined, filterTestAccountsDefault)
-    )
-    const [fieldErrors, setFieldErrors] = useState<ErrorTrackingWidgetFieldErrors>({})
-    const [saving, setSaving] = useState(false)
-
-    const validation = useMemo(
-        () =>
-            validateErrorTrackingWidgetConfigInput({
-                limit,
-                orderBy,
-                dateFrom,
-                filterTestAccounts,
-                baseConfig: config,
-            }),
-        [limit, orderBy, dateFrom, filterTestAccounts, config]
-    )
-
-    const activeFieldErrors = useMemo((): ErrorTrackingWidgetFieldErrors => {
-        if (!validation.success) {
-            return { ...validation.fieldErrors, ...fieldErrors }
-        }
-        return fieldErrors
-    }, [validation, fieldErrors])
-
-    const clearFieldError = (field: keyof ErrorTrackingWidgetFieldErrors): void => {
-        setFieldErrors((current) => {
-            if (!current[field]) {
-                return current
-            }
-            const next = { ...current }
-            delete next[field]
-            return next
-        })
-    }
-
-    const handleSave = async (): Promise<void> => {
-        const result = validateErrorTrackingWidgetConfigInput({
-            limit,
-            orderBy,
-            dateFrom,
-            filterTestAccounts,
-            baseConfig: config,
-        })
-
-        if (!result.success) {
-            setFieldErrors(result.fieldErrors)
-            return
-        }
-
-        setSaving(true)
-        try {
-            const trimmedName = tileName.trim()
-            const trimmedDescription = tileDescription.trim()
-            const nameChanged = trimmedName !== name.trim()
-            const descriptionChanged = trimmedDescription !== description.trim()
-
-            await onSave(result.config)
-            if (onSaveMetadata) {
-                const metadata: { name?: string; description?: string } = {}
-                if (nameChanged) {
-                    metadata.name = trimmedName === defaultTitle.trim() ? '' : trimmedName
-                }
-                if (descriptionChanged) {
-                    metadata.description = trimmedDescription
-                }
-                if (Object.keys(metadata).length > 0) {
-                    await onSaveMetadata(metadata)
-                }
-            }
-            setFieldErrors({})
-            onClose()
-        } catch (error) {
-            if (isWidgetConfigValidationError(error)) {
-                setFieldErrors(error.fieldErrors)
-                return
-            }
-            throw error
-        } finally {
-            setSaving(false)
-        }
-    }
+function EditErrorTrackingWidgetModalForm(props: EditErrorTrackingWidgetModalLogicProps): JSX.Element {
+    const {
+        showIssueSettings,
+        limit,
+        orderBy,
+        dateFrom,
+        tileName,
+        tileDescription,
+        filterTestAccounts,
+        activeFieldErrors,
+        saving,
+        saveDisabledReason,
+        defaultTitle,
+    } = useValues(editErrorTrackingWidgetModalLogic)
+    const {
+        setLimit,
+        setOrderBy,
+        setDateFrom,
+        setTileName,
+        setTileDescription,
+        setFilterTestAccounts,
+        clearFieldError,
+        submit,
+    } = useActions(editErrorTrackingWidgetModalLogic)
 
     return (
         <LemonModal
             isOpen
-            onClose={onClose}
+            onClose={props.onClose}
             title="Widget settings"
             description={
                 showIssueSettings
@@ -153,134 +60,146 @@ function EditErrorTrackingWidgetModalForm({
             footer={
                 <>
                     <div className="flex-1" />
-                    <LemonButton type="secondary" onClick={onClose} disabled={saving}>
+                    <LemonButton type="secondary" onClick={props.onClose} disabled={saving}>
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="primary"
                         loading={saving}
-                        disabledReason={
-                            saving ? 'Saving…' : !validation.success ? 'Fix validation errors to save' : undefined
-                        }
-                        onClick={() => void handleSave()}
+                        disabledReason={saveDisabledReason}
+                        onClick={() => submit()}
                     >
                         Save
                     </LemonButton>
                 </>
             }
         >
-            <WidgetSettingsModalSections>
-                {onSaveMetadata && (
-                    <WidgetSettingsModalSection title="Tile details">
-                        <LemonField.Pure
-                            className={widgetSettingsFieldFullWidthClass}
-                            label="Title"
-                            help="Shown on the tile. Leave empty to use the default title."
-                        >
-                            <LemonInput
-                                value={tileName}
-                                onChange={setTileName}
-                                placeholder={defaultTitle}
-                                maxLength={400}
-                                disabled={saving}
-                            />
-                        </LemonField.Pure>
-                        <LemonField.Pure
-                            className={widgetSettingsFieldFullWidthClass}
-                            label="Description"
-                            help="Shown under the tile title. Supports markdown. Leave empty to hide."
-                        >
-                            <LemonTextArea
-                                value={tileDescription}
-                                onChange={setTileDescription}
-                                placeholder="Enter description (optional)"
-                                minRows={2}
-                                disabled={saving}
-                            />
-                        </LemonField.Pure>
-                    </WidgetSettingsModalSection>
-                )}
-                {showIssueSettings && (
-                    <>
-                        {onSaveMetadata && <WidgetSettingsModalDivider />}
-                        <WidgetSettingsModalSection title="Filters">
-                            <div className={widgetSettingsFieldFullWidthClass}>
-                                <TestAccountFilter
-                                    size="small"
-                                    filters={{ filter_test_accounts: filterTestAccounts }}
-                                    onChange={({ filter_test_accounts }) =>
-                                        setFilterTestAccounts(filter_test_accounts ?? false)
-                                    }
-                                    disabledReason={saving ? 'Saving…' : undefined}
-                                />
-                            </div>
-                        </WidgetSettingsModalSection>
-                        <WidgetSettingsModalDivider />
-                        <WidgetSettingsModalSection title={DASHBOARD_WIDGET_CATALOG.error_tracking_list.groupLabel}>
+            <div className="flex flex-col gap-4">
+                {props.onSaveMetadata && (
+                    <section className="flex flex-col gap-3">
+                        <h5 className="text-sm font-semibold m-0">Tile details</h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <LemonField.Pure
-                                label="Date range"
-                                help="Only include issues seen in this period."
-                                error={activeFieldErrors.dateFrom}
-                            >
-                                <LemonSelect
-                                    fullWidth
-                                    value={dateFrom}
-                                    onChange={(value) => {
-                                        setDateFrom(value)
-                                        clearFieldError('dateFrom')
-                                    }}
-                                    options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                                />
-                            </LemonField.Pure>
-                            <LemonField.Pure
-                                label="Number of issues"
-                                help="Show up to 25 issues on the tile."
-                                error={activeFieldErrors.limit}
+                                className={widgetSettingsFieldFullWidthClass}
+                                label="Title"
+                                help="Shown on the tile. Leave empty to use the default title."
                             >
                                 <LemonInput
-                                    type="number"
-                                    min={1}
-                                    max={25}
-                                    fullWidth
-                                    value={limit}
-                                    onChange={(value) => {
-                                        setLimit(Number(value))
-                                        clearFieldError('limit')
-                                    }}
+                                    value={tileName}
+                                    onChange={setTileName}
+                                    placeholder={defaultTitle}
+                                    maxLength={400}
+                                    disabled={saving}
                                 />
                             </LemonField.Pure>
                             <LemonField.Pure
                                 className={widgetSettingsFieldFullWidthClass}
-                                label="Sort by"
-                                help="Order issues by this metric within the date range."
-                                error={activeFieldErrors.orderBy}
+                                label="Description"
+                                help="Shown under the tile title. Supports markdown. Leave empty to hide."
                             >
-                                <LemonSelect
-                                    fullWidth
-                                    value={orderBy}
-                                    onChange={(value) => {
-                                        setOrderBy(value)
-                                        clearFieldError('orderBy')
-                                    }}
-                                    options={[...ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS]}
+                                <LemonTextArea
+                                    value={tileDescription}
+                                    onChange={setTileDescription}
+                                    placeholder="Enter description (optional)"
+                                    minRows={2}
+                                    disabled={saving}
                                 />
                             </LemonField.Pure>
-                        </WidgetSettingsModalSection>
+                        </div>
+                    </section>
+                )}
+                {showIssueSettings && (
+                    <>
+                        {props.onSaveMetadata && <LemonDivider className="my-0" />}
+                        <section className="flex flex-col gap-3">
+                            <h5 className="text-sm font-semibold m-0">Filters</h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className={widgetSettingsFieldFullWidthClass}>
+                                    <TestAccountFilter
+                                        size="small"
+                                        filters={{ filter_test_accounts: filterTestAccounts }}
+                                        onChange={({ filter_test_accounts }) =>
+                                            setFilterTestAccounts(filter_test_accounts ?? false)
+                                        }
+                                        disabledReason={saving ? 'Saving…' : undefined}
+                                    />
+                                </div>
+                            </div>
+                        </section>
+                        <LemonDivider className="my-0" />
+                        <section className="flex flex-col gap-3">
+                            <h5 className="text-sm font-semibold m-0">
+                                {DASHBOARD_WIDGET_CATALOG.error_tracking_list.groupLabel}
+                            </h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <LemonField.Pure
+                                    label="Date range"
+                                    help="Only include issues seen in this period."
+                                    error={activeFieldErrors.dateFrom}
+                                >
+                                    <LemonSelect
+                                        fullWidth
+                                        value={dateFrom}
+                                        onChange={(value) => {
+                                            setDateFrom(value)
+                                            clearFieldError('dateFrom')
+                                        }}
+                                        options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
+                                    />
+                                </LemonField.Pure>
+                                <LemonField.Pure
+                                    label="Number of issues"
+                                    help="Show up to 25 issues on the tile."
+                                    error={activeFieldErrors.limit}
+                                >
+                                    <LemonInput
+                                        type="number"
+                                        min={1}
+                                        max={25}
+                                        fullWidth
+                                        value={limit}
+                                        onChange={(value) => {
+                                            setLimit(Number(value))
+                                            clearFieldError('limit')
+                                        }}
+                                    />
+                                </LemonField.Pure>
+                                <LemonField.Pure
+                                    className={widgetSettingsFieldFullWidthClass}
+                                    label="Sort by"
+                                    help="Order issues by this metric within the date range."
+                                    error={activeFieldErrors.orderBy}
+                                >
+                                    <LemonSelect
+                                        fullWidth
+                                        value={orderBy}
+                                        onChange={(value) => {
+                                            setOrderBy(value)
+                                            clearFieldError('orderBy')
+                                        }}
+                                        options={[...ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS]}
+                                    />
+                                </LemonField.Pure>
+                            </div>
+                        </section>
                     </>
                 )}
-            </WidgetSettingsModalSections>
+            </div>
         </LemonModal>
     )
 }
 
 export function EditErrorTrackingWidgetModal({
     isOpen,
-    onClose,
     ...formProps
 }: DashboardWidgetEditModalProps): JSX.Element | null {
     if (!isOpen) {
         return null
     }
 
-    return <EditErrorTrackingWidgetModalForm onClose={onClose} {...formProps} />
+    return (
+        <BindLogic logic={editErrorTrackingWidgetModalLogic} props={formProps}>
+            <EditErrorTrackingWidgetModalForm {...formProps} />
+        </BindLogic>
+    )
 }

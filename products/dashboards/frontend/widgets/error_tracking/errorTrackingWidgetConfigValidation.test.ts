@@ -69,12 +69,18 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
 })
 
 describe('parseErrorTrackingWidgetConfigApiError', () => {
-    it('maps config limit API error to limit field', () => {
+    it('maps invalid config to zod field errors', () => {
         const error = new ApiError('limit must be an integer between 1 and 25.', 400, undefined, {
             config: 'limit must be an integer between 1 and 25.',
         })
 
-        expect(parseErrorTrackingWidgetConfigApiError(error)).toEqual({
+        expect(
+            parseErrorTrackingWidgetConfigApiError(error, {
+                limit: 30,
+                orderBy: 'occurrences',
+                dateRange: { date_from: '-7d' },
+            })
+        ).toEqual({
             limit: 'Must be an integer between 1 and 25.',
         })
     })

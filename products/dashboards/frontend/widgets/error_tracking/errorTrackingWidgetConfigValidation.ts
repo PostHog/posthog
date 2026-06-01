@@ -69,49 +69,17 @@ export function validateErrorTrackingWidgetConfigInput(input: {
     return { success: false, fieldErrors: zodIssuesToFieldErrors(parsed.error) }
 }
 
-const LIMIT_API_MESSAGE_PATTERN = /limit must be an integer between 1 and 25/i
-
-export function parseErrorTrackingWidgetConfigApiError(error: unknown): ErrorTrackingWidgetFieldErrors | null {
+export function parseErrorTrackingWidgetConfigApiError(
+    error: unknown,
+    config: Record<string, unknown>
+): ErrorTrackingWidgetFieldErrors | null {
     if (!(error instanceof ApiError)) {
         return null
     }
 
-    const configMessage = extractConfigValidationMessage(error.data) ?? error.message
-    const fieldErrors: ErrorTrackingWidgetFieldErrors = {}
-
-    if (LIMIT_API_MESSAGE_PATTERN.test(configMessage)) {
-        fieldErrors.limit = 'Must be an integer between 1 and 25.'
-    } else if (/orderBy must be one of/i.test(configMessage)) {
-        fieldErrors.orderBy = configMessage
-    }
-
-    return Object.keys(fieldErrors).length > 0 ? fieldErrors : null
-}
-
-function extractConfigValidationMessage(data: unknown): string | null {
-    if (!data || typeof data !== 'object') {
-        return null
-    }
-
-    const record = data as Record<string, unknown>
-    const config = record.config
-
-    if (typeof config === 'string') {
-        return config
-    }
-    if (Array.isArray(config) && typeof config[0] === 'string') {
-        return config[0]
-    }
-
-    const widget = record.widget
-    if (widget && typeof widget === 'object') {
-        const widgetConfig = (widget as Record<string, unknown>).config
-        if (typeof widgetConfig === 'string') {
-            return widgetConfig
-        }
-        if (Array.isArray(widgetConfig) && typeof widgetConfig[0] === 'string') {
-            return widgetConfig[0]
-        }
+    const parsed = errorTrackingWidgetConfigSchema.safeParse(config)
+    if (!parsed.success) {
+        return zodIssuesToFieldErrors(parsed.error)
     }
 
     return null

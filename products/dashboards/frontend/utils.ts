@@ -20,10 +20,14 @@ export function isWidgetConfigValidationError(error: unknown): error is WidgetCo
     return error instanceof WidgetConfigValidationError
 }
 
-function parseWidgetConfigApiError(widgetType: string, error: unknown): WidgetFieldErrors | null {
+function parseWidgetConfigApiError(
+    widgetType: string,
+    error: unknown,
+    config: Record<string, unknown>
+): WidgetFieldErrors | null {
     switch (widgetType) {
         case 'error_tracking_list':
-            return parseErrorTrackingWidgetConfigApiError(error)
+            return parseErrorTrackingWidgetConfigApiError(error, config)
         default:
             return null
     }
@@ -78,7 +82,7 @@ export async function updateDashboardWidgetTile({
         return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
     } catch (error) {
         if (config !== undefined) {
-            const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error)
+            const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error, config)
             if (fieldErrors && Object.keys(fieldErrors).length > 0) {
                 throw new WidgetConfigValidationError(fieldErrors)
             }

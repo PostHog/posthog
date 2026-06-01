@@ -4,6 +4,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -18,6 +19,7 @@ describe('EditErrorTrackingWidgetModal', () => {
             test_account_filters: [{ key: 'email', value: '@posthog.com', operator: 'not_icontains', type: 'person' }],
         })
         featureFlagLogic.mount()
+        filterTestAccountsDefaultsLogic.mount()
         exceptionIngestionLogic.mount()
         exceptionIngestionLogic.actions.loadExceptionIngestionStateSuccess(true)
         jest.spyOn(errorTrackingWidgetUtils, 'canConfigureErrorTrackingWidgetIssues').mockReturnValue(true)
