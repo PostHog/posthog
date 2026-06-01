@@ -312,11 +312,15 @@ def _spawn_one_sandbox(
             stderr_tail = (clone_result.stderr or "")[-2000:]
             raise RuntimeError(f"git clone failed in sandbox (exit {clone_result.exit_code}):\n{stderr_tail}")
 
+        # The package lives in the tools/ bundle, not at the repo root, so the
+        # bundle dir has to be on PYTHONPATH for the `-m` lookup to resolve.
+        bundle_dir = f"{repo_path}/tools/query-performance-ai"
         command = (
             f"cd {shlex.quote(repo_path)} && "
             f"trap 'rm -f {shlex.quote(env_file)}' EXIT && "
             f"chmod 600 {shlex.quote(env_file)} && "
             f"set -a && . {shlex.quote(env_file)} && set +a && "
+            f"export PYTHONPATH={shlex.quote(bundle_dir)}${{PYTHONPATH:+:$PYTHONPATH}} && "
             # `-m` (not direct script invocation) so relative imports inside
             # the package resolve. `python3 path/to/run_campaign.py` runs the
             # file with no parent package, which breaks `from .runtime import …`.
