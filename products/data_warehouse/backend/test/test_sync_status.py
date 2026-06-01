@@ -103,6 +103,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert warning.table_name == "stripe_charge"
         assert warning.schema_name == "Charge"
         assert warning.source_type == ExternalDataSourceType.STRIPE
+        assert warning.source_id == str(self.source.id)
         assert warning.status == str(status)
         assert "stripe_charge" in warning.message
 
