@@ -8,13 +8,8 @@ from typing import Any
 
 import pytest
 
-from products.query_performance_ai.orchestrator.backends.base import BackendError, ExecutionBackend, ExecutionResult
-from products.query_performance_ai.orchestrator.server import (
-    ServerInfo,
-    generate_token,
-    make_server,
-    serve_forever_in_thread,
-)
+from query_performance_ai.orchestrator.backends.base import BackendError, ExecutionBackend, ExecutionResult
+from query_performance_ai.orchestrator.server import ServerInfo, generate_token, make_server, serve_forever_in_thread
 
 
 class _StubBackend(ExecutionBackend):
