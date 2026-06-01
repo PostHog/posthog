@@ -95,3 +95,24 @@ PRIMARY KEY regexp
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(REGEXP_TREE())
 """
+
+# Lambda UDFs exposing the dictionary lookup as stable HogQL-callable names.
+# Each one hardcodes the dictionary name at CREATE FUNCTION time so HogQL authors can't
+# reach other cluster dictionaries via these. Names follow the noun-only convention
+# (botName, isBot) rather than redundant getter prefixes (botGetName, botIsBot).
+BOT_DEFINITION_UDFS_SQL = [
+    "CREATE FUNCTION IF NOT EXISTS botName AS (ua) -> dictGetOrDefault('{dict}', 'name', ua, '')",
+    "CREATE FUNCTION IF NOT EXISTS botCategory AS (ua) -> dictGetOrDefault('{dict}', 'category', ua, 'regular')",
+    "CREATE FUNCTION IF NOT EXISTS botTrafficType AS (ua) -> dictGetOrDefault('{dict}', 'traffic_type', ua, 'Regular')",
+    "CREATE FUNCTION IF NOT EXISTS botOperator AS (ua) -> dictGetOrDefault('{dict}', 'operator', ua, '')",
+    # isBot: any non-Regular traffic type (AI Agent, Bot, Automation) means the UA is a bot
+    "CREATE FUNCTION IF NOT EXISTS isBot AS (ua) -> dictGetOrDefault('{dict}', 'traffic_type', ua, 'Regular') != 'Regular'",
+]
+
+DROP_BOT_DEFINITION_UDFS_SQL = [
+    "DROP FUNCTION IF EXISTS botName",
+    "DROP FUNCTION IF EXISTS botCategory",
+    "DROP FUNCTION IF EXISTS botTrafficType",
+    "DROP FUNCTION IF EXISTS botOperator",
+    "DROP FUNCTION IF EXISTS isBot",
+]
