@@ -155,7 +155,12 @@ describe('addGroupPropertiesToPostIngestionEventsBatch', () => {
         )
 
         expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledTimes(1)
-        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1], [0], ['acme'])
+        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith(
+            [1],
+            [0],
+            ['acme'],
+            'cdp/legacy-webhooks-group-enrichment'
+        )
 
         for (const event of result) {
             expect(event.groups?.company).toEqual({
@@ -384,7 +389,12 @@ describe('addGroupPropertiesToPostIngestionEventsBatch', () => {
         expect(result[0].groups?.company?.properties).toEqual({ name: 'Acme' })
         expect(result[1].groups?.organization?.properties).toEqual({ name: 'Globex' })
 
-        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1, 2], [0, 0], ['acme', 'globex'])
+        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith(
+            [1, 2],
+            [0, 0],
+            ['acme', 'globex'],
+            'cdp/legacy-webhooks-group-enrichment'
+        )
     })
 
     it('does not deduplicate when same group type index has different keys', async () => {
@@ -416,7 +426,12 @@ describe('addGroupPropertiesToPostIngestionEventsBatch', () => {
             mockGroupRepository as unknown as GroupRepository
         )
 
-        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1, 1], [0, 0], ['acme', 'globex'])
+        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith(
+            [1, 1],
+            [0, 0],
+            ['acme', 'globex'],
+            'cdp/legacy-webhooks-group-enrichment'
+        )
         expect(result[0].groups?.company?.properties).toEqual({ name: 'Acme' })
         expect(result[1].groups?.company?.properties).toEqual({ name: 'Globex' })
     })
@@ -454,7 +469,12 @@ describe('addGroupPropertiesToPostIngestionEventsBatch', () => {
             mockGroupRepository as unknown as GroupRepository
         )
 
-        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith([1, 2], [0, 0], ['acme', 'acme'])
+        expect(mockGroupRepository.fetchGroupsByKeys).toHaveBeenCalledWith(
+            [1, 2],
+            [0, 0],
+            ['acme', 'acme'],
+            'cdp/legacy-webhooks-group-enrichment'
+        )
         expect(result[0].groups?.company?.properties).toEqual({ name: 'Acme Team 1' })
         expect(result[1].groups?.company?.properties).toEqual({ name: 'Acme Team 2' })
     })

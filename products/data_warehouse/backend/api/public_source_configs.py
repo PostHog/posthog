@@ -8,7 +8,6 @@ from posthog.schema import SourceConfig
 from posthog.temporal.data_imports.sources import SourceRegistry
 
 
-@extend_schema(tags=["data_warehouse"])
 class PublicSourceConfigViewSet(viewsets.ViewSet):
     """
     Public (unauthenticated) endpoint that returns the full SourceConfig

@@ -45,6 +45,7 @@ import { FeedbackButton } from 'products/customer_analytics/frontend/components/
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { asDisplay } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -369,6 +370,11 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                 </div>
                             </>
                         ),
+                    },
+                    {
+                        key: PersonsTabType.LOGS,
+                        label: <span data-attr="persons-logs-tab">Logs</span>,
+                        content: <PersonLogsTab person={person} />,
                     },
                     {
                         key: PersonsTabType.EXCEPTIONS,
