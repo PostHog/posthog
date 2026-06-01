@@ -392,8 +392,7 @@ export function Members(): JSX.Element | null {
                     disabledReason={membersCanInviteRestrictionReason}
                 />
                 <p className="mt-4">
-                    Control who can create new projects. When enabled, organization admins and owners are notified each
-                    time a member creates one. Admins and owners can always create projects.
+                    Control who can create new projects. Admins and owners can always create projects.
                 </p>
                 <LemonSwitch
                     label={
