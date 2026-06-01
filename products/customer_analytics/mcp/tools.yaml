@@ -74,6 +74,67 @@ tools:
                     JSON-encoded array of tag names to filter by, e.g. `["enterprise","priority"]`. Returns accounts
                     that have any of the listed tags.
         feature_flag: customer-analytics-csp
+    accounts-notebooks-create:
+        operation: accounts_notebooks_create
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create account notebook
+        description: >
+            Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes,
+            and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server
+            converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`,
+            fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content`
+            (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write
+            Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the
+            global notebooks list.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-destroy:
+        operation: accounts_notebooks_destroy
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete account notebook
+        description: |
+            Permanently delete an account notebook by its `short_id`.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-list:
+        operation: accounts_notebooks_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account notebooks
+        description: >
+            List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result
+            includes the notebook `short_id`, `title`, `content`, and authorship metadata.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-retrieve:
+        operation: accounts_notebooks_retrieve
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get account notebook
+        description: >
+            Fetch a single account notebook by its `short_id`. Returns the full notebook including `content`
+            (ProseMirror JSON document structure) and authorship metadata.
+        feature_flag: customer-analytics-csp
     accounts-partial-update:
         operation: accounts_partial_update
         enabled: true
@@ -120,14 +181,38 @@ tools:
     customer-journeys-create:
         operation: customer_journeys_create
         enabled: false
+    customer-journeys-destroy:
+        operation: customer_journeys_destroy
+        enabled: false
     customer-journeys-list:
         operation: customer_journeys_list
+        enabled: false
+    customer-journeys-partial-update:
+        operation: customer_journeys_partial_update
+        enabled: false
+    customer-journeys-retrieve:
+        operation: customer_journeys_retrieve
+        enabled: false
+    customer-journeys-update:
+        operation: customer_journeys_update
         enabled: false
     customer-profile-configs-create:
         operation: customer_profile_configs_create
         enabled: false
+    customer-profile-configs-destroy:
+        operation: customer_profile_configs_destroy
+        enabled: false
     customer-profile-configs-list:
         operation: customer_profile_configs_list
+        enabled: false
+    customer-profile-configs-partial-update:
+        operation: customer_profile_configs_partial_update
+        enabled: false
+    customer-profile-configs-retrieve:
+        operation: customer_profile_configs_retrieve
+        enabled: false
+    customer-profile-configs-update:
+        operation: customer_profile_configs_update
         enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create
@@ -203,7 +288,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-partial-update:
         operation: groups_types_metrics_partial_update
         enabled: true
@@ -252,7 +336,6 @@ tools:
                 description: >
                     Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope
                     the metric — usage metrics apply to both groups and persons regardless of this value.
-        mcp_version: 1
     usage-metrics-update:
         operation: groups_types_metrics_update
         enabled: false

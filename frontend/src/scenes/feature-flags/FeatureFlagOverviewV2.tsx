@@ -17,10 +17,7 @@ import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
-import {
-    FeatureFlagReleaseConditionsReadonly,
-    FeatureFlagSuperConditionsReadonly,
-} from './FeatureFlagReleaseConditionsReadonly'
+import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
@@ -278,21 +275,6 @@ export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Prop
 
                     {!featureFlag.is_remote_configuration && (
                         <>
-                            {featureFlag.filters.super_groups && featureFlag.filters.super_groups.length > 0 && (
-                                <div className="rounded border p-4 bg-bg-light">
-                                    <FeatureFlagSuperConditionsReadonly
-                                        id={String(featureFlag.id)}
-                                        flagKey={featureFlag.key}
-                                        filters={featureFlag.filters}
-                                        earlyAccessFeatures={
-                                            (featureFlag.features ?? undefined) as
-                                                | { id: string; flagKey: string }[]
-                                                | undefined
-                                        }
-                                        isDisabled={!featureFlag.active}
-                                    />
-                                </div>
-                            )}
                             <EditableOverviewSection
                                 disabledReason={
                                     featureFlag.experiment_set && featureFlag.experiment_set.length > 0

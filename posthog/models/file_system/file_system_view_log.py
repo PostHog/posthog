@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
 from django.db.models import F, FilteredRelation, Q, QuerySet
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
@@ -31,6 +33,22 @@ class FileSystemViewLog(UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=("team", "user", "type", "ref"), name="posthog_fsvl_unique_user_item")
         ]
+
+
+@receiver(post_delete, sender=FileSystem)
+def _drop_view_logs_when_file_deleted(sender, instance: FileSystem, **kwargs) -> None:
+    # When a file (not a folder or shortcut) is removed, drop the matching view logs so
+    # the Recents sidebar can't surface a dead reference. Shortcuts share (type, ref) with
+    # their canonical file, so we only act when the canonical row is gone.
+    if not instance.ref or instance.type == "folder" or instance.shortcut:
+        return
+    if (
+        FileSystem.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref)
+        .exclude(shortcut=True)
+        .exists()
+    ):
+        return
+    FileSystemViewLog.objects.filter(team_id=instance.team_id, type=instance.type, ref=instance.ref).delete()
 
 
 def log_file_system_view(

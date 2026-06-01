@@ -147,7 +147,10 @@ export class GroupsManagerService {
         }
 
         if (teamsToLoad.length > 0) {
-            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(
+                teamsToLoad,
+                'cdp/hogflow-group-type-resolution'
+            )
             for (const teamId of teamsToLoad) {
                 const groupTypes = repoResult[String(teamId)] ?? []
                 const mapping: GroupTypeMapping = {}
@@ -170,7 +173,12 @@ export class GroupsManagerService {
         const groupIndexes = parsed.map((p) => p.groupTypeIndex) as GroupTypeIndex[]
         const groupKeys = parsed.map((p) => p.groupKey)
 
-        const rows = await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes, groupKeys)
+        const rows = await this.groupRepository.fetchGroupsByKeys(
+            teamIds,
+            groupIndexes,
+            groupKeys,
+            'cdp/hogflow-group-property-enrichment'
+        )
 
         const result: Record<string, Record<string, any> | null | undefined> = {}
         for (const row of rows) {

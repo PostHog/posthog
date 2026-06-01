@@ -102,3 +102,16 @@ class AnsiIdentifierQuoter(_BaseQuoter):
 
     _open = '"'
     _close = '"'
+
+
+class BracketIdentifierQuoter(_BaseQuoter):
+    """T-SQL quoting with square brackets (MSSQL, Azure SQL Server).
+
+    The allowlist already rejects identifiers containing `]`, so no
+    additional escaping is required — but the parent class still calls
+    `_validate_identifier` before quoting, which is the actual safety
+    boundary.
+    """
+
+    _open = "["
+    _close = "]"

@@ -70,6 +70,12 @@ pub const FLAG_RATE_LIMIT_CHECK_TIME_MS: &str = "flags_rate_limit_check_ms";
 // raw body). Pathological large bodies are the suspected outlier driver.
 pub const FLAG_TOKEN_EXTRACT_TIME_MS: &str = "flags_token_extract_ms";
 
+// Counter of FLAGS_LOG_BODIES_TEAMS refresh attempts. Labeled by
+// `result="success"|"failure"`. Emit absence-of-success alerts on this
+// (e.g., `rate(flags_body_log_refresh_total{result="success"}[10m]) == 0`)
+// to detect a stuck cache while DB or parse errors keep firing.
+pub const FLAG_BODY_LOG_REFRESH_TOTAL: &str = "flags_body_log_refresh_total";
+
 // Permit-acquisition wait time on the tower `ConcurrencyLimitLayer`.
 // Populated by Phase F; emitted only when populated. No `team_id` label
 // because permit wait is a property of pod-level load, not of any one team.
@@ -154,13 +160,11 @@ pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
 //                                + flags_billing_unflushed_requests_total{cause="flush_dropped_on_error"}
 //                                + flags_billing_unflushed_requests_total{cause="shutdown_drop"}
 //                                + flags_billing_pending_records (the residual still in `pending`)
-// should hold per pod over any window. The `redis_error` cause is omitted
-// from this identity because it only fires under `BailOnError` (normal
-// ticks): the affected entries are requeued and eventually flush or land
-// in `shutdown_drop`, so they aren't lost at the moment the error fires.
-// Under `BestEffort` (shutdown) the same chunk failures are recorded only
-// as `flush_dropped_on_error`, so summing `redis_error` with the other
-// causes for a total-loss figure does not double-count.
+// should hold per pod over any window. Every cause in
+// `flags_billing_unflushed_requests_total` is a terminal loss — chunk
+// failures during normal (`BailOnError`) ticks are not booked here because
+// the records get requeued; those are visible separately on
+// `flags_billing_flush_blocked_requests_total`.
 
 // Counter, labeled by `request_type` ("decide" | "flag_definitions").
 pub const FLAGS_BILLING_RECORDS: &str = "flags_billing_records_total";
@@ -204,33 +208,57 @@ pub const FLAGS_BILLING_FLUSH_DURATION_MS: &str = "flags_billing_flush_duration_
 pub const FLAGS_BILLING_RECORD_DURATION_US: &str = "flags_billing_record_duration_us";
 
 // Counter: flusher-side Redis failures, labeled by `error_type`
-// ("timeout" | "transport" | "not_found" | "parse" | "config"). Alert on
-// `rate(flags_billing_flush_errors_total[1m]) > 0 for: 30s` to catch a
-// wedged Redis link without a separate consecutive-failures gauge.
+// ("timeout" | "transport" | "not_found" | "parse" | "config") and
+// `outcome` ("applied" | "ambiguous" | "not_applied"). `outcome`
+// describes whether the failing call's records likely reached Redis:
+//   - "applied":     Redis processed the chunk, but the response was
+//                    malformed or otherwise unusable (e.g. ParseError).
+//                    The aggregator credits the chunk to
+//                    `entries_flushed_total` rather than retrying.
+//   - "ambiguous":   Can't tell — timeout or generic transport failure
+//                    that could fire before or after Redis applied.
+//                    Today the aggregator still retries (`BailOnError`)
+//                    or drops (`BestEffort`) like any other error;
+//                    breaking this out gives a denominator for the
+//                    "is the over-count from retrying ambiguous chunks
+//                    actually large enough to care about?" question.
+//   - "not_applied": Bytes never reached Redis (e.g. InvalidConfiguration).
+//                    Safe to retry.
+// Alert on `rate(flags_billing_flush_errors_total[1m]) > 0 for: 30s` to
+// catch a wedged Redis link without a separate consecutive-failures gauge.
 pub const FLAGS_BILLING_FLUSH_ERRORS: &str = "flags_billing_flush_errors_total";
 
 // Counter: billable requests that did not reach Redis, labeled by `cause`.
-// `sum(rate(flags_billing_unflushed_requests_total[5m]))` is the
+// Every cause here is terminal — the request is lost. Use
+// `sum(rate(flags_billing_unflushed_requests_total[5m]))` as the
 // one-expression billing-leak rate. Cause values:
 //   - "cap_drop": dropped at the hot path because `pending_entries` was at
 //     `max_pending_entries` and the incoming key was new. Tripwire — any
 //     non-zero rate is an incident signal.
 //   - "flush_dropped_on_error": drained from `pending`, then lost because a
-//     flush chunk errored AND the flush policy couldn't retry. In practice
-//     only fires on the shutdown path (`BestEffort`); normal ticks
-//     (`BailOnError`) re-queue failed entries back into `pending`.
+//     flush chunk errored with `FlushOutcome::Ambiguous` or `NotApplied`
+//     AND the flush policy couldn't retry. In practice only fires on the
+//     shutdown path (`BestEffort`); normal ticks (`BailOnError`) re-queue
+//     failed entries back into `pending` and surface them on
+//     `FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS` instead. `Applied` errors
+//     under either policy do NOT land here — Redis processed those
+//     commands, so the chunk credits `entries_flushed_total`.
 //   - "shutdown_drop": entries lost during shutdown because the final flush
 //     timed out or panicked. SIGKILL past the grace window lands here.
-//   - "redis_error": affected-request count for chunks that hit a Redis
-//     error during a normal-tick flush. Only emitted under `BailOnError`:
-//     includes the failing chunk plus the unattempted remainder so the
-//     rate reflects all requests blocked by the error, not just the chunk
-//     that hit it. These records are requeued and retried, so this label
-//     is an "incident magnitude" signal rather than a terminal-loss
-//     signal. Suppressed under `BestEffort` (shutdown) where the same
-//     counts terminally land in `flush_dropped_on_error` — emitting both
-//     would double-count when summing causes for a total-loss figure.
 pub const FLAGS_BILLING_UNFLUSHED_REQUESTS: &str = "flags_billing_unflushed_requests_total";
+
+// Counter: affected-request count for chunks that hit a Redis error during a
+// normal-tick (`BailOnError`) flush. Labeled by `error_type` — same
+// classification as `FLAGS_BILLING_FLUSH_ERRORS`, so per-error-type rates line
+// up across the two metrics. Emits for the failing chunk plus the unattempted
+// remainder so the rate reflects all records blocked by the error, not just
+// the chunk that tripped it. These records are requeued and retried on the
+// next tick, so this is an incident-magnitude signal, not terminal loss —
+// keeping it on a separate metric from `FLAGS_BILLING_UNFLUSHED_REQUESTS`
+// keeps the terminal-loss identity (above) clean. Suppressed under
+// `BestEffort` (shutdown) where the same counts terminally land in
+// `flags_billing_unflushed_requests_total{cause="flush_dropped_on_error"}`.
+pub const FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS: &str = "flags_billing_flush_blocked_requests_total";
 
 // Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
@@ -292,6 +320,18 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
+
+// Counter for /flags requests classified as bot traffic. Fires regardless
+// of whether the request was actually short-circuited, so dashboards can
+// plot the "would-have-rejected" rate during the log-only rollout phase
+// alongside the actual enforce-mode reject rate.
+// Labels: `bot_category` (google, ai, seo, uptime, social, headless,
+// crawler, other), `bot_source` (user_agent, ip), and
+// `mode` (`log_only` — classified but not blocked; `enforced` — classified
+// and short-circuited). No `team_id` because classification fires before
+// token extraction; per-team analysis lives in the canonical log line via
+// Loki.
+pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";

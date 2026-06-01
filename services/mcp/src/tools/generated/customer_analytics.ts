@@ -6,6 +6,12 @@ import {
     AccountsCreateBody,
     AccountsDestroyParams,
     AccountsListQueryParams,
+    AccountsNotebooksCreateBody,
+    AccountsNotebooksCreateParams,
+    AccountsNotebooksDestroyParams,
+    AccountsNotebooksListParams,
+    AccountsNotebooksListQueryParams,
+    AccountsNotebooksRetrieveParams,
     AccountsPartialUpdateBody,
     AccountsPartialUpdateParams,
     AccountsRetrieveParams,
@@ -51,7 +57,7 @@ const accountsCreate = (): ToolBase<typeof AccountsCreateSchema, Schemas.Account
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'POST',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             body,
         })
         return result
@@ -67,7 +73,7 @@ const accountsDestroy = (): ToolBase<typeof AccountsDestroySchema, unknown> => (
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -86,14 +92,102 @@ const accountsList = (): ToolBase<typeof AccountsListSchema, WithPostHogUrl<Sche
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedAccountList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/`,
             query: {
+                account_executive: params.account_executive,
+                account_owner: params.account_owner,
+                all_roles_unassigned: params.all_roles_unassigned,
+                csm: params.csm,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
+                search: params.search,
                 tags: params.tags,
             },
         })
         return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const AccountsNotebooksCreateSchema = AccountsNotebooksCreateParams.omit({ project_id: true }).extend(
+    AccountsNotebooksCreateBody.shape
+)
+
+const accountsNotebooksCreate = (): ToolBase<typeof AccountsNotebooksCreateSchema, Schemas.AccountNotebook> => ({
+    name: 'accounts-notebooks-create',
+    schema: AccountsNotebooksCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.text_content !== undefined) {
+            body['text_content'] = params.text_content
+        }
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AccountsNotebooksDestroySchema = AccountsNotebooksDestroyParams.omit({ project_id: true })
+
+const accountsNotebooksDestroy = (): ToolBase<typeof AccountsNotebooksDestroySchema, unknown> => ({
+    name: 'accounts-notebooks-destroy',
+    schema: AccountsNotebooksDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
+const AccountsNotebooksListSchema = AccountsNotebooksListParams.omit({ project_id: true }).extend(
+    AccountsNotebooksListQueryParams.shape
+)
+
+const accountsNotebooksList = (): ToolBase<
+    typeof AccountsNotebooksListSchema,
+    WithPostHogUrl<Schemas.PaginatedAccountNotebookList>
+> => ({
+    name: 'accounts-notebooks-list',
+    schema: AccountsNotebooksListSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAccountNotebookList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/customer-analytics')
+    },
+})
+
+const AccountsNotebooksRetrieveSchema = AccountsNotebooksRetrieveParams.omit({ project_id: true })
+
+const accountsNotebooksRetrieve = (): ToolBase<typeof AccountsNotebooksRetrieveSchema, Schemas.AccountNotebook> => ({
+    name: 'accounts-notebooks-retrieve',
+    schema: AccountsNotebooksRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof AccountsNotebooksRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AccountNotebook>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.account_id))}/notebooks/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
     },
 })
 
@@ -128,7 +222,7 @@ const accountsPartialUpdate = (): ToolBase<typeof AccountsPartialUpdateSchema, S
         }
         const result = await context.api.request<Schemas.Account>({
             method: 'PATCH',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
@@ -144,7 +238,7 @@ const accountsRetrieve = (): ToolBase<typeof AccountsRetrieveSchema, Schemas.Acc
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Account>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/accounts/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -231,7 +325,6 @@ const usageMetricsList = (): ToolBase<
 > => ({
     name: 'usage-metrics-list',
     schema: UsageMetricsListSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof UsageMetricsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedGroupUsageMetricList>({
@@ -303,7 +396,6 @@ const UsageMetricsRetrieveSchema = GroupsTypesMetricsRetrieveParams.omit({ proje
 const usageMetricsRetrieve = (): ToolBase<typeof UsageMetricsRetrieveSchema, Schemas.GroupUsageMetric> => ({
     name: 'usage-metrics-retrieve',
     schema: UsageMetricsRetrieveSchema,
-    mcpVersion: 1,
     handler: async (context: Context, params: z.infer<typeof UsageMetricsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GroupUsageMetric>({
@@ -318,6 +410,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'accounts-create': accountsCreate,
     'accounts-destroy': accountsDestroy,
     'accounts-list': accountsList,
+    'accounts-notebooks-create': accountsNotebooksCreate,
+    'accounts-notebooks-destroy': accountsNotebooksDestroy,
+    'accounts-notebooks-list': accountsNotebooksList,
+    'accounts-notebooks-retrieve': accountsNotebooksRetrieve,
     'accounts-partial-update': accountsPartialUpdate,
     'accounts-retrieve': accountsRetrieve,
     'usage-metrics-create': usageMetricsCreate,

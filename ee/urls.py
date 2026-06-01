@@ -13,6 +13,8 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.middleware import impersonated_session_logout
 from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
+from products.cdp.backend.api import hooks
+
 from ee.admin.loginas_views import loginas_user, upgrade_impersonation
 from ee.admin.oauth_views import admin_auth_check, admin_oauth_success
 from ee.api import integration
@@ -27,7 +29,6 @@ from .api import (
     conversation,
     core_memory,
     dashboard_collaborator,
-    hooks,
     license,
     sentry_stats,
     subscription,
@@ -42,7 +43,7 @@ def extend_api_router() -> None:
         environments_router,
         legacy_project_dashboards_router,
         organizations_router,
-        register_grandfathered_environment_nested_viewset,
+        register_legacy_dual_route_team_nested_viewset,
         router as root_router,
     )
 
@@ -63,7 +64,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
     environment_dashboards_router.register(
         r"collaborators",
@@ -78,7 +79,7 @@ def extend_api_router() -> None:
         ["project_id", "dashboard_id"],
     )
 
-    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
+    _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )
     env_subscriptions_router.register(
@@ -121,7 +122,11 @@ if settings.ADMIN_PORTAL_ENABLED:
         backfill_precalculated_person_properties_view,
     )
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.email_mfa_bypass_admin import EmailMFABypassViewSet, email_mfa_bypass_view
+    from posthog.admin.admins.email_mfa_bypass_admin import (
+        EmailMFABypassViewSet,
+        EmailMFAGlobalDisableViewSet,
+        email_mfa_bypass_view,
+    )
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -175,6 +180,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/api/email-mfa-bypass/<str:email>/",
             EmailMFABypassViewSet.as_view({"delete": "destroy"}),
             name="email-mfa-bypass-api-detail",
+        ),
+        path(
+            "admin/api/email-mfa-global-disable/",
+            EmailMFAGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
+            name="email-mfa-global-disable-api",
         ),
         path(
             "admin/resave-cohorts/",

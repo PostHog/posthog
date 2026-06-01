@@ -462,6 +462,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
@@ -473,7 +474,7 @@ describe('exec tool', () => {
                 getDistinctId: async () => 'test-distinct-id',
                 trackEvent: async () => {},
             }
-            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const v2Tools = await getToolsFromContext(context)
             const queryRetention = v2Tools.find((t) => t.name === 'query-retention')
             expect(queryRetention).not.toBeUndefined()
             const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
@@ -524,7 +525,7 @@ describe('exec tool', () => {
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
-                new RegExp(`removed in MCP v2[\\s\\S]*${replacement}`)
+                new RegExp(`was removed[\\s\\S]*${replacement}`)
             )
         })
 
@@ -572,6 +573,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
@@ -590,15 +592,15 @@ describe('exec tool', () => {
         // silently drop the tail of the instructions.
         it('keeps the tool description within 2048 characters', async () => {
             const context = createSnapshotContext()
-            const v2Tools = await getToolsFromContext(context, { version: 2 })
+            const v2Tools = await getToolsFromContext(context)
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, 2).category,
+                category: getToolDefinition(t.name).category,
             }))
             const queryToolInfos = v2Tools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,
@@ -634,17 +636,15 @@ describe('exec tool', () => {
         // so the snapshot has to follow it to keep catching drift in those blocks.
         it('matches the full exec tool schema', async () => {
             const context = createSnapshotContext()
-            const v2Tools = [...(await getToolsFromContext(context, { version: 2 }))].sort((a, b) =>
-                a.name.localeCompare(b.name)
-            )
+            const v2Tools = [...(await getToolsFromContext(context))].sort((a, b) => a.name.localeCompare(b.name))
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, 2).category,
+                category: getToolDefinition(t.name).category,
             }))
             const queryToolInfos = v2Tools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, 2)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,

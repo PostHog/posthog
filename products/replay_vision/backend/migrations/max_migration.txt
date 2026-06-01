@@ -1,1 +1,1 @@
-0006_rename_lens_to_scanner
+0009_drop_indexer_choice

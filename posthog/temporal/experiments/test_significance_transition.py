@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.experiments.utils import check_significance_transition
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 METRIC_DICT = {
     "uuid": "metric-123",
