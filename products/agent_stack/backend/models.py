@@ -17,6 +17,7 @@ Reads from the runtime DB happen through node-side HTTP (the janitor's
 
 from __future__ import annotations
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -129,3 +130,284 @@ class AgentRevision(ModelActivityMixin, UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.application.slug}@{str(self.id)[:8]} ({self.state})"
+
+
+# ─── Tools & Skills registry ──────────────────────────────────────────
+#
+# Shared, versioned skill markdown + custom-tool sources that agents
+# pin into their frozen bundles at freeze time. See
+# `docs/agent-platform/plans/skill-templates.md` for the full design.
+#
+# Versioning is append-only: each publish creates a new row with
+# `version+1` and flips the prior row's `is_latest` to False. The
+# partial unique index on (team, name) WHERE deleted=false AND
+# is_latest=true enforces a single current version per (team, name).
+#
+# `team_id` is nullable so we can carry PostHog-canonical templates
+# (`@posthog/<name>`) as global rows.
+
+
+class AgentSkillTemplate(ModelActivityMixin, UUIDModel):
+    """Shared markdown skill — one version per row.
+
+    Pinned by agents via `spec.skills[].from_template`. At freeze time
+    the janitor copies `body` into `bundle/skills/<alias>.md` and
+    inserts an `AgentRevisionSkillTemplate` row so the relationship is
+    queryable + FK-checked once the revision is immutable.
+    """
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="agent_skill_templates",
+        null=True,
+        blank=True,
+    )
+
+    # Slug — lowercase a-z 0-9 hyphen, no consecutive hyphens. Enforced
+    # by the serializer's regex (mirrors LLMSkill's pattern). `@posthog/`
+    # prefix is reserved for canonical (team_id NULL) rows.
+    name = models.CharField(max_length=128)
+    description = models.CharField(max_length=4096, blank=True, default="")
+
+    # The SKILL.md body — what gets copied into the bundle as the index
+    # file when an agent pins this template.
+    body = models.TextField(blank=True, default="")
+
+    # Versioning.
+    version = models.PositiveIntegerField(default=1)
+    is_latest = models.BooleanField(default=True)
+
+    # Free-form bag — agentskills.io-compatible slot for `license`,
+    # `compatibility`, etc. Not interpreted by the platform.
+    metadata = models.JSONField(default=dict, blank=True)
+
+    # Optional explicit list of tool ids the skill expects to be wired
+    # up. Honest declaration; the platform doesn't enforce it but
+    # surfaces it in the registry UI.
+    allowed_tools = models.JSONField(default=list, blank=True)
+
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "agent_skill_template"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name", "version"],
+                condition=models.Q(deleted=False),
+                name="agent_skill_template_unique_version_per_name",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False, is_latest=True),
+                name="agent_skill_template_unique_latest_per_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "deleted"]),
+            models.Index(fields=["name"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name}@v{self.version}"
+
+
+class AgentSkillTemplateFile(UUIDModel):
+    """Companion file inside a skill folder.
+
+    Path is relative to the skill root and copied to
+    `bundle/skills/<alias>/<path>` at freeze time. Multi-file skills
+    enable patterns like `examples/<scenario>.md` or
+    `templates/<shape>.json` without bloating the main body.
+    """
+
+    template = models.ForeignKey(
+        AgentSkillTemplate,
+        on_delete=models.CASCADE,
+        related_name="files",
+    )
+    path = models.CharField(max_length=512)
+    content = models.TextField(blank=True, default="")
+    content_type = models.CharField(max_length=128, default="text/plain")
+
+    class Meta:
+        db_table = "agent_skill_template_file"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["template", "path"],
+                name="agent_skill_template_file_unique_path",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.template_id}:{self.path}"
+
+
+class AgentCustomToolTemplate(ModelActivityMixin, UUIDModel):
+    """Shared TypeScript tool — one version per row.
+
+    Same shape as skill templates but carries a (`source`, `compiled_js`)
+    pair and an args schema instead of markdown. The bundler runs at
+    publish time so freeze is a cheap copy step.
+    """
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="agent_custom_tool_templates",
+        null=True,
+        blank=True,
+    )
+
+    name = models.CharField(max_length=128)
+    description = models.CharField(max_length=4096, blank=True, default="")
+
+    # The two artifacts the runner needs to execute the tool.
+    source = models.TextField(blank=True, default="")
+    compiled_js = models.TextField(blank=True, default="")
+
+    # TypeBox / JSON Schema for the tool's args. Authoring + the runner
+    # both validate against this.
+    args_schema = models.JSONField(default=dict)
+    # Informational — not enforced at runtime today.
+    returns_schema = models.JSONField(default=dict, blank=True)
+
+    # Explicit declaration of secret names the tool reads via
+    # `ctx.secret(...)`. Honest input; not auto-extracted from source.
+    requires_secrets = ArrayField(models.CharField(max_length=128), default=list, blank=True)
+
+    version = models.PositiveIntegerField(default=1)
+    is_latest = models.BooleanField(default=True)
+
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    deleted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "agent_custom_tool_template"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "name", "version"],
+                condition=models.Q(deleted=False),
+                name="agent_custom_tool_template_unique_version_per_name",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(deleted=False, is_latest=True),
+                name="agent_custom_tool_template_unique_latest_per_name",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "deleted"]),
+            models.Index(fields=["name"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name}@v{self.version}"
+
+
+# ─── Freeze-time join tables ──────────────────────────────────────────
+#
+# Drafts have no join rows; the spec JSONB is the editable surface.
+# At freeze the janitor writes one row per ref inside a single
+# `transaction.atomic()`, alongside the bundle copy. The join lets
+# the registry's "Used by" panel + "who's on v3?" reports run as
+# indexed queries instead of JSONB scans, and prevents a template
+# that a frozen revision pins from being hard-deleted.
+
+
+class AgentRevisionSkillTemplate(UUIDModel):
+    """Frozen revision ⇄ skill template binding."""
+
+    revision = models.ForeignKey(
+        AgentRevision,
+        on_delete=models.CASCADE,
+        related_name="skill_template_refs",
+    )
+    skill_template = models.ForeignKey(
+        AgentSkillTemplate,
+        # Hard-delete is blocked while any frozen revision references this
+        # template — soft delete (`deleted=True`) is the only legal path.
+        on_delete=models.PROTECT,
+        related_name="revision_refs",
+    )
+    pinned_version = models.PositiveIntegerField()
+    alias = models.CharField(max_length=128)
+    ordinal = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "agent_revision_skill_template"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "alias"],
+                name="agent_revision_skill_template_unique_alias",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["skill_template", "pinned_version"]),
+        ]
+
+
+class AgentRevisionCustomToolTemplate(UUIDModel):
+    """Frozen revision ⇄ custom tool template binding."""
+
+    revision = models.ForeignKey(
+        AgentRevision,
+        on_delete=models.CASCADE,
+        related_name="custom_tool_template_refs",
+    )
+    tool_template = models.ForeignKey(
+        AgentCustomToolTemplate,
+        on_delete=models.PROTECT,
+        related_name="revision_refs",
+    )
+    pinned_version = models.PositiveIntegerField()
+    alias = models.CharField(max_length=128)
+    ordinal = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "agent_revision_custom_tool_template"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "alias"],
+                name="agent_revision_custom_tool_template_unique_alias",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tool_template", "pinned_version"]),
+        ]
+
+
+class AgentRevisionNativeTool(UUIDModel):
+    """Frozen revision ⇄ native tool id.
+
+    Native tools live in the runner (no DB row to FK against), so this
+    table carries the text id directly. Indexed for the same "who uses
+    `@posthog/query`?" query the template join enables.
+    """
+
+    revision = models.ForeignKey(
+        AgentRevision,
+        on_delete=models.CASCADE,
+        related_name="native_tool_refs",
+    )
+    native_tool_id = models.CharField(max_length=128)
+    ordinal = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = "agent_revision_native_tool"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["revision", "native_tool_id"],
+                name="agent_revision_native_tool_unique_id",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["native_tool_id"]),
+        ]

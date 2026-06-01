@@ -255,17 +255,72 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "auth": {
-            "default": {"mode": "public"},
+            "default": {"modes": [{"type": "public"}]},
             "type": "object",
             "properties": {
-                "mode": {
-                    "default": "public",
-                    "type": "string",
-                    "enum": ["public", "pat", "posthog_internal", "shared_secret"],
+                "modes": {
+                    # Multi-mode auth — first verifier matching the inbound
+                    # request wins. See `AuthModeSchema` in
+                    # services/agent-shared/src/spec/spec.ts for the full
+                    # contract and the credential-broker design.
+                    "default": [{"type": "public"}],
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "properties": {"type": {"type": "string", "const": "public"}},
+                                "required": ["type"],
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "const": "oauth"},
+                                    "issuer": {"type": "string", "minLength": 1},
+                                    "scopes": {
+                                        "default": [],
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                                "required": ["type", "issuer"],
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {"type": {"type": "string", "const": "pat"}},
+                                "required": ["type"],
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "const": "jwt"},
+                                    "issuer_secret_ref": {"type": "string", "minLength": 1},
+                                },
+                                "required": ["type", "issuer_secret_ref"],
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "type": {"type": "string", "const": "shared_secret"},
+                                    "header": {"type": "string", "minLength": 1},
+                                },
+                                "required": ["type", "header"],
+                                "additionalProperties": False,
+                            },
+                            {
+                                "type": "object",
+                                "properties": {"type": {"type": "string", "const": "posthog_internal"}},
+                                "required": ["type"],
+                                "additionalProperties": False,
+                            },
+                        ]
+                    },
                 },
-                "header": {"type": "string"},
             },
-            "required": ["mode"],
             "additionalProperties": False,
         },
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
