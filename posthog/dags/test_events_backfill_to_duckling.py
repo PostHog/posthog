@@ -9,6 +9,7 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
+    DUCKGRES_CONNECT_RETRY_ATTEMPTS,
     EARLIEST_BACKFILL_DATE,
     EVENTS_COLUMNS,
     EVENTS_TABLE_DDL,
@@ -751,13 +752,13 @@ class TestConnectDuckgresRetry:
     @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
     def test_reraises_after_max_retries_exhausted(self, mock_connect, _mock_conninfo, _mock_sleep):
         # Persistently-unreachable duckgres reraises the original error after
-        # the bounded attempts — a retry does not mask a real outage.
+        # the bounded attempts — a long backoff does not mask a real outage.
         mock_connect.side_effect = psycopg.errors.ConnectionTimeout("connection timeout expired")
 
         with pytest.raises(psycopg.errors.ConnectionTimeout):
             _connect_duckgres(self._catalog())
 
-        assert mock_connect.call_count == 3
+        assert mock_connect.call_count == DUCKGRES_CONNECT_RETRY_ATTEMPTS
 
 
 class TestDuckLakeAddDataFilesPartitioning:
