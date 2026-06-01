@@ -10,8 +10,6 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
             { id: 3, name: 'height', count: 3 },
             { id: 4, name: '$browser', count: 4 },
         ],
-        // property_definitions is consumed as a paginated { results, count } envelope
-        // (propertyDefinitionsModel reads response.results); a bare array reads as 0 properties.
         '/api/projects/:team_id/property_definitions': {
             count: 6,
             results: [
