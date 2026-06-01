@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pydantic
 import temporalio.exceptions
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -85,7 +85,7 @@ class TestEmitSignalValidation:
         ]
 
         with (
-            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
             patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
         ):
             await emit_signal(
@@ -117,7 +117,7 @@ class TestEmitSignalValidation:
         client = AsyncMock()
 
         with (
-            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
             patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
         ):
             with pytest.raises(pydantic.ValidationError):
@@ -143,9 +143,9 @@ class TestEmitSignalAnalytics:
         ]
 
         with (
-            patch("products.signals.backend.api.async_connect", return_value=client),
+            patch("products.signals.backend.facade.api.async_connect", return_value=client),
             patch.object(SignalSourceConfig, "is_source_enabled", return_value=True),
-            patch("products.signals.backend.api.posthoganalytics.capture") as capture,
+            patch("products.signals.backend.facade.api.posthoganalytics.capture") as capture,
         ):
             await emit_signal(
                 team=team_stub,

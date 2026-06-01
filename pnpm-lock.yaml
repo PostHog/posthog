@@ -3201,8 +3201,6 @@ importers:
 
   products/product_tours: {}
 
-  products/query_performance_ai: {}
-
   products/replay:
     dependencies:
       '@posthog/icons':
@@ -3453,6 +3451,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-window:
+        specifier: '*'
+        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/user_interviews:
     dependencies:
@@ -44303,7 +44304,11 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
+<<<<<<< HEAD
       unlayer-types: 1.417.0
+=======
+      unlayer-types: 1.415.0
+>>>>>>> master
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -46655,7 +46660,11 @@ snapshots:
 
   universalify@2.0.1: {}
 
+<<<<<<< HEAD
   unlayer-types@1.417.0: {}
+=======
+  unlayer-types@1.415.0: {}
+>>>>>>> master
 
   unpipe@1.0.0: {}
 

@@ -49,6 +49,7 @@ from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, sen
 from .activities.start_agent_server import StartAgentServerInput, StartAgentServerOutput, start_agent_server
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
+from .credential_refresh import run_credential_refresh_loop
 
 
 @dataclass
@@ -357,6 +358,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
+        credential_refresh_task: asyncio.Task[None] | None = None
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
@@ -385,8 +387,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # if sandbox_output.should_create_snapshot and self.context.repository and self.context.github_integration_id:
             #     await self._trigger_snapshot_workflow()
 
-            await self._post_slack_update()
-
             # Start agent-server for direct connection from PostHog Code
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
@@ -409,6 +409,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_task = asyncio.ensure_future(
                     self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id)
                 )
+
+            if self.context.has_github_credentials:
+                credential_refresh_task = asyncio.ensure_future(run_credential_refresh_loop(self.context, sandbox_id))
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -576,6 +579,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
 
         finally:
+            if credential_refresh_task is not None:
+                await self._cancel_relay(credential_refresh_task)
+
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:
                 # When `use_modal_resume_snapshots` is off, resume relies on the

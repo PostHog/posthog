@@ -346,6 +346,17 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
 })
 
+/**
+ * Soft-delete a single tile from a dashboard.
+
+Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+use the dashboard delete endpoint instead.
+ */
+export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
+})
+
 export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
 
 export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
