@@ -35,6 +35,10 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+Reachability failures (`timeout`, `network_or_cors`, `http_error`) are expected, recoverable
+conditions and are tracked only via this event — they are **not** reported to error tracking.
+Only `unknown` errors are also captured as exceptions.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication

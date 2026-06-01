@@ -659,13 +659,20 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // Reachability failures (the uiHost lacks the endpoint, is unreachable, or times out)
+            // are expected, recoverable conditions — the flow degrades gracefully via the config
+            // modal and they're already recorded by the capture event below. Only report genuinely
+            // unexpected errors to error tracking to avoid flooding it with non-actionable noise.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
