@@ -28935,7 +28935,8 @@
                 "vercel_integration",
                 "endpoint_created",
                 "endpoint_created_from_insight",
-                "endpoint_created_from_sql_editor"
+                "endpoint_created_from_sql_editor",
+                "tracing_docs_viewed"
             ],
             "type": "string"
         },
