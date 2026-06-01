@@ -68,6 +68,16 @@ describe('ApiClient', () => {
             })
             expect(client.getProjectBaseUrl('7')).toBe('https://eu.posthog.com/project/7')
         })
+
+        it('falls back to baseUrl when publicBaseUrl is an empty string', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'https://eu.posthog.com',
+                publicBaseUrl: '',
+            })
+            expect(client.publicBaseUrl).toBe('https://eu.posthog.com')
+            expect(client.getProjectBaseUrl('7')).toBe('https://eu.posthog.com/project/7')
+        })
     })
 
     it('should send correct headers on fetch', async () => {

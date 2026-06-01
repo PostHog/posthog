@@ -91,7 +91,7 @@ export interface ApiConfig {
     baseUrl: string
     /**
      * Public-facing base URL used when building links the user clicks (e.g. `_posthogUrl`).
-     * Defaults to `baseUrl` when not set. Distinct from `baseUrl` so deployments can route
+     * Defaults to `baseUrl` when unset or empty. Distinct from `baseUrl` so deployments can route
      * API traffic over a cluster-internal hostname while still rendering public links
      * (e.g. https://us.posthog.com) in tool responses.
      */
@@ -116,7 +116,9 @@ export class ApiClient {
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
-        this.publicBaseUrl = config.publicBaseUrl ?? config.baseUrl
+        // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
+        // env vars to '' — falls back to baseUrl instead of yielding relative links.
+        this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
     }
 
     getProjectBaseUrl(projectId: string): string {
