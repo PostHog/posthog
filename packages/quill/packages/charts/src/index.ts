@@ -111,6 +111,7 @@ export type { YAxisFormat, YFormatterConfig } from './utils/y-formatters'
 export type { XAxisConfig, YAxisConfig } from './utils/use-axis-formatters'
 export { buildGoalLineReferenceLines, computeSeriesNonZeroMax } from './utils/goal-lines'
 export type { GoalLineConfig } from './utils/goal-lines'
+export { normalizeAxisLabel } from './utils/axis-labels'
 
 // Statistics helpers (used by trend-line / moving-average / confidence-interval features)
 export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'
