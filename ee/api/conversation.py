@@ -50,7 +50,8 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
-from products.posthog_ai.backend.message_routing import handle_sandbox_message
+from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
+from products.posthog_ai.backend.message_routing import handle_sandbox_cancel, handle_sandbox_message
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -186,6 +187,51 @@ class QueueMessageSerializer(serializers.Serializer):
 
 class QueueMessageUpdateSerializer(serializers.Serializer):
     content = serializers.CharField(required=True, allow_blank=False, max_length=40000)
+
+
+class SandboxAttachedContextItemSerializer(serializers.Serializer):
+    """One typed attachment carried by a sandbox message (01_CONTEXT § 1)."""
+
+    type = serializers.ChoiceField(
+        choices=sorted(ALLOWED_ATTACHED_CONTEXT_TYPES),
+        help_text="Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.",
+    )
+    id = serializers.JSONField(
+        required=False,
+        help_text="Entity identifier — integer for `dashboard`/`action`, string short_id/UUID otherwise. Absent for `text`.",
+    )
+    name = serializers.CharField(
+        required=False, help_text="Optional human-readable label rendered in the context block."
+    )
+    value = serializers.CharField(required=False, help_text="Free-text content. Only for `text` attachments.")
+
+
+class SandboxMessageSerializer(serializers.Serializer):
+    """Request body for the non-streaming `POST /conversations/{id}/sandbox/` route (02_CORE § 4)."""
+
+    content = serializers.CharField(
+        required=True, allow_blank=False, max_length=40000, help_text="The user's message text."
+    )
+    trace_id = serializers.UUIDField(
+        required=False, help_text="Client-generated trace id correlated with the resulting Run's SSE stream."
+    )
+    attached_context = serializers.ListField(
+        required=False,
+        child=SandboxAttachedContextItemSerializer(),
+        help_text="Typed PostHog entities (and free text) attached to this message.",
+    )
+
+
+class SandboxMessageResponseSerializer(serializers.Serializer):
+    """Response for `POST /conversations/{id}/sandbox/` — the IDs the frontend opens SSE against."""
+
+    task_id = serializers.CharField(help_text="The products/tasks Task backing the conversation.")
+    run_id = serializers.CharField(help_text="The Run the frontend opens SSE against.")
+    trace_id = serializers.CharField(allow_null=True, help_text="Echo of the request trace id, if provided.")
+    run_status = serializers.CharField(help_text="Current status of the targeted Run (e.g. `queued`, `in_progress`).")
+    just_created_run = serializers.BooleanField(
+        help_text="True when a new Run was created (first message or terminal resume); false for an in-progress follow-up."
+    )
 
 
 @extend_schema(tags=["max"])
@@ -574,9 +620,31 @@ class ConversationViewSet(
         queue_store = ConversationQueueStore(conversation_id)
         return self._queue_response(queue_store, queue_store.clear())
 
+    @extend_schema(
+        request=SandboxMessageSerializer,
+        responses={200: SandboxMessageResponseSerializer},
+        description=(
+            "Non-streaming routing endpoint for sandbox-runtime conversations (02_CORE § 3). Wraps + dedupes the "
+            "message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and "
+            "returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream "
+            "via the unchanged `/stream/` path."
+        ),
+    )
+    @action(detail=True, methods=["POST"], url_path="sandbox")
+    def sandbox(self, request: Request, *args, **kwargs):
+        conversation = self.get_object()
+        if conversation.agent_runtime != Conversation.AgentRuntime.SANDBOX:
+            raise exceptions.ValidationError("This conversation is not on the sandbox runtime.")
+        return handle_sandbox_message(request, conversation)
+
     @action(detail=True, methods=["PATCH"])
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
+
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            # Sandbox runs are cancelled in-process via the products/tasks command
+            # path; no LangGraph workflow is involved (02_CORE § 5.4).
+            return handle_sandbox_cancel(conversation)
 
         # IDLE is intentionally not short-circuited: during the handoff between the main
         # workflow completing and a queued workflow starting, the status is briefly IDLE
