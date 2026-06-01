@@ -101,7 +101,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public updateRowCount = 0
 
     constructor() {
-        super({ CYCLOTRON_NODE_DATABASE_URL: '' } as any, {} as any)
+        // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
+        // via jest.mock('pg')) is immediately replaced below with a fixture-dispatching fake.
+        super({ CYCLOTRON_NODE_DATABASE_URL: 'postgres://test' } as any, {} as any)
         // Wire a fake pool that dispatches queries to predefined fixtures.
         const dispatch = (sql: string, params: any[]): Promise<{ rows: any[]; rowCount: number }> => {
             if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') {

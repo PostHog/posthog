@@ -67,13 +67,13 @@ type WakeRequest = {
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
-// or a workflow conversion goal. No-op when `CYCLOTRON_NODE_DATABASE_URL` is unset.
+// or a workflow conversion goal.
 export class CdpHogflowSubscriptionMatcherConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpHogflowSubscriptionMatcherConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
-    private cyclotronPool: Pool | null = null
+    private cyclotronPool: Pool
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -82,12 +82,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             topic: KAFKA_EVENTS_JSON,
         })
 
-        if (config.CYCLOTRON_NODE_DATABASE_URL) {
-            this.cyclotronPool = new Pool({
-                connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
-                max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-            })
+        // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
+        // string means it would silently consume the event stream and wake nothing. Fail
+        // loudly on startup instead of degrading into a healthy-looking no-op.
+        if (!config.CYCLOTRON_NODE_DATABASE_URL) {
+            throw new Error('CdpHogflowSubscriptionMatcherConsumer requires CYCLOTRON_NODE_DATABASE_URL')
         }
+        this.cyclotronPool = new Pool({
+            connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
+            max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+        })
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
@@ -99,10 +103,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
     private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        if (!this.cyclotronPool) {
-            return
-        }
-
         const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
             indexBatch(invocationGlobals)
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
@@ -253,10 +253,6 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         personIds: string[],
         functionIds: string[]
     ): Promise<ParkedCandidate[]> {
-        if (!this.cyclotronPool) {
-            return []
-        }
-
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
         // sequential scan; splitting lets each branch hit its own composite index.
@@ -302,7 +298,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private async wakeJobs(requests: WakeRequest[]): Promise<number> {
-        if (!this.cyclotronPool || requests.length === 0) {
+        if (requests.length === 0) {
             return 0
         }
 
@@ -411,9 +407,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
-        if (this.cyclotronPool) {
-            await this.cyclotronPool.end()
-        }
+        await this.cyclotronPool.end()
         await super.stop()
         logger.info('💤', `${this.name} stopped!`)
     }
