@@ -13,6 +13,14 @@ from posthog.hogql.database.models import (
 # tie-breaker — when querying, group by invocation_id and use argMax(field, version)
 # to get the latest state, the same way persons are read.
 #
+# Access scope: this table is registered with HogQL under the standard team_id
+# guard — same scope as `app_metrics2`, `metrics`, and other operational tables.
+# Per-function / per-workflow access controls are NOT enforced here; any user
+# with project query access can SELECT lifecycle rows (invocation_id, status,
+# error_kind/message, event/person identifiers) for every function and flow
+# in the project. Sensitive payload fields are excluded (see next paragraph),
+# and the runs UI gates on function/flow access at the parent scene level.
+#
 # `invocation_globals` is intentionally NOT exposed here. The column carries the
 # full rerun payload — for hog functions whose trigger is a source webhook, that
 # includes `request.headers` (authorization, x-api-key, etc.) which the function

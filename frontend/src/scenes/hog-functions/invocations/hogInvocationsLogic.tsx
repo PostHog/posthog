@@ -8,7 +8,7 @@ import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils'
 
-import { hogql } from '~/queries/utils'
+import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
 import type { HogInvocationRerunFilterStatusEnumApi } from 'products/cdp/frontend/generated/api.schemas'
@@ -214,7 +214,10 @@ const parseRelativeHours = (value: string | undefined): number | null => {
  * same window (otherwise the chart's x-axis can drift away from the actual
  * filter the table is using).
  */
-export const resolveDateRange = (filters: HogInvocationsFilters): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
+export const resolveDateRange = (filters: {
+    date_from?: string
+    date_to?: string
+}): { start: dayjs.Dayjs; end: dayjs.Dayjs } => {
     const end = filters.date_to ? (dateStringToDayJs(filters.date_to) ?? dayjs()) : dayjs()
     const relHours = parseRelativeHours(filters.date_from)
     if (relHours !== null) {
@@ -312,20 +315,23 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
     // Filters reference the SELECT aliases (status / error_kind) so we don't
     // re-wrap in argMax inline — that would collide with the alias and
     // produce a nested aggregate error.
+    // `escapeHogQLString` handles all special chars (quotes, backslashes, null
+    // bytes) using the same path as the `hogql` template tag — a `.replace(/'/g, …)`
+    // pass on its own is bypassable (e.g. `\' OR 1=1 --`).
     const optionalStatusClause = filters.status?.length
-        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(',')})`)
+        ? hogql.raw(`AND status IN (${filters.status.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
     const optionalErrorKindClause = filters.error_kind?.length
-        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(',')})`)
+        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(',')})`)
         : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
-                  invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  invocation_id = ${escapeHogQLString(trimmedSearch)}
+                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
+                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
+                  OR person_id = ${escapeHogQLString(trimmedSearch)}
               )`
           )
         : hogql.raw('')
@@ -403,19 +409,19 @@ async function fetchRunsPage(
     // again as `argMax(status, version)` makes HogQL substitute `status` for
     // its alias and produce a nested aggregate.
     const optionalStatusClause = filters.status?.length
-        ? hogql.raw(`AND status IN (${filters.status.map((s) => `'${s}'`).join(', ')})`)
+        ? hogql.raw(`AND status IN (${filters.status.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
     const optionalErrorKindClause = filters.error_kind?.length
-        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map((s) => `'${s.replace(/'/g, "\\'")}'`).join(', ')})`)
+        ? hogql.raw(`AND error_kind IN (${filters.error_kind.map(escapeHogQLString).join(', ')})`)
         : hogql.raw('')
     const trimmedSearch = filters.search?.trim()
     const optionalSearchClause = trimmedSearch
         ? hogql.raw(
               `AND (
-                  invocation_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR event_uuid = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR distinct_id = '${trimmedSearch.replace(/'/g, "\\'")}'
-                  OR person_id = '${trimmedSearch.replace(/'/g, "\\'")}'
+                  invocation_id = ${escapeHogQLString(trimmedSearch)}
+                  OR event_uuid = ${escapeHogQLString(trimmedSearch)}
+                  OR distinct_id = ${escapeHogQLString(trimmedSearch)}
+                  OR person_id = ${escapeHogQLString(trimmedSearch)}
               )`
           )
         : hogql.raw('')
@@ -643,7 +649,15 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             {} as Record<string, { properties: Record<string, any>; distinct_ids?: string[] }>,
             {
                 hydratePeople: async ({ personIds }, breakpoint) => {
-                    const toFetch = personIds.filter((id) => id && !values.personPropertiesById[id])
+                    // person_id comes from CH rows so it _should_ already be a UUID,
+                    // but the values flow back through user-controlled state (URL
+                    // params can seed selectedRowIds etc.). Validate as a UUID
+                    // before interpolation so a malformed entry can't smuggle SQL
+                    // through `toUUID('…')`.
+                    const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+                    const toFetch = personIds.filter(
+                        (id) => id && UUID_PATTERN.test(id) && !values.personPropertiesById[id]
+                    )
                     if (toFetch.length === 0) {
                         return values.personPropertiesById
                     }
@@ -767,8 +781,13 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
 
             const { filters } = values
             const teamId = ApiConfig.getCurrentTeamId()
-            const windowStart = (dateStringToDayJs(filters.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
-            const windowEnd = ((filters.date_to ? dateStringToDayJs(filters.date_to) : null) ?? dayjs()).toISOString()
+            // `resolveDateRange` handles `-24h`-style relative strings as a
+            // duration anchored to "now". Using `dateStringToDayJs` directly
+            // anchors relative strings to start-of-day, which would silently
+            // widen the rerun window beyond what the user sees in the table.
+            const { start: rerunStart, end: rerunEnd } = resolveDateRange(filters)
+            const windowStart = rerunStart.toISOString()
+            const windowEnd = rerunEnd.toISOString()
 
             const requestBody = {
                 filter: {
@@ -794,8 +813,13 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
         bulkRerun: async ({ params }) => {
             const teamId = ApiConfig.getCurrentTeamId()
-            const windowStart = (dateStringToDayJs(params.date_from) ?? dayjs().subtract(24, 'hour')).toISOString()
-            const windowEnd = ((params.date_to ? dateStringToDayJs(params.date_to) : null) ?? dayjs()).toISOString()
+            // Resolve via `resolveDateRange` so `-24h` produces "24 hours ago",
+            // matching the table/sparkline. Anchoring relative strings to
+            // start-of-day here would silently rerun rows outside the visible
+            // window.
+            const { start: bulkStart, end: bulkEnd } = resolveDateRange(params)
+            const windowStart = bulkStart.toISOString()
+            const windowEnd = bulkEnd.toISOString()
 
             const requestBody = {
                 filter: {

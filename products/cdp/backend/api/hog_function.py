@@ -654,6 +654,14 @@ class HogFunctionViewSet(
         """
         hog_function = self.get_object()
 
+        # Source webhook invocations persist the inbound request headers in
+        # `invocation_globals` so a rerun can rehydrate them. Replaying those
+        # against the current function config lets a write-access user
+        # exfiltrate stored sender credentials (Authorization, signing
+        # secrets) to any endpoint they configure. Block rerun for these.
+        if hog_function.type in (HogFunctionType.SOURCE_WEBHOOK, HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK):
+            raise PermissionDenied("Rerunning source webhook invocations is not supported.")
+
         serializer = HogInvocationRerunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
