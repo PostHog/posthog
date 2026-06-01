@@ -8,6 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 const AGENTS = ['PostHog Code', 'Claude', 'Cursor', 'PostHog Code', 'Codex', 'Gemini'] as const
 
 const ROTATE_INTERVAL_MS = 2000
+const POSTHOG_CODE_URL = 'https://posthog.com/code'
 
 export function AgentBadgeRotator({ className }: { className?: string }): JSX.Element {
     // Pin to "PostHog Code" inside Storybook so visual snapshots don't flake on rotation.
@@ -24,16 +25,23 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
     }, ROTATE_INTERVAL_MS)
 
     const safeIndex = index % AGENTS.length
+    const agent = AGENTS[safeIndex]
+    const classes = cn('font-semibold rainbow-text-fading', {
+        'rainbow-text-animating': !isStorybook,
+    })
+
     return (
         <span className={cn('inline-flex relative', className)} aria-live="polite">
-            <span
-                key={AGENTS[safeIndex]}
-                className={cn('font-semibold rainbow-text-fading', {
-                    'rainbow-text-animating': !isStorybook,
-                })}
-            >
-                {AGENTS[safeIndex]}
-            </span>
+            {agent === 'PostHog Code' ? (
+                /* oxlint-disable-next-line forbid-elements */
+                <a href={POSTHOG_CODE_URL} target="_blank" rel="noopener noreferrer" key={agent} className={classes}>
+                    {agent}
+                </a>
+            ) : (
+                <span key={agent} className={classes}>
+                    {agent}
+                </span>
+            )}
         </span>
     )
 }
