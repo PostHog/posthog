@@ -30,6 +30,18 @@ NODE_MAP: dict[str, type[ast.AST]] = {
 # (when not list-encoded), and `replace`.
 _DICT_FIELDS = frozenset({"window_exprs", "ctes", "replace"})
 
+# Per-node fields whose inner JSON arrays should land as Python `tuple` (not
+# `list`). JSON has no tuple type, so cpp / rust-json emit `[[k,v]]` for fields
+# the Python AST types as `list[tuple[...]]`. Without this map the deserialiser
+# would return `list[list]`, which doesn't `==` the `list[tuple]` that
+# `rust-py` and `CloningVisitor` build — surfacing as bogus "position-only"
+# shadow mismatches on every Hog program containing a dict literal or a
+# try/catch.
+_TUPLE_INNER_FIELDS: dict[str, frozenset[str]] = {
+    "Dict": frozenset({"items"}),
+    "TryCatchStatement": frozenset({"catches"}),
+}
+
 # Per-class enum-typed field map, built once at import. Saves a per-node
 # `get_type_hints(cls)` call and a `hasattr(t, "__members__")` check.
 _ENUM_FIELDS: dict[type, dict[str, Any]] = {}
@@ -141,6 +153,18 @@ def _deserialize_node(data: Any) -> Any:
         # — fold it into a dict keyed by the name.
         if key == "ctes" and isinstance(value, list):
             kwargs[key] = {item["name"]: _deserialize_node(item) for item in value}
+            continue
+
+        # Inner-array → tuple for fields the Python AST types as `list[tuple]`
+        # (see `_TUPLE_INNER_FIELDS`). JSON arrays default to `list` everywhere
+        # else; this targeted conversion keeps `==` parity with `rust-py` /
+        # `CloningVisitor`, which both build tuples.
+        node_tuple_fields = _TUPLE_INNER_FIELDS.get(node_type)
+        if node_tuple_fields is not None and key in node_tuple_fields and isinstance(value, list):
+            kwargs[key] = [
+                tuple(_deserialize_node(item) for item in row) if isinstance(row, list) else _deserialize_node(row)
+                for row in value
+            ]
             continue
 
         # Other dict-shaped fields: {key: child_node}.

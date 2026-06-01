@@ -29,6 +29,7 @@ import {
     SelectTrigger,
     SelectValue,
     Separator,
+    Skeleton,
 } from '@posthog/quill'
 
 import { createFuse } from 'lib/utils/fuseSearch'
@@ -113,6 +114,11 @@ export function MenuFilterCombobox({
         return drillTo
     })
     const [itemsByType, setItemsByType] = useState<Record<string, TaxonomicDefinitionTypes[]>>({})
+    // Per-group loading flags reported up by `Fetcher`. We need this in the
+    // parent so the empty-state vs. skeleton decision sees the freshest
+    // fetch status across every visible (target) group, not just the one
+    // whose `useGroupList` hook last rendered.
+    const [loadingByType, setLoadingByType] = useState<Record<string, boolean>>({})
     // Seed the highlight with the committed selection so the preview
     // pane shows the right definition before any row hovers fire. Once
     // the list mounts, `autoHighlight="always"` + the reordered
@@ -166,6 +172,10 @@ export function MenuFilterCombobox({
 
     const reportItems = useCallback((type: string, next: TaxonomicDefinitionTypes[]): void => {
         setItemsByType((prev) => (prev[type] === next ? prev : { ...prev, [type]: next }))
+    }, [])
+
+    const reportLoading = useCallback((type: string, loading: boolean): void => {
+        setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
     }, [])
 
     // Chips show only when `drillTo='all'` — drilled scopes lock to one
@@ -246,11 +256,18 @@ export function MenuFilterCombobox({
                 scope === 'pinned' ||
                 scope === 'suggested'
             if (fitsScope) {
-                const selectedValue = selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name
+                // Stringify both sides so a synthetic `selected` shimmed in
+                // by callers like `TaxonomicPopoverMenu` (where the value
+                // arrives as e.g. `'5'`) dedups against the real entry
+                // returned by the endpoint (`cohort.id === 5`). Without this
+                // coercion the two land side-by-side with two checkmarks —
+                // the stableId path below already coerces, so matching here
+                // keeps the prepend logic aligned with how rows are keyed.
+                const selectedValue = String(selectedEntry.group.getValue?.(selectedEntry.item) ?? selectedEntry.name)
                 const present = merged.some(
                     (e) =>
                         e.group.type === selectedEntry.group.type &&
-                        (e.group.getValue?.(e.item) ?? e.name) === selectedValue
+                        String(e.group.getValue?.(e.item) ?? e.name) === selectedValue
                 )
                 if (!present) {
                     merged.unshift(selectedEntry)
@@ -316,6 +333,18 @@ export function MenuFilterCombobox({
         return phrase ? `Search ${phrase}…` : (placeholder ?? 'Search…')
     }, [activeChip, groups, placeholder])
 
+    // True while any visible group is fetching its first page (or refetching
+    // with no kept-previous-data) — drives the skeleton fallback so the user
+    // doesn't see "No X found" before the request resolves. Drilled
+    // scopes that read from pre-resolved `drillItems` / `suggestedItems`
+    // never fetch and stay at `false`.
+    const isAnyLoading = useMemo(() => {
+        if (drillItems) {
+            return false
+        }
+        return targetGroups.some((g) => loadingByType[g.type])
+    }, [drillItems, targetGroups, loadingByType])
+
     // Empty-state message. Three branches:
     //   - "needs more characters" — when the active chip resolves to a
     //     single group with `minSearchQueryLength` and the search query
@@ -328,6 +357,12 @@ export function MenuFilterCombobox({
     //     entries (rare for finite groups).
     const emptyState = useMemo<{ title: string; body?: string } | null>(() => {
         if (filtered.length > 0) {
+            return null
+        }
+        // Suppress empty-state copy while a remote fetch is in flight —
+        // the skeleton fallback below takes its place so we don't flash
+        // "No X found" before the response resolves.
+        if (isAnyLoading) {
             return null
         }
         const scope = showChips ? activeChip : drillTo
@@ -353,7 +388,7 @@ export function MenuFilterCombobox({
         return {
             title: categoryLabel ? `No "${categoryLabel}" found` : 'No items',
         }
-    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery])
+    }, [filtered.length, showChips, activeChip, drillTo, groups, searchQuery, isAnyLoading])
 
     const headerTitle =
         title ??
@@ -485,19 +520,28 @@ export function MenuFilterCombobox({
                             </InputGroup>
                         </div>
                         {!drillItems &&
-                            targetGroups.map((g) => <Fetcher key={g.type} group={g} onItems={reportItems} />)}
+                            targetGroups.map((g) => (
+                                <Fetcher key={g.type} group={g} onItems={reportItems} onLoadingChange={reportLoading} />
+                            ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
                             <Autocomplete.List data-quill className="p-2 scroll-py-8">
                                 <Autocomplete.Empty className="empty:hidden">
-                                    {emptyState && (
-                                        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-                                            <div className="text-sm font-semibold">{emptyState.title}</div>
-                                            {emptyState.body && (
-                                                <div className="text-xs text-secondary leading-relaxed">
-                                                    {emptyState.body}
-                                                </div>
-                                            )}
-                                        </div>
+                                    {isAnyLoading ? (
+                                        <LoadingRows />
+                                    ) : (
+                                        emptyState && (
+                                            <div
+                                                data-attr="menu-filter-empty"
+                                                className="flex flex-col items-center gap-2 px-4 py-8 text-center"
+                                            >
+                                                <div className="text-sm font-semibold">{emptyState.title}</div>
+                                                {emptyState.body && (
+                                                    <div className="text-xs text-secondary leading-relaxed">
+                                                        {emptyState.body}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
                                     )}
                                 </Autocomplete.Empty>
                                 <Autocomplete.Collection>
@@ -626,16 +670,48 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
 function Fetcher({
     group,
     onItems,
+    onLoadingChange,
 }: {
     group: TaxonomicFilterGroup
     onItems: (type: string, items: TaxonomicDefinitionTypes[]) => void
+    /** Reports `isLoading` (no items yet) so the parent can show a skeleton
+     *  instead of "No X found" during the first fetch. */
+    onLoadingChange: (type: string, loading: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const list = useGroupList(getGroupListInput(group))
     useEffect(() => {
         onItems(group.type, list.items)
     }, [group.type, list.items, onItems])
+    useEffect(() => {
+        onLoadingChange(group.type, list.showLoadingState)
+    }, [group.type, list.showLoadingState, onLoadingChange])
+    // Make sure we flip back to "not loading" when this group unmounts —
+    // otherwise a stale `true` from a previously-active chip would keep
+    // the skeleton on screen after we switch scope.
+    useEffect(() => {
+        return () => {
+            onLoadingChange(group.type, false)
+        }
+    }, [group.type, onLoadingChange])
     return null
+}
+
+/** Skeleton placeholder shown in place of the result list while a remote
+ *  fetch is in flight and we have nothing to show yet. Matches the row
+ *  layout (two-line label + tag stub) so the popover height doesn't jump
+ *  when results arrive. */
+function LoadingRows(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1 p-2" data-attr="menu-filter-loading">
+            {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex flex-col gap-1 px-2 py-1">
+                    <Skeleton className="h-3.5 w-2/3 rounded" />
+                    <Skeleton className="h-3 w-1/3 rounded" />
+                </div>
+            ))}
+        </div>
+    )
 }
 
 /**

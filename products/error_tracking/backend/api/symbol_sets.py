@@ -13,8 +13,6 @@ from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
@@ -199,7 +197,6 @@ class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
     max_limit = 100
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     queryset = ErrorTrackingSymbolSet.objects.all()

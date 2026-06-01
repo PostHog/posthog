@@ -8,6 +8,7 @@ import {
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { getPostHogClient } from '@/lib/posthog'
+import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -134,7 +135,7 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
+            mcp_version: MCP_ANALYTICS_VERSION,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })

@@ -34,12 +34,11 @@
 ## Docs update
 
 <!-- Add the `skip-inkeep-docs` label if this PR should not trigger an automatic docs update from the Inkeep agent. -->
-<!-- Add the `skip-migration-service-check` label if every migration here is DB-noop (e.g. `SeparateDatabaseAndState` with empty `database_operations`, or pure `RunPython`) and it's safe to ship alongside service code. -->
 
 ## 🤖 Agent context
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
-<!-- Include:
+<!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
      - decisions made along the way (what was tried, rejected, chosen, and why)
      - anything else that helps reviewers

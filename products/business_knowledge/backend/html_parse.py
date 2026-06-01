@@ -12,7 +12,6 @@ Only `logic.py` is allowed to import this module.
 from __future__ import annotations
 
 import structlog
-import trafilatura
 from bs4 import BeautifulSoup
 
 logger = structlog.get_logger(__name__)
@@ -52,6 +51,10 @@ def parse_html(body: bytes, url: str) -> tuple[str, str]:
     Returns empty strings if extraction produced nothing usable — callers
     should treat that as a soft failure and store an error on the source.
     """
+
+    # Deferred import: trafilatura (and its dateparser/htmldate deps) is slow to import
+    # and only needed when actually parsing a page, not at API/module load.
+    import trafilatura
 
     html = _decode(body)
 

@@ -14,11 +14,15 @@
 // Durations come from .test_durations (maintained by pytest-split).
 //
 // Input:  LEGACY_CHANGED env var ("true"/"false")
+//         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
+//         is false, schema-impact.js narrows the matrix to products that
+//         depend on the affected posthog.schema types.
 // Output: JSON on stdout: { matrix, run_legacy, django_shards }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
 const fs = require('fs')
+const { analyzeSchemaImpact } = require('./schema-impact')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -40,19 +44,31 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // --- Django shard auto-sizing (Amdahl's law) ---
 // wall_clock = overhead + (total_from_durations_file / shards)
 //
-// .test_durations has migration-inflated first-test durations corrected
-// by optimize_test_durations.py (using JUnit to identify carriers and
-// subtract the migration tax). Durations reflect actual test work.
+// .test_durations has migration-tax contamination removed by
+// optimize_test_durations.py: tests recorded far above their JUnit call
+// time (the DB-setup walk lands on whichever test first hits the DB) are
+// floored back to that call time. Durations reflect actual test work.
 //
 // Per-segment overhead constants below cover the fixed per-shard cost
 // outside test work: job setup, pytest collection, per-shard DB setup,
-// per-segment infra. Measured from JUnit + job wall clocks on a recent
-// run (lower bound — includes some per-test fixture setup that JUnit's
-// junit_duration_report=call doesn't capture):
-//   Core:     median 303s, max 591s   → 4 min covers it comfortably
-//   CorePOE:  median 233s, max 280s   → 4 min has headroom
-//   Temporal: median 375s, max 693s   → 6 min, temporal-server boot adds
-//                                        meaningful fixed cost beyond Core
+// per-segment infra.
+//
+// These are calibrated for the PR path, which is >95% of runs. On PRs the
+// test DB is primed from a cached pre-migrated schema dump (restore step in
+// ci-backend.yml, ~60s) instead of walking Django migrations, so the per-
+// shard overhead stays small. Measured as wall_clock minus the shard's
+// corrected test work on a PR run with the schema cache hitting:
+//   Core:     median ~4.5 min, max ~9 min  → 4 min is tight but holds
+//   CorePOE:  median ~4 min                → 4 min
+//   Temporal: median ~4 min                → 6 min has headroom for temporal-server boot
+//
+// Master pushes SKIP the schema-cache restore and walk migrations fresh
+// (~7 min), so master shards run ~11 min overhead and blow past the 20 min
+// target. That is accepted: master runs are rare, happen uniformly across
+// shards, and are where .test_durations is collected anyway. Calibrating up
+// to protect them would over-shard every PR. Note the consequence: a PR with
+// a schema-cache MISS (stale branch, key drift) falls back to the full walk
+// and its shards will also overrun — uniformly, same as master.
 const DJANGO_OVERHEAD_SECONDS_BY_SEGMENT = {
     Core: 4 * 60,
     CorePOE: 4 * 60,
@@ -302,6 +318,7 @@ function buildMatrix(products, durations) {
 // --- Main ---
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
+const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
 
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
@@ -363,6 +380,30 @@ if (legacyChanged) {
         console.error('No product changes detected')
         products = []
         runLegacy = false
+    }
+
+    if (schemaChanged) {
+        const impact = analyzeSchemaImpact({ scmBase: process.env.TURBO_SCM_BASE })
+        console.error(`Schema impact: ${JSON.stringify({ kind: impact.kind, counts: impact.counts, reason: impact.reason })}`)
+        if (impact.kind === 'fallback') {
+            console.error(`Schema diff unavailable (${impact.reason}) — falling back to all products + Django`)
+            products = allProducts
+            runLegacy = true
+        } else {
+            if (impact.kind === 'impacting') {
+                console.error(`Schema-affected products: ${JSON.stringify(impact.affectedProducts)}`)
+                if (impact.wildcardProducts && impact.wildcardProducts.length > 0) {
+                    console.error(
+                        `Products with unresolved schema module imports (always tested): ${JSON.stringify(impact.wildcardProducts)}`
+                    )
+                }
+                products = [...new Set([...products, ...impact.affectedProducts])].sort()
+            } else {
+                console.error('Schema change is purely additive — no extra products needed')
+            }
+            // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
+            runLegacy = true
+        }
     }
 }
 
