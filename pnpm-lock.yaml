@@ -4028,6 +4028,9 @@ importers:
         specifier: ^8.6.0
         version: 8.10.0
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.25
@@ -4052,6 +4055,9 @@ importers:
       vitest:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.32.0)(msw@2.12.14(@types/node@22.18.8)(typescript@6.0.3))(sass-embedded@1.70.0)(sass@1.56.0)(terser@5.46.0)
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
 
   services/agent-tools:
     dependencies:

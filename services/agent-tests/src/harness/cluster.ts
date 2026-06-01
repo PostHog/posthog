@@ -26,7 +26,7 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
-import { IsAskerInApproverScope, Worker } from '@posthog/agent-runner'
+import { AgentMcpResolver, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
 import {
@@ -128,6 +128,21 @@ export interface BuildClusterOpts {
      * queues regardless of asker).
      */
     isAskerInApproverScope?: IsAskerInApproverScope
+    /**
+     * Override the MCP transport factory. Defaults to the runner's own
+     * `StreamableHTTPClientTransport`. Pair an in-process `McpServer` via
+     * `InMemoryTransport.createLinkedPair()` here to drive `spec.mcps[]`
+     * round-trips without binding a localhost port — see
+     * `cases/mcp-tools.test.ts`.
+     */
+    mcpTransportFactory?: McpTransportFactory
+    /**
+     * Resolves `spec.mcps[{ kind: 'agent' }]` refs. PR 6 of the runtime-mcps
+     * rollout wires a default resolver against the local revision store +
+     * the ingress; until then tests that exercise the agent-variant supply
+     * their own.
+     */
+    agentMcpResolver?: AgentMcpResolver
 }
 
 let _pool: Pool | null = null
@@ -220,6 +235,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
         isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
+        mcpTransportFactory: opts.mcpTransportFactory,
+        agentMcpResolver: opts.agentMcpResolver,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
