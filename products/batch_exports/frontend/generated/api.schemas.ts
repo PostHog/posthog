@@ -176,16 +176,43 @@ export interface BigQueryDestinationConfigApi {
     type: BigQueryDestinationConfigApiType
 }
 
+export type PostgresDestinationConfigApiType =
+    (typeof PostgresDestinationConfigApiType)[keyof typeof PostgresDestinationConfigApiType]
+
+export const PostgresDestinationConfigApiType = {
+    Postgres: 'Postgres',
+} as const
+
+/**
+ * Typed configuration for a PostgreSQL batch-export destination.
+
+Connection credentials live in the linked Integration. Mirrors the
+non-credential fields of `PostgresBatchExportInputs` in
+`products/batch_exports/backend/service.py`.
+ */
+export interface PostgresDestinationConfigApi {
+    /** PostgreSQL database name to connect to. */
+    database: string
+    /** PostgreSQL schema name containing the destination table. */
+    schema?: string
+    /** PostgreSQL table name to write exported rows into. */
+    table_name?: string
+    /** Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration. */
+    has_self_signed_cert?: boolean
+    type: PostgresDestinationConfigApiType
+}
+
 export type BatchExportDestinationConfigApi =
     | DatabricksDestinationConfigApi
     | AzureBlobDestinationConfigApi
     | BigQueryDestinationConfigApi
+    | PostgresDestinationConfigApi
 
 /**
  * Serializer for an BatchExportDestination model.
 
 The `config` field is polymorphic and typed only for destinations that keep
-credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery).
+credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
 Other destination types accept the same JSON shape but without a typed
 OpenAPI schema. Secret fields are stripped from `config` on read.
  */
@@ -204,7 +231,7 @@ export interface BatchExportDestinationApi {
   * `NoOp` - Noop
   * `FileDownload` - File Download */
     type: BatchExportDestinationTypeEnumApi
-    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+    /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
      * The integration for this destination.
@@ -212,7 +239,7 @@ export interface BatchExportDestinationApi {
      */
     integration?: number | null
     /**
-     * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, and BigQuery destinations; unused for other types.
+     * ID of a team-scoped Integration providing credentials. Required for Databricks, AzureBlob, BigQuery, and integration-backed Postgres destinations; unused for other types.
      * @nullable
      */
     integration_id?: number | null
@@ -1079,10 +1106,28 @@ export interface BigQueryDestinationRequestApi {
     config: BigQueryDestinationConfigApi
 }
 
+export type PostgresDestinationRequestApiType =
+    (typeof PostgresDestinationRequestApiType)[keyof typeof PostgresDestinationRequestApiType]
+
+export const PostgresDestinationRequestApiType = {
+    Postgres: 'Postgres',
+} as const
+
+/**
+ * Request shape for creating or updating a PostgreSQL batch-export destination.
+ */
+export interface PostgresDestinationRequestApi {
+    type: PostgresDestinationRequestApiType
+    /** ID of a postgresql-kind Integration. Use the integrations-list MCP tool to find one. */
+    integration_id: number
+    config: PostgresDestinationConfigApi
+}
+
 export type BatchExportDestinationRequestApi =
     | DatabricksDestinationRequestApi
     | AzureBlobDestinationRequestApi
     | BigQueryDestinationRequestApi
+    | PostgresDestinationRequestApi
 
 /**
  * Request body for create/partial_update on BatchExportViewSet.
@@ -1596,6 +1641,16 @@ export type BigQueryDestinationRequestTypeEnumApi =
 
 export const BigQueryDestinationRequestTypeEnumApi = {
     BigQuery: 'BigQuery',
+} as const
+
+/**
+ * * `Postgres` - Postgres
+ */
+export type PostgresDestinationRequestTypeEnumApi =
+    (typeof PostgresDestinationRequestTypeEnumApi)[keyof typeof PostgresDestinationRequestTypeEnumApi]
+
+export const PostgresDestinationRequestTypeEnumApi = {
+    Postgres: 'Postgres',
 } as const
 
 export type BatchExportsListParams = {
