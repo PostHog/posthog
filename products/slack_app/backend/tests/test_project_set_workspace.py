@@ -7,7 +7,9 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings
-from products.slack_app.backend.services.commands import _handle_project_set_workspace
+from products.slack_app.backend.services.commands import _handle_help, _handle_project_set_workspace
+
+WORKSPACE_HELP_LINE = "`@PostHog project workspace <id>`"
 
 
 def _slack_user_info(*, is_admin: bool = False, is_owner: bool = False) -> dict:
@@ -101,3 +103,39 @@ class TestHandleProjectSetWorkspace:
         rows = SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id__isnull=True)
         assert rows.count() == 1
         assert rows.first().default_integration_id == self.integration.id
+
+
+class TestHandleHelp:
+    @pytest.fixture(autouse=True)
+    def setup(self, db):
+        self.organization = Organization.objects.create(name="Org")
+        self.team = Team.objects.create(organization=self.organization, name="Team A")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_WS",
+            sensitive_config={"access_token": "xoxb-a"},
+        )
+        self.slack = MagicMock()
+
+    def _help_text(self) -> str:
+        _handle_help(self.slack, self.integration, "C1", "111.1", "U1")
+        return self.slack.client.chat_postMessage.call_args.kwargs["text"]
+
+    @patch("products.slack_app.backend.api._get_slack_user_info")
+    def test_admin_sees_workspace_line(self, mock_info):
+        mock_info.return_value = _slack_user_info(is_admin=True)
+        assert WORKSPACE_HELP_LINE in self._help_text()
+
+    @patch("products.slack_app.backend.api._get_slack_user_info")
+    def test_owner_sees_workspace_line(self, mock_info):
+        mock_info.return_value = _slack_user_info(is_owner=True)
+        assert WORKSPACE_HELP_LINE in self._help_text()
+
+    @patch("products.slack_app.backend.api._get_slack_user_info")
+    def test_non_admin_does_not_see_workspace_line(self, mock_info):
+        mock_info.return_value = _slack_user_info(is_admin=False, is_owner=False)
+        text = self._help_text()
+        assert WORKSPACE_HELP_LINE not in text
+        # The rest of the help is still posted.
+        assert "Available commands" in text

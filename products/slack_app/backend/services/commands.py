@@ -7,24 +7,34 @@ if TYPE_CHECKING:
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 
-def _handle_help(slack: SlackIntegration, channel: str, thread_ts: str) -> None:
-    slack.client.chat_postMessage(
-        channel=channel,
-        thread_ts=thread_ts,
-        text=(
-            "*Available commands:*\n\n"
-            "`@PostHog <task description>` — Create a task for the agent to work on\n"
-            "`@PostHog rules list` — Show all routing rules\n"
-            '`@PostHog rules add "description" org/repo` — Add a routing rule\n'
-            '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)\n'
-            "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)\n"
-            "`@PostHog project` — Show which PostHog project your mentions route to in this workspace\n"
-            "`@PostHog project <id>` — Set the PostHog project your mentions route to in this workspace\n"
-            "`@PostHog project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)\n"
-            "`@PostHog help` — Show this message\n\n"
-            "You can also reply in an active thread to send follow-up messages to the agent."
-        ),
-    )
+def _handle_help(
+    slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str, slack_user_id: str
+) -> None:
+    from products.slack_app.backend.api import _get_slack_user_info
+
+    lines = [
+        "*Available commands:*\n",
+        "`@PostHog <task description>` — Create a task for the agent to work on",
+        "`@PostHog rules list` — Show all routing rules",
+        '`@PostHog rules add "description" org/repo` — Add a routing rule',
+        '`@PostHog rules add "description"` — Add a routing rule (pick repo from list)',
+        "`@PostHog rules remove <number(s)>` — Remove routing rules by number (e.g. `remove 1` or `remove 1,2`)",
+        "`@PostHog project` — Show which PostHog project your mentions route to in this workspace",
+        "`@PostHog project <id>` — Set the PostHog project your mentions route to in this workspace",
+    ]
+
+    # The workspace-wide default is admins/owners-only, so only surface it to them.
+    user_info = _get_slack_user_info(slack, integration, slack_user_id)
+    slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
+    if slack_user.get("is_admin") or slack_user.get("is_owner"):
+        lines.append(
+            "`@PostHog project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
+        )
+
+    lines.append("`@PostHog help` — Show this message\n")
+    lines.append("You can also reply in an active thread to send follow-up messages to the agent.")
+
+    slack.client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="\n".join(lines))
 
 
 def _handle_rules_list(slack: SlackIntegration, integration: Integration, channel: str, thread_ts: str) -> None:
@@ -425,7 +435,7 @@ def dispatch_rules_command(
     *before* calling this dispatcher.
     """
     if command.action == "help":
-        _handle_help(slack, channel, thread_ts)
+        _handle_help(slack, integration, channel, thread_ts, slack_user_id)
     elif command.action == "list":
         _handle_rules_list(slack, integration, channel, thread_ts)
     elif command.action == "add":
