@@ -7,10 +7,10 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.query_performance_ai.orchestrator.backends import _query_log
-from products.query_performance_ai.orchestrator.backends.base import BackendError
-from products.query_performance_ai.orchestrator.backends.local import LocalClickhouseBackend
-from products.query_performance_ai.orchestrator.backends.metabase import MetabaseBackend, _tag_with_log_comment
+from query_performance_ai.orchestrator.backends import _query_log
+from query_performance_ai.orchestrator.backends.base import BackendError
+from query_performance_ai.orchestrator.backends.local import LocalClickhouseBackend
+from query_performance_ai.orchestrator.backends.metabase import MetabaseBackend, _tag_with_log_comment
 
 
 def _completed(stdout: str = "", stderr: str = "", returncode: int = 0) -> Any:
