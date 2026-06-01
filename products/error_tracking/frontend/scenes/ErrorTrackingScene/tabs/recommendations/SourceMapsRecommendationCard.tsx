@@ -41,7 +41,7 @@ export function SourceMapsRecommendationCard({
                 </div>
             </div>
             <div className="flex justify-center mt-2">
-                <LemonButton type="primary" icon={<IconMagicWand />} onClick={openModal}>
+                <LemonButton type="primary" icon={<IconMagicWand />} onClick={() => openModal('recommendations')}>
                     Fix with wizard
                 </LemonButton>
             </div>

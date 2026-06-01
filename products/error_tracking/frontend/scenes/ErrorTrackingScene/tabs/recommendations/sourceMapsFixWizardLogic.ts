@@ -9,6 +9,7 @@ import { Region, SurveyEventName, SurveyEventProperties } from '~/types'
 import type { sourceMapsFixWizardLogicType } from './sourceMapsFixWizardLogicType'
 
 export type WizardRating = 'good' | 'bad'
+export type WizardOpenSource = 'issues_list' | 'recommendations'
 
 // Delay before we ask "how did the wizard do?" — long enough that the user has
 // actually had a chance to copy the command and kick the wizard off.
@@ -20,9 +21,9 @@ const BAD_RATING = 1
 
 // API survey that collects source maps wizard feedback: a 1-5 rating question
 // followed by an open feedback question.
-const SURVEY_ID = '019e7d83-63e0-0000-8d8d-a7d09a0cd405'
-const RATING_QUESTION_ID = '999be3e0-8017-4357-9e83-ef313fac1d50'
-const FEEDBACK_QUESTION_ID = 'b0d02cd2-7144-4041-bdf4-9f9867a23e65'
+const SURVEY_ID = '019e7335-af36-0000-42a8-ad5add623630'
+const RATING_QUESTION_ID = '030dde7d-0dee-4d79-b568-ed16e85b431c'
+const FEEDBACK_QUESTION_ID = '03e1255c-6daf-46a2-9629-2354bcd230ff'
 
 export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
     path([
@@ -36,7 +37,7 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
     ]),
 
     actions({
-        openModal: true,
+        openModal: (source: WizardOpenSource) => ({ source }),
         closeModal: true,
         revealFeedback: true,
         rateWizard: (rating: WizardRating) => ({ rating }),
@@ -112,7 +113,8 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
     }),
 
     listeners(({ actions, values, cache }) => ({
-        openModal: () => {
+        openModal: ({ source }) => {
+            posthog.capture('error_tracking_source_maps_wizard_opened', { source })
             cache.disposables.dispose('feedback-reveal')
             cache.disposables.add(() => {
                 const timeout = setTimeout(() => actions.revealFeedback(), FEEDBACK_REVEAL_DELAY_MS)
