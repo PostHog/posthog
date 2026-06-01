@@ -605,9 +605,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        mock_resolve.assert_called_once_with(
-            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
-        )
+        mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
@@ -666,9 +664,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             inputs, "C123", "1234.5678", "U_BOB", "do something", "1234.5679"
         )
         assert result is True
-        mock_resolve.assert_called_once_with(
-            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
-        )
+        mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
@@ -739,9 +735,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        mock_resolve.assert_called_once_with(
-            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
-        )
+        mock_resolve.assert_called_once_with(mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678")
         mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
