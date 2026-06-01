@@ -1113,3 +1113,15 @@ tools:
     llma-translate-create:
         operation: llm_analytics_translate_create
         enabled: false
+    taggers-destroy:
+        operation: taggers_destroy
+        enabled: false
+    taggers-partial-update:
+        operation: taggers_partial_update
+        enabled: false
+    taggers-retrieve:
+        operation: taggers_retrieve
+        enabled: false
+    taggers-update:
+        operation: taggers_update
+        enabled: false

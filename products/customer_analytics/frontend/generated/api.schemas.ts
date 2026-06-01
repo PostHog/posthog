@@ -253,6 +253,20 @@ export interface PaginatedCustomerJourneyListApi {
     results: CustomerJourneyApi[]
 }
 
+export interface PatchedCustomerJourneyApi {
+    readonly id?: string
+    insight?: number
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
 /**
  * * `person` - Person
  * `group_0` - Group 0
@@ -290,6 +304,16 @@ export interface PaginatedCustomerProfileConfigListApi {
     /** @nullable */
     previous?: string | null
     results: CustomerProfileConfigApi[]
+}
+
+export interface PatchedCustomerProfileConfigApi {
+    readonly id?: string
+    scope?: CustomerProfileConfigScopeEnumApi
+    content?: unknown
+    sidebar?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 /**

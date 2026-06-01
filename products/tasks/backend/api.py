@@ -317,7 +317,6 @@ def _slack_repo_research_payload(
     }
 
 
-@extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -2157,6 +2156,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return response
 
     @extend_schema(
+        extensions={"x-product": "logs"},
         responses={
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),

@@ -180,9 +180,46 @@ export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
+export const customerJourneysUpdateBodyNameMax = 400
+
+export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number(),
+    name: zod.string().max(customerJourneysUpdateBodyNameMax),
+    description: zod.string().nullish(),
+})
+
+export const customerJourneysPartialUpdateBodyNameMax = 400
+
+export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number().optional(),
+    name: zod.string().max(customerJourneysPartialUpdateBodyNameMax).optional(),
+    description: zod.string().nullish(),
+})
+
 export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .optional()
         .describe(
             '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
         ),

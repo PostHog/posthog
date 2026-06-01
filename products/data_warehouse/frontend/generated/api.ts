@@ -13,6 +13,7 @@ import type {
     DataModelingJobApi,
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
+    DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryDraftApi,
     DataWarehouseSavedQueryFolderApi,
@@ -48,6 +49,8 @@ import type {
     PatchedExternalDataSourceSerializersApi,
     PatchedInsightVariableApi,
     PatchedQueryTabStateApi,
+    PatchedTableApi,
+    PatchedViewLinkApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
     QueryTabStateApi,
@@ -1059,6 +1062,50 @@ export const fixHogqlCreate = async (projectId: string, options?: RequestInit): 
     })
 }
 
+export const getFixHogqlRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/fix_hogql/${id}/`
+}
+
+export const fixHogqlRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFixHogqlUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/fix_hogql/${id}/`
+}
+
+export const fixHogqlUpdate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+    })
+}
+
+export const getFixHogqlPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/fix_hogql/${id}/`
+}
+
+export const fixHogqlPartialUpdate = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+    })
+}
+
+export const getFixHogqlDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/fix_hogql/${id}/`
+}
+
+export const fixHogqlDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getInsightVariablesListUrl = (projectId: string, params?: InsightVariablesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1391,6 +1438,21 @@ export const warehouseModelPathsList = async (
     options?: RequestInit
 ): Promise<PaginatedDataWarehouseModelPathListApi> => {
     return apiMutator<PaginatedDataWarehouseModelPathListApi>(getWarehouseModelPathsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseModelPathsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_model_paths/${id}/`
+}
+
+export const warehouseModelPathsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseModelPathApi> => {
+    return apiMutator<DataWarehouseModelPathApi>(getWarehouseModelPathsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -1987,6 +2049,122 @@ export const warehouseTablesCreate = async (
     })
 }
 
+export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseTablesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesUpdate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+export const getWarehouseTablesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedTableApi?: NonReadonly<PatchedTableApi>,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTableApi),
+    })
+}
+
+export const getWarehouseTablesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getWarehouseTablesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getWarehouseTablesRefreshSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/refresh_schema/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesRefreshSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseTablesRefreshSchemaCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
+export const getWarehouseTablesUpdateSchemaCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/update_schema/`
+}
+
+/**
+ * Create, Read, Update and Delete Warehouse Tables.
+ */
+export const warehouseTablesUpdateSchemaCreate = async (
+    projectId: string,
+    id: string,
+    tableApi: NonReadonly<TableApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseTablesUpdateSchemaCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tableApi),
+    })
+}
+
 export const getWarehouseTablesFileCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_tables/file/`
 }
@@ -2068,6 +2246,80 @@ export const warehouseViewLinkCreate = async (
     })
 }
 
+export const getWarehouseViewLinkRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinkRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinkRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseViewLinkUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinkUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinkUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+export const getWarehouseViewLinkPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinkPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi?: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinkPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedViewLinkApi),
+    })
+}
+
+export const getWarehouseViewLinkDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_link/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinkDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getWarehouseViewLinkDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getWarehouseViewLinkValidateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/warehouse_view_link/validate/`
 }
@@ -2135,6 +2387,84 @@ export const warehouseViewLinksCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(viewLinkApi),
+    })
+}
+
+export const getWarehouseViewLinksRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinksRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinksRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseViewLinksUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinksUpdate = async (
+    projectId: string,
+    id: string,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinksUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(viewLinkApi),
+    })
+}
+
+export const getWarehouseViewLinksPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinksPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedViewLinkApi?: NonReadonly<PatchedViewLinkApi>,
+    options?: RequestInit
+): Promise<ViewLinkApi> => {
+    return apiMutator<ViewLinkApi>(getWarehouseViewLinksPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedViewLinkApi),
+    })
+}
+
+export const getWarehouseViewLinksDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_view_links/${id}/`
+}
+
+/**
+ * Create, Read, Update and Delete View Columns.
+ */
+export const warehouseViewLinksDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseViewLinksDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

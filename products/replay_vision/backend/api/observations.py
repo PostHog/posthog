@@ -13,7 +13,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -182,7 +181,6 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
-@extend_schema(tags=[VISION_TAG])
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -218,7 +216,6 @@ class ReplayObservationViewSet(
         )
 
 
-@extend_schema(tags=[VISION_TAG])
 @extend_schema_view(
     list=extend_schema(
         parameters=[
