@@ -146,12 +146,11 @@ describe('Mentions', () => {
         ])
     })
 
-    it('arrow keys are handled even when the list is empty', () => {
+    it.each(['ArrowUp', 'ArrowDown'])('%s is handled even when the list is empty', (key) => {
         const { editor } = createMockEditor()
         const ref = renderMentions(editor, jest.fn())
 
-        expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowUp' }))).toBe(true)
-        expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }))).toBe(true)
+        expect(ref.current?.onKeyDown(new KeyboardEvent('keydown', { key }))).toBe(true)
         expect(editor.chain).not.toHaveBeenCalled()
     })
 })
