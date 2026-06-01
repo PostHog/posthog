@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field, model_validator
 from posthog.schema import AssistantTool, MaxUIContext
 
 from posthog.models import Team, User
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
 
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.models import Notebook
@@ -900,6 +902,9 @@ class EditNotebookTool(MaxTool):
     name: Literal[AssistantTool.EDIT_NOTEBOOK] = AssistantTool.EDIT_NOTEBOOK
     args_schema: type[BaseModel] = EditNotebookToolArgs
     description: str = EDIT_NOTEBOOK_PROMPT
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("notebook", "editor")]
 
     @classmethod
     async def create_tool_class(
