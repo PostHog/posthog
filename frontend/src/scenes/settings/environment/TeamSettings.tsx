@@ -99,7 +99,7 @@ function DebugInfoPanel(): JSX.Element | null {
             <p>
                 Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
                 admin links inside it are internal references the PostHog team uses to look into your report — they
-                won't open for you.
+                only resolve for PostHog staff.
             </p>
             {anyLoading ? (
                 <LemonSkeleton repeat={2} active={true} />
