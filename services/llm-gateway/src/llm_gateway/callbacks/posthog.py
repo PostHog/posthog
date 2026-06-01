@@ -74,7 +74,7 @@ def _apply_owned_event_properties(properties: dict[str, Any], product: str, team
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)
-    if team_id:
+    if team_id is not None:
         properties.setdefault("team_id", team_id)
     # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
     # property matches the rest of the platform (the usage reporter reads it via JSONExtractInt)
@@ -84,7 +84,10 @@ def _apply_owned_event_properties(properties: dict[str, Any], product: str, team
         try:
             properties["team_id"] = int(raw_team_id)
         except (TypeError, ValueError):
-            pass
+            if team_id is not None:
+                properties["team_id"] = team_id
+            else:
+                properties.pop("team_id", None)
 
 
 # Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
