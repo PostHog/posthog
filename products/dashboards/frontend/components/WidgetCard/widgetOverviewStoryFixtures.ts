@@ -78,7 +78,7 @@ export const sessionReplaySampleRecordings = [
         click_count: 12,
         keypress_count: 34,
         person: {
-            id: 1,
+            id: '1',
             name: 'Alex Chen',
             distinct_ids: ['user-1'],
             properties: {
@@ -105,7 +105,7 @@ export const sessionReplaySampleRecordings = [
         click_count: 4,
         keypress_count: 9,
         person: {
-            id: 2,
+            id: '2',
             name: 'Sam Rivera',
             distinct_ids: ['user-2'],
             properties: {
@@ -132,7 +132,7 @@ export const sessionReplaySampleRecordings = [
         click_count: 2,
         keypress_count: 5,
         person: {
-            id: 3,
+            id: '3',
             name: 'Jordan Lee',
             distinct_ids: ['user-3'],
             properties: {

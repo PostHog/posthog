@@ -32,7 +32,6 @@ function EditSessionReplayWidgetModalForm(props: EditSessionReplayWidgetModalLog
         activeFieldErrors,
         saving,
         saveDisabledReason,
-        defaultTitle,
     } = useValues(editSessionReplayWidgetModalLogic)
     const {
         setLimit,
@@ -84,7 +83,7 @@ function EditSessionReplayWidgetModalForm(props: EditSessionReplayWidgetModalLog
                                 <LemonInput
                                     value={tileName}
                                     onChange={setTileName}
-                                    placeholder={defaultTitle}
+                                    placeholder={props.defaultTitle ?? 'Untitled'}
                                     maxLength={400}
                                     disabled={saving}
                                 />

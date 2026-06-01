@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -6,6 +8,7 @@ import userEvent from '@testing-library/user-event'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { EditSessionReplayWidgetModal } from './EditSessionReplayWidgetModal'
 
@@ -16,7 +19,15 @@ describe('EditSessionReplayWidgetModal', () => {
 
     beforeEach(() => {
         initKeaTests(true, {
-            test_account_filters: [{ key: 'email', value: '@posthog.com', operator: 'not_icontains', type: 'person' }],
+            ...MOCK_DEFAULT_TEAM,
+            test_account_filters: [
+                {
+                    key: 'email',
+                    value: '@posthog.com',
+                    operator: PropertyOperator.NotIContains,
+                    type: PropertyFilterType.Person,
+                },
+            ],
         })
         filterTestAccountsDefaultsLogic.mount()
     })

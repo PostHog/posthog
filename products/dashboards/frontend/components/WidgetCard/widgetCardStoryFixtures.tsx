@@ -98,3 +98,15 @@ export function withErrorTrackingProjectState(configured: boolean): Decorator {
         return <Story />
     }
 }
+
+/** Configured = session replay enabled for the project. Unconfigured = availability setup prompt. */
+export function withSessionReplayProjectState(enabled: boolean): Decorator {
+    return (Story: React.ComponentType): JSX.Element => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            session_recording_opt_in: enabled,
+        })
+        return <Story />
+    }
+}

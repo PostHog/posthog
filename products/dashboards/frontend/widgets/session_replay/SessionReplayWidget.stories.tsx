@@ -115,7 +115,7 @@ export const Empty: Story = {
 
 export const SetupUnavailable: Story = {
     decorators: [withSessionReplayProjectState(false)],
-    render: (args) => (
+    render: (args: SessionReplayWidgetTileStoryProps) => (
         <SessionReplayWidgetTileStory
             {...args}
             body={
