@@ -14,6 +14,7 @@ The events will appear in the team's events table under the event name
 'autoresearch_prediction' with properties prefixed '$autoresearch_*'.
 """
 
+from datetime import date, timedelta
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
@@ -42,6 +43,20 @@ class Command(BaseCommand):
                 "Upload the reference fixture bundle to object storage and create/point a champion "
                 "model at it, then score via the sandbox path. For proving inference-in-sandbox locally."
             ),
+        )
+        parser.add_argument(
+            "--prediction-date",
+            type=str,
+            default=None,
+            help="Backfill: score as-of this past date (YYYY-MM-DD) instead of today. Features are "
+            "computed as-of that date and events emitted with that date's timestamp.",
+        )
+        parser.add_argument(
+            "--backfill-days",
+            type=int,
+            default=None,
+            help="Backfill the last N days (one scoring run per day, ending yesterday). Useful to "
+            "populate online validation without waiting a full horizon for predictions to mature.",
         )
 
     def handle(self, *args, **options):
@@ -86,30 +101,49 @@ class Command(BaseCommand):
                     self.stdout.write(f"Score mean           : {sum(scores) / len(scores):.4f}")
             return
 
-        run = run_inference_for_pipeline(pipeline=pipeline, model=champion)
-
-        self.stdout.write(f"Run ID         : {run.pk}")
-        self.stdout.write(f"Status         : {run.status}")
-        self.stdout.write(f"Rows scored    : {run.rows_scored}")
-
-        if run.metrics.get("score_distribution"):
-            dist = run.metrics["score_distribution"]
-            self.stdout.write("\nScore distribution:")
-            self.stdout.write(f"  Count : {dist.get('count')}")
-            self.stdout.write(f"  Mean  : {dist.get('mean')}")
-            self.stdout.write(f"  p10   : {dist.get('p10')}")
-            self.stdout.write(f"  p50   : {dist.get('p50')}")
-            self.stdout.write(f"  p90   : {dist.get('p90')}")
-
-        if run.status == "completed":
-            self.stdout.write(self.style.SUCCESS(f"\n✓ Emitted {run.rows_scored} autoresearch_prediction events."))
+        prediction_dates = self._resolve_prediction_dates(options)
+        if len(prediction_dates) > 1:
             self.stdout.write(
-                f"  Query in PostHog: SELECT distinct_id, properties.$autoresearch_p_y "
-                f"FROM events WHERE event = 'autoresearch_prediction' "
-                f"AND properties.$autoresearch_pipeline_id = '{pipeline.pk}' ORDER BY timestamp DESC LIMIT 20"
+                f"Backfilling {len(prediction_dates)} dates: {prediction_dates[0]} … {prediction_dates[-1]}\n"
             )
-        else:
-            self.stdout.write(self.style.ERROR(f"✗ Run failed: {run.error}"))
+
+        for prediction_date in prediction_dates:
+            run = run_inference_for_pipeline(pipeline=pipeline, model=champion, prediction_date=prediction_date)
+
+            label = f"[{prediction_date}] " if len(prediction_dates) > 1 or options.get("prediction_date") else ""
+            self.stdout.write(f"{label}Run ID         : {run.pk}")
+            self.stdout.write(f"{label}Status         : {run.status}")
+            self.stdout.write(f"{label}Rows scored    : {run.rows_scored}")
+
+            if run.metrics.get("score_distribution"):
+                dist = run.metrics["score_distribution"]
+                self.stdout.write(
+                    f"  dist: count={dist.get('count')} mean={dist.get('mean')} "
+                    f"p10={dist.get('p10')} p50={dist.get('p50')} p90={dist.get('p90')}"
+                )
+
+            if run.status == "completed":
+                self.stdout.write(self.style.SUCCESS(f"  ✓ Emitted {run.rows_scored} autoresearch_prediction events."))
+            else:
+                self.stdout.write(self.style.ERROR(f"  ✗ Run failed: {run.error}"))
+
+        self.stdout.write(
+            f"\nQuery in PostHog: SELECT distinct_id, properties.$autoresearch_p_y "
+            f"FROM events WHERE event = 'autoresearch_prediction' "
+            f"AND properties.$autoresearch_pipeline_id = '{pipeline.pk}' ORDER BY timestamp DESC LIMIT 20"
+        )
+
+    @staticmethod
+    def _resolve_prediction_dates(options: dict) -> list[date]:
+        """Resolve which prediction dates to score: a backfill window, a single past date, or today."""
+        if options.get("backfill_days"):
+            n = options["backfill_days"]
+            today = date.today()
+            # Oldest first so online validation reads a chronological history.
+            return [today - timedelta(days=d) for d in range(n, 0, -1)]
+        if options.get("prediction_date"):
+            return [date.fromisoformat(options["prediction_date"])]
+        return [date.today()]
 
     def _seed_fixture_bundle(self, pipeline: AutoresearchPipeline) -> AutoresearchModel:
         """Upload the reference fixture bundle and point a fresh champion model at it."""

@@ -152,6 +152,7 @@ def score_via_sandbox(
     team: Team,
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
+    cutoff_ts: int | None = None,
 ) -> SandboxScoreResult:
     """
     Predict run: score the inference population with the champion's persisted model.
@@ -183,7 +184,9 @@ def score_via_sandbox(
         if model_bytes is None:
             raise SandboxInferenceError(f"Champion model still missing after fit at {prefix}")
 
-    score_rows = _materialize_score_data(team=team, pipeline=pipeline, feature_sql=bundle.features_sql)
+    score_rows = _materialize_score_data(
+        team=team, pipeline=pipeline, feature_sql=bundle.features_sql, cutoff_ts=cutoff_ts
+    )
     feature_cols = _numeric_feature_cols(score_rows)
     # Cheap guards before paying for a sandbox.
     if not score_rows:
@@ -241,20 +244,26 @@ def materialize_training_data(*, team: Team, pipeline: AutoresearchPipeline, fea
     return MaterializedData(feature_cols=feature_cols, train_rows=train_rows, holdout_rows=holdout_rows)
 
 
-def _materialize_score_data(*, team: Team, pipeline: AutoresearchPipeline, feature_sql: str) -> list[dict[str, Any]]:
+def _materialize_score_data(
+    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, cutoff_ts: int | None = None
+) -> list[dict[str, Any]]:
     """
     Predict run materialization: the bundle's feature SQL against the inference anchors
-    (cutoff_ts = now() per user). One row per eligible scoring user with the agent's
-    feature columns — no labels, no fold. Touches only the inference population.
+    (cutoff_ts = now() per user, or a backdated instant when ``cutoff_ts`` is given for a
+    historical backfill). One row per eligible scoring user with the agent's feature
+    columns — no labels, no fold. Touches only the inference population.
     """
     feature_sql_resolved = feature_sql.replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     score_sql, score_values = build_inference_features_sql(
         feature_sql=feature_sql_resolved,
         lookback_days=_feature_lookback_days(pipeline),
         inference_population=pipeline.inference_population,
+        cutoff_ts=cutoff_ts,
     )
     score_rows = _run_hogql(team=team, sql=score_sql, values=score_values)
-    logger.info("autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows))
+    logger.info(
+        "autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows), cutoff_ts=cutoff_ts
+    )
     return score_rows
 
 

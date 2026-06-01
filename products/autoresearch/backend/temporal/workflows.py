@@ -11,7 +11,7 @@ for Django ORM + HogQL queries. Workflows are async and only orchestrate activit
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 
 import structlog
@@ -65,6 +65,7 @@ class LoadChampionResult:
 class RunInferenceInput:
     pipeline_id: str
     model_id: str
+    prediction_date: str  # ISO date string
 
 
 @dataclass
@@ -97,7 +98,9 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
     """Score the inference population and emit autoresearch_prediction events."""
     pipeline = AutoresearchPipeline.objects.select_related("team").get(pk=inp.pipeline_id)
     model = AutoresearchModel.objects.get(pk=inp.model_id)
-    run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+    run = run_inference_for_pipeline(
+        pipeline=pipeline, model=model, prediction_date=date.fromisoformat(inp.prediction_date)
+    )
     return RunInferenceResult(
         run_id=str(run.pk),
         rows_scored=run.rows_scored or 0,
@@ -146,7 +149,11 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
 
         result = await workflow.execute_activity(
             activity_run_inference,
-            RunInferenceInput(pipeline_id=inp.pipeline_id, model_id=champion.model_id),
+            RunInferenceInput(
+                pipeline_id=inp.pipeline_id,
+                model_id=champion.model_id,
+                prediction_date=inp.prediction_date,
+            ),
             start_to_close_timeout=timedelta(hours=2),
             retry_policy=_SCORE_RETRY,
         )

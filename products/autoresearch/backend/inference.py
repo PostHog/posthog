@@ -26,7 +26,7 @@ import json
 import math
 import hashlib
 import importlib
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from django.utils import timezone as django_timezone
@@ -74,16 +74,23 @@ _HOLDOUT_FOLD = 0
 def run_inference_for_pipeline(
     pipeline: AutoresearchPipeline,
     model: AutoresearchModel,
+    prediction_date: date | None = None,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
     emits prediction events, and records metrics.
 
+    ``prediction_date`` defaults to today (live daily scoring). Pass a past date
+    to backfill: features are computed as-of that date and prediction events are
+    emitted with that date's timestamp, so online validation can score it once
+    the horizon has elapsed instead of waiting for real time to pass.
+
     Called by:
     - AutoresearchPipelineViewSet.run_inference (API)
     - autoresearch_score management command
-    - AutoresearchInferenceWorkflow Temporal activity (future)
+    - AutoresearchInferenceWorkflow Temporal activity
     """
+    prediction_date = prediction_date or date.today()
     now = django_timezone.now()
     run = AutoresearchRun.objects.create(
         pipeline=pipeline,
@@ -99,7 +106,7 @@ def run_inference_for_pipeline(
             team=team,
             pipeline=pipeline,
             model=model,
-            prediction_date=date.today(),
+            prediction_date=prediction_date,
         )
 
         run.status = AutoresearchRun.Status.COMPLETED
@@ -145,11 +152,21 @@ def _score_and_emit(
     """
     holdout_auc: float | None = None
 
+    # Backfill vs live: a past prediction_date computes features as-of that day's
+    # start (leak-free, mirrors the labeler's T0 contract) and stamps the emitted
+    # events at that date so they land in the right window for online validation.
+    is_backfill = prediction_date < date.today()
+    cutoff_ts = (
+        int(datetime(prediction_date.year, prediction_date.month, prediction_date.day, tzinfo=UTC).timestamp())
+        if is_backfill
+        else None
+    )
+
     # Artifact-bundle models run fit + predict in a sandbox and fully own scoring;
     # this bypasses both the anchors and legacy in-process paths. Failures raise
     # (no stub fallback) so the run fails loudly rather than emitting noise.
     if model.artifact_prefix:
-        result = score_via_sandbox(team=team, pipeline=pipeline, model=model)
+        result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts)
         scored = result.scored_rows
         holdout_auc = result.holdout_auc
     else:
@@ -191,6 +208,13 @@ def _score_and_emit(
 
     token = team.api_token
     prediction_date_str = prediction_date.isoformat()
+    # Live runs stamp now(); backfills stamp the prediction date (noon UTC) so the
+    # events land in that day's window rather than today's.
+    emit_timestamp = (
+        datetime(prediction_date.year, prediction_date.month, prediction_date.day, 12, tzinfo=UTC)
+        if is_backfill
+        else django_timezone.now()
+    )
 
     emitted = 0
     errors = 0
@@ -215,7 +239,7 @@ def _score_and_emit(
                 event_name=PREDICTION_EVENT_NAME,
                 event_source=EVENT_SOURCE,
                 distinct_id=row["distinct_id"],
-                timestamp=django_timezone.now(),
+                timestamp=emit_timestamp,
                 properties=props,
                 process_person_profile=False,
             )

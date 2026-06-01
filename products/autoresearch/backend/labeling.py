@@ -32,7 +32,6 @@ Integer handling notes:
   ~24 bits anyway: max window 365d * 86400s ≈ 3.2e7).
 """
 
-import re
 from typing import Any
 
 import structlog
@@ -41,9 +40,6 @@ logger = structlog.get_logger(__name__)
 
 # Number of folds for hash-based train/holdout split. fold == 0 → holdout (20%).
 NUM_FOLDS = 5
-
-# Only property keys matching this pattern are safe to interpolate into HogQL field paths.
-_SAFE_PROPERTY_KEY = re.compile(r"^[\w.\- ]+$")
 
 
 def _build_population_conditions(
@@ -54,15 +50,18 @@ def _build_population_conditions(
     strings and a values dict for parameterized binding.
 
     Property types:
-    - "person"  → person.properties.<key>  (events table context)
-    - "event"   → properties.<key>
+    - "person"  → person.properties[<key>]  (events table context)
+    - "event"   → properties[<key>]
 
     Operators: exact, is_not, icontains, not_icontains, gt, gte, lt, lte,
                is_set, is_not_set.
 
-    Unsupported types/operators are skipped with a warning rather than raising.
-    Lives in labeling.py (not inference.py) because labeling.py is the
-    lower-level SQL-building layer that inference.py and validation.py both
+    The property key is bound as a HogQL value (a parameterized subscript,
+    ``properties[{param}]``) rather than interpolated into the query text, so any
+    key — including PostHog system properties like ``$browser`` — is safe without
+    an allowlist. Unsupported types/operators are skipped with a warning rather
+    than raising. Lives in labeling.py (not inference.py) because labeling.py is
+    the lower-level SQL-building layer that inference.py and validation.py both
     depend on.
     """
     parts: list[str] = []
@@ -74,17 +73,22 @@ def _build_population_conditions(
         operator = prop.get("operator", "exact")
         value = prop.get("value")
 
-        if not key or not _SAFE_PROPERTY_KEY.match(str(key)):
-            logger.warning("autoresearch_population_unsafe_key", key=key)
+        if not key:
+            logger.warning("autoresearch_population_missing_key", key=key)
             continue
 
         if prop_type == "person":
-            field = f"person.properties.{key}"
+            map_expr = "person.properties"
         elif prop_type == "event":
-            field = f"properties.{key}"
+            map_expr = "properties"
         else:
             logger.warning("autoresearch_population_unsupported_prop_type", prop_type=prop_type)
             continue
+
+        # Bind the key as a value (parameterized subscript) — never interpolate it into SQL text.
+        key_param = f"pop_k_{i}"
+        values[key_param] = str(key)
+        field = f"{map_expr}[{{{key_param}}}]"
 
         param = f"pop_{i}"
 
@@ -309,13 +313,17 @@ def build_inference_anchors_sql(
     *,
     lookback_days: int,
     inference_population: dict[str, Any] | None,
+    cutoff_ts: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query producing (person_id, cutoff_ts) rows for scoring.
 
-    cutoff_ts = now() for every row — at inference time we score "the user's
-    state as of right now." Eligible = users in inference_population with at
-    least one event in the last lookback_days (so there's signal to score on).
+    cutoff_ts defaults to now() for every row — at inference time we score "the
+    user's state as of right now." Pass an explicit ``cutoff_ts`` (unix seconds)
+    to backfill a historical prediction date: features are then computed strictly
+    before that instant, exactly as live scoring would have on that day. Eligible
+    = users in inference_population with at least one event in the lookback_days
+    window before the cutoff (so there's signal to score on).
 
     Substituted as the {anchors} table when running the agent's feature_sql
     at inference time. Same SQL the trainer executed against per-user T0;
@@ -325,18 +333,24 @@ def build_inference_anchors_sql(
     inf_parts, inf_values = _build_population_conditions(inference_properties)
     inf_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
 
+    # now() for live scoring; a bound, backdated instant for a historical backfill.
+    cutoff_expr = "fromUnixTimestamp({cutoff_ts})" if cutoff_ts is not None else "now()"
+    cutoff_select = "toInt({cutoff_ts})" if cutoff_ts is not None else "toInt(toUnixTimestamp(now()))"
+
     sql = f"""
         SELECT DISTINCT
             person_id,
-            toInt(toUnixTimestamp(now())) AS cutoff_ts
+            {cutoff_select} AS cutoff_ts
         FROM events
-        WHERE timestamp >= now() - toIntervalDay({{lookback}})
-          AND timestamp < now(){inf_clause}
+        WHERE timestamp >= {cutoff_expr} - toIntervalDay({{lookback}})
+          AND timestamp < {cutoff_expr}{inf_clause}
     """
     values: dict[str, Any] = {
         "lookback": lookback_days,
         **inf_values,
     }
+    if cutoff_ts is not None:
+        values["cutoff_ts"] = cutoff_ts
     return sql, values
 
 
@@ -460,10 +474,12 @@ def build_inference_features_sql(
     feature_sql: str,
     lookback_days: int,
     inference_population: dict[str, Any] | None,
+    cutoff_ts: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the inference-time query: the agent's feature_sql with {anchors}
-    substituted with the inference anchors (cutoff_ts = now() per user).
+    substituted with the inference anchors (cutoff_ts = now() per user, or a
+    backdated instant when ``cutoff_ts`` is given for a historical backfill).
     Returns one row per eligible scoring user with the agent's feature
     columns — no labels, no fold.
 
@@ -472,6 +488,7 @@ def build_inference_features_sql(
     anchors_sql, anchors_values = build_inference_anchors_sql(
         lookback_days=lookback_days,
         inference_population=inference_population,
+        cutoff_ts=cutoff_ts,
     )
     # Wrap the inference anchors query as the {anchors} subquery — agent's
     # feature_sql references columns (person_id, cutoff_ts) just like training.
