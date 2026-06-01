@@ -147,6 +147,47 @@
                     },
                     "required": ["type", "integration_id", "config"],
                     "type": "object"
+                },
+                {
+                    "description": "Request shape for creating or updating a PostgreSQL batch-export destination.",
+                    "properties": {
+                        "config": {
+                            "description": "Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in\n`products/batch_exports/backend/service.py`.",
+                            "properties": {
+                                "database": {
+                                    "description": "PostgreSQL database name to connect to.",
+                                    "type": "string"
+                                },
+                                "has_self_signed_cert": {
+                                    "default": false,
+                                    "description": "Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.",
+                                    "type": "boolean"
+                                },
+                                "schema": {
+                                    "default": "public",
+                                    "description": "PostgreSQL schema name containing the destination table.",
+                                    "type": "string"
+                                },
+                                "table_name": {
+                                    "default": "events",
+                                    "description": "PostgreSQL table name to write exported rows into.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["database"],
+                            "type": "object"
+                        },
+                        "integration_id": {
+                            "description": "ID of a postgresql-kind Integration. Use the integrations-list MCP tool to find one.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "enum": ["Postgres"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type", "integration_id", "config"],
+                    "type": "object"
                 }
             ],
             "description": "Destination configuration. Required integration_id is enforced per destination type."
