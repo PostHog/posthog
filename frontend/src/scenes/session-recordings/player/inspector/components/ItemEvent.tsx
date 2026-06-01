@@ -15,8 +15,10 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, ceilMsToClosestSecond, isString } from 'lib/utils'
 import { AutocapturePreviewImage } from 'lib/utils/autocapture-previews'
 import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
@@ -29,6 +31,7 @@ import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
@@ -215,6 +218,18 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
 }
 
 function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const canPinPrimaryProperty = !!featureFlags[FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT]
+    const eventName = item.data.event
+
+    const primaryPropertyActions =
+        canPinPrimaryProperty && isString(eventName)
+            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
+                  key in item.data.properties ? (
+                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
+                  ) : null
+            : undefined
+
     return item.data.fullyLoaded ? (
         <EventPropertyTabs
             size="small"
@@ -265,6 +280,14 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                         )
                     case 'error_display':
                         return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                    case 'properties':
+                        return (
+                            <SimpleKeyValueList
+                                item={properties}
+                                promotedKeys={promotedKeys}
+                                rowActions={primaryPropertyActions}
+                            />
+                        )
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }

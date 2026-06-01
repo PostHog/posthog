@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-28 20:44:33 UTC
+// Generated at: 2026-05-29 20:44:26 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -48,6 +48,7 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
+    | 'digitalocean'
     | 'featherless'
     | 'fireworks'
     | 'friendli'
@@ -97,6 +98,7 @@ export type CanonicalProvider =
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
+    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'

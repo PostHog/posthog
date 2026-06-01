@@ -18,7 +18,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    @patch("posthog.api.action.report_user_action")
+    @patch("products.actions.backend.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/actions/",
@@ -182,7 +182,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(Action.objects.count(), count)
 
     @freeze_time("2021-12-12")
-    @patch("posthog.api.action.report_user_action")
+    @patch("products.actions.backend.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
         self.client.force_login(user)

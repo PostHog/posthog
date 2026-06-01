@@ -526,11 +526,6 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Optional payload values keyed by variant key.",
     )
-    super_groups = serializers.ListField(
-        child=serializers.DictField(),
-        required=False,
-        help_text="Additional super condition groups used by experiments.",
-    )
     feature_enrollment = serializers.BooleanField(
         required=False,
         allow_null=True,
