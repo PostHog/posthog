@@ -88,23 +88,26 @@ def log(msg: str) -> None:
 
 def load_v0_spec() -> dict:
     """Load the forward-looking spec.json and strip features the platform
-    doesn't accept yet (`kind: "client"`, multi-mode auth, approval_policies
-    on mcps, resume block). When platform gaps close, this stripping
-    becomes a no-op."""
+    doesn't accept yet (approval_policies on mcps, resume block). Auth
+    is now multi-mode natively; we pass spec.auth.modes through verbatim.
+    """
     spec = json.loads(SPEC_FILE.read_text())
 
     spec["tools"] = [t for t in spec.get("tools", []) if t.get("kind") in ("native", "custom", "client")]
 
-    # Today's AuthModeSchema is a single enum. The forward-looking bundle
-    # declares `auth.modes: ["oauth", "pat", "posthog_internal"]` for after
-    # §8.10 lands. For v0 deploy, override via AUTH_MODE env (defaults
-    # `public` for local testability; production deploys should set
-    # AUTH_MODE=posthog_internal explicitly).
-    auth_mode = os.environ.get("AUTH_MODE", "public")
-    accepted_modes = {"public", "pat", "posthog_internal", "shared_secret"}
-    if auth_mode not in accepted_modes:
-        die(f"AUTH_MODE={auth_mode} not in {accepted_modes}")
-    spec["auth"] = {"mode": auth_mode}
+    # spec.auth is now `{ modes: [...] }` — the platform accepts this
+    # directly. AUTH_MODE env overrides the bundle's modes for local
+    # testability (use `AUTH_MODE=public` to skip auth, `AUTH_MODE=pat`
+    # to require a bearer, etc.). Production should leave the bundle's
+    # default modes in place.
+    auth_mode_override = os.environ.get("AUTH_MODE")
+    if auth_mode_override:
+        if auth_mode_override == "shared_secret":
+            die("AUTH_MODE=shared_secret requires a header — use the bundle's modes instead")
+        spec["auth"] = {"modes": [{"type": auth_mode_override}]}
+    elif "modes" not in spec.get("auth", {}):
+        # Backstop for older bundles that still use single-mode shape.
+        spec["auth"] = {"modes": [{"type": "public"}]}
 
     # Today's McpRefSchema only accepts { kind: "agent", slug } or
     # { kind: "external", url, auth?, allowlist? }. The forward-looking

@@ -35,28 +35,94 @@ integration. Don't mix them up.
 
 ## Setting a secret — the punch-out flow
 
-> **Status note:** the punch-out flow is designed in
-> `agent-authoring-flow.md` §3 phase 3 but **not yet shipped**.
-> Today the only way to set a secret is `agent-applications-set-env-create`
-> with the raw value, which violates rule #1 above. Until the
-> punch-out endpoints exist, tell the user to set the secret
-> themselves via the PostHog UI (Settings → Project → Agent
-> applications → <slug> → Env) and confirm via the spec-side
-> reflection of `is_set` once the platform exposes it.
+The punch-out flow is live in the agent console. You never see the
+value; the user enters it into a UI form scoped to that key. Three
+paths, picked by what the client supports — preferred to least.
 
-When the punch-out flow ships, the loop is:
+### Path A (preferred) — `client.kind = agent-console`, inline tool
 
-1. Call `agent-applications-secrets-issue-write-token` with the
-   application id and the key name(s).
-2. The server returns `{ url, expires_at }`. The URL is a signed
-   one-time link to a PostHog form scoped to those keys only.
-3. Tell the user: "Please open <url> and enter your <key name>.
-   I'll continue once that's set."
-4. Poll `agent-applications-secrets-status` every 5-10s. When
-   `is_set: true` for every required key, continue.
+The console fulfills a `set_secret` client tool by rendering an
+inline form **inside the matching tool-call card**, right in the
+chat transcript. The user fills it in without leaving the
+conversation. Loop:
 
-Never put the URL itself behind an `@posthog/ui/focus` — open in a
-new tab, never the read panel, since the form is sensitive.
+1. **Check current state** with `agent-applications-env-keys-get`
+   `{ id: "<slug>", key: "ANTHROPIC_KEY" }` — returns `{ key, is_set }`.
+   If already set and the failure mode suggests the value is wrong,
+   pass `mode: "rotate"`; otherwise omit / `mode: "set"`.
+2. **Invoke `set_secret`** with `{ agent_slug, secret, mode?, purpose? }`:
+   - `agent_slug` is required — pull it from `get_context` or from
+     the agent the user is configuring. Do NOT assume "the agent on
+     screen" — the user may navigate while the form is up.
+   - `purpose` is a one-line hint shown above the input. Keep it
+     factual ("Used for the daily summary call"), no value hints.
+3. **Wait.** The tool resolves with `{ key, action: "set" }` on
+   success, `{ error: "user_cancelled" }` if they cancel, or a
+   string error on a save failure. Don't add chatter while the
+   user is mid-form — they can see what's happening.
+4. **Continue** with whatever you were doing. No need to re-check
+   `env-keys-get`; the tool's success result already confirms the
+   write landed.
+
+This path is the default for `client.kind = agent-console`. If the
+runtime returns `unhandled_client_tool` (an older console version
+that doesn't yet know `set_secret`), fall through to path B.
+
+### Path B — `client.kind = agent-console`, deep link
+
+When the inline tool isn't available, hand the user a link to the
+secrets editor and wait for a session callback. Loop:
+
+1. Same `env-keys-get` precheck.
+2. **Hand the user a link** to the editor:
+
+   ```text
+   /agents/<slug>?tab=connections&edit_secret=<KEY>&callback_session=<this session id>
+   ```
+
+   `<this session id>` comes from `@posthog/ui/get_context`. Render
+   as markdown: `[Set ANTHROPIC_KEY](/agents/...)`. Don't use
+   `@posthog/ui/focus` for this — the editor wants its own modal,
+   not a panel hand-off.
+
+3. **Wait for the callback.** When the user saves, the console
+   posts a `[system]` message into the same session:
+   `[system] User set secret KEY on agent SLUG. Continue.` Don't
+   poll — the callback is push, not pull. If the user closes the
+   dialog without saving, ask once after a turn of silence then
+   drop it.
+
+### Path C — non-console client
+
+No inline tool, no callback wire — same URL, but you ask the user
+to confirm manually. Loop:
+
+1. Same `env-keys-get` precheck.
+2. **Generate the absolute URL** (host comes from the user's
+   PostHog instance; if you don't know, give the path and let them
+   prepend the host themselves):
+
+   ```text
+   https://<host>/project/<team>/agents/<slug>?tab=connections&edit_secret=<KEY>
+   ```
+
+   Omit `callback_session=` — without the console there's nothing
+   to receive it.
+
+3. Tell them: "Open <url>, set your value, then say 'done' here."
+4. When they say done, **verify** with `env-keys-get` before
+   continuing. The user may have closed the tab without saving.
+
+### When to use `agent-applications-set-env-create` directly
+
+Almost never. The raw API exists for CI / scripts that already
+hold the value in a variable. Using it from chat puts the value
+in your tool-call history → it'd be in the session trace
+indefinitely → that's a leak even though it's encrypted at rest.
+The only exception is when the user has explicitly told you to
+("I have it in 1Password and the punch-out form is broken, here's
+the value — set it once and we'll rotate it after"), and even
+then warn them about the trace before complying.
 
 ## Setting an integration
 

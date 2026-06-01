@@ -46,6 +46,64 @@ tools:
             Soft-delete: `archived=true`, `archived_at` stamped. Existing revisions stay queryable for audit; further
             CRUD on this app is blocked until you create a new app with the same slug (the unique constraint is scoped
             to `archived=false`).
+    agent-applications-env-keys-clear:
+        operation: agent_applications_env_keys_clear
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Clear one secret
+        description: >
+            Remove one key from the encrypted env. No-op when the key wasn't set. Use this when a secret is no longer
+            required by the spec or after a credential is known to be compromised. Does NOT trigger session restarts —
+            in-flight sessions keep the value they resolved at start.
+    agent-applications-env-keys-get:
+        operation: agent_applications_env_keys_get
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check whether one secret is set
+        description: >
+            Returns `{ key, is_set }` for one name. The value is never returned. Use as a pre-check before asking the
+            user to set or rotate a key, and again after the user completes the punch-out flow to confirm the write
+            landed.
+    agent-applications-env-keys-list:
+        operation: agent_applications_env_keys_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List the names of secrets currently set
+        description: >
+            Returns `{ keys: [name, ...] }` — names only, never values. Use to know which declared secrets are already
+            populated so you don't ask the user to set something that's already set. Pair with
+            `agent-applications-revisions-retrieve` (`spec.secrets[]`) to spot which declared keys are still unset.
+    agent-applications-env-keys-set:
+        operation: agent_applications_env_keys_set
+        enabled: false
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set or rotate one secret (raw value — disabled by default)
+        description: >
+            Body `{ value: "…" }`. Merges into the encrypted env without touching siblings. **Disabled for the standard
+            MCP surface** — agents should never see raw secret values in their tool-call history. The standard path is
+            to deep-link the user into the agent console's secret editor (see the `secrets-and-integrations` skill for
+            the URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
+            out-of-band.
     agent-applications-list:
         operation: agent_applications_list
         enabled: true
@@ -91,6 +149,9 @@ tools:
             application. See docs/agent-platform/plans/draft-preview-auth.md.
     agent-applications-preview-proxy-get:
         operation: agent_applications_preview_proxy_get
+        enabled: false
+    agent-applications-preview-token:
+        operation: agent_applications_preview_token
         enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
@@ -399,8 +460,144 @@ tools:
             Body `{ env: { KEY: "value", … } }`. The whole env is replaced (not patched); pass the full set you want
             available to the runner. Encrypted at rest with the team's Fernet keys; the worker decrypts at session start
             and feeds the values to tool sandboxes as opaque nonces (raw secrets never leave Django).
+    agent-applications-stats:
+        operation: agent_applications_stats
+        enabled: false
     agent-applications-update:
         operation: agent_applications_update
+        enabled: false
+    agent-custom-tool-templates-create:
+        operation: agent_custom_tool_templates_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a custom tool template (v1)
+        description: >
+            Create a new shared custom-tool template. Requires `source` (TypeScript), `compiled_js` (the bundler
+            output), and `args_schema` (TypeBox / JSON Schema for the tool's args). The bundler runs client-side during
+            authoring; the registry just stores the artifact pair.
+    agent-custom-tool-templates-list:
+        operation: agent_custom_tool_templates_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List custom tool templates
+        description: >
+            List the current (latest) version of every custom TypeScript tool template visible to the team. Use to
+            discover existing tools before authoring a new one or wiring one into an agent's `spec.tools[]` via
+            `from_template`.
+    agent-custom-tool-templates-name-archive-create:
+        operation: agent_custom_tool_templates_name_archive_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Archive a custom tool template
+        description: >
+            Soft-delete every version of this template. Frozen revisions that pin it keep working; new agents can no
+            longer reference it.
+    agent-custom-tool-templates-name-duplicate-create:
+        operation: agent_custom_tool_templates_name_duplicate_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate a custom tool template
+        description: |
+            Copy a template's current source + compiled output under a new name. Produces v1 of the duplicate.
+    agent-custom-tool-templates-name-publish-create:
+        operation: agent_custom_tool_templates_name_publish_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish a new custom tool template version
+        description: >
+            Append a new version. Provide EITHER `source` (full overwrite) OR `edits[]` (structured find/replace);
+            `compiled_js` must accompany either form because the bundler runs client-side. `args_schema` /
+            `returns_schema` / `requires_secrets` are optional overrides — omit to keep the prior values.
+    agent-custom-tool-templates-name-retrieve:
+        operation: agent_custom_tool_templates_name_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve a custom tool template
+        description: >
+            Fetch the latest version (default) or a specific version with `?version=N`. Returns the full `source` +
+            `compiled_js` + schemas so the concierge can read before edit.
+    agent-custom-tool-templates-name-usages-list:
+        operation: agent_custom_tool_templates_name_usages_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Frozen agents pinning this custom tool template
+        description: >
+            Every frozen agent revision that pins this custom tool template (any version, or filter by
+            `?pinned_version=N`). Use before archiving to see who'd be affected.
+    agent-custom-tool-templates-name-versions-list:
+        operation: agent_custom_tool_templates_name_versions_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Custom tool template version history
+        description: |
+            Every version row for this template name, newest first, with publisher + timestamp.
+    agent-fleet-live-sessions:
+        operation: agent_fleet_live_sessions
+        enabled: false
+    agent-fleet-stats:
+        operation: agent_fleet_stats
+        enabled: false
+    agent-memory-create-file:
+        operation: agent_memory_create_file
+        enabled: false
+    agent-memory-delete-file:
+        operation: agent_memory_delete_file
+        enabled: false
+    agent-memory-get-file:
+        operation: agent_memory_get_file
+        enabled: false
+    agent-memory-list-files:
+        operation: agent_memory_list_files
+        enabled: false
+    agent-memory-search:
+        operation: agent_memory_search
+        enabled: false
+    agent-memory-tree:
+        operation: agent_memory_tree
+        enabled: false
+    agent-memory-update-file:
+        operation: agent_memory_update_file
         enabled: false
     agent-native-tools-list:
         operation: agent_native_tools_list
@@ -417,3 +614,152 @@ tools:
             the id, description, args schema (TypeBox-shaped), required integrations + scopes, and a cost hint (`cheap`
             / `medium` / `expensive`). Authoring flows use this to validate tool ids before writing them into a
             revision's spec.
+    agent-skill-templates-create:
+        operation: agent_skill_templates_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a skill template (v1)
+        description: >
+            Create a new shared skill template under the active team. `name` is a slug (`research-flow`); the body is
+            markdown (the SKILL.md), `files[]` are optional companion files (examples, schemas). Produces v1; later
+            edits go through `agent-skill-templates-name-publish-create`.
+    agent-skill-templates-list:
+        operation: agent_skill_templates_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List skill templates
+        description: >
+            List the current (latest) version of every skill template visible to the team — both team-owned and
+            canonical (`@posthog/*`) rows. Use to discover what's already on the shelf before authoring a new skill.
+            `?search=<substring>` matches against name + description.
+    agent-skill-templates-name-archive-create:
+        operation: agent_skill_templates_name_archive_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Archive a skill template
+        description: >
+            Soft-delete every version of this template. Frozen revisions that still pin it keep working (the freeze copy
+            is independent); new agents can no longer reference it.
+    agent-skill-templates-name-duplicate-create:
+        operation: agent_skill_templates_name_duplicate_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Duplicate a skill template
+        description: >
+            Copy a template's current body + companion files under a new name. Produces v1 of the duplicate; the
+            source's version history is not carried over. Useful when a canonical `@posthog/*` template is the starting
+            point for a team-specific skill.
+    agent-skill-templates-name-files-create:
+        operation: agent_skill_templates_name_files_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Add a companion file to a skill template
+        description: >
+            Attach a new file (path + content) to the latest version of this template. Path is relative; will land at
+            `bundle/skills/<alias>/<path>` when an agent pins this skill at freeze time.
+    agent-skill-templates-name-files-destroy:
+        operation: agent_skill_templates_name_files_destroy
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove a companion file from a skill template
+        description: >
+            Drop a file by path from the latest version of this template. Affects future freezes; already-frozen
+            revisions keep their copy.
+    agent-skill-templates-name-files-rename-create:
+        operation: agent_skill_templates_name_files_rename_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Rename a companion file
+        description: >
+            Move `from_path` → `to_path` for a companion file on the latest version. Use when restructuring an example
+            tree, e.g. `examples/case-a.md` → `examples/onboarding/case-a.md`.
+    agent-skill-templates-name-publish-create:
+        operation: agent_skill_templates_name_publish_create
+        enabled: true
+        scopes:
+            - agent_application:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish a new skill template version
+        description: >
+            Append a new version. Provide EITHER `body` (full overwrite) OR `edits[]` (structured find/replace where
+            each `old` must match exactly once in the current body — mirrors LLMSkill's edit shape). Companion files
+            carry forward unchanged. Returns the freshly-stamped v(n+1) row.
+    agent-skill-templates-name-retrieve:
+        operation: agent_skill_templates_name_retrieve
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve a skill template
+        description: >
+            Fetch a skill template's latest version (default) or a specific version with `?version=N`. Returns the full
+            body + companion files, so the concierge can read before edit.
+    agent-skill-templates-name-usages-list:
+        operation: agent_skill_templates_name_usages_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Frozen agents pinning this skill template
+        description: >
+            Every frozen agent revision that pins this skill template (any version, or filter by `?pinned_version=N`).
+            Each row carries the agent slug + name + revision short id + pinned version. Use before archiving to see
+            who'd be affected.
+    agent-skill-templates-name-versions-list:
+        operation: agent_skill_templates_name_versions_list
+        enabled: true
+        scopes:
+            - agent_application:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Skill template version history
+        description: >
+            Every version row for this template name, newest first, with publisher + timestamp. The single `is_latest:
+            true` row marks the current version; older rows are read-only history.

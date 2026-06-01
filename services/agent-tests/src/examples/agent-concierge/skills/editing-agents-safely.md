@@ -65,6 +65,14 @@ Rule of thumb: **always prefer `file-update` over `bundle-update`.**
 The latter is a sledgehammer. Use it only when you've actually
 restructured most of the bundle.
 
+**If the file is pinned from the registry**, don't edit it inline —
+that change wouldn't propagate to the other agents pinning the same
+template. Read the manifest, look for entries with a `from_template`
+in the matching `spec.skills[]` / `spec.tools[]` entry, and route the
+edit through `agent-skill-templates-name-publish-create` /
+`agent-custom-tool-templates-name-publish-create`. Load
+`skills/using-the-registry` for the full pattern.
+
 For each edit, surface to the user:
 
 - What file changed
@@ -149,7 +157,7 @@ Then call `agent-applications-revisions-promote-create`.
 ## Step 8 — observe
 
 After promoting, **watch the first real session(s)**. In the
-console, `@posthog/ui/focus` to `agent-applications-sessions-list`
+console, `@posthog/ui/focus` to `@posthog/agent-applications-sessions-list`
 and tell the user you're watching for the next fire. If something
 looks wrong in the first 1-3 sessions, you have a quick rollback:
 

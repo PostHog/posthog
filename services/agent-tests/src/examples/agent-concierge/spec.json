@@ -17,36 +17,79 @@
         }
     ],
     "tools": [
-        { "kind": "native", "id": "@posthog/query" },
-        { "kind": "native", "id": "@posthog/web-fetch" },
-        { "kind": "native", "id": "@posthog/web-search" },
+        { "kind": "native", "id": "@posthog/agent-applications-list" },
+        { "kind": "native", "id": "@posthog/agent-applications-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-list" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-system-prompt" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-manifest-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-revisions-file-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-sessions-list" },
+        { "kind": "native", "id": "@posthog/agent-applications-sessions-retrieve" },
+        { "kind": "native", "id": "@posthog/agent-applications-session-logs" },
         {
             "kind": "client",
-            "id": "focus",
-            "description": "Navigate the host console's read panel to a specific resource. Call before you start operating on something so the user sees what you see. The client returns { focused: true, kind } on success, or { focused: false, reason } if the user paused follow-mode. Returns an `unhandled_client_tool` / `client_tool_timeout` error in clients that can't render — fall back to spelling out paths in text.",
+            "id": "focus_tab",
+            "description": "Open one of the agent detail tabs in the read panel: overview, configuration, sessions. Use BEFORE a corresponding read so the user's panel transitions in parallel. Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside the console — degrade to text.",
             "args_schema": {
                 "type": "object",
-                "oneOf": [
-                    {
-                        "properties": {
-                            "kind": { "const": "tab" },
-                            "tab": { "enum": ["overview", "configuration", "sessions"] }
-                        },
-                        "required": ["kind", "tab"]
-                    },
-                    {
-                        "properties": { "kind": { "const": "file" }, "path": { "type": "string" } },
-                        "required": ["kind", "path"]
-                    },
-                    {
-                        "properties": { "kind": { "const": "revision" }, "revisionId": { "type": "string" } },
-                        "required": ["kind", "revisionId"]
-                    },
-                    {
-                        "properties": { "kind": { "const": "session" }, "sessionId": { "type": "string" } },
-                        "required": ["kind", "sessionId"]
-                    }
-                ]
+                "properties": {
+                    "tab": { "enum": ["overview", "configuration", "sessions"] }
+                },
+                "required": ["tab"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_file",
+            "description": "Open one bundle file in the configuration panel. Use BEFORE reading the file. Path is bundle-relative, e.g. 'agent.md' or 'skills/research.md'.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string" }
+                },
+                "required": ["path"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_revision",
+            "description": "Open one revision in the configuration panel. Use BEFORE inspecting / diffing a revision. Pass the full revision UUID.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "revisionId": { "type": "string" }
+                },
+                "required": ["revisionId"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_session",
+            "description": "Open one session in the sessions panel. Use BEFORE fetching its conversation / event log. Pass the full session UUID — do NOT call without one.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "sessionId": { "type": "string" }
+                },
+                "required": ["sessionId"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "kind": "client",
+            "id": "focus_spec_section",
+            "description": "Jump to one section of the agent's spec in the configuration panel: triggers, tools, skills, secrets, limits.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "section": { "enum": ["triggers", "tools", "skills", "secrets", "limits"] }
+                },
+                "required": ["section"],
+                "additionalProperties": false
             }
         },
         {
@@ -67,6 +110,33 @@
             "id": "get_context",
             "description": "Returns the user's current view in the host app — page, agent, session id, URL, follow-mode state, client identification. Call when you need to resolve deictic references like 'this agent' or 'this session', or after the user has navigated and your prior context envelope is stale. Free — no side effects.",
             "args_schema": { "type": "object", "properties": {}, "additionalProperties": false }
+        },
+        {
+            "kind": "client",
+            "id": "set_secret",
+            "description": "Punch out to the user to set one secret on an agent. The console renders an inline form next to your tool call; the user enters the value, the form saves it via the encrypted env API, and the tool resolves with `{ key, action }` so you can continue. The value never reaches your tool-call history — `purpose` is the only string you see. Use this whenever an agent needs a credential set or rotated; check `agent-applications-env-keys-get` first to decide between `set` and `rotate`. On non-console clients this tool returns `unhandled_client_tool` — fall back to the URL handoff documented in `secrets-and-integrations`.",
+            "args_schema": {
+                "type": "object",
+                "properties": {
+                    "agent_slug": {
+                        "type": "string",
+                        "description": "The agent whose env block gets the secret. Required — do not infer from page context."
+                    },
+                    "secret": {
+                        "type": "string",
+                        "description": "Env variable name, e.g. ANTHROPIC_KEY. Should match a name in the agent's spec.secrets[]; the API also accepts unlisted names but the agent won't read them at runtime."
+                    },
+                    "mode": {
+                        "enum": ["set", "rotate"],
+                        "description": "Whether the key is being created (`set`) or replaced (`rotate`). Drives copy in the inline form; default `set`."
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "description": "One-line explanation shown above the input so the user knows why you need this. Avoid mentioning the value itself."
+                    }
+                },
+                "required": ["agent_slug", "secret"]
+            }
         }
     ],
     "mcps": [
@@ -103,7 +173,29 @@
                 "agent-applications-approvals-retrieve",
                 "agent-applications-approvals-decide",
                 "agent-applications-set-env-create",
-                "agent-native-tools-list"
+                "agent-applications-env-keys-list",
+                "agent-applications-env-keys-get",
+                "agent-applications-env-keys-clear",
+                "agent-native-tools-list",
+                "agent-skill-templates-list",
+                "agent-skill-templates-create",
+                "agent-skill-templates-name-retrieve",
+                "agent-skill-templates-name-publish-create",
+                "agent-skill-templates-name-archive-create",
+                "agent-skill-templates-name-duplicate-create",
+                "agent-skill-templates-name-versions-list",
+                "agent-skill-templates-name-usages-list",
+                "agent-skill-templates-name-files-create",
+                "agent-skill-templates-name-files-destroy",
+                "agent-skill-templates-name-files-rename-create",
+                "agent-custom-tool-templates-list",
+                "agent-custom-tool-templates-create",
+                "agent-custom-tool-templates-name-retrieve",
+                "agent-custom-tool-templates-name-publish-create",
+                "agent-custom-tool-templates-name-archive-create",
+                "agent-custom-tool-templates-name-duplicate-create",
+                "agent-custom-tool-templates-name-versions-list",
+                "agent-custom-tool-templates-name-usages-list"
             ],
             "secrets": [],
             "approval_policies": {
@@ -119,6 +211,10 @@
                     "approvers": ["session_principal"],
                     "ttl_ms": 900000
                 },
+                "agent-applications-env-keys-clear": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
                 "agent-applications-destroy": {
                     "approvers": ["session_principal"],
                     "ttl_ms": 900000
@@ -128,6 +224,18 @@
                     "ttl_ms": 900000
                 },
                 "agent-applications-revisions-file-destroy": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-skill-templates-name-archive-create": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-skill-templates-name-files-destroy": {
+                    "approvers": ["session_principal"],
+                    "ttl_ms": 900000
+                },
+                "agent-custom-tool-templates-name-archive-create": {
                     "approvers": ["session_principal"],
                     "ttl_ms": 900000
                 }
@@ -194,6 +302,11 @@
             "id": "safety-and-boundaries",
             "path": "skills/safety-and-boundaries.md",
             "description": "Hard rules — what the concierge MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
+        },
+        {
+            "id": "using-the-registry",
+            "path": "skills/using-the-registry.md",
+            "description": "The Tools & Skills registry — shared, versioned skill markdown + custom tool templates that agents pin via `spec.skills[].from_template` / `spec.tools[].from_template`. Load when the user wants to reuse a skill or tool across multiple agents, pin a canonical `@posthog/*` template, edit / publish a new version of an existing template, or audit who's using a template before archiving."
         }
     ],
     "integrations": [],
@@ -204,11 +317,15 @@
         "max_wall_seconds": 1800
     },
     "auth": {
-        "modes": ["oauth", "pat", "posthog_internal"],
-        "oauth": {
-            "provider": "posthog",
-            "scopes": ["agent_application:read", "agent_application:write", "agent_session:read"]
-        }
+        "modes": [
+            {
+                "type": "oauth",
+                "issuer": "posthog",
+                "scopes": ["agent_application:read", "agent_application:write", "agent_session:read"]
+            },
+            { "type": "pat" },
+            { "type": "posthog_internal" }
+        ]
     },
     "resume": {
         "enabled": true,

@@ -126,6 +126,12 @@ both "how to triage an alert" AND "how to format a Slack reply"),
 skill index; the model loads on demand. This keeps per-turn
 context small.
 
+Before writing a brand-new skill or custom tool, **check the
+registry** — `agent-skill-templates-list` /
+`agent-custom-tool-templates-list`. If a canonical `@posthog/*`
+template fits, pin it via `spec.skills[].from_template` instead of
+re-authoring. Load `skills/using-the-registry` for the full pattern.
+
 For custom tools, write `tools/<id>/source.ts` and
 `tools/<id>/schema.json` declaring args + required secrets. The
 runner sandboxes the source at session start.

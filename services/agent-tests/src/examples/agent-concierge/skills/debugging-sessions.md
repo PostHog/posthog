@@ -23,12 +23,12 @@ Then pick the matching branch below.
    `{ kind: 'session', session_id: <id> }`.
 
 2. **Retrieve the session**.
-   `agent-applications-sessions-retrieve` returns the conversation,
+   `@posthog/agent-applications-sessions-retrieve` returns the conversation,
    the principal, the state, started_at, ended_at, usage_total,
    trigger metadata.
 
 3. **Retrieve the logs**.
-   `agent-applications-session-logs` returns the structured event
+   `@posthog/agent-applications-session-logs` returns the structured event
    stream — assistant turns, tool calls, tool results, errors,
    state transitions.
 
@@ -102,7 +102,7 @@ payload. Classify the source:
 - **MCP tool error** — `gateway_unavailable`, `tool_not_found`,
   or the remote MCP server returned an error. Check whether the
   MCP endpoint in `spec.mcps[]` is up (the runner doesn't health-
-  check it; you may need to `agent-applications-sessions-list`
+  check it; you may need to `@posthog/agent-applications-sessions-list`
   for other agents using the same MCP to confirm cross-impact).
 - **Custom tool error** — the sandboxed code threw or the
   sandbox killed it (`sandbox_oom`, `sandbox_timeout`,
@@ -119,7 +119,7 @@ error events. The agent did something other than what was wanted.
 
 **Evidence:** read the system prompt
 (`revisions-system-prompt`) + the conversation
-(`sessions-retrieve` → `conversation` field). Compare the
+(`@posthog/agent-applications-sessions-retrieve` → `conversation` field). Compare the
 agent's tool-call choices to what the prompt asks for.
 
 Common subcategories:
@@ -177,7 +177,7 @@ in #agents-platform-help" if confirmed.
 ### G. Trigger / auth failure (session never opened)
 
 **Recognize:** the user says "the agent isn't responding" but
-`agent-applications-sessions-list` shows no recent session for
+`@posthog/agent-applications-sessions-list` shows no recent session for
 the trigger they expected.
 
 **Evidence:** the trigger / auth path failed before a session

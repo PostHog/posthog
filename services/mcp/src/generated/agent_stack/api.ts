@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 30 enabled ops
+ * PostHog API - MCP 49 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -184,8 +184,9 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
-export const agentApplicationsRevisionsCreateBodySpecAuthModeDefault = `public`
-export const agentApplicationsRevisionsCreateBodySpecAuthDefault = { mode: 'public' }
+export const agentApplicationsRevisionsCreateBodySpecAuthModesItemTwoScopesDefault = []
+
+export const agentApplicationsRevisionsCreateBodySpecAuthModesDefault = [{ type: `public` }]
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -327,14 +328,38 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
-            auth: zod
-                .object({
-                    mode: zod
-                        .enum(['public', 'pat', 'posthog_internal', 'shared_secret'])
-                        .default(agentApplicationsRevisionsCreateBodySpecAuthModeDefault),
-                    header: zod.string().optional(),
-                })
-                .default(agentApplicationsRevisionsCreateBodySpecAuthDefault),
+            auth: zod.object({
+                modes: zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                type: zod.literal('public'),
+                            }),
+                            zod.object({
+                                type: zod.literal('oauth'),
+                                issuer: zod.string().min(1),
+                                scopes: zod
+                                    .array(zod.string())
+                                    .default(agentApplicationsRevisionsCreateBodySpecAuthModesItemTwoScopesDefault),
+                            }),
+                            zod.object({
+                                type: zod.literal('pat'),
+                            }),
+                            zod.object({
+                                type: zod.literal('jwt'),
+                                issuer_secret_ref: zod.string().min(1),
+                            }),
+                            zod.object({
+                                type: zod.literal('shared_secret'),
+                                header: zod.string().min(1),
+                            }),
+                            zod.object({
+                                type: zod.literal('posthog_internal'),
+                            }),
+                        ])
+                    )
+                    .default(agentApplicationsRevisionsCreateBodySpecAuthModesDefault),
+            }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
         .optional(),
@@ -448,8 +473,9 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_wall_seconds: 900,
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
-export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModeDefault = `public`
-export const agentApplicationsRevisionsPartialUpdateBodySpecAuthDefault = { mode: 'public' }
+export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModesItemTwoScopesDefault = []
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModesDefault = [{ type: `public` }]
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -595,14 +621,40 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
             entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
-            auth: zod
-                .object({
-                    mode: zod
-                        .enum(['public', 'pat', 'posthog_internal', 'shared_secret'])
-                        .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthModeDefault),
-                    header: zod.string().optional(),
-                })
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthDefault),
+            auth: zod.object({
+                modes: zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                type: zod.literal('public'),
+                            }),
+                            zod.object({
+                                type: zod.literal('oauth'),
+                                issuer: zod.string().min(1),
+                                scopes: zod
+                                    .array(zod.string())
+                                    .default(
+                                        agentApplicationsRevisionsPartialUpdateBodySpecAuthModesItemTwoScopesDefault
+                                    ),
+                            }),
+                            zod.object({
+                                type: zod.literal('pat'),
+                            }),
+                            zod.object({
+                                type: zod.literal('jwt'),
+                                issuer_secret_ref: zod.string().min(1),
+                            }),
+                            zod.object({
+                                type: zod.literal('shared_secret'),
+                                header: zod.string().min(1),
+                            }),
+                            zod.object({
+                                type: zod.literal('posthog_internal'),
+                            }),
+                        ])
+                    )
+                    .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthModesDefault),
+            }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
         .optional(),
@@ -746,9 +798,12 @@ export const AgentApplicationsRevisionsFileDestroyQueryParams = /* @__PURE__ */ 
 
 /**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
-The janitor computes the digest and updates the revision row in PG;
-Django re-reads the row before returning so the response reflects
-the persisted state.
+
+Resolves `spec.skills[].from_template` / `spec.tools[].from_template`
+refs into the bundle (copies content, stamps versions, inserts
+join rows) before delegating to the janitor for the sha + state
+flip. The Django resolution runs in one `transaction.atomic()` so
+a partial freeze leaves the revision in `draft`.
  */
 export const AgentApplicationsRevisionsFreezeCreateParams = /* @__PURE__ */ zod.object({
     application_id: zod.string(),
@@ -1103,9 +1158,797 @@ export const AgentApplicationsSetEnvCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary List the latest version of every custom tool template visible to the team.
+ */
+export const AgentCustomToolTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentCustomToolTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    search: zod.string().optional().describe('Optional substring filter against name + description.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary Create a new custom tool template — produces v1.
+ */
+export const AgentCustomToolTemplatesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentCustomToolTemplatesCreateBodyNameMax = 128
+
+export const agentCustomToolTemplatesCreateBodyDescriptionDefault = ``
+export const agentCustomToolTemplatesCreateBodyDescriptionMax = 4096
+
+export const agentCustomToolTemplatesCreateBodySourceDefault = ``
+export const agentCustomToolTemplatesCreateBodyCompiledJsDefault = ``
+export const agentCustomToolTemplatesCreateBodyRequiresSecretsItemMax = 128
+
+export const AgentCustomToolTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(agentCustomToolTemplatesCreateBodyNameMax).describe('Slug-shaped name unique per team.'),
+    description: zod
+        .string()
+        .max(agentCustomToolTemplatesCreateBodyDescriptionMax)
+        .default(agentCustomToolTemplatesCreateBodyDescriptionDefault)
+        .describe('One-line description.'),
+    source: zod.string().default(agentCustomToolTemplatesCreateBodySourceDefault).describe('TypeScript source.'),
+    compiled_js: zod
+        .string()
+        .default(agentCustomToolTemplatesCreateBodyCompiledJsDefault)
+        .describe('Bundler output. The publisher (UI or MCP) computes this client-side.'),
+    args_schema: zod.unknown().optional().describe('TypeBox / JSON Schema for tool args.'),
+    returns_schema: zod.unknown().optional().describe('Optional TypeBox / JSON Schema for the return value.'),
+    requires_secrets: zod
+        .array(zod.string().max(agentCustomToolTemplatesCreateBodyRequiresSecretsItemMax))
+        .optional()
+        .describe('Names of secrets the tool reads via `ctx.secret(...)`.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary Retrieve a custom tool template's latest version, or a specific version with `?version=N`.
+ */
+export const agentCustomToolTemplatesNameRetrievePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNameRetrieveParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNameRetrievePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentCustomToolTemplatesNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod.number().optional().describe('Fetch a specific version.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary Soft-delete all versions of a custom tool template.
+ */
+export const agentCustomToolTemplatesNameArchiveCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNameArchiveCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNameArchiveCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentCustomToolTemplatesNameArchiveCreateBody = /* @__PURE__ */ zod.object({
+    source: zod.string().describe('TypeScript source the bundler compiles to `compiled_js`.'),
+    compiled_js: zod.string().describe('Last bundle output. Copied into `bundle/tools/<alias>/compiled.js` at freeze.'),
+    args_schema: zod.unknown().describe('TypeBox / JSON Schema for tool args.'),
+    returns_schema: zod
+        .unknown()
+        .optional()
+        .describe('Optional TypeBox / JSON Schema for the return value (informational).'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary Duplicate a custom tool template under a new name.
+ */
+export const agentCustomToolTemplatesNameDuplicateCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNameDuplicateCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentCustomToolTemplatesNameDuplicateCreateBodyNameMax = 128
+
+export const agentCustomToolTemplatesNameDuplicateCreateBodyDescriptionMax = 4096
+
+export const AgentCustomToolTemplatesNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(agentCustomToolTemplatesNameDuplicateCreateBodyNameMax).describe('Slug for the duplicate.'),
+    description: zod
+        .string()
+        .max(agentCustomToolTemplatesNameDuplicateCreateBodyDescriptionMax)
+        .optional()
+        .describe('Description for the new template.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary Publish a new version of the named custom tool template.
+ */
+export const agentCustomToolTemplatesNamePublishCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNamePublishCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNamePublishCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentCustomToolTemplatesNamePublishCreateBodyDescriptionMax = 4096
+
+export const agentCustomToolTemplatesNamePublishCreateBodyRequiresSecretsItemMax = 128
+
+export const AgentCustomToolTemplatesNamePublishCreateBody = /* @__PURE__ */ zod.object({
+    description: zod
+        .string()
+        .max(agentCustomToolTemplatesNamePublishCreateBodyDescriptionMax)
+        .optional()
+        .describe('Overrides the prior description. Omit to keep the prior value.'),
+    source: zod.string().optional().describe('Full new TypeScript source. Mutually exclusive with `edits`.'),
+    edits: zod
+        .array(
+            zod
+                .object({
+                    old: zod.string().describe('Text to locate (must match exactly once).'),
+                    new: zod.string().describe('Replacement text.'),
+                })
+                .describe('Structured edit applied to source.')
+        )
+        .optional()
+        .describe('Structured edits against the current source.'),
+    compiled_js: zod
+        .string()
+        .optional()
+        .describe('Updated bundle output. Required when `source` or `edits` are supplied.'),
+    args_schema: zod.unknown().optional().describe('Overrides args_schema. Omit to keep prior value.'),
+    returns_schema: zod.unknown().optional().describe('Overrides returns_schema. Omit to keep prior value.'),
+    requires_secrets: zod
+        .array(zod.string().max(agentCustomToolTemplatesNamePublishCreateBodyRequiresSecretsItemMax))
+        .optional()
+        .describe('Overrides requires_secrets. Omit to keep prior value.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary List the frozen agent revisions pinning this custom tool template.
+ */
+export const agentCustomToolTemplatesNameUsagesListPathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNameUsagesListParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNameUsagesListPathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentCustomToolTemplatesNameUsagesListQueryParams = /* @__PURE__ */ zod.object({
+    pinned_version: zod.number().optional().describe('Filter to a specific pinned version.'),
+})
+
+/**
+ * Shared, versioned TypeScript custom tool templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_custom_tool_templates/
+    POST   /api/projects/<team>/agent_custom_tool_templates/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_custom_tool_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_custom_tool_templates/name/<name>/usages/
+ * @summary List every version of the named custom tool template, newest first.
+ */
+export const agentCustomToolTemplatesNameVersionsListPathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentCustomToolTemplatesNameVersionsListParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentCustomToolTemplatesNameVersionsListPathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
  * Read-only catalog of every @posthog/* native tool the runner knows.
  */
 export const AgentNativeToolsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary List the latest version of every skill template visible to the team.
+ */
+export const AgentSkillTemplatesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentSkillTemplatesListQueryParams = /* @__PURE__ */ zod.object({
+    search: zod.string().optional().describe('Optional substring filter against name + description.'),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Create a new skill template — produces v1.
+ */
+export const AgentSkillTemplatesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentSkillTemplatesCreateBodyNameMax = 128
+
+export const agentSkillTemplatesCreateBodyDescriptionDefault = ``
+export const agentSkillTemplatesCreateBodyDescriptionMax = 4096
+
+export const agentSkillTemplatesCreateBodyBodyDefault = ``
+export const agentSkillTemplatesCreateBodyFilesItemPathMax = 512
+
+export const agentSkillTemplatesCreateBodyFilesItemContentTypeDefault = `text/plain`
+export const agentSkillTemplatesCreateBodyFilesItemContentTypeMax = 128
+
+export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyNameMax)
+            .describe('Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.'),
+        description: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyDescriptionMax)
+            .default(agentSkillTemplatesCreateBodyDescriptionDefault)
+            .describe('One-line description shown in the list view + system-prompt skill index.'),
+        body: zod.string().default(agentSkillTemplatesCreateBodyBodyDefault).describe('Initial SKILL.md markdown.'),
+        files: zod
+            .array(
+                zod.object({
+                    id: zod.string().optional(),
+                    path: zod
+                        .string()
+                        .max(agentSkillTemplatesCreateBodyFilesItemPathMax)
+                        .describe(
+                            'Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.'
+                        ),
+                    content: zod
+                        .string()
+                        .describe(
+                            'File body. Plain text or markdown — companion files are not interpreted by the runner.'
+                        ),
+                    content_type: zod
+                        .string()
+                        .max(agentSkillTemplatesCreateBodyFilesItemContentTypeMax)
+                        .default(agentSkillTemplatesCreateBodyFilesItemContentTypeDefault)
+                        .describe("MIME type hint. Read-only at runtime; aids the registry UI's file viewer."),
+                })
+            )
+            .optional()
+            .describe('Optional companion files at creation time.'),
+        metadata: zod
+            .unknown()
+            .optional()
+            .describe('Free-form, agentskills.io-compatible bag (license, compatibility, …).'),
+        allowed_tools: zod.unknown().optional().describe('Optional list of tool ids the skill is meant to reach for.'),
+    })
+    .describe('Initial-create payload — produces v1.')
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Retrieve a skill template's latest version, or a specific version with `?version=N`.
+ */
+export const agentSkillTemplatesNameRetrievePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameRetrieveParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameRetrievePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentSkillTemplatesNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version: zod.number().optional().describe('Fetch a specific version. Omit for the current `is_latest=true` row.'),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Soft-delete all versions of a template.
+ */
+export const agentSkillTemplatesNameArchiveCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameArchiveCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameArchiveCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentSkillTemplatesNameArchiveCreateBody = /* @__PURE__ */ zod
+    .object({
+        body: zod.string().describe('Markdown body. The `SKILL.md` equivalent.'),
+    })
+    .describe('Detail shape: adds body + files. Used by the registry detail page.')
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Duplicate a template under a new name (clones the latest version's content + files).
+ */
+export const agentSkillTemplatesNameDuplicateCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameDuplicateCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentSkillTemplatesNameDuplicateCreateBodyNameMax = 128
+
+export const agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax = 4096
+
+export const AgentSkillTemplatesNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(agentSkillTemplatesNameDuplicateCreateBodyNameMax)
+        .describe('Slug for the new duplicate. Must not collide with an existing template.'),
+    description: zod
+        .string()
+        .max(agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax)
+        .optional()
+        .describe("Description for the new template. Defaults to the source's description."),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Add a companion file to the latest version of the template.
+ */
+export const agentSkillTemplatesNameFilesCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameFilesCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameFilesCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentSkillTemplatesNameFilesCreateBodyPathMax = 512
+
+export const agentSkillTemplatesNameFilesCreateBodyContentTypeDefault = `text/plain`
+export const agentSkillTemplatesNameFilesCreateBodyContentTypeMax = 128
+
+export const AgentSkillTemplatesNameFilesCreateBody = /* @__PURE__ */ zod.object({
+    path: zod
+        .string()
+        .max(agentSkillTemplatesNameFilesCreateBodyPathMax)
+        .describe('Relative path inside the skill folder.'),
+    content: zod.string().describe('File body.'),
+    content_type: zod
+        .string()
+        .max(agentSkillTemplatesNameFilesCreateBodyContentTypeMax)
+        .default(agentSkillTemplatesNameFilesCreateBodyContentTypeDefault)
+        .describe('MIME type hint.'),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Rename a companion file inside the latest version of the template.
+ */
+export const agentSkillTemplatesNameFilesRenameCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameFilesRenameCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameFilesRenameCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentSkillTemplatesNameFilesRenameCreateBodyFromPathMax = 512
+
+export const agentSkillTemplatesNameFilesRenameCreateBodyToPathMax = 512
+
+export const AgentSkillTemplatesNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
+    from_path: zod
+        .string()
+        .max(agentSkillTemplatesNameFilesRenameCreateBodyFromPathMax)
+        .describe('Existing file path inside the skill folder.'),
+    to_path: zod
+        .string()
+        .max(agentSkillTemplatesNameFilesRenameCreateBodyToPathMax)
+        .describe('New path. Must not collide with another file.'),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Remove a companion file from the latest version of the template.
+ */
+export const agentSkillTemplatesNameFilesDestroyPathFilePathRegExp = new RegExp('^.+?$')
+export const agentSkillTemplatesNameFilesDestroyPathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameFilesDestroyParams = /* @__PURE__ */ zod.object({
+    file_path: zod.string().regex(agentSkillTemplatesNameFilesDestroyPathFilePathRegExp),
+    name: zod.string().regex(agentSkillTemplatesNameFilesDestroyPathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary Publish a new version of the named template.
+ */
+export const agentSkillTemplatesNamePublishCreatePathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNamePublishCreateParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNamePublishCreatePathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentSkillTemplatesNamePublishCreateBodyDescriptionMax = 4096
+
+export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
+    .object({
+        description: zod
+            .string()
+            .max(agentSkillTemplatesNamePublishCreateBodyDescriptionMax)
+            .optional()
+            .describe('Overrides the prior description. Omit to keep the prior value.'),
+        body: zod.string().optional().describe('Full new body. Mutually exclusive with `edits`.'),
+        edits: zod
+            .array(
+                zod
+                    .object({
+                        old: zod.string().describe('Text to locate (must match exactly once).'),
+                        new: zod.string().describe('Replacement text.'),
+                        file_path: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Apply this edit to a companion file instead of the body. Null/omitted = body edit.'
+                            ),
+                    })
+                    .describe("A single find/replace edit applied to body or a file's content.")
+            )
+            .optional()
+            .describe('Structured edits. Each `old` must match exactly once in the current body / file.'),
+        metadata: zod.unknown().optional().describe('Overrides metadata. Omit to keep the prior value.'),
+        allowed_tools: zod.unknown().optional().describe('Overrides allowed_tools. Omit to keep the prior value.'),
+    })
+    .describe(
+        'Publish a new version.\n\nSupply EITHER `body` (full overwrite) OR `edits` (structured\nfind/replace). The viewset rejects requests carrying both.'
+    )
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary List the frozen agent revisions pinning this template (any version, or filtered by `pinned_version`).
+ */
+export const agentSkillTemplatesNameUsagesListPathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameUsagesListParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameUsagesListPathNameRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const AgentSkillTemplatesNameUsagesListQueryParams = /* @__PURE__ */ zod.object({
+    pinned_version: zod
+        .number()
+        .optional()
+        .describe('Filter to revisions stuck on a specific version (`/?pinned_version=3`).'),
+})
+
+/**
+ * Shared, versioned markdown skill templates.
+
+URLs:
+    GET    /api/projects/<team>/agent_skill_templates/
+    POST   /api/projects/<team>/agent_skill_templates/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/publish/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/archive/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/duplicate/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/versions/
+    GET    /api/projects/<team>/agent_skill_templates/name/<name>/usages/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files/
+    DELETE /api/projects/<team>/agent_skill_templates/name/<name>/files/<path>/
+    POST   /api/projects/<team>/agent_skill_templates/name/<name>/files-rename/
+
+Canonical (`@posthog/<name>`) templates are read-only for team
+members; only PostHog-side seed commands write them.
+ * @summary List every version of the named template, newest first.
+ */
+export const agentSkillTemplatesNameVersionsListPathNameRegExp = new RegExp('^[^/]+$')
+
+export const AgentSkillTemplatesNameVersionsListParams = /* @__PURE__ */ zod.object({
+    name: zod.string().regex(agentSkillTemplatesNameVersionsListPathNameRegExp),
     project_id: zod
         .string()
         .describe(

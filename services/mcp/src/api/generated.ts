@@ -4552,19 +4552,29 @@ export namespace Schemas {
       max_wall_seconds: number;
     };
 
-    export type AgentRevisionSpecAuthMode = typeof AgentRevisionSpecAuthMode[keyof typeof AgentRevisionSpecAuthMode];
-
-
-    export const AgentRevisionSpecAuthMode = {
-      Public: 'public',
-      Pat: 'pat',
-      PosthogInternal: 'posthog_internal',
-      SharedSecret: 'shared_secret',
-    } as const;
+    export type AgentRevisionSpecAuthModesItem = {
+      type: 'public';
+    } | {
+      type: 'oauth';
+      /** @minLength 1 */
+      issuer: string;
+      scopes?: string[];
+    } | {
+      type: 'pat';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+    } | {
+      type: 'posthog_internal';
+    };
 
     export type AgentRevisionSpecAuth = {
-      mode: AgentRevisionSpecAuthMode;
-      header?: string;
+      modes?: AgentRevisionSpecAuthModesItem[];
     };
 
     export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
@@ -9794,6 +9804,121 @@ export namespace Schemas {
       access_key: string;
       /** @maxLength 500 */
       access_secret: string;
+    }
+
+    export interface CustomToolTemplateCreate {
+      /**
+         * Slug-shaped name unique per team.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * One-line description.
+         * @maxLength 4096
+         */
+      description?: string;
+      /** TypeScript source. */
+      source?: string;
+      /** Bundler output. The publisher (UI or MCP) computes this client-side. */
+      compiled_js?: string;
+      /** TypeBox / JSON Schema for tool args. */
+      args_schema?: unknown;
+      /** Optional TypeBox / JSON Schema for the return value. */
+      returns_schema?: unknown;
+      /** Names of secrets the tool reads via `ctx.secret(...)`. */
+      requires_secrets?: string[];
+    }
+
+    export interface CustomToolTemplateDetail {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      readonly is_latest: boolean;
+      readonly requires_secrets: readonly string[];
+      /** Number of frozen agent revisions pinning this template (any version). */
+      readonly usage_count: number;
+      /** Publisher. Null for canonical PostHog-owned templates. */
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      /** TypeScript source the bundler compiles to `compiled_js`. */
+      source: string;
+      /** Last bundle output. Copied into `bundle/tools/<alias>/compiled.js` at freeze. */
+      compiled_js: string;
+      /** TypeBox / JSON Schema for tool args. */
+      args_schema: unknown;
+      /** Optional TypeBox / JSON Schema for the return value (informational). */
+      returns_schema?: unknown;
+    }
+
+    export interface CustomToolTemplateDuplicate {
+      /**
+         * Slug for the duplicate.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * Description for the new template.
+         * @maxLength 4096
+         */
+      description?: string;
+    }
+
+    /**
+     * Structured edit applied to source.
+     */
+    export interface CustomToolTemplateEdit {
+      /** Text to locate (must match exactly once). */
+      old: string;
+      /** Replacement text. */
+      new: string;
+    }
+
+    export interface CustomToolTemplatePublish {
+      /**
+         * Overrides the prior description. Omit to keep the prior value.
+         * @maxLength 4096
+         */
+      description?: string;
+      /** Full new TypeScript source. Mutually exclusive with `edits`. */
+      source?: string;
+      /** Structured edits against the current source. */
+      edits?: CustomToolTemplateEdit[];
+      /** Updated bundle output. Required when `source` or `edits` are supplied. */
+      compiled_js?: string;
+      /** Overrides args_schema. Omit to keep prior value. */
+      args_schema?: unknown;
+      /** Overrides returns_schema. Omit to keep prior value. */
+      returns_schema?: unknown;
+      /** Overrides requires_secrets. Omit to keep prior value. */
+      requires_secrets?: string[];
+    }
+
+    export interface CustomToolTemplateSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      readonly is_latest: boolean;
+      readonly requires_secrets: readonly string[];
+      /** Number of frozen agent revisions pinning this template (any version). */
+      readonly usage_count: number;
+      /** Publisher. Null for canonical PostHog-owned templates. */
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+    }
+
+    export interface CustomToolTemplateUsage {
+      /** Slug of the agent whose revision pins this tool. */
+      agent_slug: string;
+      /** Display name of the agent. */
+      agent_name: string;
+      /** Frozen revision id. */
+      revision_id: string;
+      /** First 8 chars of the revision id, for display. */
+      revision_short_id: string;
+      /** Tool version pinned at freeze. */
+      pinned_version: number;
     }
 
     export interface CustomerJourney {
@@ -27698,19 +27823,29 @@ export namespace Schemas {
       max_wall_seconds: number;
     };
 
-    export type PatchedAgentRevisionSpecAuthMode = typeof PatchedAgentRevisionSpecAuthMode[keyof typeof PatchedAgentRevisionSpecAuthMode];
-
-
-    export const PatchedAgentRevisionSpecAuthMode = {
-      Public: 'public',
-      Pat: 'pat',
-      PosthogInternal: 'posthog_internal',
-      SharedSecret: 'shared_secret',
-    } as const;
+    export type PatchedAgentRevisionSpecAuthModesItem = {
+      type: 'public';
+    } | {
+      type: 'oauth';
+      /** @minLength 1 */
+      issuer: string;
+      scopes?: string[];
+    } | {
+      type: 'pat';
+    } | {
+      type: 'jwt';
+      /** @minLength 1 */
+      issuer_secret_ref: string;
+    } | {
+      type: 'shared_secret';
+      /** @minLength 1 */
+      header: string;
+    } | {
+      type: 'posthog_internal';
+    };
 
     export type PatchedAgentRevisionSpecAuth = {
-      mode: PatchedAgentRevisionSpecAuthMode;
-      header?: string;
+      modes?: PatchedAgentRevisionSpecAuthModesItem[];
     };
 
     export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
@@ -37317,6 +37452,184 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SkillTemplateFile {
+      readonly id: string;
+      /**
+         * Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.
+         * @maxLength 512
+         */
+      path: string;
+      /** File body. Plain text or markdown — companion files are not interpreted by the runner. */
+      content: string;
+      /**
+         * MIME type hint. Read-only at runtime; aids the registry UI's file viewer.
+         * @maxLength 128
+         */
+      content_type?: string;
+    }
+
+    /**
+     * Initial-create payload — produces v1.
+     */
+    export interface SkillTemplateCreate {
+      /**
+         * Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * One-line description shown in the list view + system-prompt skill index.
+         * @maxLength 4096
+         */
+      description?: string;
+      /** Initial SKILL.md markdown. */
+      body?: string;
+      /** Optional companion files at creation time. */
+      files?: SkillTemplateFile[];
+      /** Free-form, agentskills.io-compatible bag (license, compatibility, …). */
+      metadata?: unknown;
+      /** Optional list of tool ids the skill is meant to reach for. */
+      allowed_tools?: unknown;
+    }
+
+    /**
+     * Detail shape: adds body + files. Used by the registry detail page.
+     */
+    export interface SkillTemplateDetail {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      readonly is_latest: boolean;
+      /** Number of companion files attached to the current version. */
+      readonly file_count: number;
+      /** Number of frozen agent revisions pinning this template (any version). */
+      readonly usage_count: number;
+      readonly metadata: unknown;
+      readonly allowed_tools: unknown;
+      /** Publisher. Null for canonical PostHog-owned templates. */
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+      /** Markdown body. The `SKILL.md` equivalent. */
+      body: string;
+      /** Companion files attached to this version. */
+      readonly files: readonly SkillTemplateFile[];
+    }
+
+    export interface SkillTemplateDuplicate {
+      /**
+         * Slug for the new duplicate. Must not collide with an existing template.
+         * @maxLength 128
+         */
+      name: string;
+      /**
+         * Description for the new template. Defaults to the source's description.
+         * @maxLength 4096
+         */
+      description?: string;
+    }
+
+    /**
+     * A single find/replace edit applied to body or a file's content.
+     */
+    export interface SkillTemplateEdit {
+      /** Text to locate (must match exactly once). */
+      old: string;
+      /** Replacement text. */
+      new: string;
+      /**
+         * Apply this edit to a companion file instead of the body. Null/omitted = body edit.
+         * @nullable
+         */
+      file_path?: string | null;
+    }
+
+    export interface SkillTemplateFileRename {
+      /**
+         * Existing file path inside the skill folder.
+         * @maxLength 512
+         */
+      from_path: string;
+      /**
+         * New path. Must not collide with another file.
+         * @maxLength 512
+         */
+      to_path: string;
+    }
+
+    export interface SkillTemplateFileWrite {
+      /**
+         * Relative path inside the skill folder.
+         * @maxLength 512
+         */
+      path: string;
+      /** File body. */
+      content: string;
+      /**
+         * MIME type hint.
+         * @maxLength 128
+         */
+      content_type?: string;
+    }
+
+    /**
+     * Publish a new version.
+
+    Supply EITHER `body` (full overwrite) OR `edits` (structured
+    find/replace). The viewset rejects requests carrying both.
+     */
+    export interface SkillTemplatePublish {
+      /**
+         * Overrides the prior description. Omit to keep the prior value.
+         * @maxLength 4096
+         */
+      description?: string;
+      /** Full new body. Mutually exclusive with `edits`. */
+      body?: string;
+      /** Structured edits. Each `old` must match exactly once in the current body / file. */
+      edits?: SkillTemplateEdit[];
+      /** Overrides metadata. Omit to keep the prior value. */
+      metadata?: unknown;
+      /** Overrides allowed_tools. Omit to keep the prior value. */
+      allowed_tools?: unknown;
+    }
+
+    /**
+     * List shape — no body / file contents (keeps the index page fast).
+     */
+    export interface SkillTemplateSummary {
+      readonly id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly version: number;
+      readonly is_latest: boolean;
+      /** Number of companion files attached to the current version. */
+      readonly file_count: number;
+      /** Number of frozen agent revisions pinning this template (any version). */
+      readonly usage_count: number;
+      readonly metadata: unknown;
+      readonly allowed_tools: unknown;
+      /** Publisher. Null for canonical PostHog-owned templates. */
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
+    }
+
+    /**
+     * Read shape returned by `…/usages/`. Sourced from the join table.
+     */
+    export interface SkillTemplateUsage {
+      /** Slug of the agent whose revision pins this template. */
+      agent_slug: string;
+      /** Display name of the agent. */
+      agent_name: string;
+      /** Frozen revision id. */
+      revision_id: string;
+      /** First 8 chars of the revision id, for display. */
+      revision_short_id: string;
+      /** Template version pinned at freeze. */
+      pinned_version: number;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -38728,6 +39041,20 @@ export namespace Schemas {
       readonly product_intents: readonly TeamProductIntentsItem[];
       readonly managed_viewsets: TeamManagedViewsets;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
+    }
+
+    /**
+     * Read shape used by `…/versions/` on both template families.
+     */
+    export interface TemplateVersionEntry {
+      /** Version number. */
+      version: number;
+      /** True for the current row in this version's name lineage. */
+      is_latest: boolean;
+      /** Publisher. Null for canonical. */
+      created_by: UserBasic | null;
+      /** When this version was published. */
+      updated_at: string;
     }
 
     export type TestHogRequestConditionsItem = { [key: string]: unknown };
@@ -44882,6 +45209,27 @@ export namespace Schemas {
     since?: string;
     };
 
+    export type AgentCustomToolTemplatesListParams = {
+    /**
+     * Optional substring filter against name + description.
+     */
+    search?: string;
+    };
+
+    export type AgentCustomToolTemplatesNameRetrieveParams = {
+    /**
+     * Fetch a specific version.
+     */
+    version?: number;
+    };
+
+    export type AgentCustomToolTemplatesNameUsagesListParams = {
+    /**
+     * Filter to a specific pinned version.
+     */
+    pinned_version?: number;
+    };
+
     export type AgentFleetLiveSessionsParams = {
     /**
      * Cap on returned sessions (default 100, max 500).
@@ -44894,6 +45242,27 @@ export namespace Schemas {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string;
+    };
+
+    export type AgentSkillTemplatesListParams = {
+    /**
+     * Optional substring filter against name + description.
+     */
+    search?: string;
+    };
+
+    export type AgentSkillTemplatesNameRetrieveParams = {
+    /**
+     * Fetch a specific version. Omit for the current `is_latest=true` row.
+     */
+    version?: number;
+    };
+
+    export type AgentSkillTemplatesNameUsagesListParams = {
+    /**
+     * Filter to revisions stuck on a specific version (`/?pinned_version=3`).
+     */
+    pinned_version?: number;
     };
 
     export type AiGatewayLedgerListParams = {

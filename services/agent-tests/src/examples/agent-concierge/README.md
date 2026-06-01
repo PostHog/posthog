@@ -48,7 +48,7 @@ agent-concierge/
     ├── secrets-and-integrations.md      # punch-out flow, integrations table
     ├── designing-mcp-surfaces.md        # spec.mcp.tools[] design
     ├── running-and-evaluating-tests.md  # tests + judge skills
-    ├── using-the-console-ui.md          # @posthog/ui/focus + toast etiquette
+    ├── using-the-console-ui.md          # focus_* + toast etiquette
     ├── working-outside-the-console.md   # MCP / IDE mode; no client tools
     ├── cost-and-quota-analysis.md       # LLM analytics views
     └── safety-and-boundaries.md         # hard rules
@@ -56,11 +56,10 @@ agent-concierge/
 
 ## Tool surface
 
-| Class      | Tool                                                          | Class semantics                                                                                |
-| ---------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| MCP routed | `posthog__agent-applications-*` (via `spec.mcps[]`)           | Bulk of the work — read / write every agent through the PostHog authoring MCP                  |
-| Native     | `@posthog/query`, `@posthog/web-fetch`, `@posthog/web-search` | Cost queries, runbook fetches, external docs                                                   |
-| Client     | `@posthog/ui/focus`, `@posthog/ui/toast`                      | Drive the console's read panel as the agent works. No-op when client doesn't handle (e.g. MCP) |
+| Class  | Tool                                                                                                       | Class semantics                                                                                                                                                                        |
+| ------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native | `@posthog/agent-applications-*` (list, retrieve, revisions, sessions, logs)                                | Read agent state — applications, revisions, sessions, logs — as the connected user. Routed through the credential broker; no platform credentials, no impersonation. Read-only for v0. |
+| Client | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context` | Drive the console's read panel + read the user's current view. No-op outside the console.                                                                                              |
 
 ## Auth model
 
@@ -84,7 +83,7 @@ These are platform-side, not bundle-side:
 1. **`kind: "client"` tool support in the spec** —
    `docs/agent-platform/plans/agent-console-website.md` §8. Today
    the spec parser doesn't accept `kind: "client"`; the bundle's
-   `@posthog/ui/focus` and `@posthog/ui/toast` entries will fail
+   `focus_*` and `toast` entries will fail
    validation at load.
 2. **Runtime MCP support** — `docs/agent-platform/plans/runtime-mcps.md`.
    Today the runner reads `spec.mcps[]` but doesn't open clients.

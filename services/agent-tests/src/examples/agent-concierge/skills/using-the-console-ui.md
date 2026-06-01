@@ -4,38 +4,52 @@ How to drive the agent console's read panel while you work, so
 the user always sees what you're working on. Load when
 `client.kind` starts with `agent-console`.
 
-## The two client tools you have
+## The client tools you have
 
-| Tool                | What it does                                                                            | When to call                                                                          |
-| ------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `@posthog/ui/focus` | Navigates the read panel to a specific resource (file, revision, session, spec section) | Whenever you start working on something — the user should see what you see            |
-| `@posthog/ui/toast` | Surfaces a transient status notification in the console                                 | Sparingly — for long-running tool calls, or to flag something the user should look at |
+| Tool                 | What it does                                                                               | When to call                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `focus_tab`          | Switch the agent detail panel between `overview` / `configuration` / `sessions`            | Coarse navigation between the three top-level views                                        |
+| `focus_file`         | Open one bundle file in the configuration panel                                            | About to read or edit a specific file                                                      |
+| `focus_revision`     | Open one revision in the configuration panel                                               | About to inspect / diff a specific revision                                                |
+| `focus_session`      | Open one session in the sessions panel                                                     | About to fetch a session's conversation or event log                                       |
+| `focus_spec_section` | Jump to a section of the spec (`tools` / `skills` / `triggers` / `secrets` / `limits`)     | Discussing one part of the spec specifically                                               |
+| `toast`              | Surfaces a transient status notification in the console                                    | Sparingly — for long-running tool calls, or to flag something the user should look at      |
+| `set_secret`         | Render an inline form for the user to enter a secret value, scoped to one key on one agent | Whenever you need a credential set or rotated. See `secrets-and-integrations` for the loop |
 
-Both are no-ops if the client doesn't handle them; the runner
-hides them from your tool surface. If they're in your tool list,
-the console is on the other end.
+All are no-ops if the client doesn't handle them; the runner hides
+them from your tool surface. If they're in your tool list, the
+console is on the other end.
 
-## `@posthog/ui/focus` etiquette
+`set_secret` is the first **render-style** client tool — instead
+of running a synchronous handler, the console mounts a UI inside
+the tool-call card and resolves the call when the user submits.
+Tools that need user input belong here; tools that the host can
+fulfill silently (navigation, toasts, context reads) stay
+synchronous.
 
-**Call it before the tool call that operates on the resource**,
-not after. The user wants the panel to load _as_ you start
-working, not after the work is done.
+## `focus_*` etiquette
+
+**Call the right one before the tool call that operates on the
+resource**, not after. The user wants the panel to load _as_ you
+start working, not after the work is done.
 
 Sequence:
 
 1. Tell the user what you're about to do (one line)
-2. `@posthog/ui/focus` to the resource
+2. The matching `focus_*` to the resource (only if you have
+   the id / path in hand — otherwise skip it)
 3. Make the actual MCP / native tool call(s)
 4. Report back
 
-The four `focus.kind` values and when to use each:
+The five focus tools and when to use each:
 
-| `kind`         | Args                                                                  | Use when                                              |
-| -------------- | --------------------------------------------------------------------- | ----------------------------------------------------- |
-| `file`         | `{ path: "skills/research.md" }`                                      | Reading or editing a specific bundle file             |
-| `revision`     | `{ revision_id: "r_abc123" }`                                         | Reading or editing a revision's spec / bundle overall |
-| `session`      | `{ session_id: "s_xyz789" }`                                          | Debugging or watching a session                       |
-| `spec_section` | `{ section: "tools" / "skills" / "triggers" / "secrets" / "limits" }` | Discussing a specific part of the spec                |
+| Tool                 | Args                                                                  | Use when                                                |
+| -------------------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
+| `focus_file`         | `{ path: "skills/research.md" }`                                      | Reading or editing a specific bundle file               |
+| `focus_revision`     | `{ revisionId: "<uuid>" }`                                            | Reading or editing a revision's spec / bundle overall   |
+| `focus_session`      | `{ sessionId: "<uuid>" }`                                             | Debugging or watching a session                         |
+| `focus_spec_section` | `{ section: "tools" / "skills" / "triggers" / "secrets" / "limits" }` | Discussing a specific part of the spec                  |
+| `focus_tab`          | `{ tab: "overview" / "configuration" / "sessions" }`                  | Coarse navigation when you don't yet have a specific id |
 
 For a multi-file flow (e.g. inspecting `agent.md` then a skill
 then the live session), call focus **before each transition**.
@@ -44,7 +58,7 @@ navigation.
 
 ## Handle the focus result
 
-`@posthog/ui/focus` returns either:
+Every `focus_*` returns either:
 
 - `{ focused: true, kind: ..., ... }` — the panel loaded; the
   user saw it
@@ -64,7 +78,7 @@ see what you see, so don't re-describe it. "Read `agent.md`,
 turn 1 makes the agent skip the slack post on weekends" is
 enough; don't paste the whole file.
 
-## `@posthog/ui/toast` etiquette
+## `toast` etiquette
 
 Toasts are intrusive. Use them only for:
 
@@ -104,11 +118,10 @@ Example:
 > Opening `weekly-digest`'s live revision, pulling its spec +
 > system prompt.
 >
-> [calls `@posthog/ui/focus` with `{ kind: 'revision',
-> > revision_id: 'r_live123' }`]
+> [calls `focus_revision` with `{ revisionId: 'r_live123' }`]
 >
-> [calls `agent-applications-revisions-retrieve`]
-> [calls `agent-applications-revisions-system-prompt`]
+> [calls `@posthog/agent-applications-revisions-retrieve`]
+> [calls `@posthog/agent-applications-revisions-system-prompt`]
 >
 > Spec is 4 tools, 3 skills, cron trigger every Monday 09:00.
 > Want me to walk through the skills, or jump to recent sessions?
@@ -116,6 +129,26 @@ Example:
 The user's experience: text appears, panel transitions to the
 revision view, a moment later the chat shows the summary. Three
 beats, all in one turn.
+
+## Deep links the console understands
+
+The console reads its full view state from URL params, so you can hand
+the user a link to a specific surface and trust they'll land where you
+want them to. The two patterns that are load-bearing today:
+
+| Goal                                    | URL                                                                              | Notes                                                                                                                                         |
+| --------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open the agent's connections / secrets  | `/agents/<slug>?tab=connections`                                                 | Just lands on the tab. Use as a fallback when there's no specific key yet.                                                                    |
+| Open the secret editor for one key      | `/agents/<slug>?tab=connections&edit_secret=<KEY>`                               | Opens the modal pre-targeted. Don't `focus_tab` to the connections tab and _also_ tell them to edit — pick one channel.                       |
+| Same, with a callback into THIS session | `/agents/<slug>?tab=connections&edit_secret=<KEY>&callback_session=<session_id>` | The console fires a synthetic `[system]` user turn back to `<session_id>` after they save. You wait silently. See `secrets-and-integrations`. |
+
+Get `<session_id>` from `get_context` — it's the `session_id`
+field on the envelope. Don't try to derive it any other way; you
+don't have stable access to it otherwise.
+
+When you render the link in chat, use a markdown link so the user can
+one-click it. Don't paste the URL bare — they'll often miss it in a
+wall of text.
 
 ## When NOT to focus
 
@@ -128,16 +161,16 @@ beats, all in one turn.
 
 ## Errors from focus
 
-If focus returns `client_tool_unsupported` (unexpected — should
-have been hidden from your surface), behave as if you got
-`focused: false`. Don't crash; fall back to text narration. This
-shouldn't happen, but a buggy console version might.
+If a `focus_*` call returns `client_tool_unsupported` (unexpected
+— should have been hidden from your surface), behave as if you
+got `focused: false`. Don't crash; fall back to text narration.
+This shouldn't happen, but a buggy console version might.
 
 ## The "screen-sharing" mental model
 
-Treat `@posthog/ui/focus` as moving a cursor on a shared screen.
-Every action you take, the user should be able to see _where_
-you took it. The chat is the audio narration; the read panel is
-the screen. Together they make the whole interaction legible —
+Treat `focus_*` as moving a cursor on a shared screen. Every
+action you take, the user should be able to see _where_ you took
+it. The chat is the audio narration; the read panel is the
+screen. Together they make the whole interaction legible —
 without focus, the chat reads like talking to someone whose
 screen is off.

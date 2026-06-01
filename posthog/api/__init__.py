@@ -54,6 +54,7 @@ from products.agent_stack.backend.api import (
     AgentNativeToolsViewSet,
     AgentRevisionViewSet,
 )
+from products.agent_stack.backend.registry_api import AgentCustomToolTemplateViewSet, AgentSkillTemplateViewSet
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -1472,6 +1473,18 @@ projects_router.register(
     r"agent_native_tools",
     AgentNativeToolsViewSet,
     "project_agent_native_tools",
+    ["project_id"],
+)
+projects_router.register(
+    r"agent_skill_templates",
+    AgentSkillTemplateViewSet,
+    "project_agent_skill_templates",
+    ["project_id"],
+)
+projects_router.register(
+    r"agent_custom_tool_templates",
+    AgentCustomToolTemplateViewSet,
+    "project_agent_custom_tool_templates",
     ["project_id"],
 )
 projects_router.register(
