@@ -4002,12 +4002,8 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
     def test_retention_with_breakdown_hogql_expression(self):
-        """Test retention with breakdown by a HogQL expression.
-
-        The expression must be evaluated as SQL, not treated as a property name.
-        Using upper(...) makes the buckets uppercased, which only happens if the
-        expression actually runs.
-        """
+        # upper(...) makes the buckets uppercased, which only happens if the expression
+        # is evaluated as SQL rather than treated as a property name.
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
