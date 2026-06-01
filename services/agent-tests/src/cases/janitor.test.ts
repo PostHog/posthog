@@ -64,7 +64,13 @@ describe('janitor: real e2e', () => {
     it('POST /sweep returns counts', async () => {
         const res = await request(c.janitor).post('/sweep')
         expect(res.status).toBe(200)
-        expect(res.body).toEqual({ requeued: 0, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(res.body).toEqual({
+            requeued: 0,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+        })
     })
 
     it('sweep re-queues stuck-running, then poison-pills after maxRetries', async () => {
@@ -84,7 +90,13 @@ describe('janitor: real e2e', () => {
         }
         const sweep = async (
             maxRetries: number
-        ): Promise<{ requeued: number; poisoned: number; closed: number; expired_approvals: number }> => {
+        ): Promise<{
+            requeued: number
+            poisoned: number
+            closed: number
+            expired_approvals: number
+            cleared_idempotency_keys: number
+        }> => {
             // Override the default 3 via direct sweep invocation. The HTTP
             // sweep endpoint uses whatever the janitor was configured with,
             // so for this test we hit the sweep helper through the cluster
@@ -95,17 +107,17 @@ describe('janitor: real e2e', () => {
 
         await goStale()
         const r1 = await sweep(2)
-        expect(r1).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(r1).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await c.queue.get(sid))!.retry_count).toBe(1)
 
         await goStale()
         const r2 = await sweep(2)
-        expect(r2).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0 })
+        expect(r2).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await c.queue.get(sid))!.retry_count).toBe(2)
 
         await goStale()
         const r3 = await sweep(2)
-        expect(r3).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0 })
+        expect(r3).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
         expect((await c.queue.get(sid))!.state).toBe('failed')
     })
 })

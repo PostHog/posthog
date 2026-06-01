@@ -240,6 +240,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const janitor = buildJanitorApp({
         queue,
         approvals,
+        revisions,
+        bundles: bundle,
         sweep: { queue, approvals, stuckRunningThresholdMs: 60_000 },
         // Shared with the worker — same bucket, same prefix. Memory routes
         // (/memory/team/:t/agent/:a/...) read + write through this store and
