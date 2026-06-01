@@ -77,6 +77,7 @@ function NewPasswordForm(): JSX.Element {
                         className="ph-ignore-input"
                         placeholder="••••••••••"
                         data-attr="password"
+                        autoFocus
                     />
                 </LemonField>
 

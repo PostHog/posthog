@@ -9,6 +9,10 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
         BAA = "BAA", "Business Associate Agreement"
         DPA = "DPA", "Data Processing Agreement"
 
+        # MSA can only be created by staff via Django admin (uploads a counter-signed
+        # PDF directly). The public API serializer does not list MSA as a valid choice.
+        MSA = "MSA", "Master Service Agreement"
+
     class Status(models.TextChoices):
         SUBMITTED_FOR_SIGNATURE = "submitted_for_signature", "Submitted for signature"
         SIGNED = "signed", "Signed"
@@ -30,9 +34,6 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
         choices=Status.choices,
         default=Status.SUBMITTED_FOR_SIGNATURE,
     )
-    # Pre-signed download URL for the signed PDF, populated by PandaDoc's webhook
-    # once the customer counter-signs the envelope.
-    signed_document_url = models.URLField(blank=True, max_length=2048)
 
     # PandaDoc document uuid. Empty until the create call succeeds. Used as the
     # join key for inbound PandaDoc webhooks.

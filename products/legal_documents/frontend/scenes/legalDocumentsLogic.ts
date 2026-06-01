@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { BillingType } from '~/types'
 
+import * as api from '../generated/api'
 import type { legalDocumentsLogicType } from './legalDocumentsLogicType'
 
 export type LegalDocumentType = 'BAA' | 'DPA'
@@ -28,7 +29,6 @@ export interface LegalDocument {
     company_name: string
     representative_email: string
     status: LegalDocumentStatus
-    signed_document_url: string
     created_by: LegalDocumentCreator | null
     created_at: string
 }
@@ -58,7 +58,13 @@ function defaultsFor(documentType: LegalDocumentType): LegalDocumentFormValues {
 export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
     path(['products', 'legal_documents', 'legalDocumentsLogic']),
     connect(() => ({
-        values: [organizationLogic, ['currentOrganization', 'currentOrganizationId'], billingLogic, ['billing']],
+        values: [
+            organizationLogic,
+            ['currentOrganization', 'currentOrganizationId', 'isAdminOrOwner'],
+            billingLogic,
+            ['billing'],
+        ],
+        actions: [organizationLogic, ['loadCurrentOrganizationSuccess']],
     })),
     actions({
         setDocumentType: (documentType: LegalDocumentType) => ({ documentType }),
@@ -72,8 +78,18 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                     if (!values.currentOrganizationId) {
                         return []
                     }
-                    const response = await api.get(`api/organizations/${values.currentOrganizationId}/legal_documents`)
-                    return (response.results ?? []) as LegalDocument[]
+                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                        return []
+                    }
+                    try {
+                        const response = await api.legalDocumentsList(values.currentOrganizationId)
+                        return (response.results ?? []) as LegalDocument[]
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -104,10 +120,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 // single DPA variant, so we never send it on the wire.
                 const { dpa_mode: _dpaMode, ...payload } = formValues
                 try {
-                    const legalDocument = await api.create<LegalDocument>(
-                        `api/organizations/${values.currentOrganizationId}/legal_documents`,
-                        payload
-                    )
+                    const legalDocument = await api.legalDocumentsCreate(values.currentOrganizationId, payload)
                     actions.loadLegalDocuments()
                     actions.resetLegalDocument(defaultsFor(formValues.document_type))
                     lemonToast.success(
@@ -133,6 +146,11 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
         setDpaMode: ({ dpaMode }) => {
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
         },
+        loadCurrentOrganizationSuccess: () => {
+            if (values.legalDocuments.length === 0 && values.isAdminOrOwner && !values.legalDocumentsLoading) {
+                actions.loadLegalDocuments()
+            }
+        },
     })),
     selectors({
         hasQualifyingBaaAddon: [
@@ -143,6 +161,31 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 }
                 return billing.products.some((product) =>
                     product.addons?.some((addon) => BAA_ADDON_TYPES.has(addon.type) && !!addon.subscribed)
+                )
+            },
+        ],
+        isOnQualifyingAddonTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return billing.trial.status === 'active' && BAA_ADDON_TYPES.has(billing.trial.target)
+            },
+        ],
+        // Enterprise 'standard' trials are sales-managed: the billing page hides
+        // the cancel-trial button for them (see BillingProductAddonActions.tsx),
+        // so users need to go through support to convert their trial.
+        isOnEnterpriseStandardTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return (
+                    billing.trial.status === 'active' &&
+                    billing.trial.target === 'enterprise' &&
+                    billing.trial.type !== 'autosubscribe'
                 )
             },
         ],

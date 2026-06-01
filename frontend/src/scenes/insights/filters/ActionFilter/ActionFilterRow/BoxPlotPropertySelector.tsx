@@ -37,6 +37,7 @@ export function BoxPlotPropertySelector({
                 placeholder="Select numeric property"
                 data-attr="box-plot-property-select"
                 showNumericalPropsOnly
+                selectingKeyOnly
                 renderValue={(currentValue) => (
                     <PropertyKeyInfo
                         value={currentValue}

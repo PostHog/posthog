@@ -9,6 +9,7 @@ import { TerraformExportModal } from 'lib/components/TerraformExporter/Terraform
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
 import { DashboardInsightColorsModal } from './DashboardInsightColorsModal'
@@ -30,6 +31,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
         terraformModalOpen,
     } = useValues(dashboardLogic)
     const { setTerraformModalOpen } = useActions(dashboardLogic)
+    const { updateDashboardSuccess } = useActions(dashboardsModel)
     const { push } = useActions(router)
     const { user } = useValues(userLogic)
 
@@ -47,6 +49,7 @@ export function DashboardModals({ dashboard }: { dashboard: DashboardType<QueryB
                 closeModal={() => push(urls.dashboard(dashboard.id))}
                 dashboardId={dashboard.id}
                 userAccessLevel={dashboard.user_access_level}
+                onSharingEnabledChange={(enabled) => updateDashboardSuccess({ ...dashboard, is_shared: enabled })}
             />
             {canEditDashboard && (
                 <>

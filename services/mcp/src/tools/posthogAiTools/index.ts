@@ -1,6 +1,7 @@
 export { default as executeSql } from './executeSql'
 export { default as externalDataSourcesDbSchema } from './externalDataSourcesDbSchema'
 export { default as externalDataSourcesJobs } from './externalDataSourcesJobs'
+export { default as externalDataSyncLogs } from './externalDataSyncLogs'
 export { default as readDataSchema } from './readDataSchema'
 export { default as readDataWarehouseSchema } from './readDataWarehouseSchema'
 export { invokeMcpTool, type McpToolResult } from './invokeTool'

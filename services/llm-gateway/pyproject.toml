@@ -15,7 +15,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "asyncpg>=0.30.0",
     "redis==5.3.1",
-    "litellm==1.83.4",
+    "litellm==1.83.7",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
@@ -42,6 +42,9 @@ dev = [
     "asyncpg-stubs>=0.30.0",
     "types-cachetools>=5.5.0",
 ]
+
+[project.scripts]
+reset-posthog-code-usage = "llm_gateway.cli.reset_posthog_code_usage:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -70,11 +73,18 @@ select = [
     "I",
     "B",
     "C4",
+    "PLC0415",
     "UP",
 ]
 ignore = [
     "E501",
 ]
+
+# PLC0415 exemptions.
+# Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.
+[tool.ruff.lint.per-file-ignores]
+"src/**" = ["PLC0415"]
+"tests/**" = ["PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

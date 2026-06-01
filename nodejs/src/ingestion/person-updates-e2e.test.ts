@@ -22,6 +22,7 @@ import { Clickhouse } from '../../tests/helpers/clickhouse'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '../../tests/helpers/ingestion-outputs'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../tests/helpers/sql'
 import { createHogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
+import { KafkaProducerWrapper } from '../kafka/producer'
 import { Hub, PersonBatchWritingDbWriteMode, PipelineEvent, ProjectId, Team } from '../types'
 import { closeHub, createHub } from '../utils/db/hub'
 import { UUIDT } from '../utils/utils'
@@ -134,8 +135,8 @@ const createKafkaMessages = (events: PipelineEvent[]): Message[] => {
     return events.map(createKafkaMessage)
 }
 
-const waitForKafkaMessages = async (hub: Hub) => {
-    await hub.kafkaProducer.flush()
+const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) => {
+    await kafkaProducer.flush()
 }
 
 // All possible values for each flag
@@ -171,6 +172,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
     const configName = formatConfigName(config)
     let clickhouse: Clickhouse
     let hub: Hub
+    let kafkaProducer: KafkaProducerWrapper
     let ingester: IngestionConsumer
     let team: Team
 
@@ -191,6 +193,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         hub = await createHub({
             ...config,
         })
+        kafkaProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
 
         const teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
         const userId = teamId
@@ -224,12 +227,12 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
-        const outputs = createTestIngestionOutputs(hub.kafkaProducer)
+        const outputs = createTestIngestionOutputs(kafkaProducer)
         ingester = new IngestionConsumer(hub, {
             ...hub,
             hogTransformer: createHogTransformerService(hub, {
                 ...hub,
-                monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+                monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
             }),
             outputs,
             clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),
@@ -245,6 +248,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
 
     afterEach(async () => {
         await ingester.stop()
+        await kafkaProducer.disconnect()
         await closeHub(hub)
     })
 
@@ -256,7 +260,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 createKafkaMessages([new EventBuilder(team, distinctId).withEvent('test_event').build()])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -288,7 +292,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -329,7 +333,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -360,7 +364,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             // Wait for person to be created
             await waitForExpect(async () => {
@@ -386,7 +390,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -418,7 +422,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -443,7 +447,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -470,7 +474,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -491,7 +495,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -522,7 +526,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             // Update with combined $set and $unset
             await ingester.handleKafkaBatch(
@@ -538,7 +542,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -572,7 +576,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -588,7 +592,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -615,7 +619,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -634,7 +638,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)
@@ -656,7 +660,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, anonDistinctId)
@@ -678,7 +682,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 // After merge, the person should be identified and accessible via the identified distinct ID
@@ -730,7 +734,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             let initialLastSeenAt: number | undefined
             await waitForExpect(async () => {
@@ -745,7 +749,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 ])
             )
 
-            await waitForKafkaMessages(hub)
+            await waitForKafkaMessages(kafkaProducer)
 
             await waitForExpect(async () => {
                 const person = await hub.personRepository.fetchPerson(team.id, distinctId)

@@ -1,3 +1,4 @@
+import shlex
 from typing import Any
 
 from unittest.mock import Mock
@@ -93,15 +94,29 @@ class TestGeneratePolicyYaml(TestCase):
     def test_allowed_domains_before_deny_rules(self, domains):
         policy = yaml.safe_load(generate_policy_yaml(domains))
         rules = policy["network_rules"]
-        first_deny_idx = next(i for i, rule in enumerate(rules) if rule["decision"] == "deny")
+        default_deny_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "default-deny-network")
         for i, rule in enumerate(rules):
             if rule.get("decision") == "allow" and rule.get("domains"):
-                self.assertLess(i, first_deny_idx)
+                self.assertLess(i, default_deny_idx)
 
     def test_localhost_always_allowed(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
         localhost_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-localhost")
         self.assertIn("127.0.0.0/8", localhost_rule["cidrs"])
+
+    def test_restricted_policy_denies_cloud_metadata(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        metadata_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "deny-cloud-metadata")
+        self.assertEqual(metadata_rule["decision"], "deny")
+        self.assertIn("169.254.169.254/32", metadata_rule["cidrs"])
+        self.assertIn("fd00:ec2::254/128", metadata_rule["cidrs"])
+
+    def test_cloud_metadata_deny_precedes_allowed_domains(self):
+        policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
+        rules = policy["network_rules"]
+        metadata_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "deny-cloud-metadata")
+        allow_domains_idx = next(i for i, rule in enumerate(rules) if rule["name"] == "allow-domains")
+        self.assertLess(metadata_idx, allow_domains_idx)
 
     def test_file_rules_allow_all(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -115,9 +130,84 @@ class TestGeneratePolicyYaml(TestCase):
     @override_settings(DEBUG=True)
     def test_debug_mode_adds_dev_ports(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        self.assertIn(8000, debug_rule["ports"])
+        self.assertIn(8010, debug_rule["ports"])
+
+    @override_settings(DEBUG=True)
+    def test_debug_mode_keeps_prod_rule_restricted_to_cloud_ports(self):
+        # DEBUG additions land in `allow-debug-domains`, not `allow-domains` —
+        # the prod rule stays identical across environments so a debug-only
+        # port can't accidentally widen prod.
+        policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
-        self.assertIn(8000, allow_rule["ports"])
-        self.assertIn(8010, allow_rule["ports"])
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+
+    @override_settings(
+        DEBUG=True,
+        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+        SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp",
+    )
+    def test_debug_mode_adds_ports_from_sandbox_url_settings(self):
+        # Local llm-gateway (3308) and MCP wrangler (8787) listen on non-standard
+        # ports — without including them in `allow-debug-domains.ports`, agentsh
+        # denies the connect at the syscall layer even when the hostname is allowed.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        self.assertIn(3308, debug_rule["ports"])
+        self.assertIn(8787, debug_rule["ports"])
+
+    @override_settings(
+        DEBUG=True,
+        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+    )
+    def test_debug_mode_adds_sandbox_hosts_to_debug_rule(self):
+        # Parsed sandbox hostnames belong on the DEBUG rule, not the prod rule.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertIn("host.docker.internal", debug_rule["domains"])
+        self.assertNotIn("host.docker.internal", allow_rule["domains"])
+
+    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
+    def test_non_debug_mode_omits_debug_rule_entirely(self):
+        # Outside DEBUG the debug rule should not exist, and the prod rule
+        # must not absorb any sandbox URL hostnames or non-cloud ports.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        rule_names = [rule["name"] for rule in policy["network_rules"]]
+        self.assertNotIn("allow-debug-domains", rule_names)
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+        self.assertNotIn("example.local", allow_rule["domains"])
+
+    @override_settings(
+        DEBUG=True,
+        # Non-numeric port — `urlparse(...).port` raises ValueError on access.
+        SANDBOX_API_URL="http://host:abc",
+        # Out-of-range port (>65535) — also raises ValueError.
+        SANDBOX_LLM_GATEWAY_URL="http://host:99999",
+    )
+    def test_debug_mode_tolerates_malformed_sandbox_urls(self):
+        # A typo in `SANDBOX_*_URL` should not crash `generate_policy_yaml`.
+        # Malformed ports degrade silently to "no port added"; the base DEBUG
+        # ports (8000/8010) and prod ports (22/80/443) are preserved so the
+        # sandbox still boots with a sane allowlist.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
+        for port in (8000, 8010):
+            self.assertIn(port, debug_rule["ports"])
+        self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
+
+    @override_settings(DEBUG=True, SANDBOX_LLM_GATEWAY_URL="not-a-url-at-all://")
+    def test_debug_mode_tolerates_malformed_sandbox_hostname(self):
+        # Companion to the port-side guard — `_hostname_from_url` should
+        # degrade silently rather than crash policy generation.
+        policy = yaml.safe_load(generate_policy_yaml([]))
+        debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
+        # Localhost + host.docker.internal are still present.
+        self.assertIn("localhost", debug_rule["domains"])
+        self.assertIn("host.docker.internal", debug_rule["domains"])
 
     def test_allow_all_policy_when_no_domains(self):
         policy = yaml.safe_load(generate_policy_yaml(None))
@@ -130,6 +220,11 @@ class TestGeneratePolicyYaml(TestCase):
         policy = yaml.safe_load(generate_policy_yaml(None))
         deny_rules = [r for r in policy["network_rules"] if r["decision"] == "deny"]
         self.assertEqual(len(deny_rules), 0)
+
+    def test_allow_all_policy_has_no_metadata_deny_rule(self):
+        policy = yaml.safe_load(generate_policy_yaml(None))
+        rule_names = [r["name"] for r in policy["network_rules"]]
+        self.assertNotIn("deny-cloud-metadata", rule_names)
 
 
 class TestEnvWrapper(TestCase):
@@ -161,6 +256,12 @@ class TestBuildAuditQueryCommand(TestCase):
         cmd = build_audit_query_command(limit=10)
         self.assertIn("LIMIT 10", cmd)
 
+    def test_command_is_shell_parseable(self):
+        cmd = build_audit_query_command(limit=10)
+        parts = shlex.split(cmd)
+        self.assertEqual(parts[0], "sqlite3")
+        self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
+
 
 class TestBuildExecPrefix(TestCase):
     def test_returns_correct_format(self):
@@ -184,7 +285,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
             create_pr=True,
         )
         self.assertNotIn("agentsh exec --client-timeout 2h --timeout 2h", cmd)
-        self.assertNotIn("env -0 > /tmp/agent-env", cmd)
+        # The env file is written at launch regardless of agentsh so the
+        # mid-session credential refresh can re-source the token per command.
+        self.assertIn("env -0 > /tmp/agent-env", cmd)
         self.assertNotIn(ENV_WRAPPER_SCRIPT, cmd)
         self.assertIn("nohup", cmd)
 

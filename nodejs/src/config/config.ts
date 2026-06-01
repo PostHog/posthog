@@ -1,12 +1,19 @@
+import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
+import {
+    getDefaultKafkaWarehouseProducerEnvConfig,
+    getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig,
+    getDefaultKafkaWarpstreamCyclotronProducerEnvConfig,
+    getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
+} from '../cdp/outputs/producers'
 import { getDefaultCommonConfig } from '../common/config'
 import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
 import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import { getDefaultLlmAnalyticsConfig } from '../llm-analytics/config'
 import {
     getDefaultLogsIngestionConsumerConfig,
     getDefaultTracesIngestionConsumerConfig,
 } from '../logs-ingestion/config'
+import { getDefaultMetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
 import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
@@ -20,13 +27,18 @@ export function getDefaultConfig(): PluginsServerConfig {
     return {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
-        ...getDefaultLlmAnalyticsConfig(),
+        ...getDefaultAIObservabilityConfig(),
         ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
         ...getDefaultErrorTrackingConsumerConfig(),
         ...getDefaultSessionRecordingConfig(),
         ...getDefaultSessionRecordingApiConfig(),
+        ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
+        ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
+        ...getDefaultKafkaWarehouseProducerEnvConfig(),
     }
 }
 

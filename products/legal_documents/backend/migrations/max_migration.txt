@@ -1,1 +1,1 @@
-0002_legaldocument_pandadoc_integration
+0004_alter_legaldocument_document_type

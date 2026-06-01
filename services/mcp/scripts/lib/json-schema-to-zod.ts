@@ -26,6 +26,8 @@ export interface JsonSchema {
     default?: unknown
     description?: string
     maxLength?: number
+    minItems?: number
+    maxItems?: number
     minimum?: number
     maximum?: number
     format?: string
@@ -169,7 +171,14 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext): string {
     // array
     if (schema.type === 'array') {
         const itemSchema = schema.items ? schemaToZod(schema.items, ctx) : 'z.unknown()'
-        return `z.array(${itemSchema})`
+        let zodExpr = `z.array(${itemSchema})`
+        if (typeof schema.minItems === 'number') {
+            zodExpr += `.min(${schema.minItems})`
+        }
+        if (typeof schema.maxItems === 'number') {
+            zodExpr += `.max(${schema.maxItems})`
+        }
+        return zodExpr
     }
 
     // integer special ref — use coerce for MCP client compatibility (some clients send numbers as strings)

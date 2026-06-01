@@ -60,7 +60,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
-            betaSource=True,
+            releaseStatus="beta",
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
@@ -68,11 +68,20 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
+                        name="connection_string",
+                        label="Connection string (optional)",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="https://user:password@play.clickhouse.com:8443/default",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
                         name="host",
                         label="Host",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="play.clickhouse.com",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="port",
@@ -80,6 +89,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.NUMBER,
                         required=True,
                         placeholder="8443",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="database",
@@ -87,6 +97,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="user",
@@ -94,6 +105,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="default",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="password",
@@ -101,6 +113,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=False,
                         placeholder="",
+                        secret=True,
                     ),
                     SourceFieldSelectConfig(
                         name="secure",
@@ -144,6 +157,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "No route to host": None,
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
+            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
+            # the destination table was created with the narrower type. Delta Lake can't widen
+            # an existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def get_schemas(
@@ -152,6 +171,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         team_id: int,
         with_counts: bool = False,
         names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
@@ -193,6 +213,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_clickhouse_incremental_fields(columns)
+            # In ClickHouse the table's ORDER BY (sorting key) is the only access
+            # structure that accelerates `WHERE col >= …`; its leading column is
+            # the first entry returned by the PK helper (which queries
+            # is_in_sorting_key ORDER BY position).
+            sort_key = detected_pks.get(table_name)
+            leading_sort_key = sort_key[0] if sort_key else None
             incremental_fields: list[IncrementalField] = [
                 {
                     "label": field_name,
@@ -200,6 +226,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     "field": field_name,
                     "field_type": field_type,
                     "nullable": nullable,
+                    "is_indexed": field_name == leading_sort_key,
                 }
                 for field_name, field_type, nullable in incremental_field_tuples
             ]
@@ -275,7 +302,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             )
 
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

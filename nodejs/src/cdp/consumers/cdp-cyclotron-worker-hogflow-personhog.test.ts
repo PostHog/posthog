@@ -1,3 +1,5 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
+
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/schema/hogflow'
@@ -29,7 +31,12 @@ type MockPersonHogClient = {
             'fetchGroup' | 'fetchGroupsByKeys' | 'fetchGroupTypesByTeamIds' | 'fetchGroupTypesByProjectIds'
         >
     >
-    persons: jest.Mocked<Pick<PersonHogClient['persons'], 'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds'>>
+    persons: jest.Mocked<
+        Pick<
+            PersonHogClient['persons'],
+            'fetchPersonsByDistinctIds' | 'fetchPersonsByPersonIds' | 'getDistinctIdsForPersons'
+        >
+    >
 }
 
 describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
@@ -106,6 +113,7 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             persons: {
                 fetchPersonsByDistinctIds: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
                 fetchPersonsByPersonIds: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
+                getDistinctIdsForPersons: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
             },
         }
 
@@ -116,10 +124,12 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             new Set(),
             'test'
         )
-        const processor = new CdpCyclotronWorkerHogFlow(hub, {
-            ...createCdpConsumerDeps(hub),
-            personRepository: personhogRepo,
-        })
+        const mockJobQueue = createMockJobQueue()
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: personhogRepo },
+            mockJobQueue
+        )
 
         const invocations = [
             createSerializedHogFlowInvocation(hogFlow, {
@@ -154,6 +164,7 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             persons: {
                 fetchPersonsByDistinctIds: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
                 fetchPersonsByPersonIds: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
+                getDistinctIdsForPersons: jest.fn().mockRejectedValue(new Error('gRPC unavailable')),
             },
         }
 
@@ -164,10 +175,12 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
             new Set(),
             'test'
         )
-        const processor = new CdpCyclotronWorkerHogFlow(hub, {
-            ...createCdpConsumerDeps(hub),
-            personRepository: personhogRepo,
-        })
+        const mockJobQueue2 = createMockJobQueue()
+        const processor = new CdpCyclotronWorkerHogFlow(
+            hub,
+            { ...createCdpConsumerDeps(hub), personRepository: personhogRepo },
+            mockJobQueue2
+        )
 
         const invocations = [
             createSerializedHogFlowInvocation(hogFlow, {
@@ -185,5 +198,11 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
 
         // gRPC was attempted for personId lookup
         expect(failingGrpc.persons.fetchPersonsByPersonIds).toHaveBeenCalled()
+
+        // The resolved person carries a distinct_id, and the worker backfills it onto
+        // event.distinct_id so capture-based hog templates (defaulting to {event.distinct_id})
+        // route to the existing person instead of creating a new one.
+        expect(results[0].invocation.person?.distinct_id).toBe('distinct_A_1')
+        expect(results[0].invocation.state.event.distinct_id).toBe('distinct_A_1')
     })
 })

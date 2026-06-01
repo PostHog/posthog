@@ -36,6 +36,7 @@ const emailTrackingErrorsCounter = new Counter({
 
 export const generateTrackingRedirectUrl = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'functionId' | 'id' | 'teamId'> & {
+        parentRunId?: string | null
         state?: { actionId?: string }
     },
     targetUrl: string
@@ -75,12 +76,14 @@ export class EmailTrackingService {
         functionId,
         invocationId,
         actionId,
+        parentRunId,
         metricName,
         source,
     }: {
         functionId?: string
         invocationId?: string
         actionId?: string
+        parentRunId?: string
         metricName: MinimalAppMetric['metric_name']
         source: 'direct' | 'ses'
     }): Promise<void> {
@@ -116,7 +119,9 @@ export class EmailTrackingService {
         this.hogFunctionMonitoringService.queueAppMetric(
             {
                 team_id: teamId,
-                app_source_id: appSourceId,
+                // Mirror email.service.ts's `parentRunId ?? functionId` so batch-triggered
+                // runs get their webhook metrics attributed to the batch run, not the workflow.
+                app_source_id: parentRunId ?? appSourceId,
                 instance_id: actionId || invocationId,
                 metric_name: metricName,
                 metric_kind: 'email',
@@ -152,6 +157,7 @@ export class EmailTrackingService {
                     functionId: metric.functionId,
                     invocationId: metric.invocationId,
                     actionId: metric.actionId,
+                    parentRunId: metric.parentRunId,
                     metricName: metric.metricName,
                     source: 'ses',
                 })
@@ -201,6 +207,7 @@ export class EmailTrackingService {
         functionId?: string
         invocationId?: string
         actionId?: string
+        parentRunId?: string
     } {
         // Support both combined ph_id format and legacy separate params
         if (query.ph_id) {
@@ -209,6 +216,7 @@ export class EmailTrackingService {
                 functionId: parsed?.functionId,
                 invocationId: parsed?.invocationId,
                 actionId: parsed?.actionId,
+                parentRunId: parsed?.parentRunId,
             }
         }
         return {

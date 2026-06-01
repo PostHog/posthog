@@ -5,6 +5,7 @@ import type { outputPaneLogicType } from './outputPaneLogicType'
 export enum OutputTab {
     Results = 'results',
     Visualization = 'visualization',
+    Both = 'both',
 }
 
 export interface OutputTabProps {

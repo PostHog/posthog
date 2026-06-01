@@ -2,12 +2,14 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
+
+from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
 
-from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
-from products.growth.dags.github_sdk_versions import SDK_TYPES
+from products.growth.backend.constants import SDK_TYPES, TEAM_SDK_CACHE_EXPIRY
+from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck, _cache_team_sdk_data
 
 
 def _make_github_data(latest_version: str, release_dates: dict | None = None) -> dict:
@@ -176,3 +178,42 @@ class TestSdkOutdatedCheck(TestCase):
         results = self.check.detect([1])
 
         assert results == {}
+
+    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
+    def test_cache_team_sdk_data_uses_team_sdk_cache_expiry(self, mock_get_client: MagicMock):
+        mock_redis = MagicMock()
+        mock_pipe = MagicMock()
+        mock_redis.pipeline.return_value = mock_pipe
+        mock_get_client.return_value = mock_redis
+
+        _cache_team_sdk_data({1: {"web": [{"lib_version": "1.0.0", "max_timestamp": "x", "count": 1}]}})
+
+        mock_pipe.setex.assert_called_once()
+        _key, ttl, _payload = mock_pipe.setex.call_args[0]
+        assert ttl == TEAM_SDK_CACHE_EXPIRY
+
+
+class TestSdkOutdatedRenderAlert(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("safe_version", "1.198.0", "web is on 1.198.0, latest is 1.200.0"),
+            ("space_injection", "1.198.0 <https://evil.example|click>", "web is behind 1.200.0"),
+            ("newline_injection", "1.198.0\n@channel", "web is behind 1.200.0"),
+            ("markdown_injection", "**1.198.0**", "web is behind 1.200.0"),
+            ("empty_string", "", "web is behind 1.200.0"),
+        ]
+    )
+    def test_render_alert_rejects_unsafe_lib_version(self, _name: str, raw_version: str, expected_summary: str) -> None:
+        issue = HealthIssue(
+            team_id=1,
+            kind="sdk_outdated",
+            severity=HealthIssue.Severity.WARNING,
+            payload={
+                "sdk_name": "web",
+                "latest_version": "1.200.0",
+                "usage": [{"lib_version": raw_version, "count": 100, "max_timestamp": "2026-03-20"}],
+            },
+            unique_hash="h",
+        )
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == expected_summary

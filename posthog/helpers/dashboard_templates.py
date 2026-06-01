@@ -1,15 +1,17 @@
 from collections.abc import Callable
 from typing import Any, Optional
 
+from django.db.models import Q
+
 import structlog
 
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER
-from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
+from products.product_analytics.backend.models.insight import Insight
 
 DASHBOARD_COLORS: list[str] = ["white", "blue", "green", "purple", "black"]
 
@@ -545,6 +547,7 @@ def _create_tile_for_text(
     DashboardTile.objects.create(
         text=text,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
@@ -571,6 +574,7 @@ def _create_tile_for_button(
     DashboardTile.objects.create(
         button_tile=button_tile,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
@@ -598,6 +602,7 @@ def _create_tile_for_insight(
     DashboardTile.objects.create(
         insight=insight,
         dashboard=dashboard,
+        team_id=dashboard.team_id,
         layouts=layouts,
         color=color,
     )
@@ -607,7 +612,10 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
     if template_key in DASHBOARD_TEMPLATES:
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
-    template = DashboardTemplate.objects.filter(template_name=template_key).first()
+    template = DashboardTemplate.objects.filter(
+        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        template_name=template_key,
+    ).first()
     if not template:
         original_template = DashboardTemplate.original_template()
         if template_key == original_template.template_name:
@@ -917,6 +925,7 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
         tile = DashboardTile.objects.create(
             insight=insight,
             dashboard=dashboard,
+            team_id=dashboard.team_id,
             layouts={
                 "sm": {"h": 5, "w": 6, "x": x, "y": y, "minH": 1, "minW": 1},
                 "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},

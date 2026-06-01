@@ -9,13 +9,29 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EmitFindingRequestApi,
+    EmitFindingResponseApi,
+    ForgetRequestApi,
+    ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
+    ProjectProfileApi,
+    RememberRequestApi,
+    ScratchpadEntryApi,
+    SignalReportApi,
+    SignalScoutRunDetailApi,
+    SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportsListParams,
+    SignalsScoutProjectProfileGetParams,
+    SignalsScoutRunsListParams,
+    SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -36,9 +52,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-/**
- * Return current processing state including pause status.
- */
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -55,6 +68,9 @@ export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsP
         : `/api/projects/${projectId}/signals/processing/`
 }
 
+/**
+ * Return current processing state including pause status.
+ */
 export const signalsProcessingList = async (
     projectId: string,
     params?: SignalsProcessingListParams,
@@ -66,13 +82,13 @@ export const signalsProcessingList = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseUpdateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseUpdate = async (
     projectId: string,
     pauseUntilRequestApi: PauseUntilRequestApi,
@@ -86,13 +102,13 @@ export const signalsProcessingPauseUpdate = async (
     })
 }
 
-/**
- * View and control signal processing pipeline state for a team.
- */
 export const getSignalsProcessingPauseDestroyUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/processing/pause/`
 }
 
+/**
+ * View and control signal processing pipeline state for a team.
+ */
 export const signalsProcessingPauseDestroy = async (
     projectId: string,
     options?: RequestInit
@@ -100,6 +116,227 @@ export const signalsProcessingPauseDestroy = async (
     return apiMutator<PauseResponseApi>(getSignalsProcessingPauseDestroyUrl(projectId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsListUrl = (projectId: string, params?: SignalsReportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/`
+}
+
+export const signalsReportsList = async (
+    projectId: string,
+    params?: SignalsReportsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportListApi> => {
+    return apiMutator<PaginatedSignalReportListApi>(getSignalsReportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/`
+}
+
+export const signalsReportsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutProjectProfileGetUrl = (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/project_profile/current/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/project_profile/current/`
+}
+
+/**
+ * Return the team's deterministic project profile. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.
+ * @summary Get the current project profile
+ */
+export const signalsScoutProjectProfileGet = async (
+    projectId: string,
+    params?: SignalsScoutProjectProfileGetParams,
+    options?: RequestInit
+): Promise<ProjectProfileApi> => {
+    return apiMutator<ProjectProfileApi>(getSignalsScoutProjectProfileGetUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsScoutRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/`
+}
+
+/**
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Results capped at 100.
+ * @summary Search recent agent runs
+ */
+export const signalsScoutRunsList = async (
+    projectId: string,
+    params?: SignalsScoutRunsListParams,
+    options?: RequestInit
+): Promise<SignalScoutRunSummaryApi[]> => {
+    return apiMutator<SignalScoutRunSummaryApi[]>(getSignalsScoutRunsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutRunsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${id}/`
+}
+
+/**
+ * Return the full `SignalScoutRun` row. Status, timing, and error flow from the linked `tasks.TaskRun`. Strictly team-scoped — a UUID belonging to another team returns 404.
+ * @summary Get a run by ID
+ */
+export const signalsScoutRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalScoutRunDetailApi> => {
+    return apiMutator<SignalScoutRunDetailApi>(getSignalsScoutRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitSignalUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${id}/emit-signal/`
+}
+
+/**
+ * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
+ * @summary Emit a finding for a run
+ */
+export const signalsScoutEmitSignal = async (
+    projectId: string,
+    id: string,
+    emitFindingRequestApi: EmitFindingRequestApi,
+    options?: RequestInit
+): Promise<EmitFindingResponseApi> => {
+    return apiMutator<EmitFindingResponseApi>(getSignalsScoutEmitSignalUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: SignalsScoutScratchpadSearchParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/scratchpad/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`.
+ * @summary Search the scout scratchpad
+ */
+export const signalsScoutScratchpadSearch = async (
+    projectId: string,
+    params?: SignalsScoutScratchpadSearchParams,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi[]> => {
+    return apiMutator<ScratchpadEntryApi[]>(getSignalsScoutScratchpadSearchUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutScratchpadRememberUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/`
+}
+
+/**
+ * Upsert a memory keyed on `(team, key)`. Re-using a key updates the existing entry in place.
+ * @summary Remember a scratchpad entry
+ */
+export const signalsScoutScratchpadRemember = async (
+    projectId: string,
+    rememberRequestApi: RememberRequestApi,
+    options?: RequestInit
+): Promise<ScratchpadEntryApi> => {
+    return apiMutator<ScratchpadEntryApi>(getSignalsScoutScratchpadRememberUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(rememberRequestApi),
+    })
+}
+
+export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
+}
+
+/**
+ * Delete an entry by key. Returns `deleted=false` if no row matched.
+ * @summary Forget a scratchpad entry by key
+ */
+export const signalsScoutScratchpadForget = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadForgetUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
     })
 }
 
@@ -187,7 +424,7 @@ export const getSignalsSourceConfigsPartialUpdateUrl = (projectId: string, id: s
 export const signalsSourceConfigsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSignalSourceConfigApi: NonReadonly<PatchedSignalSourceConfigApi>,
+    patchedSignalSourceConfigApi?: NonReadonly<PatchedSignalSourceConfigApi>,
     options?: RequestInit
 ): Promise<SignalSourceConfigApi> => {
     return apiMutator<SignalSourceConfigApi>(getSignalsSourceConfigsPartialUpdateUrl(projectId, id), {
@@ -213,6 +450,10 @@ export const signalsSourceConfigsDestroy = async (
     })
 }
 
+export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
+}
+
 /**
  * Per-user signal autonomy config (singleton keyed by user).
 
@@ -220,33 +461,42 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
-export const usersSignalAutonomyRetrieve = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyRetrieveUrl(userId), {
+export const usersSignalAutonomyRetrieve = async (
+    userId: string,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyRetrieveUrl(userId), {
         ...options,
         method: 'GET',
     })
 }
 
-/**
- * Per-user signal autonomy config (singleton keyed by user).
-
-GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
-POST   /api/users/<id>/signal_autonomy/ → create or update
-DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
- */
 export const getUsersSignalAutonomyCreateUrl = (userId: string) => {
     return `/api/users/${userId}/signal_autonomy/`
 }
 
-export const usersSignalAutonomyCreate = async (userId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUsersSignalAutonomyCreateUrl(userId), {
+/**
+ * Per-user signal autonomy config (singleton keyed by user).
+
+GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
+POST   /api/users/<id>/signal_autonomy/ → create or update
+DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
+ */
+export const usersSignalAutonomyCreate = async (
+    userId: string,
+    signalUserAutonomyConfigApi?: NonReadonly<SignalUserAutonomyConfigApi>,
+    options?: RequestInit
+): Promise<SignalUserAutonomyConfigApi> => {
+    return apiMutator<SignalUserAutonomyConfigApi>(getUsersSignalAutonomyCreateUrl(userId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalUserAutonomyConfigApi),
     })
+}
+
+export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
+    return `/api/users/${userId}/signal_autonomy/`
 }
 
 /**
@@ -256,10 +506,6 @@ GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
 POST   /api/users/<id>/signal_autonomy/ → create or update
 DELETE /api/users/<id>/signal_autonomy/ → remove (opt out)
  */
-export const getUsersSignalAutonomyDestroyUrl = (userId: string) => {
-    return `/api/users/${userId}/signal_autonomy/`
-}
-
 export const usersSignalAutonomyDestroy = async (userId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getUsersSignalAutonomyDestroyUrl(userId), {
         ...options,

@@ -1,5 +1,6 @@
 import logging
 
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.organization import Organization
@@ -28,7 +29,7 @@ class TeamExperimentsConfig(models.Model):
 
     default_experiment_stats_method = models.CharField(
         max_length=20,
-        choices=Organization.DefaultExperimentStatsMethod.choices,
+        choices=Organization.DefaultExperimentStatsMethod,
         default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
         null=True,
         blank=True,
@@ -50,6 +51,36 @@ class TeamExperimentsConfig(models.Model):
         help_text=(
             "Default for disabling per-step session/event sample data on funnel experiment metrics. "
             "Overridden by the experiment-level `funnel_steps_data_disabled` parameter when set."
+        ),
+    )
+
+    default_cuped_enabled = models.BooleanField(
+        default=False,
+        help_text=(
+            "Default for enabling CUPED variance reduction on experiment metrics. "
+            "Overridden by the experiment-level `stats_config.cuped.enabled` setting when set."
+        ),
+    )
+
+    default_cuped_lookback_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(30)],
+        help_text=(
+            "Default lookback window (in days) for CUPED variance reduction. "
+            "Overridden by the experiment-level `stats_config.cuped.lookback_days` setting when set. "
+            "Must be between 1 and 30 days."
+        ),
+    )
+
+    default_minimum_detectable_effect = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        help_text=(
+            "Default minimum detectable effect (MDE) percentage for new experiments in this environment. "
+            "Valid values: 1-100. MDE is the smallest effect size you want to be able to detect with "
+            "statistical significance. Lower values require more data and longer run times."
         ),
     )
 

@@ -23,12 +23,14 @@ from .process_task.activities import (
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
+    refresh_sandbox_credentials,
     relay_sandbox_events,
     send_followup_to_sandbox,
     start_agent_server,
     track_workflow_event,
     update_task_run_status,
 )
+from .process_task.activities.get_pr_context import get_pr_context
 from .process_task.workflow import ProcessTaskWorkflow
 from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
@@ -45,6 +47,7 @@ ACTIVITIES = [
     prepare_sandbox_for_repository,
     create_sandbox_for_repository,
     inject_fresh_tokens_on_resume,
+    refresh_sandbox_credentials,
     clone_repository_in_sandbox,
     checkout_branch_in_sandbox,
     get_sandbox_for_repository,
@@ -60,6 +63,7 @@ ACTIVITIES = [
     track_workflow_event,
     post_slack_update,
     update_task_run_status,
+    get_pr_context,
     relay_slack_message,
     run_task_automation_activity,
     # create_snapshot activities

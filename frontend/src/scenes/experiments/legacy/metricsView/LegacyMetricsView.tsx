@@ -5,10 +5,14 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
-import { experimentLogic } from '../../experimentLogic'
-import { legacyCredibleIntervalForVariant } from '../calculations/legacyExperimentCalculations'
-import { LegacyDeltaChart } from './LegacyDeltaChart'
-import { legacyGetNiceTickValues } from './legacyUtils'
+import { ExperimentFunnelsQuery, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
+import {
+    legacyCredibleIntervalForVariant,
+    LegacyDeltaChart,
+    legacyGetNiceTickValues,
+    getInsightType,
+    legacyExperimentLogic,
+} from '~/scenes/experiments/legacy'
 
 /**
  * @deprecated
@@ -18,12 +22,11 @@ import { legacyGetNiceTickValues } from './legacyUtils'
 export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): JSX.Element {
     const {
         experiment,
-        getInsightType,
         legacyPrimaryMetricsResults,
         legacySecondaryMetricsResults,
         primaryMetricsResultsErrors,
         secondaryMetricsResultsErrors,
-    } = useValues(experimentLogic)
+    } = useValues(legacyExperimentLogic)
 
     const variants = experiment?.feature_flag?.filters?.multivariate?.variants
     if (!variants) {
@@ -57,7 +60,7 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
                 return []
             }
             return variants.flatMap((variant) => {
-                const insightType = getInsightType(metric)
+                const insightType = getInsightType(metric as ExperimentTrendsQuery | ExperimentFunnelsQuery)
                 const interval = legacyCredibleIntervalForVariant(result, variant.key, insightType)
                 return interval ? [Math.abs(interval[0] / 100), Math.abs(interval[1] / 100)] : []
             })
@@ -164,7 +167,9 @@ export function LegacyMetricsView({ isSecondary }: { isSecondary?: boolean }): J
                                         result={result}
                                         error={errors?.[index]}
                                         variants={variants}
-                                        metricType={getInsightType(metric)}
+                                        metricType={getInsightType(
+                                            metric as ExperimentTrendsQuery | ExperimentFunnelsQuery
+                                        )}
                                         displayOrder={index}
                                         metric={metric}
                                         isFirstMetric={isFirstMetric}

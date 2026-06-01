@@ -24,6 +24,7 @@ Temporal context, like activity ID, workflow type, attempt number, and others, w
 automatically included.
 """
 
+import os
 import sys
 import json
 import typing
@@ -160,12 +161,28 @@ class LogMessagesRenderer:
             try:
                 log_source, log_source_id = resolve_log_source(event_dict["workflow_type"], event_dict["workflow_id"])
 
+                # Event-level overrides let one workflow_type route to multiple schemas.
+                log_source = event_dict.pop("log_source", log_source)
+                log_source_id = event_dict.pop("log_source_id", log_source_id)
+
+                # Append resource + batch_index so the Syncs UI distinguishes parallel batches
+                # of the same CDC sync. Scoped to `external_data_jobs` so we don't reshape
+                # message text for batch exports / data modeling / other temporal workflows.
+                message_text = event_dict[self.event_key]
+                if log_source == "external_data_jobs":
+                    resource_marker = event_dict.get("resource_name") or event_dict.get("resource")
+                    if resource_marker:
+                        message_text = f"{message_text} [{resource_marker}]"
+                    batch_index = event_dict.get("batch_index")
+                    if batch_index is not None:
+                        message_text = f"{message_text} #{batch_index}"
+
                 message_dict = {
                     "instance_id": event_dict["workflow_run_id"],
                     "level": event_dict["level"],
                     "log_source": log_source,
                     "log_source_id": log_source_id,
-                    "message": event_dict[self.event_key],
+                    "message": message_text,
                     "team_id": event_dict["team_id"],
                     "timestamp": event_dict["timestamp"],
                 }
@@ -475,6 +492,7 @@ def configure_logger(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
+    raise_on_producer_error: bool = False,
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -501,6 +519,9 @@ def configure_logger(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be `True` except in tests.
         loop: The loop where the aforementioned tasks will run on.
+        raise_on_producer_error: Raise any producer startup errors when `True`,
+            otherwise only log them. Set to `False` as in production environments, we
+            prefer only logging as most products can survive without logs.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -523,7 +544,10 @@ def configure_logger(
     log_producer = None
     log_producer_error = None
 
-    is_test_or_tty = sys.stderr.isatty() or settings.TEST
+    # `TEMPORAL_LOGS_TO_KAFKA=true` forces produce path on a TTY (local dev). No effect in prod
+    # (no TTY anyway) or tests (settings.TEST always wins).
+    force_produce = os.getenv("TEMPORAL_LOGS_TO_KAFKA", "").strip().lower() in ("1", "true", "yes", "on")
+    is_test_or_tty = settings.TEST or (sys.stderr.isatty() and not force_produce)
 
     if is_test_or_tty:
         logger_factory = LoggerFactory(file=file, is_test_or_tty=is_test_or_tty)
@@ -534,7 +558,9 @@ def configure_logger(
     else:
         try:
             log_producer = KafkaLogProducerFromQueueAsync(
-                queue=log_queue, topic=KAFKA_LOG_ENTRIES, producer=producer, loop=loop
+                queue=log_queue,
+                topic=KAFKA_LOG_ENTRIES,
+                producer=producer,
             )
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
@@ -567,7 +593,10 @@ def configure_logger(
     )
 
     if log_producer is None:
-        if loop is not None:
+        if log_producer_error is not None:
+            if raise_on_producer_error:
+                raise log_producer_error
+
             logger = structlog.get_logger()
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
         return
@@ -645,17 +674,20 @@ class KafkaLogProducerFromQueueAsync:
         self,
         queue: asyncio.Queue[bytes],
         topic: str = KAFKA_LOG_ENTRIES,
-        key: str | None = None,
         producer: "_AsyncKafkaProducer | None" = None,
-        loop: None | asyncio.AbstractEventLoop = None,
+        key: str | None = None,
     ):
-        from posthog.kafka_client.routing import new_async_producer
-
         self.queue = queue
         self.topic = topic
         self.key = key
-        self.producer = producer if producer is not None else new_async_producer(topic=topic)
+        self._producer = producer
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
+
+    @property
+    def producer(self) -> "_AsyncKafkaProducer":
+        if self._producer is None:
+            raise ValueError("Producer not initialized")
+        return self._producer
 
     async def listen(self):
         """Listen to messages in queue and produce them to Kafka as they come.
@@ -663,6 +695,11 @@ class KafkaLogProducerFromQueueAsync:
         This is designed to be ran as an asyncio.Task, as it will wait forever for the queue
         to have messages.
         """
+        from posthog.kafka_client.routing import new_async_producer
+
+        if self._producer is None:
+            self._producer = await new_async_producer(topic=self.topic)
+
         try:
             while True:
                 msg = await self.queue.get()
@@ -675,24 +712,31 @@ class KafkaLogProducerFromQueueAsync:
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.
 
-        We catch any exceptions so as to continue processing the queue even if the broker is unavailable
-        or we fail to produce for whatever other reason. We log the failure to not fail silently.
-        """
-        fut = await self.producer.produce(
-            topic=self.topic,
-            data=msg,
-            key=self.key,
-            value_serializer=lambda v: v,
-        )
-        fut.add_done_callback(self.mark_queue_done)
+        We catch any exceptions so as to continue processing the queue even if the
+        broker is unavailable we fail to produce for whatever other reason. We log the
+        failure to not fail silently.
 
+        Note that `self.producer.produce` may not immediately produce a message, nor do
+        we wait for the message to be fully produced here. Whether a message is produced
+        depends on the underlying producer's `batch_size` a `buffer_timeout`. To force a
+        message to be produced, call `flush()`.
+        """
         try:
-            await fut
+            fut = await self.producer.produce(
+                topic=self.topic,
+                data=msg,
+                key=self.key,
+                value_serializer=lambda v: v,
+            )
         except Exception:
+            self.mark_queue_done()
             self.logger.exception("Failed to produce log to Kafka topic %s", self.topic)
             self.logger.debug("Message that couldn't be produced to Kafka topic %s: %s", self.topic, msg)
+        else:
+            fut.add_done_callback(self.mark_queue_done)
 
     async def flush(self):
+        """Flush underlying producer, effectively producing any messages in the batch."""
         try:
             await self.producer.flush()
         except Exception:
@@ -837,6 +881,12 @@ def resolve_log_source(workflow_type: str, workflow_id: str) -> tuple[str | None
     elif workflow_type == "external-data-job":
         # This works because the WorkflowID is made up like f"{external_data_schema_id}-{data_interval_end}"
         log_source_id = workflow_id.rsplit("-", maxsplit=3)[0]
+        log_source = "external_data_jobs"
+    elif workflow_type == "cdc-extraction":
+        # WorkflowID is f"cdc-extraction-{source_id}-{iso_ts}". Per-schema lines override
+        # log_source_id at emit time; default here is the source id.
+        without_prefix = workflow_id.removeprefix("cdc-extraction-")
+        log_source_id = without_prefix[:36] if len(without_prefix) >= 36 else without_prefix
         log_source = "external_data_jobs"
     elif workflow_type == "data-modeling-run":
         # This works because the WorkflowID is made up like f"{saved_query_id}-{data_interval_end}"

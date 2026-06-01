@@ -141,17 +141,13 @@ export function ScrollDepthCanvas({
     }
 
     return (
-        <div
-            className={cn(
-                'inset-0 overflow-hidden w-full h-full',
-                positioning,
-                isReady ? 'heatmaps-ready' : 'heatmaps-loading'
-            )}
-            data-attr="scroll-depth-canvas"
-        >
+        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)} data-attr="scroll-depth-canvas">
             <div
                 ref={innerRef}
-                className="absolute top-0 left-0 right-0"
+                className={cn(
+                    'absolute top-0 left-0 right-0 transition-opacity duration-150',
+                    isReady ? 'heatmaps-ready opacity-100' : 'heatmaps-loading opacity-40 pointer-events-none'
+                )}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     willChange: context === 'toolbar' ? 'transform' : undefined,

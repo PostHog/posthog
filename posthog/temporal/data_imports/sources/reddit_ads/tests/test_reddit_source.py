@@ -44,7 +44,7 @@ class TestRedditAdsSource:
 
         assert config.name.value == "RedditAds"
         assert config.label == "Reddit Ads"
-        assert config.betaSource is True
+        assert config.releaseStatus == "beta"
         assert len(config.fields) == 2
 
         # Check account_id field
@@ -235,7 +235,7 @@ class TestRedditAdsResumeBehavior:
         from posthog.temporal.data_imports.sources.reddit_ads.reddit_ads import reddit_ads_source
 
         with patch(
-            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.requests.Session"
+            "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.headers = {}

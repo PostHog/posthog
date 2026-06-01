@@ -1,5 +1,6 @@
 import './LogsFilterBar.scss'
 
+import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -213,7 +214,6 @@ const LogsFilterSearch = (): JSX.Element => {
                 onClickOutside={() => onClose()}
             >
                 <TaxonomicFilterSearchInput
-                    docLink="https://posthog.com/docs/logs/search"
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
@@ -227,6 +227,7 @@ const LogsFilterSearch = (): JSX.Element => {
 const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
+    const { pinnedFilters } = useValues(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
@@ -235,6 +236,14 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
+                // Pinned filters are enforced by the embedding scene (e.g. distinct_id
+                // scope on a person profile). They're applied to the query but hidden
+                // from the chip list — matching how Events / Exceptions hide their
+                // structural person scope. Without this, a user could click in and
+                // edit values that conceptually shouldn't be theirs to edit.
+                if (pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))) {
+                    return null
+                }
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />

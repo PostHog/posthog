@@ -69,7 +69,7 @@ def run(options):
 def run_person_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    persons = Person.objects.filter(team_id=team_id)
+    persons = Person.objects.filter(team_id=team_id)  # nosemgrep: no-direct-persons-db-orm
     rows = sync_execute(
         """
             SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING max(is_deleted) = 0
@@ -124,7 +124,12 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
     logger.info("Running person distinct id table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id).select_related("person")
+    # nosemgrep: no-direct-persons-db-orm
+    person_distinct_ids = PersonDistinctId.objects.filter(
+        team_id=team_id
+    ).select_related(  # nosemgrep: no-direct-persons-db-orm
+        "person"
+    )  # nosemgrep: no-direct-persons-db-orm
     rows = sync_execute(
         """
             SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0
@@ -175,7 +180,7 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
 def run_group_sync(team_id: int, live_run: bool):
     logger.info("Running group table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    pg_groups = Group.objects.filter(team_id=team_id).values(
+    pg_groups = Group.objects.filter(team_id=team_id).values(  # nosemgrep: no-direct-persons-db-orm
         "group_type_index", "group_key", "group_properties", "created_at"
     )
     # unfortunately we don't have version column for groups table

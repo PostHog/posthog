@@ -5,31 +5,39 @@ ORM queries, validation, calculations, business rules.
 Called by facade/api.py — do not call from outside this module.
 """
 
+from __future__ import annotations
+
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import QuerySet
 
 import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.email import EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.storage import object_storage
 
 from ee.billing.billing_manager import BillingManager
 
 from ..facade.enums import DocumentType
 from ..models import LegalDocument
-from . import (
-    pandadoc as pandadoc_client,
-    slack as slack_notifier,
-)
+from ..storage import signed_pdf_storage_key
+from . import pandadoc as pandadoc_client
 
 logger = structlog.get_logger(__name__)
 
 # Addon types that entitle an organization to a BAA.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
+
+# PostHog-side mailbox used both as the CC recipient on every signing envelope
+# and as the document owner. PandaDoc sends the signing email on behalf of the
+# owner, so this is the From address the signer sees.
+POSTHOG_SIGNING_EMAIL = "privacy@posthog.com"
 
 
 def _pandadoc_template_id_for(document_type: str) -> str:
@@ -37,6 +45,10 @@ def _pandadoc_template_id_for(document_type: str) -> str:
     Resolve the PandaDoc template id for a given document type. One template
     per type, configured via env. Returns an empty string if the matching env
     var isn't set, which surfaces as a clear PandaDocError at send time.
+
+    MSAs intentionally have no PandaDoc template — they can only originate from
+    a staff upload in Django admin, so this function returning empty for MSA
+    short-circuits the unreachable PandaDoc branch with a clear log line.
     """
     if document_type == DocumentType.BAA:
         return settings.PANDADOC_BAA_TEMPLATE_ID
@@ -70,7 +82,7 @@ def exists_for_organization_and_type(organization_id: UUID, document_type: str) 
     return LegalDocument.objects.filter(organization_id=organization_id, document_type=document_type).exists()
 
 
-def list_for_organization(organization_id: UUID):
+def list_for_organization(organization_id: UUID) -> QuerySet[LegalDocument]:
     return (
         LegalDocument.objects.select_related("created_by")
         .filter(organization_id=organization_id)
@@ -112,11 +124,155 @@ def create_document(
     )
 
 
-def mark_document_signed(document: LegalDocument, signed_document_url: str) -> LegalDocument:
-    document.signed_document_url = signed_document_url
+def mark_document_signed(document: LegalDocument) -> LegalDocument:
     document.status = LegalDocument.Status.SIGNED
-    document.save(update_fields=["signed_document_url", "status", "updated_at"])
+    document.save(update_fields=["status", "updated_at"])
     return document
+
+
+# Customer.io template name for the email sent to org owners when we auto opt
+# them out of AI data processing because they signed a BAA. Wired through
+# CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py.
+BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
+
+
+def apply_baa_signed_side_effects(document: LegalDocument) -> None:
+    """
+    When a BAA is signed, opt the organization out of AI data processing and
+    notify its owners. The BAA does not cover third-party AI subprocessors, so
+    we fail safe to opt-out — owners can re-enable from settings if they want
+    AI features for non-PHI workflows.
+
+    Best-effort: any failure here is logged but does not roll back the BAA
+    signature itself (PandaDoc has already collected it).
+    """
+    if document.document_type != DocumentType.BAA:
+        return
+
+    organization = document.organization
+    try:
+        if organization.is_ai_data_processing_approved is not False:
+            organization.is_ai_data_processing_approved = False
+            organization.save(update_fields=["is_ai_data_processing_approved"])
+    except Exception as exc:
+        logger.exception("legal_document_baa_opt_out_failed", document_id=str(document.id), error=str(exc))
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return
+
+    _send_baa_signed_ai_disabled_email(organization, document)
+
+
+def _send_baa_signed_ai_disabled_email(organization: Organization, document: LegalDocument) -> None:
+    if not is_email_available():
+        return
+
+    owner_users = [
+        membership.user
+        for membership in organization.memberships.filter(level=OrganizationMembership.Level.OWNER).select_related(
+            "user"
+        )
+        if membership.user and membership.user.email
+    ]
+    if not owner_users:
+        return
+
+    try:
+        message = EmailMessage(
+            campaign_key=f"baa_signed_ai_disabled_{document.id}",
+            template_name=BAA_SIGNED_AI_DISABLED_TEMPLATE,
+            subject=f"AI features have been disabled for {organization.name}",
+            template_context={
+                "organization_name": organization.name,
+                "ai_settings_url": f"{settings.SITE_URL}/settings/organization-details#organization-ai-consent",
+            },
+            use_http=True,
+        )
+        for user in owner_users:
+            message.add_user_recipient(user)
+        message.send(send_async=True)
+    except Exception as exc:
+        logger.exception(
+            "legal_document_baa_email_failed",
+            document_id=str(document.id),
+            organization_id=str(organization.id),
+            error=str(exc),
+        )
+        capture_exception(
+            exc,
+            additional_properties={
+                "legal_document_id": str(document.id),
+                "organization_id": str(organization.id),
+            },
+        )
+
+
+# Short-enough that leaked URLs stop working on a human timescale, long enough
+# that slow network conditions or a distracted user can still complete the
+# download without the presigned URL expiring mid-stream.
+_SIGNED_PDF_PRESIGNED_URL_EXPIRATION_SECONDS = 60
+
+
+def get_signed_pdf_presigned_url(document: LegalDocument) -> str | None:
+    """
+    Presigned GET URL for the signed PDF. The proxy endpoint redirects to this
+    rather than streaming the bytes itself — S3 does the heavy lifting and our
+    Django process doesn't have to hold the PDF in memory.
+    """
+    if not settings.OBJECT_STORAGE_ENABLED:
+        return None
+    key = signed_pdf_storage_key(document)
+    return object_storage.get_presigned_url(
+        key,
+        expiration=_SIGNED_PDF_PRESIGNED_URL_EXPIRATION_SECONDS,
+        content_type="application/pdf",
+        content_disposition=f'attachment; filename="PostHog-{document.document_type}-{document.id}.pdf"',
+    )
+
+
+def download_and_store_signed_pdf(document: LegalDocument) -> bool:
+    """
+    Stream the signed PDF from PandaDoc straight into object storage.
+
+    PandaDoc's `document.completed` webhook doesn't include a download URL, so
+    we pull the PDF via the public API and persist it ourselves. The download
+    is streamed — bytes flow from the PandaDoc socket directly into the S3
+    multipart upload, so peak memory stays flat regardless of PDF size.
+    Returns True on success. On any failure (PandaDoc unreachable, S3
+    unavailable) we log + report and return False; the caller leaves the row
+    unsigned so a replayed webhook (or manual re-trigger) can retry.
+    """
+    if not document.pandadoc_document_id:
+        logger.warning("legal_document_pdf_download_missing_envelope_id", document_id=str(document.id))
+        return False
+    if not settings.OBJECT_STORAGE_ENABLED:
+        logger.warning("legal_document_pdf_download_object_storage_disabled", document_id=str(document.id))
+        return False
+    client = pandadoc_client.PandaDocClient()
+    try:
+        with client.stream_document(document_id=document.pandadoc_document_id) as pdf_stream:
+            object_storage.write_stream(
+                signed_pdf_storage_key(document),
+                pdf_stream,
+                extras={"ContentType": "application/pdf"},
+            )
+    except pandadoc_client.PandaDocError as exc:
+        logger.exception(
+            "legal_document_pandadoc_download_failed",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return False
+    except Exception as exc:
+        logger.exception(
+            "legal_document_signed_pdf_upload_failed",
+            document_id=str(document.id),
+            error=str(exc),
+        )
+        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return False
+    return True
 
 
 def set_pandadoc_document_id(document: LegalDocument, pandadoc_document_id: str) -> LegalDocument:
@@ -125,15 +281,20 @@ def set_pandadoc_document_id(document: LegalDocument, pandadoc_document_id: str)
     return document
 
 
-def submit_to_pandadoc(document: LegalDocument) -> str | None:
+def create_pandadoc_envelope(document: LegalDocument) -> str | None:
     """
-    Create the envelope on PandaDoc and send the signing email. Returns the
-    PandaDoc document id (also persisted on the row), or None if PandaDoc isn't
-    configured / the call failed — the caller decides what to do with the miss.
+    Create the envelope on PandaDoc and persist its uuid on the row.
 
-    We never re-raise to the caller: the document is already persisted, the
-    customer gets an error-free 201 from the API, and ops sees a Slack + log
-    trace when we couldn't reach PandaDoc so they can re-send manually.
+    The envelope lands in PandaDoc's `document.uploaded` state, which isn't
+    dispatchable yet — PandaDoc processes the template asynchronously and
+    emits a `document.draft` webhook once it's ready. `send_pandadoc_envelope`
+    runs from that webhook. We don't block the user's create call waiting for
+    it.
+
+    Returns the PandaDoc document id or None when PandaDoc isn't configured /
+    the call failed; the caller stays on the happy path either way so a
+    failure just leaves the row without a `pandadoc_document_id` (ops can
+    re-trigger later).
     """
     template_id = _pandadoc_template_id_for(document.document_type)
     if not template_id:
@@ -146,20 +307,26 @@ def submit_to_pandadoc(document: LegalDocument) -> str | None:
 
     client = pandadoc_client.PandaDocClient()
     try:
-        # Each PandaDoc template has one recipient with role "Client". PandaDoc
-        # fills the Client.Email / Client.Company / Client.StreetAddress fields
-        # in the document body directly from that recipient's contact data.
+        # The client-facing recipient has role "Client"; PandaDoc fills the
+        # template's `[Client.Email]` token from the recipient's email. The
+        # remaining template tokens (`[Client.Company]`, `[Client.StreetAddress]`)
+        # aren't auto-populated — we have to pass them explicitly.
         created = client.create_document_from_template(
             template_id=template_id,
             name=f"PostHog {document.document_type} — {document.company_name}",
+            owner_email=POSTHOG_SIGNING_EMAIL,
             recipients=[
-                pandadoc_client.PandaDocSenderPostHog(),
                 pandadoc_client.PandaDocRecipient(
-                    email=document.representative_email,
-                    company=document.company_name,
-                    street_address=document.company_address,
+                    email=POSTHOG_SIGNING_EMAIL, role=pandadoc_client.PandaDocRole.POSTHOG
+                ),
+                pandadoc_client.PandaDocRecipient(
+                    email=document.representative_email, role=pandadoc_client.PandaDocRole.CLIENT
                 ),
             ],
+            tokens={
+                "Client.Company": document.company_name,
+                "Client.StreetAddress": document.company_address,
+            },
             metadata={
                 "legal_document_id": str(document.id),
                 "organization_id": str(document.organization_id),
@@ -167,20 +334,10 @@ def submit_to_pandadoc(document: LegalDocument) -> str | None:
             },
         )
         set_pandadoc_document_id(document, created.id)
-        client.send_document(
-            document_id=created.id,
-            subject=f"Please sign: PostHog {document.document_type}",
-            message=(
-                f"Hi,\n\n"
-                f"Please find attached the {document.document_type} for your review and signature. "
-                f"You can also forward this document to reassign it if needed.\n\n"
-                f"- The PostHog Team"
-            ),
-        )
         return created.id
     except pandadoc_client.PandaDocError as exc:
         logger.exception(
-            "legal_document_pandadoc_submit_failed",
+            "legal_document_pandadoc_create_failed",
             document_id=str(document.id),
             error=str(exc),
         )
@@ -188,31 +345,49 @@ def submit_to_pandadoc(document: LegalDocument) -> str | None:
         return None
 
 
-def notify_slack_on_submit(document: LegalDocument) -> None:
-    try:
-        slack_notifier.notify_submitted(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            representative_email=document.representative_email,
-            pandadoc_document_id=document.pandadoc_document_id or None,
-        )
-    except Exception as exc:
-        # Slack errors are already swallowed inside the notifier, but protect
-        # the submit path from unexpected import/attr errors too.
-        logger.exception("legal_document_slack_submit_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+def send_pandadoc_envelope(document: LegalDocument) -> bool:
+    """
+    Dispatch the signing email for a previously-created PandaDoc envelope.
+    Called from the `document.draft` webhook once PandaDoc has finished
+    processing the template and the envelope is actually sendable.
 
+    Returns True when the send succeeded, False otherwise. Never re-raises:
+    PandaDoc will also reject a second send on a doc that's already past
+    `document.draft` (duplicate webhook delivery), which we silently swallow.
+    """
+    if not document.pandadoc_document_id:
+        logger.warning("legal_document_pandadoc_send_missing_envelope_id", document_id=str(document.id))
+        return False
 
-def notify_slack_on_signed(document: LegalDocument) -> None:
+    client = pandadoc_client.PandaDocClient()
     try:
-        slack_notifier.notify_signed(
-            document_type=document.document_type,
-            company_name=document.company_name,
-            pandadoc_document_id=document.pandadoc_document_id or None,
+        client.send_document(
+            document_id=document.pandadoc_document_id,
+            subject=f"Please sign: PostHog {document.document_type}",
+            message=(
+                f"Hi,\n\n"
+                f"Please find attached the {document.document_type} for your review and signature. "
+                f"You can also forward this document to reassign it if needed.\n\n"
+                f"- The PostHog Team"
+            ),
+            sender_email=POSTHOG_SIGNING_EMAIL,
         )
-    except Exception as exc:
-        logger.exception("legal_document_slack_signed_notify_failed", error=str(exc))
-        capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})
+        return True
+    except pandadoc_client.PandaDocError as exc:
+        logger.exception(
+            "legal_document_pandadoc_send_failed",
+            document_id=str(document.id),
+            pandadoc_document_id=document.pandadoc_document_id,
+            error=str(exc),
+        )
+        capture_exception(
+            exc,
+            additional_properties={
+                "legal_document_id": str(document.id),
+                "pandadoc_document_id": document.pandadoc_document_id,
+            },
+        )
+        return False
 
 
 SUBMITTED_EVENT = "legal document submitted"
@@ -222,8 +397,8 @@ SIGNED_EVENT = "legal document signed"
 def fire_legal_document_submitted_event(document: LegalDocument, distinct_id: str) -> None:
     """
     Capture the submission to PostHog for analytics. No longer a critical path —
-    the customer-facing work (PandaDoc + Slack) is driven directly by the
-    submit handler. This event is kept for product analytics on the
+    the customer-facing work (PandaDoc) is driven directly by the submit
+    handler. This event is kept for product analytics on the
     `/legal/new/:type` funnel.
     """
     _capture_lifecycle_event(document, SUBMITTED_EVENT, distinct_id)

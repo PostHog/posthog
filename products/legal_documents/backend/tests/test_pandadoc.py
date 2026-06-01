@@ -16,7 +16,7 @@ class TestPandaDocClient(TestCase):
             client.create_document_from_template(
                 template_id="tpl",
                 name="doc",
-                recipients=[pandadoc.PandaDocRecipient(email="a@b.c")],
+                recipients=[pandadoc.PandaDocRecipient(email="a@b.c", role=pandadoc.PandaDocRole.CLIENT)],
             )
 
     @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
@@ -33,14 +33,10 @@ class TestPandaDocClient(TestCase):
             result = client.create_document_from_template(
                 template_id="tpl",
                 name="PostHog BAA",
-                recipients=[
-                    pandadoc.PandaDocRecipient(
-                        email="ada@acme.example",
-                        company="Acme, Inc.",
-                        street_address="1 Analytics Way",
-                    )
-                ],
+                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+                tokens={"Client.Company": "Acme, Inc.", "Client.StreetAddress": "1 Analytics Way"},
                 metadata={"legal_document_id": "lid-1"},
+                owner_email="privacy@posthog.com",
             )
 
         mock_post.assert_called_once()
@@ -50,16 +46,114 @@ class TestPandaDocClient(TestCase):
         body = kwargs["json"]
         self.assertEqual(body["template_uuid"], "tpl")
         self.assertEqual(body["name"], "PostHog BAA")
-        recipient = body["recipients"][0]
-        self.assertEqual(recipient["email"], "ada@acme.example")
-        self.assertEqual(recipient["role"], "Client")
+        self.assertEqual(body["recipients"], [{"email": "ada@acme.example", "role": "Client"}])
         self.assertEqual(
-            recipient["fields"],
-            {"company": {"value": "Acme, Inc."}, "street_address": {"value": "1 Analytics Way"}},
+            body["tokens"],
+            [
+                {"name": "Client.Company", "value": "Acme, Inc."},
+                {"name": "Client.StreetAddress", "value": "1 Analytics Way"},
+            ],
         )
-        self.assertNotIn("tokens", body)
         self.assertEqual(body["metadata"], {"legal_document_id": "lid-1"})
+        self.assertEqual(body["owner"], {"email": "privacy@posthog.com"})
+        self.assertNotIn("sender", body)
         self.assertEqual(result.id, "doc_123")
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_create_document_omits_owner_when_not_provided(self) -> None:
+        # When `owner_email` is None we leave the field off so PandaDoc falls
+        # back to the API key's owning user.
+        fake_response = MagicMock()
+        fake_response.status_code = 201
+        fake_response.content = b'{"id": "doc_123", "status": "document.uploaded", "name": "doc"}'
+        fake_response.json.return_value = {"id": "doc_123", "status": "document.uploaded", "name": "doc"}
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
+        ) as mock_post:
+            pandadoc.PandaDocClient().create_document_from_template(
+                template_id="tpl",
+                name="doc",
+                recipients=[pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)],
+            )
+
+        body = mock_post.call_args.kwargs["json"]
+        self.assertNotIn("owner", body)
+        self.assertNotIn("sender", body)
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_stream_document_yields_raw_binary_stream(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.raw = MagicMock()
+        fake_response.__enter__ = MagicMock(return_value=fake_response)
+        fake_response.__exit__ = MagicMock(return_value=False)
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response
+        ) as mock_get:
+            client = pandadoc.PandaDocClient()
+            with client.stream_document(document_id="doc_123") as stream:
+                self.assertIs(stream, fake_response.raw)
+
+        mock_get.assert_called_once()
+        args, kwargs = mock_get.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/download")
+        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+        self.assertTrue(kwargs["stream"])
+        # Transparent decompression so gzip'd responses look like raw bytes.
+        self.assertTrue(fake_response.raw.decode_content)
+
+    @override_settings(PANDADOC_API_KEY="key")
+    def test_stream_document_non_2xx_raises(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 404
+        fake_response.text = "not found"
+        fake_response.__enter__ = MagicMock(return_value=fake_response)
+        fake_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("products.legal_documents.backend.logic.pandadoc.requests.get", return_value=fake_response):
+            client = pandadoc.PandaDocClient()
+            with self.assertRaises(pandadoc.PandaDocError):
+                with client.stream_document(document_id="doc_123"):
+                    pass
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_send_document_includes_sender_when_provided(self) -> None:
+        # PandaDoc only honors the configured sender identity if `sender` is on
+        # the /send call — `owner` at create time controls workspace ownership
+        # inside PandaDoc, not the email "From" name. Without `sender` on /send,
+        # recipients see the API key owner.
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.content = b""
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
+        ) as mock_post:
+            pandadoc.PandaDocClient().send_document(
+                document_id="doc_123",
+                subject="s",
+                message="m",
+                sender_email="privacy@posthog.com",
+            )
+
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/send")
+        self.assertEqual(kwargs["json"]["sender"], {"email": "privacy@posthog.com"})
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_send_document_omits_sender_when_not_provided(self) -> None:
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.content = b""
+
+        with patch(
+            "products.legal_documents.backend.logic.pandadoc.requests.post", return_value=fake_response
+        ) as mock_post:
+            pandadoc.PandaDocClient().send_document(document_id="doc_123", subject="s", message="m")
+
+        self.assertNotIn("sender", mock_post.call_args.kwargs["json"])
 
     @override_settings(PANDADOC_API_KEY="key")
     def test_non_2xx_response_raises(self) -> None:
@@ -85,29 +179,10 @@ class TestPandaDocClient(TestCase):
         self.assertFalse(pandadoc.verify_webhook_signature(secret="", body=b"{}", signature="abc"))
         self.assertFalse(pandadoc.verify_webhook_signature(secret="k", body=b"{}", signature=""))
 
-    def test_serialize_recipient_handles_posthog_sender_without_client_fields(self) -> None:
-        # The PostHog sender recipient doesn't carry Client.* fields, so
-        # _serialize_recipient must not blow up when it's passed — otherwise
-        # every real submission 500s (tests don't catch this on their own
-        # because submit_to_pandadoc short-circuits when template IDs are unset).
-        sender = pandadoc.PandaDocSenderPostHog()
-        payload = pandadoc._serialize_recipient(sender)
-        self.assertEqual(payload, {"email": sender.email, "role": "PostHog"})
-        self.assertNotIn("fields", payload)
-
-    def test_serialize_recipient_serializes_client_fields(self) -> None:
-        client = pandadoc.PandaDocRecipient(
-            email="ada@acme.example", company="Acme, Inc.", street_address="1 Analytics Way"
-        )
-        payload = pandadoc._serialize_recipient(client)
-        self.assertEqual(
-            payload,
-            {
-                "email": "ada@acme.example",
-                "role": "Client",
-                "fields": {
-                    "company": {"value": "Acme, Inc."},
-                    "street_address": {"value": "1 Analytics Way"},
-                },
-            },
-        )
+    def test_serialize_recipient_emits_flat_email_and_role_for_each_role(self) -> None:
+        # Both the Client signer and the PostHog CC serialize to the same
+        # minimal shape; tokens carry all template content.
+        client = pandadoc.PandaDocRecipient(email="ada@acme.example", role=pandadoc.PandaDocRole.CLIENT)
+        self.assertEqual(pandadoc._serialize_recipient(client), {"email": "ada@acme.example", "role": "Client"})
+        posthog = pandadoc.PandaDocRecipient(email="privacy@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
+        self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})

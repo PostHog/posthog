@@ -22,12 +22,19 @@ from temporalio.client import (
     ScheduleRange,
     ScheduleSpec,
     ScheduleState,
+    WorkflowHandle,
 )
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -265,6 +272,28 @@ class S3BatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class FileDownloadBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for a file download batch export workflow.
+
+    Attributes:
+        data_interval_start: Lower bound for the batch export.
+        data_interval_end: Upper bound for the batch export.
+        file_format: File format to use when exporting files. Same as S3.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded. Same
+            as S3.
+        compression: Compression algorithm, if any. Same as S3.
+        expires_in: Number of seconds to expire the download URLs.
+    """
+
+    data_interval_start: str | None = None
+    batch_export_run_id: UUID | None = None
+    file_format: str = "Parquet"
+    max_file_size_mb: int | None = None
+    compression: str | None = None
+    expires_in_seconds: int = 3600
+
+
+@dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Snowflake export workflow."""
 
@@ -285,13 +314,14 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
     schema: str = "public"
     table_name: str = "events"
-    port: int = 5432
+
+    user: str | None = None
+    host: str | None = None
+    port: int | None = 5432
+    password: str | None = None
     has_self_signed_cert: bool = False
 
 
@@ -440,15 +470,16 @@ class NoOpInputs(BaseBatchExportInputs):
 
 
 DESTINATION_WORKFLOWS = {
-    "S3": ("s3-export", S3BatchExportInputs),
-    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
-    "Postgres": ("postgres-export", PostgresBatchExportInputs),
-    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
-    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
+    "FileDownload": ("file-download-export", FileDownloadBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    "S3": ("s3-export", S3BatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
@@ -792,6 +823,50 @@ async def start_backfill_batch_export_workflow(
     )
 
     return workflow_id
+
+
+@async_to_sync
+async def start_batch_export_workflow(
+    temporal: Client, name: str, workflow_id: str, inputs: BaseBatchExportInputs
+) -> WorkflowHandle:
+    """Async call to start a batch export workflow."""
+    handle = await temporal.start_workflow(
+        name,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+    )
+
+    return handle
+
+
+def start_file_download_batch_export(
+    batch_export: BatchExportOnDemand,
+    workflow_id: str,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    batch_export_run_id: UUID | None = None,
+    compression: str | None = None,
+    format: str = "Parquet",
+    max_size_mb: int = 0,
+    include_events: list[str] | None = None,
+    exclude_events: list[str] | None = None,
+) -> None:
+    inputs = FileDownloadBatchExportInputs(
+        batch_export_id=batch_export.id,
+        batch_export_run_id=batch_export_run_id,
+        team_id=batch_export.team_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        compression=compression,
+        file_format=format,
+        max_file_size_mb=max_size_mb,
+        include_events=include_events,
+        exclude_events=exclude_events,
+    )
+    temporal = sync_connect()
+
+    start_batch_export_workflow(temporal, "file-download-export", workflow_id, inputs)
 
 
 def create_batch_export_run(
@@ -1169,6 +1244,7 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    on_demand: bool = False
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

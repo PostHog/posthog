@@ -433,12 +433,7 @@ impl Client for ReadWriteClient {
         self.writer.del(k).await
     }
 
-    async fn hincrby(
-        &self,
-        k: String,
-        v: String,
-        count: Option<i32>,
-    ) -> Result<(), CustomRedisError> {
+    async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
         self.writer.hincrby(k, v, count).await
     }
 
@@ -608,7 +603,7 @@ mod tests {
         assert!(result.is_ok());
 
         let result = client
-            .hincrby("counter".to_string(), "field".to_string(), Some(5))
+            .hincrby("counter".to_string(), "field".to_string(), 5)
             .await;
         assert!(result.is_ok());
     }

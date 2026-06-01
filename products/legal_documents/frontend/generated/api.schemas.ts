@@ -21,7 +21,6 @@ export interface LegalDocumentDTOApi {
     company_name: string
     representative_email: string
     status: string
-    signed_document_url: string
     created_by: LegalDocumentCreatorApi | null
     created_at: string
 }
@@ -39,9 +38,10 @@ export interface PaginatedLegalDocumentDTOListApi {
  * * `BAA` - BAA
  * `DPA` - DPA
  */
-export type DocumentTypeEnumApi = (typeof DocumentTypeEnumApi)[keyof typeof DocumentTypeEnumApi]
+export type CreateLegalDocumentDocumentTypeEnumApi =
+    (typeof CreateLegalDocumentDocumentTypeEnumApi)[keyof typeof CreateLegalDocumentDocumentTypeEnumApi]
 
-export const DocumentTypeEnumApi = {
+export const CreateLegalDocumentDocumentTypeEnumApi = {
     Baa: 'BAA',
     Dpa: 'DPA',
 } as const
@@ -54,9 +54,9 @@ organization and submitting user.
 export interface CreateLegalDocumentApi {
     /** Either 'BAA' or 'DPA'.
 
-* `BAA` - BAA
-* `DPA` - DPA */
-    document_type: DocumentTypeEnumApi
+  * `BAA` - BAA
+  * `DPA` - DPA */
+    document_type: CreateLegalDocumentDocumentTypeEnumApi
     /**
      * The customer legal entity entering the agreement (PandaDoc's Client.Company).
      * @maxLength 255

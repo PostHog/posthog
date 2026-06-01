@@ -47,6 +47,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="my-store-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_id",
@@ -54,6 +55,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="client-id",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="shopify_client_secret",
@@ -61,10 +63,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="shpss_...",
+                        secret=True,
                     ),
                 ],
             ),
-            betaSource=True,
+            releaseStatus="beta",
         )
 
     def validate_credentials(
@@ -83,7 +86,12 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             return False, str(e)
 
     def get_schemas(
-        self, config: ShopifySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+        self,
+        config: ShopifySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
     ) -> list[SourceSchema]:
         schemas = []
         for obj in SHOPIFY_GRAPHQL_OBJECTS.values():

@@ -11,6 +11,7 @@ export interface PrecomputationTeam {
     team_name: string
     organization_id: string | null
     organization_name: string | null
+    organization_arr: number | null
     experiment_precomputation_enabled: boolean
 }
 
@@ -24,7 +25,7 @@ export interface SlowestQuery {
     team_id: number
     team_name: string | null
     organization_name: string | null
-    organization_mrr: number | null
+    organization_arr: number | null
     query_type: string
     experiment_name: string
     experiment_metric_name: string
@@ -39,6 +40,8 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setSearch: (search: string) => ({ search }),
         setPrecomputation: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
         setHoursBack: (hours: number) => ({ hours }),
+        setTeamIdFilter: (teamId: string) => ({ teamId }),
+        setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
     }),
     reducers({
         search: [
@@ -51,6 +54,18 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             1,
             {
                 setHoursBack: (_, { hours }) => hours,
+            },
+        ],
+        teamIdFilter: [
+            '',
+            {
+                setTeamIdFilter: (_, { teamId }) => teamId,
+            },
+        ],
+        experimentIdFilter: [
+            '',
+            {
+                setExperimentIdFilter: (_, { experimentId }) => experimentId,
             },
         ],
     }),
@@ -84,7 +99,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             [] as SlowestQuery[],
             {
                 loadSlowestQueries: async () => {
-                    return await api.get(`api/debug_ch_queries/slowest_queries/?hours=${values.hoursBack}`)
+                    const params = new URLSearchParams({ hours: String(values.hoursBack) })
+                    if (values.teamIdFilter) {
+                        params.append('team_id', values.teamIdFilter)
+                    }
+                    if (values.experimentIdFilter) {
+                        params.append('experiment_id', values.experimentIdFilter)
+                    }
+                    return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
         ],
@@ -95,6 +117,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             actions.loadPrecomputationTeams()
         },
         setHoursBack: () => {
+            actions.loadSlowestQueries()
+        },
+        setTeamIdFilter: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSlowestQueries()
+        },
+        setExperimentIdFilter: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadSlowestQueries()
         },
     })),
