@@ -16,6 +16,8 @@ type NormalizeProcessPersonFlagOutput = {
     forceDisablePersonProcessing: boolean
 }
 
+const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+
 export function createNormalizeProcessPersonFlagStep<TInput extends NormalizeProcessPersonFlagInput>(): ProcessingStep<
     TInput,
     TInput & NormalizeProcessPersonFlagOutput
@@ -74,6 +76,9 @@ export function createNormalizeProcessPersonFlagStep<TInput extends NormalizePro
                         alwaysSend: false,
                     })
                 }
+            } else if (event.event === FEATURE_FLAG_CALLED_EVENT) {
+                processPerson = false
+                normalizedEvent = normalizeProcessPerson(event, processPerson)
             }
         }
 
