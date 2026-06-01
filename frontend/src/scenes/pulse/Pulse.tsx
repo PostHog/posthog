@@ -11,6 +11,7 @@ import {
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
+    Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -291,6 +292,12 @@ function DigestRow({ digest }: { digest: PulseDigestSummary }): JSX.Element {
             </button>
             {isExpanded && (
                 <div className="p-3 pt-0 space-y-3">
+                    {digest.status === 'failed' ? (
+                        <LemonBanner type="error">
+                            <span className="font-semibold">Scan failed: </span>
+                            {digest.error?.message ?? 'Unknown error'}
+                        </LemonBanner>
+                    ) : null}
                     {expandedDigestLoading || expandedDigest?.id !== digest.id ? (
                         <LemonSkeleton className="h-24 w-full" />
                     ) : expandedDigest.findings.length === 0 ? (
@@ -316,6 +323,7 @@ export function Pulse(): JSX.Element {
         digestsError,
         findingsError,
         scanTriggerLoading,
+        isScanInProgress,
     } = useValues(pulseLogic)
     const { loadDigests, loadFindings, loadSubscription, loadWatched, triggerScan } = useActions(pulseLogic)
     const { user } = useValues(userLogic)
@@ -405,6 +413,15 @@ export function Pulse(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {isScanInProgress && (
+                <LemonBanner type="info" className="mb-4">
+                    <span className="flex items-center gap-2">
+                        <Spinner />
+                        Scan in progress — findings will appear here as soon as it finishes…
+                    </span>
+                </LemonBanner>
+            )}
+
             {digestsLoading ? (
                 <div className="space-y-3">
                     <LemonSkeleton className="h-8 w-48" />
@@ -433,6 +450,12 @@ export function Pulse(): JSX.Element {
                                             <TZLabel time={latestDigest.created_at} />
                                         </span>
                                     </div>
+                                    {latestDigest.status === 'failed' ? (
+                                        <LemonBanner type="error" className="mb-3">
+                                            <span className="font-semibold">Scan failed: </span>
+                                            {latestDigest.error?.message ?? 'Unknown error'}
+                                        </LemonBanner>
+                                    ) : null}
                                     {latestDigest.summary ? (
                                         <LemonBanner type="info" className="mb-3">
                                             <span className="font-semibold">Max's read: </span>

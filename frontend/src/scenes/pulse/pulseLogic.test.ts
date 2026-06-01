@@ -149,6 +149,27 @@ describe('pulseLogic', () => {
             .toMatchValues({ watchedCandidates: [WATCHED] })
     })
 
+    it('flags scan in progress and schedules a poll while the latest digest is generating', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/pulse_digests/': () => [
+                    200,
+                    { count: 1, results: [{ ...DIGEST, status: 'generating' }] },
+                ],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadDigests()).toDispatchActions([
+            'loadDigestsSuccess',
+            'pollScanStatus',
+        ])
+        expect(logic.values.isScanInProgress).toBe(true)
+    })
+
+    it('does not flag scan in progress for a delivered digest', async () => {
+        await expectLogic(logic, () => logic.actions.loadDigests()).toDispatchActions(['loadDigestsSuccess'])
+        expect(logic.values.isScanInProgress).toBe(false)
+    })
+
     it('loads a past digest on getDigest', async () => {
         await expectLogic(logic, () => {
             logic.actions.setExpandedDigestId('d1')

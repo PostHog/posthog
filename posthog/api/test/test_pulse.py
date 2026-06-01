@@ -14,14 +14,15 @@ from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
 FLAG_TARGET = "posthog.api.pulse.posthoganalytics.feature_enabled"
 
 
-def _make_digest(team: Team) -> PulseDigest:
+def _make_digest(team: Team, status: str = PulseDigestStatus.DELIVERED, error: dict | None = None) -> PulseDigest:
     with team_scope(team.id):
         now = datetime.now(UTC)
         return PulseDigest.objects.create(
             team=team,
             period_start=now - timedelta(days=7),
             period_end=now,
-            status=PulseDigestStatus.DELIVERED,
+            status=status,
+            error=error,
         )
 
 
@@ -74,6 +75,14 @@ class TestPulseFindingSerializerFields(APIBaseTest):
         data = resp.json()
         for removed in ("enabled_channels", "slack_channel_id", "email_recipients"):
             self.assertNotIn(removed, data)
+
+    @patch(FLAG_TARGET, return_value=True)
+    def test_list_digest_exposes_error_message(self, _mock) -> None:
+        _make_digest(self.team, status=PulseDigestStatus.FAILED, error={"message": "ImportError: boom"})
+        resp = self.client.get(f"/api/environments/{self.team.id}/pulse_digests/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        results = resp.json()["results"]
+        self.assertEqual(results[0]["error"], {"message": "ImportError: boom"})
 
     @patch(FLAG_TARGET, return_value=True)
     def test_digest_drops_delivered_to(self, _mock) -> None:

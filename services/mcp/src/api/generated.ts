@@ -23941,6 +23941,8 @@ export namespace Schemas {
       * `delivered` - Delivered
       * `failed` - Failed */
       readonly status: PulseDigestStatusEnum;
+      /** Error payload (with a `message`) if the scan run failed, otherwise null. */
+      readonly error: unknown;
       readonly created_at: string;
       /** Number of findings in this digest. */
       readonly finding_count: number;

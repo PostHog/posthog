@@ -39,6 +39,7 @@ export const pulseLogic = kea<pulseLogicType>([
         setExpandedDigestId: (id: string | null) => ({ id }),
         updateSubscriptionLocal: (patch: Partial<PulseSubscriptionType>) => ({ patch }),
         saveSubscription: true,
+        pollScanStatus: true,
     }),
     loaders(({ values }) => ({
         digests: [
@@ -140,7 +141,7 @@ export const pulseLogic = kea<pulseLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         saveSubscriptionSuccess: () => {
             lemonToast.success('Pulse settings saved')
         },
@@ -149,9 +150,25 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         triggerScanSuccess: () => {
             lemonToast.success('Pulse scan started — new findings will appear here shortly.')
+            // Pick up the freshly-created (generating) digest, which starts the poll loop below.
+            actions.loadDigests()
+            actions.loadFindings()
         },
         triggerScanFailure: () => {
             lemonToast.error('Failed to start Pulse scan.')
+        },
+        loadDigestsSuccess: ({ digests }) => {
+            const latest = digests[0]
+            if (latest && (latest.status === 'pending' || latest.status === 'generating')) {
+                actions.pollScanStatus()
+            }
+        },
+        pollScanStatus: async (_, breakpoint) => {
+            // Poll while the latest digest is still generating; breakpoint cancels superseded polls,
+            // and the loop ends on its own once loadDigestsSuccess sees a settled (delivered/failed) status.
+            await breakpoint(4000)
+            actions.loadDigests()
+            actions.loadFindings()
         },
     })),
     selectors({
@@ -167,6 +184,11 @@ export const pulseLogic = kea<pulseLogicType>([
             (s) => [s.findings, s.latestDigest],
             (findings, latestDigest): PulseFindingType[] =>
                 latestDigest ? findings.filter((f) => f.digest === latestDigest.id) : [],
+        ],
+        isScanInProgress: [
+            (s) => [s.latestDigest],
+            (latestDigest): boolean =>
+                !!latestDigest && (latestDigest.status === 'pending' || latestDigest.status === 'generating'),
         ],
     }),
 ])

@@ -31,6 +31,25 @@ from posthog.temporal.common.base import PostHogWorkflow
 logger = structlog.get_logger(__name__)
 
 
+def _root_cause_message(exc: BaseException) -> str:
+    """Walk the Temporal exception chain to the most specific underlying message.
+
+    execute_activity raises an ActivityError whose `.cause` is the ApplicationError carrying the
+    real failure (e.g. "ImportError: cannot import name 'Dashboard'"). The generic outer
+    "Activity task failed" is useless on its own, so we surface the deepest cause on the failed digest.
+    """
+    deepest = str(exc)
+    current: BaseException | None = exc
+    depth = 0
+    while current is not None and depth < 10:
+        message = getattr(current, "message", None)
+        if message:
+            deepest = message
+        current = getattr(current, "cause", None)
+        depth += 1
+    return deepest
+
+
 class PulseScanInputs(BaseModel):
     team_id: int
     period_key: str
@@ -339,7 +358,7 @@ class PulseScanWorkflow(PostHogWorkflow):
         except Exception as exc:
             await workflow.execute_activity(
                 set_digest_status_activity,
-                args=[inputs.team_id, digest_id, PulseDigestStatus.FAILED.value, str(exc)],
+                args=[inputs.team_id, digest_id, PulseDigestStatus.FAILED.value, _root_cause_message(exc)],
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )

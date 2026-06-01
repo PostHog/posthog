@@ -108,6 +108,23 @@ async def test_persist_findings_persists_evidence(ateam):
     assert await _evidence() == {"session_ids": ["abc", "def"]}
 
 
+def test_root_cause_message_walks_temporal_cause_chain():
+    from posthog.temporal.ai.pulse.workflow import _root_cause_message
+
+    class _Err(Exception):
+        def __init__(self, message, cause=None):
+            super().__init__(message)
+            self.message = message
+            self.cause = cause
+
+    # ActivityError("Activity task failed") -> ApplicationError(real message)
+    leaf = _Err("ImportError: cannot import name 'Dashboard'")
+    wrapper = _Err("Activity task failed", cause=leaf)
+    assert _root_cause_message(wrapper) == "ImportError: cannot import name 'Dashboard'"
+    # Plain exception with no .cause/.message falls back to str().
+    assert _root_cause_message(ValueError("boom")) == "boom"
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_persist_findings_short_circuits_when_already_delivered(ateam):

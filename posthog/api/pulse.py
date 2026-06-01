@@ -152,6 +152,7 @@ class PulseDigestListSerializer(serializers.ModelSerializer):
             "period_start",
             "period_end",
             "status",
+            "error",
             "created_at",
             "finding_count",
             "summary",
@@ -159,6 +160,7 @@ class PulseDigestListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         extra_kwargs = {
             "status": {"help_text": "Lifecycle of this scan run (pending, generating, delivered, failed)."},
+            "error": {"help_text": "Error payload (with a `message`) if the scan run failed, otherwise null."},
             "summary": {"help_text": "Digest-level big-picture synthesis across findings (LLM-written, may be empty)."},
         }
 

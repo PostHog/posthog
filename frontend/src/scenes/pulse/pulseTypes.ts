@@ -8,6 +8,7 @@ export interface PulseDigestSummary {
     period_start: string
     period_end: string
     status: PulseDigestStatus
+    error: Record<string, any> | null
     created_at: string
     finding_count: number
     summary: string
@@ -33,7 +34,6 @@ export interface PulseFindingType {
 
 export interface PulseDigestDetail extends PulseDigestSummary {
     workflow_run_id: string
-    error: Record<string, any> | null
     findings: PulseFindingType[]
 }
 
