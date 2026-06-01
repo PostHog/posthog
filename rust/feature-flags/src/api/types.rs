@@ -602,10 +602,11 @@ impl FlagDetails {
                     if property.depends_on_feature_flag() {
                         let property_matched =
                             match_flag_value_to_flag_filter(property, flag_evaluation_results);
-                        let actual_value = property
-                            .get_feature_flag_id()
-                            .and_then(|id| flag_evaluation_results.get(&id))
-                            .map(|v| serde_json::to_value(v).unwrap_or(Value::Null));
+                        // Do not expose the dependency flag's evaluated value here. The caller is
+                        // only authorized for the flag under test, not necessarily the dependency
+                        // flag, so serializing its raw value would leak it. `matched` reflects the
+                        // tested flag's own condition outcome, which the caller may already see.
+                        let actual_value = None;
                         let expected = property.value.clone().unwrap_or(Value::Null);
                         let explanation = if property_matched {
                             format!(
@@ -1329,10 +1330,8 @@ mod tests {
             analysis[0].properties[0].matched,
             "Flag dependency property must report matched=true"
         );
-        assert_eq!(
-            analysis[0].properties[0].actual_value,
-            Some(serde_json::json!(true))
-        );
+        // The dependency flag's evaluated value must not be disclosed.
+        assert_eq!(analysis[0].properties[0].actual_value, None);
 
         // Case 2: the dependency flag did NOT match → the tested flag did not match.
         let flag_match = FeatureFlagMatch {
