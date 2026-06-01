@@ -493,7 +493,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                     .string()
                     .max(dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax)
                     .describe(
-                        'Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
+                        'Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
                     ),
                 config: zod
                     .object({
@@ -553,7 +553,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                             .describe('When omitted, follows the project default for filtering test accounts.'),
                     })
                     .describe(
-                        'Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list).'
+                        'Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list, session_replay_list).'
                     ),
                 name: zod
                     .string()
