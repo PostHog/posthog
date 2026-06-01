@@ -14,7 +14,7 @@ const MIN_LEFT_MARGIN = 20
 const MIN_RIGHT_MARGIN_DUAL_AXIS = 48
 const Y_LABEL_RIGHT_PADDING = 12
 const X_LABEL_EDGE_PADDING = 4
-const X_AXIS_TITLE_MARGIN = 22
+export const X_AXIS_TITLE_MARGIN = 22
 const Y_AXIS_TITLE_MARGIN = 24
 
 interface UseChartMarginsOptions {
@@ -29,6 +29,11 @@ interface UseChartMarginsOptions {
     axisOrientation?: 'vertical' | 'horizontal'
     /** Per-side overrides applied on top of the computed margins. */
     override?: Partial<ChartMargins>
+    /** Override the value-range source for value-axis tick sizing. Defaults to `series`. Use
+     *  this when the visible series's `data[i]` doesn't span the full y-domain — e.g. BoxPlot
+     *  passes the whisker min/max samples so the y-tick column fits the actual range, not just
+     *  the medians it draws on `series.data`. yAxis-id discovery still reads from `series`. */
+    valueRangeSeries?: Series[]
 }
 
 function widestCategoryLabelWidth(
@@ -76,8 +81,10 @@ export function useChartMargins({
     yTickFormatter,
     axisOrientation = 'vertical',
     override,
+    valueRangeSeries,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
+    const valueSeries = valueRangeSeries ?? series
     const normalizedXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const normalizedYAxisLabel = normalizeAxisLabel(yAxisLabel)
 
@@ -95,22 +102,22 @@ export function useChartMargins({
         if (isHorizontal) {
             return widestCategoryLabelWidth(labels, xTickFormatter)
         }
-        return widestValueLabelWidth(series, yTickFormatter)
-    }, [series, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter])
+        return widestValueLabelWidth(valueSeries, yTickFormatter)
+    }, [valueSeries, yTickFormatter, hideYAxis, isHorizontal, labels, xTickFormatter])
 
     const xLabelHalfWidth = useMemo<number>(() => {
         if (hideXAxis) {
             return 0
         }
         if (isHorizontal) {
-            const widest = widestValueLabelWidth(series, yTickFormatter)
+            const widest = widestValueLabelWidth(valueSeries, yTickFormatter)
             return Math.ceil(widest / 2)
         }
         if (labels.length === 0) {
             return 0
         }
         return Math.ceil(widestCategoryLabelWidth(labels, xTickFormatter) / 2)
-    }, [labels, xTickFormatter, hideXAxis, isHorizontal, series, yTickFormatter])
+    }, [labels, xTickFormatter, hideXAxis, isHorizontal, valueSeries, yTickFormatter])
 
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis

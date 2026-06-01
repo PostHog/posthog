@@ -1586,8 +1586,15 @@ export interface PersonActorType extends CommonActorType {
     type: 'person'
     id: string
     name?: string
-    distinct_ids: string[]
-    is_identified: boolean
+    // distinct_ids and is_identified are required for resolved persons but absent on
+    // stubs returned when the ClickHouse actor_id couldn't be hydrated from Postgres
+    // (see is_unresolved). Callers must guard for the stub case.
+    distinct_ids?: string[]
+    is_identified?: boolean
+    // Set when the person's actor_id from ClickHouse couldn't be hydrated from Postgres
+    // (typically because the person was merged into another or deleted). When true,
+    // distinct_ids/is_identified/properties/created_at may all be missing.
+    is_unresolved?: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
@@ -1709,6 +1716,7 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
+    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -2210,7 +2218,7 @@ export interface BillingType {
     trial?: {
         type: 'autosubscribe' | 'standard'
         status: 'active' | 'expired' | 'cancelled' | 'converted'
-        target: 'paid' | 'teams' | 'enterprise'
+        target: 'paid' | 'teams' | 'enterprise' | 'boost' | 'scale'
         expires_at: string
     }
     billing_plan: BillingPlan | null
@@ -4088,7 +4096,8 @@ export interface FeatureFlagFilters {
     multivariate?: MultivariateFlagOptions | null
     aggregation_group_type_index?: integer | null
     payloads?: Record<string, JsonType>
-    super_groups?: FeatureFlagGroupType[]
+    early_exit?: boolean
+    feature_enrollment?: boolean
 }
 
 export interface FeatureFlagBasicType {
@@ -4561,6 +4570,7 @@ export enum ExperimentConclusion {
 }
 
 export interface ExperimentHoldoutType {
+    /** @asType integer */
     id: number | null
     name: string
     description: string | null
@@ -4609,6 +4619,7 @@ export interface Experiment {
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
         rollout_percentage?: number
+        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4629,6 +4640,7 @@ export interface Experiment {
     stats_config?: {
         version?: number
         method?: ExperimentStatsMethod
+        baseline_variant_key?: string
         bayesian?: {
             ci_level?: number
         }
@@ -4747,7 +4759,11 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    persisted_feature_flags?: string[]
+    /**
+     * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
+     * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
+     */
+    persisted_feature_flags?: string[] | Record<string, string | boolean>
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
@@ -5369,6 +5385,8 @@ export type APIScopeObject =
     | 'llm_provider_key'
     | 'llm_skill'
     | 'logs'
+    | 'marketing_analytics'
+    | 'metrics'
     | 'notebook'
     | 'organization'
     | 'organization_integration'
@@ -5386,6 +5404,7 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
+    | 'signal_scout'
     | 'subscription'
     | 'survey'
     | 'task'
@@ -5816,6 +5835,7 @@ export interface ExternalDataSource {
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
+    supports_column_selection?: boolean
 }
 
 export interface WebhookExternalStatus {
@@ -6482,7 +6502,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
     | ProductKey.ERROR_TRACKING
-    | ProductKey.LLM_ANALYTICS
+    | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS,
     OnboardingProduct
@@ -6524,6 +6544,8 @@ export type CyclotronJobInputSchemaType = {
     key: string
     label: string
     choices?: { value: string; label: string }[]
+    /** For `choice` inputs: render as a searchable select instead of a plain dropdown. */
+    searchable?: boolean
     required?: boolean
     default?: any
     secret?: boolean
@@ -6649,6 +6671,7 @@ export type HogFunctionConfigurationContextId =
     | 'insight-alerts'
     | 'experiment-alerts'
     | 'logs-alerting'
+    | 'health-alerts'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -6665,6 +6688,8 @@ export type HogFunctionSubTemplateIdType =
     | 'logs-alert-resolved'
     | 'logs-alert-auto-disabled'
     | 'logs-alert-errored'
+    | 'health-check-firing'
+    | 'health-check-resolved'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

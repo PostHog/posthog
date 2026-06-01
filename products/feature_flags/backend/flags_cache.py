@@ -122,8 +122,8 @@ def _extract_cohort_ids_from_flag_filters(flags_data: list[dict[str, Any]]) -> s
 
     Only scans ``groups`` — the other filter sections cannot contain cohort
     properties:
-    - ``super_groups`` are early-access enrollment gates that only use person
-      properties (``$feature_enrollment/*``).
+    - ``feature_enrollment`` is a boolean gate for early-access features,
+      evaluated against person properties (``$feature_enrollment/*``).
     - ``holdout`` uses a different schema for configuring experiment holdouts
       with no property filters at all.
     """
@@ -672,6 +672,57 @@ def verify_team_flags(
     return result
 
 
+# Keys whose ``null`` is semantically distinct from "absent" and must be preserved
+# during loose comparison — but only at the group level (``filters.groups[*]`` /
+# ``filters.super_groups[*]``), where the Rust matcher uses
+# ``Option<Option<i32>>`` with ``skip_serializing_if`` on
+# ``FlagPropertyGroup.aggregation_group_type_index`` to distinguish "absent
+# (fall back to flag-level group type)" from "explicit null (force person-level
+# aggregation)". At the filters level the Rust ``FlagFilters`` field is plain
+# ``Option<i32>`` with no ``skip_serializing_if``, so the warmer always emits
+# ``null`` for both PG-null and PG-absent; preserving null there would flag
+# every PG-absent team as drifted. The list keys below mark the path into
+# group-level dicts so preservation only kicks in for those nested entries.
+_PRESERVE_NULL_KEYS = frozenset({"aggregation_group_type_index"})
+_GROUP_LEVEL_LIST_KEYS = frozenset({"groups", "super_groups"})
+
+
+def _strip_null_values(value: Any, in_group_level_list: bool = False) -> Any:
+    """Recursively drop ``None`` values from dicts; recurse into lists without dropping ``None`` elements.
+
+    Used to normalize structural divergence between the Django serializer (which
+    passes JSONB through verbatim and preserves explicit ``null`` entries) and
+    the Rust warmer (whose typed ``Option<T>`` deserialization collapses
+    "absent key" and "explicit null" into the same ``None`` and emits one
+    shape). The matcher already treats those two states as equivalent for most
+    fields, so the verifier should mirror that tolerance instead of reporting
+    spurious ``FIELD_MISMATCH``.
+
+    Rules:
+    - Dicts: drop entries whose value is ``None``, except for keys in
+      ``_PRESERVE_NULL_KEYS`` when this dict is a group-level item (sits inside
+      ``filters.groups[*]`` or ``filters.super_groups[*]``), where ``null`` is
+      semantically distinct from absent; recurse into remaining values, marking
+      group-level list values so their dict elements know they're at group level.
+    - Lists: recurse into each element, but preserve ``None`` elements (dropping
+      them would shift indices and change semantics). The Rust typed
+      serialization will not emit ``null`` list elements in current data, so
+      this rule preserves correctness without changing observed behavior.
+    - Scalars: returned unchanged.
+
+    See plans/verify-flags-cache-loose-comparison.md for the full rationale.
+    """
+    if isinstance(value, dict):
+        return {
+            k: _strip_null_values(v, in_group_level_list=(k in _GROUP_LEVEL_LIST_KEYS))
+            for k, v in value.items()
+            if v is not None or (in_group_level_list and k in _PRESERVE_NULL_KEYS)
+        }
+    if isinstance(value, list):
+        return [_strip_null_values(item, in_group_level_list=in_group_level_list) for item in value]
+    return value
+
+
 def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     """Compare field values between DB and cached versions of a flag.
 
@@ -680,6 +731,14 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
     were removed from the serializer but still linger in pre-existing cache
     entries) are ignored so that benign serializer field removals do not flag
     every team's cache as mismatched.
+
+    For container values (dicts and lists, which is where every observed
+    absent/null divergence lives — under ``filters``), both sides are passed
+    through ``_strip_null_values`` before the equality check so that explicit
+    ``null`` and absent-key normalize to the same shape. Top-level scalar keys
+    are compared directly; ``MinimalFeatureFlagSerializer`` emits all top-level
+    keys explicitly today, so there is no top-level absent/null divergence to
+    tolerate. See plans/verify-flags-cache-loose-comparison.md.
     """
     field_diffs = []
 
@@ -687,7 +746,10 @@ def _compare_flag_fields(db_flag: dict, cached_flag: dict) -> list[dict]:
         db_val = db_flag[key]
         cached_val = cached_flag.get(key)
 
-        if db_val != cached_val:
+        if isinstance(db_val, dict | list) or isinstance(cached_val, dict | list):
+            if _strip_null_values(db_val) != _strip_null_values(cached_val):
+                field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
+        elif db_val != cached_val:
             field_diffs.append({"field": key, "db_value": db_val, "cached_value": cached_val})
 
     return field_diffs
@@ -711,7 +773,7 @@ def get_teams_with_flags_queryset() -> "QuerySet[Team]":
     return Team.objects.filter(Exists(has_flags))
 
 
-def _get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
+def get_team_ids_with_recently_updated_flags(team_ids: list[int]) -> set[int]:
     """
     Batch check which teams have active flags updated within the grace period.
 
@@ -748,7 +810,7 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=update_flags_cache,
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
-    get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_flags,
+    get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
 )
 
 

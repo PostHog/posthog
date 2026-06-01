@@ -372,21 +372,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('new_session',
-                                                      'middle_session',
-                                                      'old_session')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.2
   '''
   SELECT "posthog_team"."id",
@@ -436,6 +421,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -1193,20 +1179,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('session2',
-                                                      'session1')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.2
   '''
   SELECT "posthog_team"."id",
@@ -1256,6 +1228,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -2009,19 +1982,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('session_with_duration')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.2
   '''
   SELECT "posthog_team"."id",
@@ -2071,6 +2031,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -2824,19 +2785,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('session_many_ids')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.2
   '''
   SELECT "posthog_team"."id",
@@ -2886,6 +2834,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -3643,20 +3592,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
-                                                      'at_base_time')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.2
   '''
   SELECT "posthog_team"."id",
@@ -3706,6 +3641,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -4463,20 +4399,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time_plus_20',
-                                                      'at_base_time')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.2
   '''
   SELECT "posthog_team"."id",
@@ -4526,6 +4448,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -5283,20 +5206,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.17
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('at_base_time',
-                                                      'at_base_time_plus_20')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
-  '''
-# ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.2
   '''
   SELECT "posthog_team"."id",
@@ -5346,6 +5255,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -6441,6 +6351,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -7299,6 +7210,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -8071,6 +7983,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -8289,6 +8202,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -9160,6 +9074,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -9944,294 +9859,6 @@
            "ee_single_session_summary"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.172
-  '''
-  SELECT "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."updated_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."folder_id",
-         "posthog_datawarehousesavedquery"."origin",
-         "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at",
-         "posthog_datawarehousetable"."created_by_id",
-         "posthog_datawarehousetable"."created_at",
-         "posthog_datawarehousetable"."updated_at",
-         "posthog_datawarehousetable"."deleted",
-         "posthog_datawarehousetable"."deleted_at",
-         "posthog_datawarehousetable"."id",
-         "posthog_datawarehousetable"."name",
-         "posthog_datawarehousetable"."format",
-         "posthog_datawarehousetable"."team_id",
-         "posthog_datawarehousetable"."url_pattern",
-         "posthog_datawarehousetable"."queryable_folder",
-         "posthog_datawarehousetable"."credential_id",
-         "posthog_datawarehousetable"."external_data_source_id",
-         "posthog_datawarehousetable"."columns",
-         "posthog_datawarehousetable"."options",
-         "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_datawarehousemanagedviewset"."created_by_id",
-         "posthog_datawarehousemanagedviewset"."created_at",
-         "posthog_datawarehousemanagedviewset"."updated_at",
-         "posthog_datawarehousemanagedviewset"."id",
-         "posthog_datawarehousemanagedviewset"."team_id",
-         "posthog_datawarehousemanagedviewset"."kind"
-  FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
-  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
-  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
-         AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
-  ORDER BY "posthog_datawarehousesavedquery"."name" ASC
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.173
-  '''
-  SELECT "posthog_datawarehousesavedquery"."created_by_id",
-         "posthog_datawarehousesavedquery"."created_at",
-         "posthog_datawarehousesavedquery"."updated_at",
-         "posthog_datawarehousesavedquery"."deleted",
-         "posthog_datawarehousesavedquery"."deleted_at",
-         "posthog_datawarehousesavedquery"."id",
-         "posthog_datawarehousesavedquery"."name",
-         "posthog_datawarehousesavedquery"."team_id",
-         "posthog_datawarehousesavedquery"."latest_error",
-         "posthog_datawarehousesavedquery"."columns",
-         "posthog_datawarehousesavedquery"."external_tables",
-         "posthog_datawarehousesavedquery"."query",
-         "posthog_datawarehousesavedquery"."status",
-         "posthog_datawarehousesavedquery"."last_run_at",
-         "posthog_datawarehousesavedquery"."sync_frequency_interval",
-         "posthog_datawarehousesavedquery"."table_id",
-         "posthog_datawarehousesavedquery"."is_materialized",
-         "posthog_datawarehousesavedquery"."deleted_name",
-         "posthog_datawarehousesavedquery"."managed_viewset_id",
-         "posthog_datawarehousesavedquery"."folder_id",
-         "posthog_datawarehousesavedquery"."origin",
-         "posthog_datawarehousesavedquery"."is_test",
-         "posthog_datawarehousesavedquery"."expires_at",
-         "posthog_datawarehousetable"."created_by_id",
-         "posthog_datawarehousetable"."created_at",
-         "posthog_datawarehousetable"."updated_at",
-         "posthog_datawarehousetable"."deleted",
-         "posthog_datawarehousetable"."deleted_at",
-         "posthog_datawarehousetable"."id",
-         "posthog_datawarehousetable"."name",
-         "posthog_datawarehousetable"."format",
-         "posthog_datawarehousetable"."team_id",
-         "posthog_datawarehousetable"."url_pattern",
-         "posthog_datawarehousetable"."queryable_folder",
-         "posthog_datawarehousetable"."credential_id",
-         "posthog_datawarehousetable"."external_data_source_id",
-         "posthog_datawarehousetable"."columns",
-         "posthog_datawarehousetable"."options",
-         "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
-  FROM "posthog_datawarehousesavedquery"
-  LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
-  WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
-         AND "posthog_datawarehousesavedquery"."origin" = 'endpoint'
-         AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.174
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."source_type" IN ('Stripe')
-         AND "posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.175
-  '''
-  SELECT "posthog_datawarehousetable"."created_by_id",
-         "posthog_datawarehousetable"."created_at",
-         "posthog_datawarehousetable"."updated_at",
-         "posthog_datawarehousetable"."deleted",
-         "posthog_datawarehousetable"."deleted_at",
-         "posthog_datawarehousetable"."id",
-         "posthog_datawarehousetable"."name",
-         "posthog_datawarehousetable"."format",
-         "posthog_datawarehousetable"."team_id",
-         "posthog_datawarehousetable"."url_pattern",
-         "posthog_datawarehousetable"."queryable_folder",
-         "posthog_datawarehousetable"."credential_id",
-         "posthog_datawarehousetable"."external_data_source_id",
-         "posthog_datawarehousetable"."columns",
-         "posthog_datawarehousetable"."options",
-         "posthog_datawarehousetable"."row_count",
-         "posthog_datawarehousetable"."size_in_s3_mib",
-         "posthog_datawarehousecredential"."created_by_id",
-         "posthog_datawarehousecredential"."created_at",
-         "posthog_datawarehousecredential"."id",
-         "posthog_datawarehousecredential"."access_key",
-         "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id",
-         "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."revenue_analytics_enabled"
-  FROM "posthog_datawarehousetable"
-  LEFT OUTER JOIN "posthog_externaldatasource" ON ("posthog_datawarehousetable"."external_data_source_id" = "posthog_externaldatasource"."id")
-  LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
-  WHERE ("posthog_datawarehousetable"."team_id" = 99999
-         AND NOT ("posthog_datawarehousetable"."deleted"
-                  AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
-         AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
-                  AND "posthog_externaldatasource"."access_method" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.176
-  '''
-  SELECT "posthog_datawarehousejoin"."created_by_id",
-         "posthog_datawarehousejoin"."created_at",
-         "posthog_datawarehousejoin"."deleted",
-         "posthog_datawarehousejoin"."deleted_at",
-         "posthog_datawarehousejoin"."id",
-         "posthog_datawarehousejoin"."team_id",
-         "posthog_datawarehousejoin"."source_table_name",
-         "posthog_datawarehousejoin"."source_table_key",
-         "posthog_datawarehousejoin"."joining_table_name",
-         "posthog_datawarehousejoin"."joining_table_key",
-         "posthog_datawarehousejoin"."field_name",
-         "posthog_datawarehousejoin"."configuration"
-  FROM "posthog_datawarehousejoin"
-  WHERE ("posthog_datawarehousejoin"."team_id" = 99999
-         AND NOT ("posthog_datawarehousejoin"."deleted"
-                  AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.177
-  '''
-  SELECT 1 AS "a"
-  FROM "access_control_propertyaccesscontrol"
-  WHERE ("access_control_propertyaccesscontrol"."team_id" = 99999
-         AND NOT ("access_control_propertyaccesscontrol"."property_definition_id" IS NULL))
-  LIMIT 1
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.178
-  '''
-  SELECT 1 AS "a"
-  FROM "access_control_propertyaccesscontrol"
-  WHERE ("access_control_propertyaccesscontrol"."team_id" = 99999
-         AND NOT ("access_control_propertyaccesscontrol"."property_definition_id" IS NULL))
-  LIMIT 1
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.179
-  '''
-  SELECT "posthog_sessionrecording"."id",
-         "posthog_sessionrecording"."session_id",
-         "posthog_sessionrecording"."team_id",
-         "posthog_sessionrecording"."created_at",
-         "posthog_sessionrecording"."deleted",
-         "posthog_sessionrecording"."object_storage_path",
-         "posthog_sessionrecording"."full_recording_v2_path",
-         "posthog_sessionrecording"."distinct_id",
-         "posthog_sessionrecording"."duration",
-         "posthog_sessionrecording"."active_seconds",
-         "posthog_sessionrecording"."inactive_seconds",
-         "posthog_sessionrecording"."start_time",
-         "posthog_sessionrecording"."end_time",
-         "posthog_sessionrecording"."click_count",
-         "posthog_sessionrecording"."keypress_count",
-         "posthog_sessionrecording"."mouse_activity_count",
-         "posthog_sessionrecording"."console_log_count",
-         "posthog_sessionrecording"."console_warn_count",
-         "posthog_sessionrecording"."console_error_count",
-         "posthog_sessionrecording"."start_url",
-         "posthog_sessionrecording"."storage_version",
-         "posthog_sessionrecording"."retention_period_days"
-  FROM "posthog_sessionrecording"
-  WHERE ("posthog_sessionrecording"."session_id" IN ('1',
-                                                     '10',
-                                                     '2',
-                                                     '3',
-                                                     '4',
-                                                     '5',
-                                                     '6',
-                                                     '7',
-                                                     '8',
-                                                     '9')
-         AND "posthog_sessionrecording"."team_id" = 99999)
-  '''
-# ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.18
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
@@ -10295,66 +9922,6 @@
                   AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
          AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.180
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
-  FROM "posthog_sessionrecordingviewed"
-  WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
-         AND "posthog_sessionrecordingviewed"."user_id" = 99999
-         AND "posthog_sessionrecordingviewed"."session_id" IN ('9',
-                                                               '8',
-                                                               '7',
-                                                               '6',
-                                                               '5',
-                                                               '4',
-                                                               '3',
-                                                               '2',
-                                                               '10',
-                                                               '1'))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.181
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('9',
-                                                           '8',
-                                                           '7',
-                                                           '6',
-                                                           '5',
-                                                           '4',
-                                                           '3',
-                                                           '2',
-                                                           '10',
-                                                           '1')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
-  '''
-# ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.182
-  '''
-  SELECT DISTINCT ON ("ee_single_session_summary"."session_id") "ee_single_session_summary"."session_id" AS "session_id",
-                     ("ee_single_session_summary"."summary" -> 'session_outcome') AS "summary__session_outcome",
-                     "ee_single_session_summary"."extra_summary_context" AS "extra_summary_context"
-  FROM "ee_single_session_summary"
-  WHERE ("ee_single_session_summary"."session_id" IN ('9',
-                                                      '8',
-                                                      '7',
-                                                      '6',
-                                                      '5',
-                                                      '4',
-                                                      '3',
-                                                      '2',
-                                                      '10',
-                                                      '1')
-         AND "ee_single_session_summary"."team_id" = 99999
-         AND "ee_single_session_summary"."extra_summary_context" IS NULL)
-  ORDER BY 1 ASC,
-           "ee_single_session_summary"."created_at" DESC
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.19
@@ -10463,6 +10030,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -11036,6 +10604,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -11875,6 +11444,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -12785,6 +12355,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -13643,6 +13214,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -14538,6 +14110,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",

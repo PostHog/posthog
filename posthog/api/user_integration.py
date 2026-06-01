@@ -111,7 +111,7 @@ class UserGitHubLinkStartResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class UserIntegrationViewSet(viewsets.GenericViewSet):
     """`/api/users/@me/integrations/` — manage the user's personal GitHub integrations."""
 
@@ -296,12 +296,12 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         page handles both cases: orgs where the app is installed show "Configure"
         (no admin needed), orgs where it isn't show "Install" (needs admin).
 
-        **First-party app fast path:** when ``connect_from`` is one of
-        ``APP_CONNECT_FROM_VALUES`` (e.g. ``"posthog_code"`` or ``"posthog_mobile"``),
-        the current project already has a team-level GitHub installation, and the
-        user has no ``UserIntegration`` for that installation yet, we skip the org
-        picker and redirect straight to ``/login/oauth/authorize`` so the user
-        only authorizes themselves and returns to the originating client immediately.
+        **OAuth fast path:** when the current project already has a team-level
+        GitHub installation, and the user has no ``UserIntegration`` for that
+        installation yet, we skip the org picker and redirect straight to
+        ``/login/oauth/authorize`` so the user only authorizes themselves.
+        ``connect_from`` is preserved for first-party clients so they return to
+        the originating client immediately.
 
         In both cases the response key is ``install_url`` for compatibility with callers.
         """
@@ -313,9 +313,10 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         team = _resolve_team_for_github_start(user, self.request)
         connect_from = request.data.get("connect_from")
 
+        if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
+            return fast_path_response
+
         if connect_from in APP_CONNECT_FROM_VALUES:
-            if fast_path_response := _attempt_app_oauth_fast_path(user, team, token, state, connect_from):
-                return fast_path_response
             if _team_github_installation_id(team) is None:
                 cache.set(
                     f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
@@ -436,10 +437,9 @@ def _attempt_app_oauth_fast_path(
     user: User, team: Any, token: str, state: str, connect_from: str | None
 ) -> Response | None:
     """If the team has a GitHub installation the user hasn't linked yet, return
-    an OAuth-only ``/login/oauth/authorize`` redirect so first-party app users
-    (PostHog Code, mobile) authorize and return immediately — no org picker
-    needed. ``connect_from`` is preserved so the callback returns to the right
-    client.
+    an OAuth-only ``/login/oauth/authorize`` redirect so users authorize against
+    the already-installed App — no org picker needed. ``connect_from`` is
+    preserved so first-party app callbacks return to the right client.
 
     Returns ``None`` when the fast path doesn't apply (no team integration,
     user already linked, or missing config).

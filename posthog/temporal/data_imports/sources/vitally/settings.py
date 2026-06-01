@@ -13,6 +13,20 @@ ENDPOINTS = (
     "Messages",
 )
 
+# Prefix used for schemas that sync the *instances* of a Vitally custom object.
+# The `Custom_Objects` static endpoint syncs the definitions; one schema per object
+# (named `Custom_Object_<machineName>`) syncs each object's actual records.
+CUSTOM_OBJECT_SCHEMA_PREFIX = "Custom_Object_"
+
+# Standard updated_at incremental field shared across all Vitally endpoints that
+# expose an `updatedAt` server-side filter (which includes custom-object instances).
+UPDATED_AT_INCREMENTAL_FIELD: IncrementalField = {
+    "label": "updated_at",
+    "type": IncrementalFieldType.DateTime,
+    "field": "updated_at",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
 INCREMENTAL_ENDPOINTS = (
     "Organizations",
     "Accounts",

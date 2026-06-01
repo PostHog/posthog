@@ -43,12 +43,14 @@ use crate::storage;
 fn strong_consistency() -> Option<personhog_proto::personhog::types::v1::ReadOptions> {
     Some(personhog_proto::personhog::types::v1::ReadOptions {
         consistency: personhog_proto::personhog::types::v1::ConsistencyLevel::Strong.into(),
+        ..Default::default()
     })
 }
 
 fn eventual_consistency() -> Option<personhog_proto::personhog::types::v1::ReadOptions> {
     Some(personhog_proto::personhog::types::v1::ReadOptions {
         consistency: personhog_proto::personhog::types::v1::ConsistencyLevel::Eventual.into(),
+        ..Default::default()
     })
 }
 

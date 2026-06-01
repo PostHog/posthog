@@ -8,55 +8,6 @@
  */
 import * as zod from 'zod'
 
-export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ApprovalPoliciesListQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
-export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this approval policy.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
-    action_key: zod.string().optional(),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    requester: zod.number().optional(),
-    resource_id: zod.string().optional(),
-    resource_type: zod.string().optional(),
-    state: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-})
-
-export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this change request.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
 export const ListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -301,6 +252,7 @@ export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryIpAddressesDefault = []
 export const advancedActivityLogsListQueryItemIdsDefault = []
 export const advancedActivityLogsListQueryPageSizeDefault = 100
 export const advancedActivityLogsListQueryPageSizeMax = 1000
@@ -329,6 +281,12 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
     hogql_filter: zod.string().optional().describe('Reserved for future HogQL-based filtering.'),
+    ip_addresses: zod
+        .array(zod.string())
+        .default(advancedActivityLogsListQueryIpAddressesDefault)
+        .describe(
+            'Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.'
+        ),
     is_system: zod.boolean().nullish().describe('When set, filters rows authored by the system (no user).'),
     item_ids: zod
         .array(zod.string())
@@ -373,6 +331,55 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ApprovalPoliciesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this approval policy.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
+    action_key: zod.string().optional(),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    requester: zod.number().optional(),
+    resource_id: zod.string().optional(),
+    resource_type: zod.string().optional(),
+    state: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
+})
+
+export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
         .describe(

@@ -105,6 +105,11 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
             raise ValidationError("data interval range too big")
 
+        if data["data_interval_end"] > dt.datetime.now(dt.UTC):
+            raise ValidationError(
+                f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
+            )
+
         return data
 
     def create(self, validated_data: dict) -> BatchExportRun:
@@ -146,6 +151,16 @@ class CreateOutputSerializer(serializers.Serializer):
     """Typed output for view set `create`."""
 
     id = serializers.UUIDField()
+
+
+class ListOutputSerializer(serializers.Serializer):
+    """Typed output for view set `list`."""
+
+    id = serializers.UUIDField(help_text="ID of the file download batch export run.")
+    status = serializers.ChoiceField(
+        choices=BatchExportRun.Status.choices,
+        help_text="Current status of the file download batch export run.",
+    )
 
 
 class RetrieveBasicOutputSerializer(serializers.Serializer):
@@ -193,7 +208,12 @@ class TooManyConcurrentFileDownloads(APIException):
 
 @extend_schema(tags=["batch_exports"])
 class FileDownloadBatchExportOnDemandViewSet(
-    TeamAndOrgViewSetMixin, LogEntryMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+    TeamAndOrgViewSetMixin,
+    LogEntryMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
 ):
     scope_object = "batch_export"
     queryset = (
@@ -207,6 +227,12 @@ class FileDownloadBatchExportOnDemandViewSet(
     log_source = "batch_exports"
     # Not linked directly with a team, we need to go through batch export
     filter_rewrite_rules = {"team_id": "batch_export_on_demand__team_id"}
+
+    def get_serializer_class(self) -> type[serializers.Serializer]:
+        if self.action == "list":
+            return ListOutputSerializer
+
+        return FileDownloadBatchExportOnDemandSerializer
 
     @extend_schema(
         request=PolymorphicProxySerializer(
@@ -260,6 +286,8 @@ class FileDownloadBatchExportOnDemandViewSet(
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
                 max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),
+                include_events=instance.batch_export_on_demand.destination.config.get("include_events", None),
+                exclude_events=instance.batch_export_on_demand.destination.config.get("exclude_events", None),
             )
         except Exception:
             LOGGER.exception("batch_export_on_demand.fail_to_start")
@@ -297,7 +325,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         },
     )
     def retrieve(self, *args, **kwargs) -> response.Response:
-        """Get a run of a batch export on demand.
+        """Get a batch export on demand run.
 
         If the underlying batch export run has completed, we return keys to the
         generated file downloads so that users may download them by making a request

@@ -392,9 +392,11 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     saved_metric = None
+    saved_metric_metadata: dict = {}
     for exp_to_sm in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         if exp_to_sm.saved_metric.query.get("uuid") == metric_uuid:
             saved_metric = exp_to_sm.saved_metric
+            saved_metric_metadata = exp_to_sm.metadata or {}
             break
 
     if not saved_metric:
@@ -406,7 +408,19 @@ def _calculate_experiment_saved_metric_sync(
             error_message=f"Saved metric {metric_uuid} not found for experiment {experiment_id}",
         )
 
-    query = saved_metric.query
+    # The frontend receives saved metrics with two extra fields injected before
+    # they get posted back to /query: a breakdownFilter wrapper (from the link
+    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # a fingerprint (added by the experiment API serializer). The activity must
+    # apply both or the response cache key diverges from /query's.
+    query = {
+        **saved_metric.query,
+        "breakdownFilter": {
+            **(saved_metric.query.get("breakdownFilter") or {}),
+            "breakdowns": saved_metric_metadata.get("breakdowns") or [],
+        },
+        "fingerprint": fingerprint,
+    }
     metric_type = query.get("metric_type")
     metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     if metric_type == "mean":
