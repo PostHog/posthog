@@ -187,6 +187,17 @@ export type ConversationApiMessagesItem = { [key: string]: unknown }
 
 export type ConversationApiPendingApprovalsItem = { [key: string]: unknown }
 
+/**
+ * * `langgraph` - LangGraph
+ * `sandbox` - Sandbox
+ */
+export type AgentRuntimeEnumApi = (typeof AgentRuntimeEnumApi)[keyof typeof AgentRuntimeEnumApi]
+
+export const AgentRuntimeEnumApi = {
+    Langgraph: 'langgraph',
+    Sandbox: 'sandbox',
+} as const
+
 export interface ConversationApi {
     readonly id: string
     readonly status: ConversationStatusApi
@@ -220,6 +231,11 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime: AgentRuntimeEnumApi
     readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
@@ -273,6 +289,11 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; 'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint instead.
+
+  * `langgraph` - LangGraph
+  * `sandbox` - Sandbox */
+    readonly agent_runtime?: AgentRuntimeEnumApi
     readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
