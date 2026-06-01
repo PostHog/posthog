@@ -41,7 +41,7 @@ function buildTrigger(context) {
         trigger_event: context.eventName || null,
         trigger_action: payload.action || null,
         head_ref: (pr && pr.head && pr.head.ref) || payload.ref || null,
-        pr_number: pr ? pr.number : null,
+        pr_number: pr ? num(pr.number) : null,
         pr_author: (pr && pr.user && pr.user.login) || null,
         pr_changed_files: pr ? num(pr.changed_files) : null,
         pr_additions: pr ? num(pr.additions) : null,

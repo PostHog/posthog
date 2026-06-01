@@ -125,14 +125,20 @@ describe('monitor-github-rate-limit', () => {
         })
     })
 
-    test('buildTrigger falls back to ref and nulls PR fields for non-PR events', () => {
-        expect(monitor.buildTrigger({ eventName: 'push', payload: { ref: 'refs/heads/master' } })).toMatchObject({
-            trigger_event: 'push',
+    test.each([
+        ['push', { ref: 'refs/heads/master' }, 'refs/heads/master'],
+        ['schedule', {}, null],
+        ['workflow_dispatch', {}, null],
+    ])('buildTrigger nulls PR fields and resolves head_ref for non-PR event %s', (eventName, payload, expectedRef) => {
+        expect(monitor.buildTrigger({ eventName, payload })).toMatchObject({
+            trigger_event: eventName,
             trigger_action: null,
-            head_ref: 'refs/heads/master',
+            head_ref: expectedRef,
             pr_number: null,
             pr_author: null,
             pr_changed_files: null,
+            pr_additions: null,
+            pr_deletions: null,
         })
     })
 
