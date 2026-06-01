@@ -6785,7 +6785,13 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
             type="popover",
             questions=[
                 {"id": self.rating_qid, "type": "rating", "question": "1-10 rating?"},
-                {"id": self.choice_qid, "type": "single_choice", "question": "Pick one"},
+                {
+                    "id": self.choice_qid,
+                    "type": "single_choice",
+                    "question": "Pick one",
+                    "choices": ["yes", "no"],
+                    "hasOpenChoice": True,
+                },
                 {"id": self.open_qid, "type": "open", "question": "Free text"},
             ],
             start_date=datetime(2024, 5, 1, tzinfo=UTC),
@@ -6800,10 +6806,13 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         Person.objects.create(team=self.team, distinct_ids=["u-1"])
         Person.objects.create(team=self.team, distinct_ids=["u-2"])
         Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        # u-4 picks the open-choice "Other" with free text — must be redacted to <other>.
+        Person.objects.create(team=self.team, distinct_ids=["u-4"])
         for distinct_id, rating, choice, text in [
             ("u-1", "9", "yes", "Loved it"),
             ("u-2", "7", "yes", "Good"),
             ("u-3", "3", "no", ""),
+            ("u-4", "5", "my own private reason", "Meh"),
         ]:
             _create_event(
                 team=self.team,
@@ -6825,19 +6834,21 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         per_q = {q["question_id"]: q for q in response.json()["per_question_stats"]}
 
-        # Rating: 3 responses, average should be ~6.33, distribution by value
-        self.assertEqual(per_q[self.rating_qid]["response_count"], 3)
+        # Rating: 4 responses, distribution by value
+        self.assertEqual(per_q[self.rating_qid]["response_count"], 4)
         self.assertEqual(per_q[self.rating_qid]["question_type"], "rating")
-        self.assertAlmostEqual(per_q[self.rating_qid]["average"], (9 + 7 + 3) / 3, places=2)
-        self.assertEqual(per_q[self.rating_qid]["distribution"], {"9": 1, "7": 1, "3": 1})
+        self.assertAlmostEqual(per_q[self.rating_qid]["average"], (9 + 7 + 3 + 5) / 4, places=2)
+        self.assertEqual(per_q[self.rating_qid]["distribution"], {"9": 1, "7": 1, "3": 1, "5": 1})
 
-        # Choice: 3 responses, distribution by choice
-        self.assertEqual(per_q[self.choice_qid]["response_count"], 3)
-        self.assertEqual(per_q[self.choice_qid]["distribution"], {"yes": 2, "no": 1})
+        # Choice: 4 responses. Configured choices ("yes"/"no") shown by value; the free-text
+        # open-choice answer is redacted into <other> (its count is kept, the text is not).
+        self.assertEqual(per_q[self.choice_qid]["response_count"], 4)
+        self.assertEqual(per_q[self.choice_qid]["distribution"], {"yes": 2, "no": 1, "<other>": 1})
+        self.assertNotIn("my own private reason", per_q[self.choice_qid]["distribution"])
         self.assertIsNone(per_q[self.choice_qid]["average"])
 
-        # Open: 2 responses (one user left it blank), no distribution
-        self.assertEqual(per_q[self.open_qid]["response_count"], 2)
+        # Open: 3 responses (one user left it blank), no distribution
+        self.assertEqual(per_q[self.open_qid]["response_count"], 3)
         self.assertEqual(per_q[self.open_qid]["distribution"], {})
 
 
