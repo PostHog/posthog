@@ -22,12 +22,19 @@ the same cymbal HTTP boundary.
 
 When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
 controls a deterministic event-level rollout. Events selected for remote
-processing are grouped per-team and packed into event-atomic
-`ResolveRequest` chunks capped by `CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS`
-(an event's exceptions are never split across chunks). Sampled remote
-attempts do not fall back to local resolution if the remote pool fails;
-unsampled events use the inline local exception and frame resolvers and
-then rejoin the same properties/grouping/linking pipeline.
+processing are grouped per team, flattened into exception-level `ResolveItem`s,
+and submitted over a bidirectional `Resolve` stream. Each item carries JSON
+`metadata` bytes for resolver-specific context such as
+`apple_debug_images_json`, and each terminal `ResolveOutcome` is correlated by
+item id. Sampled remote attempts do not fall back to local resolution if the
+remote pool fails; unsampled events use the inline local exception and frame
+resolvers and then rejoin the same properties/grouping/linking pipeline.
+
+Backpressure is result-only on the `Resolve` stream: overload is surfaced as
+`ResolveOutcome.Error { kind: ERROR_KIND_OVERLOADED }`, which the cymbal client
+reroutes with overload-specific backoff. `LoadEvent` is only a
+freshness/draining signal for endpoint routing, not an overload or dynamic
+batch-size control plane.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`../cymbal-resolution/README.md`](../cymbal-resolution/README.md)

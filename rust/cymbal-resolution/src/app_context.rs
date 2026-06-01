@@ -7,7 +7,6 @@ use cymbal::stages::resolution::symbol::SymbolResolver;
 use tokio::sync::Semaphore;
 
 use crate::config::Config;
-use crate::item_limiter::ItemLimiter;
 use crate::load_monitor::LoadMonitor;
 
 /// Process-wide handles required to serve `cymbal.resolution.v1`.
@@ -20,10 +19,6 @@ use crate::load_monitor::LoadMonitor;
 pub struct AppContext {
     pub symbol_resolver: Arc<dyn SymbolResolver>,
     pub symbol_resolution_limiter: Arc<Semaphore>,
-    /// Process-wide cap on concurrent item processing across all in-flight
-    /// `Resolve` requests. Acts as the primary admission gate; the symbol
-    /// limiter still bounds downstream symbol-store work independently.
-    pub item_limiter: ItemLimiter,
     pub load_monitor: LoadMonitor,
     pub config: Config,
     pub service_instance_id: String,
@@ -56,8 +51,7 @@ impl AppContext {
             Arc::new(Semaphore::new(config.symbol_resolution_concurrency.max(1)))
         });
         let max_item_concurrency = config.max_item_concurrency.max(1);
-        let item_limiter = ItemLimiter::new(max_item_concurrency);
-        let load_monitor = LoadMonitor::new(config.degraded_in_flight_threshold);
+        let load_monitor = LoadMonitor::new(max_item_concurrency as u32);
         let service_instance_id = config
             .service_instance_id
             .clone()
@@ -65,7 +59,6 @@ impl AppContext {
         Self {
             symbol_resolver,
             symbol_resolution_limiter,
-            item_limiter,
             load_monitor,
             config,
             service_instance_id,

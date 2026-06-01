@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
+use rand::seq::SliceRandom;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify};
@@ -12,14 +14,44 @@ use tracing::{info, warn};
 
 use super::config::RemoteResolutionConfig;
 use super::dns::DnsResolver;
+use super::mux::ResolveMux;
 use super::subscription::{spawn_subscription, LoadCell, LoadSnapshot, SubscriptionHandle};
 use crate::metric_consts::{REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT, REMOTE_RESOLUTION_POOL_SIZE};
+
+const RESOLVE_MUX_QUEUE_CAPACITY: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EndpointPoolEmptyReason {
+    NoEndpoints,
+    NoFreshLoadSnapshots,
+    AllEndpointsDraining,
+}
+
+impl EndpointPoolEmptyReason {
+    pub fn as_metric_tag(self) -> &'static str {
+        match self {
+            Self::NoEndpoints => "no_endpoints",
+            Self::NoFreshLoadSnapshots => "no_fresh_load_snapshots",
+            Self::AllEndpointsDraining => "all_endpoints_draining",
+        }
+    }
+}
+
+impl fmt::Display for EndpointPoolEmptyReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::NoEndpoints => "no DNS endpoints",
+            Self::NoFreshLoadSnapshots => "no fresh load snapshots",
+            Self::AllEndpointsDraining => "all endpoints draining",
+        })
+    }
+}
 
 /// Errors returned by [`EndpointPool::select`] and [`EndpointPool::refresh`].
 #[derive(Debug, Error)]
 pub enum EndpointPoolError {
-    #[error("remote resolution pool is empty (no healthy endpoints)")]
-    Empty,
+    #[error("remote resolution pool is empty ({0})")]
+    Empty(EndpointPoolEmptyReason),
     #[error("dns resolution failed for {host}:{port}: {source}")]
     Dns {
         host: String,
@@ -37,15 +69,16 @@ pub enum EndpointPoolError {
 
 struct EndpointState {
     channel: Channel,
+    mux: ResolveMux,
     in_flight: Arc<AtomicUsize>,
-    // Endpoints that DNS no longer reports are marked draining. They keep
-    // serving in-flight work but get no new requests. They are evicted on the
-    // next refresh tick once in_flight drops to zero.
+    // Endpoints that DNS no longer reports are marked draining. The mux is
+    // closed so in-flight waiters reroute, and the endpoint is evicted once
+    // local handles have observed the break and dropped.
     draining: bool,
     /// Latest server-reported load snapshot. Updated by the subscription task
     /// when one is attached; reads on the routing path are cheap.
     load: LoadCell,
-    /// Background task subscribing to this endpoint's load event bus. `None`
+    /// Background task subscribing to this endpoint's freshness/draining stream. `None`
     /// when subscriptions are disabled (test pools constructed via
     /// [`EndpointPool::from_addrs_without_subscriptions`]).
     subscription: Option<SubscriptionHandle>,
@@ -54,20 +87,20 @@ struct EndpointState {
 #[derive(Default)]
 struct PoolInner {
     endpoints: HashMap<SocketAddr, EndpointState>,
-    /// Monotonic counter used to break ties round-robin.
-    round_robin: usize,
 }
 
 /// Pool of gRPC channels addressed by resolved `SocketAddr`. Refreshed
-/// periodically from DNS; selects endpoints by lowest fresh server-reported
-/// load, with round-robin tie-breaking; retires endpoints that DNS removed.
+/// periodically from DNS. Routes via one of two strategies — rendezvous
+/// hashing on a routing key ([`SelectionStrategy::ByKey`]) or a random pick
+/// ([`SelectionStrategy::Random`]) — over endpoints with a fresh, non-
+/// non-draining load snapshot; retires endpoints that DNS removed.
 pub struct EndpointPool {
     config: RemoteResolutionConfig,
     resolver: Arc<dyn DnsResolver>,
     inner: Mutex<PoolInner>,
-    /// Notified when the pool first has at least one healthy endpoint, so
-    /// readiness probes can wait for the pool to warm up.
-    ready: Notify,
+    /// Notified when a subscription reports a fresh non-draining snapshot, so
+    /// readiness checks can wait for actual routability.
+    ready: Arc<Notify>,
     /// When false, the pool does not spawn per-endpoint subscription tasks.
     /// Used by tests that drive endpoint state manually.
     enable_subscriptions: bool,
@@ -79,15 +112,17 @@ pub struct EndpointPool {
 pub struct EndpointPoolHandle {
     pub addr: SocketAddr,
     pub channel: Channel,
+    pub mux: ResolveMux,
     counter: Arc<AtomicUsize>,
 }
 
 impl EndpointPoolHandle {
-    fn new(addr: SocketAddr, channel: Channel, counter: Arc<AtomicUsize>) -> Self {
+    fn new(addr: SocketAddr, channel: Channel, mux: ResolveMux, counter: Arc<AtomicUsize>) -> Self {
         counter.fetch_add(1, Ordering::AcqRel);
         Self {
             addr,
             channel,
+            mux,
             counter,
         }
     }
@@ -113,13 +148,18 @@ impl EndpointPool {
             config,
             resolver,
             inner: Mutex::new(PoolInner::default()),
-            ready: Notify::new(),
+            ready: Arc::new(Notify::new()),
             enable_subscriptions: true,
         });
         // Eagerly seed the pool so the first request doesn't pay a full DNS
         // cost. Refresh errors propagate so AppContext bootstrap can fail
         // loudly when the host is misconfigured.
         pool.refresh().await?;
+        if pool.inner.lock().await.endpoints.is_empty() {
+            return Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::NoEndpoints,
+            ));
+        }
         Ok(pool)
     }
 
@@ -152,12 +192,12 @@ impl EndpointPool {
             // Dummy resolver — `refresh` should not be called in this mode.
             resolver: Arc::new(super::dns::TokioDnsResolver),
             inner: Mutex::new(PoolInner::default()),
-            ready: Notify::new(),
+            ready: Arc::new(Notify::new()),
             enable_subscriptions,
         });
         let mut inner = pool.inner.try_lock().expect("freshly constructed pool");
         for addr in addrs {
-            let mut state = build_endpoint_state(*addr, config.connect_timeout)?;
+            let mut state = build_endpoint_state(*addr, &config)?;
             if enable_subscriptions {
                 state.subscription = Some(spawn_subscription(
                     *addr,
@@ -166,13 +206,13 @@ impl EndpointPool {
                     config.subscribe_tick_hint,
                     config.subscribe_reconnect_backoff,
                     config.internal_api_secret.clone(),
+                    pool.ready.clone(),
                 ));
             }
             inner.endpoints.insert(*addr, state);
         }
         metrics::gauge!(REMOTE_RESOLUTION_POOL_SIZE).set(inner.endpoints.len() as f64);
         drop(inner);
-        pool.ready.notify_waiters();
         Ok(pool)
     }
 
@@ -196,12 +236,26 @@ impl EndpointPool {
         let mut still_present = std::collections::HashSet::new();
         for addr in &resolved {
             still_present.insert(*addr);
-            if let Some(state) = inner.endpoints.get_mut(addr) {
+            let needs_rebuild = inner
+                .endpoints
+                .get(addr)
+                .is_some_and(|state| state.mux.is_closed());
+            if inner.endpoints.contains_key(addr) && !needs_rebuild {
+                let state = inner.endpoints.get_mut(addr).expect("endpoint exists");
                 // Re-add: any prior draining flag is cleared.
                 state.draining = false;
                 continue;
             }
-            match build_endpoint_state(*addr, self.config.connect_timeout) {
+            if needs_rebuild {
+                info!(endpoint = %addr, "rebuilding closed remote resolution endpoint mux");
+                if let Some(state) = inner.endpoints.remove(addr) {
+                    state.mux.close();
+                    if let Some(handle) = state.subscription {
+                        handle.cancel();
+                    }
+                }
+            }
+            match build_endpoint_state(*addr, &self.config) {
                 Ok(mut state) => {
                     info!(endpoint = %addr, "added remote resolution endpoint");
                     if self.enable_subscriptions {
@@ -212,6 +266,7 @@ impl EndpointPool {
                             self.config.subscribe_tick_hint,
                             self.config.subscribe_reconnect_backoff,
                             self.config.internal_api_secret.clone(),
+                            self.ready.clone(),
                         ));
                     }
                     inner.endpoints.insert(*addr, state);
@@ -230,6 +285,7 @@ impl EndpointPool {
             .filter_map(|(addr, state)| {
                 if !still_present.contains(addr) {
                     state.draining = true;
+                    state.mux.close();
                     if state.in_flight.load(Ordering::Acquire) == 0 {
                         Some(*addr)
                     } else {
@@ -243,6 +299,7 @@ impl EndpointPool {
         for addr in to_remove {
             info!(endpoint = %addr, "evicted drained remote resolution endpoint");
             if let Some(state) = inner.endpoints.remove(&addr) {
+                state.mux.close();
                 if let Some(handle) = state.subscription {
                     handle.cancel();
                 }
@@ -256,51 +313,52 @@ impl EndpointPool {
             .count();
         metrics::gauge!(REMOTE_RESOLUTION_POOL_SIZE).set(healthy_count as f64);
 
-        if healthy_count > 0 {
-            self.ready.notify_waiters();
-        }
         Ok(())
     }
 
-    /// Select an endpoint, preferring lowest reported load ratio among endpoints
-    /// with fresh snapshots. Missing, stale, degraded, and draining snapshots
-    /// are excluded from routing. Ties are broken round-robin.
+    /// Select an endpoint at random among those with a fresh, non-draining load snapshot. Missing, stale, and draining
+    /// snapshots are excluded from routing.
     ///
     /// Production routes via [`Self::select_for_key`] for warm-cache locality;
     /// this entry point is retained for tests and as a fallback for callers
-    /// that have no useful routing key.
-    pub async fn select(&self) -> Result<EndpointPoolHandle, EndpointPoolError> {
-        self.select_inner(SelectionStrategy::LeastLoad).await
+    /// that have no useful routing key. `exclude` lists endpoints already
+    /// tried this round so retries avoid them.
+    pub async fn select(
+        &self,
+        exclude: &[SocketAddr],
+    ) -> Result<EndpointPoolHandle, EndpointPoolError> {
+        self.select_inner(SelectionStrategy::Random, exclude).await
     }
 
     /// Select an endpoint using rendezvous hashing for the supplied routing
     /// key. This keeps events that need the same symbol set sticky to one
     /// cymbal-resolution pod, improving warm-cache locality while still
-    /// spreading distinct keys across the pool. Draining/degraded endpoints are
-    /// excluded just like load-aware selection. `attempt` rotates through the
-    /// ranked endpoint list so retries can avoid the endpoint that just failed.
+    /// spreading distinct keys across the pool. Draining endpoints are
+    /// excluded. `exclude` lists endpoints already tried this round; the
+    /// highest-ranked endpoint not in that set is chosen, so retries
+    /// deterministically avoid the endpoint that just failed.
     pub async fn select_for_key(
         &self,
         routing_key: &str,
-        attempt: u32,
+        exclude: &[SocketAddr],
     ) -> Result<EndpointPoolHandle, EndpointPoolError> {
         if routing_key.is_empty() {
-            return self.select().await;
+            return self.select(exclude).await;
         }
-        self.select_inner(SelectionStrategy::Keyed {
-            routing_key,
-            attempt,
-        })
-        .await
+        self.select_inner(SelectionStrategy::ByKey { routing_key }, exclude)
+            .await
     }
 
     async fn select_inner(
         &self,
         strategy: SelectionStrategy<'_>,
+        exclude: &[SocketAddr],
     ) -> Result<EndpointPoolHandle, EndpointPoolError> {
-        let mut inner = self.inner.lock().await;
+        let inner = self.inner.lock().await;
         if inner.endpoints.is_empty() {
-            return Err(EndpointPoolError::Empty);
+            return Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::NoEndpoints,
+            ));
         }
 
         let now = Instant::now();
@@ -312,62 +370,71 @@ impl EndpointPool {
 
         // Snapshot-required routing: a pod is only routable when its server-
         // reported LoadEvent snapshot is non-None AND fresh AND not
-        // degraded/draining. There is no caller-side fallback — guessing load
+        // draining. There is no caller-side fallback — guessing load
         // from the local in-flight counter is strictly worse than using the
         // server's own signal, and silently routing on guesses defeats the
-        // purpose of the load bus. If all pods are excluded, the caller sees
-        // pool_empty and retries (which consumes the retry budget with
-        // backoff). Bootstrap therefore takes one Subscribe tick before
-        // routing begins.
+        // purpose of the Subscribe stream. If all pods are excluded, the
+        // caller sees pool_empty with a reason label and retries with backoff.
+        // Bootstrap therefore waits for one Subscribe tick before routing
+        // begins.
         let mut candidates: Vec<Candidate> = Vec::with_capacity(inner.endpoints.len());
+        let mut active_endpoint_count = 0usize;
+        let mut saw_missing_or_stale_snapshot = false;
         for (addr, state) in inner.endpoints.iter() {
             if state.draining {
                 continue;
             }
+            active_endpoint_count += 1;
             let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
+                saw_missing_or_stale_snapshot = true;
                 continue;
             };
             if !snapshot.is_fresh(now, stale_after) {
+                saw_missing_or_stale_snapshot = true;
                 continue;
             }
-            if snapshot.degraded || snapshot.draining {
+            if snapshot.draining {
                 continue;
             }
             candidates.push(Candidate {
                 addr: *addr,
                 channel: state.channel.clone(),
+                mux: state.mux.clone(),
                 counter: state.in_flight.clone(),
             });
         }
 
         if candidates.is_empty() {
-            return Err(EndpointPoolError::Empty);
+            return Err(EndpointPoolError::Empty(classify_empty_reason(
+                active_endpoint_count,
+                saw_missing_or_stale_snapshot,
+            )));
+        }
+
+        // Prefer endpoints not yet tried this round. If every candidate has
+        // been tried (e.g. a single-endpoint pool, or all others excluded),
+        // fall back to the full set — retrying a pod after backoff beats
+        // failing the batch when it's the only option left.
+        let untried_count = candidates
+            .iter()
+            .filter(|c| !exclude.contains(&c.addr))
+            .count();
+        if untried_count > 0 {
+            candidates.retain(|c| !exclude.contains(&c.addr));
         }
 
         let chosen = match strategy {
-            SelectionStrategy::LeastLoad => {
-                // Sort by address so round-robin tie-breaking is deterministic.
-                candidates.sort_by_key(|candidate| candidate.addr);
-                let tied_count = candidates.len();
-                let idx = if tied_count <= 1 {
-                    0
-                } else {
-                    inner.round_robin = inner.round_robin.wrapping_add(1);
-                    inner.round_robin % tied_count
-                };
-                candidates.into_iter().nth(idx).expect("tied candidate")
-            }
-            SelectionStrategy::Keyed {
-                routing_key,
-                attempt,
-            } => {
+            SelectionStrategy::Random => candidates
+                .choose(&mut rand::thread_rng())
+                .expect("non-empty candidates")
+                .clone(),
+            SelectionStrategy::ByKey { routing_key } => {
                 candidates.sort_by(|a, b| {
                     rendezvous_score(routing_key, b.addr)
                         .cmp(&rendezvous_score(routing_key, a.addr))
                         .then(a.addr.cmp(&b.addr))
                 });
-                let idx = attempt as usize % candidates.len();
-                candidates.into_iter().nth(idx).expect("keyed candidate")
+                candidates.into_iter().next().expect("non-empty candidates")
             }
         };
 
@@ -382,30 +449,62 @@ impl EndpointPool {
         Ok(EndpointPoolHandle::new(
             chosen.addr,
             chosen.channel,
+            chosen.mux,
             chosen.counter,
         ))
     }
 
-    /// Wait until the pool has at least one healthy endpoint, or the deadline
-    /// elapses. Returns `Ok(())` when the pool is ready, `Err(Empty)` if the
-    /// timeout fires first.
+    /// Wait until at least one endpoint is actually routable: present in DNS,
+    /// not draining, and carrying a fresh non-draining load snapshot.
     pub async fn wait_ready(&self, timeout: Duration) -> Result<(), EndpointPoolError> {
-        let notified = self.ready.notified();
-        tokio::pin!(notified);
-        if self
-            .inner
-            .lock()
-            .await
-            .endpoints
-            .values()
-            .any(|s| !s.draining)
-        {
-            return Ok(());
+        let timeout_at = tokio::time::Instant::now() + timeout;
+        let mut last_reason: EndpointPoolEmptyReason;
+
+        loop {
+            let notified = self.ready.notified();
+            match self.routing_availability().await {
+                Ok(()) => return Ok(()),
+                Err(reason) => last_reason = reason,
+            }
+            tokio::select! {
+                _ = notified => {}
+                _ = tokio::time::sleep_until(timeout_at) => {
+                    return Err(EndpointPoolError::Empty(last_reason));
+                }
+            }
         }
-        match tokio::time::timeout(timeout, notified).await {
-            Ok(()) => Ok(()),
-            Err(_) => Err(EndpointPoolError::Empty),
+    }
+
+    async fn routing_availability(&self) -> Result<(), EndpointPoolEmptyReason> {
+        let inner = self.inner.lock().await;
+        if inner.endpoints.is_empty() {
+            return Err(EndpointPoolEmptyReason::NoEndpoints);
         }
+        let mut active_endpoint_count = 0usize;
+        let mut saw_missing_or_stale_snapshot = false;
+        let now = Instant::now();
+        let stale_after = self.config.subscribe_tick_hint.saturating_mul(2);
+        for state in inner.endpoints.values() {
+            if state.draining {
+                continue;
+            }
+            active_endpoint_count += 1;
+            let Some(snapshot) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
+                saw_missing_or_stale_snapshot = true;
+                continue;
+            };
+            if !snapshot.is_fresh(now, stale_after) {
+                saw_missing_or_stale_snapshot = true;
+                continue;
+            }
+            if !snapshot.draining {
+                return Ok(());
+            }
+        }
+        Err(classify_empty_reason(
+            active_endpoint_count,
+            saw_missing_or_stale_snapshot,
+        ))
     }
 
     /// Test/observability helper: snapshot the current endpoints.
@@ -419,42 +518,6 @@ impl EndpointPool {
             .collect();
         addrs.sort();
         addrs
-    }
-
-    /// Smallest `suggested_batch_size` across all endpoints that
-    /// currently have a fresh, non-degraded, non-draining snapshot AND
-    /// advertise a non-zero suggestion. Returns `None` when no candidate
-    /// has a usable suggestion — caller falls back to its own config.
-    ///
-    /// Conservative by design: when one pod is asking callers to shrink
-    /// batches, every caller respects it. Per-team routing means different
-    /// teams *could* target pods with different suggestions; the small loss
-    /// of efficiency for taking the global minimum is worth the simpler
-    /// model.
-    pub async fn min_suggested_batch_size(&self) -> Option<u32> {
-        let inner = self.inner.lock().await;
-        let now = Instant::now();
-        let stale_after = self.config.subscribe_tick_hint.saturating_mul(2);
-        let mut min: Option<u32> = None;
-        for state in inner.endpoints.values() {
-            if state.draining {
-                continue;
-            }
-            let Some(snap) = state.load.lock().ok().and_then(|guard| guard.clone()) else {
-                continue;
-            };
-            if !snap.is_fresh(now, stale_after) || snap.degraded || snap.draining {
-                continue;
-            }
-            if snap.suggested_batch_size == 0 {
-                continue;
-            }
-            min = Some(match min {
-                Some(prev) => prev.min(snap.suggested_batch_size),
-                None => snap.suggested_batch_size,
-            });
-        }
-        min
     }
 
     /// Test-only: inject a synthetic load snapshot for an endpoint so the
@@ -471,22 +534,41 @@ impl EndpointPool {
             return false;
         };
         if let Ok(mut slot) = state.load.lock() {
+            let should_notify = !snapshot.draining;
             *slot = Some(snapshot);
+            if should_notify {
+                self.ready.notify_waiters();
+            }
             return true;
         }
         false
     }
 }
 
+#[derive(Clone)]
 struct Candidate {
     addr: SocketAddr,
     channel: Channel,
+    mux: ResolveMux,
     counter: Arc<AtomicUsize>,
 }
 
 enum SelectionStrategy<'a> {
-    LeastLoad,
-    Keyed { routing_key: &'a str, attempt: u32 },
+    Random,
+    ByKey { routing_key: &'a str },
+}
+
+fn classify_empty_reason(
+    active_endpoint_count: usize,
+    saw_missing_or_stale_snapshot: bool,
+) -> EndpointPoolEmptyReason {
+    if active_endpoint_count == 0 {
+        EndpointPoolEmptyReason::AllEndpointsDraining
+    } else if saw_missing_or_stale_snapshot {
+        EndpointPoolEmptyReason::NoFreshLoadSnapshots
+    } else {
+        EndpointPoolEmptyReason::AllEndpointsDraining
+    }
 }
 
 fn rendezvous_score(routing_key: &str, addr: SocketAddr) -> u64 {
@@ -516,7 +598,7 @@ pub fn spawn_refresh_task(pool: Arc<EndpointPool>) -> tokio::task::JoinHandle<()
 
 fn build_endpoint_state(
     addr: SocketAddr,
-    connect_timeout: Duration,
+    config: &RemoteResolutionConfig,
 ) -> Result<EndpointState, EndpointPoolError> {
     // tonic's `Endpoint` parses the URI and applies channel options. Using
     // `connect_lazy()` keeps cold endpoints out of the connect path until
@@ -525,13 +607,19 @@ fn build_endpoint_state(
     let endpoint = Endpoint::from_shared(uri)
         .map_err(|source| EndpointPoolError::InvalidEndpoint { addr, source })?;
     let endpoint = endpoint
-        .connect_timeout(connect_timeout)
+        .connect_timeout(config.connect_timeout)
         .tcp_keepalive(Some(Duration::from_secs(30)))
         .keep_alive_while_idle(true);
     let channel = endpoint.connect_lazy();
-    let _ = addr;
+    let mux = ResolveMux::new(
+        addr,
+        channel.clone(),
+        config.internal_api_secret.clone(),
+        RESOLVE_MUX_QUEUE_CAPACITY,
+    );
     Ok(EndpointState {
         channel,
+        mux,
         in_flight: Arc::new(AtomicUsize::new(0)),
         draining: false,
         load: Arc::new(StdMutex::new(None)),
@@ -560,7 +648,6 @@ mod test {
             retry_backoff: Duration::from_millis(1),
             retry_max_backoff: Duration::from_millis(2),
             sample_rate: 1.0,
-            max_batch_items: 64,
             subscribe_tick_hint: Duration::from_millis(50),
             subscribe_reconnect_backoff: Duration::from_millis(50),
         }
@@ -586,12 +673,22 @@ mod test {
 
     fn fresh_snapshot() -> LoadSnapshot {
         LoadSnapshot {
-            degraded: false,
             draining: false,
             observed_at: Instant::now(),
             sequence: 1,
-            suggested_batch_size: 0,
         }
+    }
+
+    #[tokio::test]
+    async fn new_fails_when_dns_returns_no_endpoints() {
+        let queue = Arc::new(TokioMutex::new(vec![Vec::new()]));
+        let result = EndpointPool::new(mock_config(), Arc::new(FakeResolver(queue))).await;
+        assert!(matches!(
+            result,
+            Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::NoEndpoints
+            ))
+        ));
     }
 
     #[tokio::test]
@@ -636,7 +733,58 @@ mod test {
             &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
         )
         .unwrap();
-        assert!(matches!(pool.select().await, Err(EndpointPoolError::Empty)));
+        assert!(matches!(
+            pool.select(&[]).await,
+            Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::NoFreshLoadSnapshots
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn select_reports_all_draining_when_every_fresh_snapshot_is_draining() {
+        let pool = EndpointPool::from_addrs_without_subscriptions(
+            mock_config(),
+            &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
+        )
+        .unwrap();
+        let mut draining = fresh_snapshot();
+        draining.draining = true;
+        assert!(
+            pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), draining.clone())
+                .await
+        );
+        assert!(
+            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), draining)
+                .await
+        );
+
+        assert!(matches!(
+            pool.select(&[]).await,
+            Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::AllEndpointsDraining
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn wait_ready_requires_a_fresh_non_draining_snapshot() {
+        let pool = EndpointPool::from_addrs_without_subscriptions(
+            mock_config(),
+            &[addr("10.0.0.1:50061")],
+        )
+        .unwrap();
+        assert!(matches!(
+            pool.wait_ready(Duration::from_millis(1)).await,
+            Err(EndpointPoolError::Empty(
+                EndpointPoolEmptyReason::NoFreshLoadSnapshots
+            ))
+        ));
+        assert!(
+            pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), fresh_snapshot())
+                .await
+        );
+        pool.wait_ready(Duration::from_millis(1)).await.unwrap();
     }
 
     #[tokio::test]
@@ -650,11 +798,9 @@ mod test {
         )
         .unwrap();
         let stale = LoadSnapshot {
-            degraded: false,
             draining: false,
             observed_at: Instant::now() - Duration::from_secs(10),
             sequence: 1,
-            suggested_batch_size: 0,
         };
         assert!(
             pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), stale)
@@ -667,13 +813,13 @@ mod test {
 
         // .1 is stale and excluded; .2 is the only candidate.
         for _ in 0..5 {
-            let handle = pool.select().await.unwrap();
+            let handle = pool.select(&[]).await.unwrap();
             assert_eq!(handle.addr, addr("10.0.0.2:50061"));
         }
     }
 
     #[tokio::test]
-    async fn select_distributes_with_round_robin_on_ties() {
+    async fn select_spreads_randomly_across_fresh_healthy_endpoints() {
         let addrs = [
             addr("10.0.0.1:50061"),
             addr("10.0.0.2:50061"),
@@ -682,14 +828,13 @@ mod test {
         let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
         inject_uniform_fresh_snapshots(&pool, &addrs).await;
 
-        // All endpoints are fresh and healthy, so round-robin breaks
-        // the tie deterministically across consecutive selections.
-        let h1 = pool.select().await.unwrap();
-        let h2 = pool.select().await.unwrap();
-        let h3 = pool.select().await.unwrap();
-        let mut picks = [h1.addr, h2.addr, h3.addr];
-        picks.sort();
-        assert_eq!(picks, addrs);
+        // All endpoints are fresh and healthy, so random selection should
+        // reach every one of them over enough draws.
+        let mut picks = std::collections::HashSet::new();
+        for _ in 0..200 {
+            picks.insert(pool.select(&[]).await.unwrap().addr);
+        }
+        assert_eq!(picks.len(), addrs.len());
     }
 
     #[tokio::test]
@@ -703,13 +848,13 @@ mod test {
         inject_uniform_fresh_snapshots(&pool, &addrs).await;
 
         let first = pool
-            .select_for_key("team:1:symbol:bundle-a", 0)
+            .select_for_key("team:1:symbol:bundle-a", &[])
             .await
             .unwrap()
             .addr;
         for _ in 0..10 {
             let next = pool
-                .select_for_key("team:1:symbol:bundle-a", 0)
+                .select_for_key("team:1:symbol:bundle-a", &[])
                 .await
                 .unwrap()
                 .addr;
@@ -730,7 +875,7 @@ mod test {
         let mut picks = std::collections::HashSet::new();
         for idx in 0..64 {
             let handle = pool
-                .select_for_key(&format!("team:1:symbol:bundle-{idx}"), 0)
+                .select_for_key(&format!("team:1:symbol:bundle-{idx}"), &[])
                 .await
                 .unwrap();
             picks.insert(handle.addr);
@@ -743,7 +888,7 @@ mod test {
     }
 
     #[tokio::test]
-    async fn select_for_key_rotates_ranked_endpoints_on_retry_attempts() {
+    async fn select_for_key_avoids_excluded_endpoints_on_retry() {
         let addrs = [
             addr("10.0.0.1:50061"),
             addr("10.0.0.2:50061"),
@@ -753,86 +898,58 @@ mod test {
         inject_uniform_fresh_snapshots(&pool, &addrs).await;
 
         let first = pool
-            .select_for_key("team:1:symbol:bundle-a", 0)
+            .select_for_key("team:1:symbol:bundle-a", &[])
             .await
             .unwrap()
             .addr;
+        // Excluding the first pick forces the next-ranked endpoint.
         let retry = pool
-            .select_for_key("team:1:symbol:bundle-a", 1)
+            .select_for_key("team:1:symbol:bundle-a", &[first])
             .await
             .unwrap()
             .addr;
-
         assert_ne!(retry, first);
+
+        // Excluding both forces the third; the result is stable (rendezvous
+        // ranking, not rotation).
+        let third = pool
+            .select_for_key("team:1:symbol:bundle-a", &[first, retry])
+            .await
+            .unwrap()
+            .addr;
+        assert_ne!(third, first);
+        assert_ne!(third, retry);
     }
 
     #[tokio::test]
-    async fn select_for_key_excludes_degraded_endpoints() {
+    async fn select_for_key_excludes_draining_endpoints() {
         let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
         let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
 
-        let mut degraded = fresh_snapshot();
-        degraded.degraded = true;
-        assert!(pool.inject_load_snapshot_for_test(addrs[0], degraded).await);
+        let mut draining = fresh_snapshot();
+        draining.draining = true;
+        assert!(pool.inject_load_snapshot_for_test(addrs[0], draining).await);
         assert!(
             pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot())
                 .await
         );
 
         let handle = pool
-            .select_for_key("team:1:symbol:force-away-from-degraded", 0)
+            .select_for_key("team:1:symbol:force-away-from-draining", &[])
             .await
             .unwrap();
         assert_eq!(handle.addr, addrs[1]);
     }
 
     #[tokio::test]
-    async fn select_uses_round_robin_across_fresh_healthy_endpoints() {
-        // LoadEvent no longer carries numeric load; fresh, healthy endpoints
-        // are selected by deterministic round-robin.
-        let addrs = [addr("10.0.0.1:50061"), addr("10.0.0.2:50061")];
-        let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
-        assert!(
-            pool.inject_load_snapshot_for_test(addrs[0], fresh_snapshot())
-                .await
-        );
-        assert!(
-            pool.inject_load_snapshot_for_test(addrs[1], fresh_snapshot())
-                .await
-        );
-        let handle = pool.select().await.unwrap();
-        assert_eq!(handle.addr, addrs[1]);
-    }
-
-    #[tokio::test]
-    async fn select_uses_round_robin_when_all_endpoints_are_healthy() {
-        let pool = EndpointPool::from_addrs_without_subscriptions(
-            mock_config(),
-            &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
-        )
-        .unwrap();
-        assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), fresh_snapshot())
-                .await
-        );
-        assert!(
-            pool.inject_load_snapshot_for_test(addr("10.0.0.2:50061"), fresh_snapshot())
-                .await
-        );
-
-        let handle = pool.select().await.unwrap();
-        assert_eq!(handle.addr, addr("10.0.0.2:50061"));
-    }
-
-    #[tokio::test]
-    async fn select_excludes_endpoints_reporting_degraded_or_draining() {
+    async fn select_excludes_endpoints_reporting_draining() {
         let pool = EndpointPool::from_addrs_without_subscriptions(
             mock_config(),
             &[addr("10.0.0.1:50061"), addr("10.0.0.2:50061")],
         )
         .unwrap();
         let mut bad = fresh_snapshot();
-        bad.degraded = true;
+        bad.draining = true;
         assert!(
             pool.inject_load_snapshot_for_test(addr("10.0.0.1:50061"), bad)
                 .await
@@ -842,8 +959,8 @@ mod test {
                 .await
         );
 
-        // Degraded endpoints are excluded even when they have fresh snapshots.
-        let handle = pool.select().await.unwrap();
+        // Draining endpoints are excluded even when they have fresh snapshots.
+        let handle = pool.select(&[]).await.unwrap();
         assert_eq!(handle.addr, addr("10.0.0.2:50061"));
     }
 }

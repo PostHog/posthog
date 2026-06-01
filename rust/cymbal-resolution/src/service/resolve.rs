@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use futures::StreamExt;
 use tokio::sync::mpsc;
-use tonic::Status;
+use tonic::{Status, Streaming};
 use tracing::{debug, warn};
 
 use cymbal::error::UnhandledError;
@@ -13,165 +11,92 @@ use cymbal::stages::resolution::frame::FrameResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
-    item_outcome, outcome, BatchSummary, Done, Error as ItemError, ItemOutcome, ItemReference,
-    Outcome, ResolveRequest, Retry,
+    resolve_outcome, Done, Error as ItemError, ResolveItem, ResolveOutcome,
 };
 
 use super::codes;
-use crate::item_limiter::ItemLimiter;
 use crate::load_monitor::LoadMonitor;
 
 const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
+const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
 
 pub(super) async fn run_resolve(
-    req: ResolveRequest,
+    mut input: Streaming<ResolveItem>,
     stage: ResolutionStage,
-    tx: mpsc::Sender<Result<Outcome, Status>>,
-    item_limiter: ItemLimiter,
+    tx: mpsc::Sender<Result<ResolveOutcome, Status>>,
     load_monitor: LoadMonitor,
 ) {
-    let batch_id = req.batch_id;
-    let submitted_items = req.items.len() as u32;
     let started_at = Instant::now();
 
-    let mut sequence: u64 = 0;
-    let mut next_sequence = || {
-        sequence += 1;
-        sequence
-    };
-
-    // Per-RPC scheduling width: never spawn more concurrent item futures
-    // than the global cap could ever satisfy. The semaphore is the true
-    // gate; this just keeps a single huge batch from filling memory with
-    // permit waiters.
-    let scheduling_width = item_limiter.max_permits();
-
-    // Track per-(item_id, item_index) emit counts so the terminal BatchSummary
-    // can flag missing and duplicate items without re-walking the request.
-    let mut emit_counts: HashMap<(String, u32), u32> = HashMap::new();
-    let mut done_items: u32 = 0;
-    let mut error_items: u32 = 0;
-    let mut retry_items: u32 = 0;
-    let mut item_outcomes_count: u32 = 0;
-
-    let expected_items: Vec<ItemReference> = req
-        .items
-        .iter()
-        .map(|item| ItemReference {
-            item_id: item.item_id.clone(),
-            item_index: item.item_index,
-        })
-        .collect();
-
-    let guarded_items: Vec<_> = req
-        .items
-        .into_iter()
-        .map(|item| (item, InFlightGuard::new(load_monitor.clone())))
-        .collect();
-
-    // The item limiter is the real cap on cross-request parallelism. The
-    // outer `buffer_unordered` width is bounded by `scheduling_width` so a
-    // single huge batch doesn't fill memory with permit waiters; the semaphore
-    // ensures total active item processing across all RPCs never exceeds the cap.
-    let mut processed_items =
-        futures::stream::iter(guarded_items.into_iter().map(|(item, in_flight_guard)| {
-            let stage = stage.clone();
-            let item_limiter = item_limiter.clone();
-            async move { process_item(stage, item, item_limiter, in_flight_guard).await }
-        }))
-        .buffer_unordered(scheduling_width);
-
     loop {
-        let processed = tokio::select! {
+        let item = tokio::select! {
             _ = tx.closed() => {
                 record_resolve_duration(started_at, "cancelled");
                 return;
             }
-            maybe_processed = processed_items.next() => {
-                let Some(processed) = maybe_processed else {
-                    break;
-                };
-                processed
+            maybe_item = input.message() => {
+                match maybe_item {
+                    Ok(Some(item)) => item,
+                    Ok(None) => break,
+                    Err(err) => {
+                        warn!(error = %err, "resolve input stream failed");
+                        record_resolve_duration(started_at, "input_error");
+                        return;
+                    }
+                }
             }
         };
 
-        match &processed.result {
-            item_outcome::Result::Done(_) => done_items += 1,
-            item_outcome::Result::Error(_) => error_items += 1,
-            item_outcome::Result::Retry(_) => retry_items += 1,
+        if item.deadline_ms == 0 {
+            if !send_overloaded(&tx, item.id, "item deadline expired", 0).await {
+                record_resolve_duration(started_at, "cancelled");
+                return;
+            }
+            continue;
         }
 
-        let entry = emit_counts
-            .entry((processed.item_id.clone(), processed.item_index))
-            .or_insert(0);
-        *entry += 1;
-        item_outcomes_count += 1;
+        if !load_monitor.try_admit() {
+            if !send_overloaded(&tx, item.id, "server overloaded", 0).await {
+                record_resolve_duration(started_at, "cancelled");
+                return;
+            }
+            continue;
+        }
 
-        if tx
-            .send(Ok(Outcome {
-                batch_id: batch_id.clone(),
-                sequence: next_sequence(),
-                message: Some(outcome::Message::ItemOutcome(ItemOutcome {
-                    item_id: processed.item_id,
-                    item_index: processed.item_index,
+        let item_tx = tx.clone();
+        let item_stage = stage.clone();
+        let in_flight_guard = InFlightGuard::new(load_monitor.clone());
+        tokio::spawn(async move {
+            let processed = process_item(item_stage, item, in_flight_guard).await;
+            let _ignored = item_tx
+                .send(Ok(ResolveOutcome {
+                    id: processed.id,
                     result: Some(processed.result),
-                })),
-            }))
-            .await
-            .is_err()
-        {
-            record_resolve_duration(started_at, "cancelled");
-            return;
-        }
+                }))
+                .await;
+        });
     }
 
-    // Compute reconciliation from observed emissions rather than assuming the
-    // happy path. That keeps the summary self-checking if a future change adds
-    // skip/defer paths or cancellation-aware item handling.
-    let duplicate_items: Vec<ItemReference> = emit_counts
-        .iter()
-        .filter(|(_, count)| **count > 1)
-        .map(|((item_id, item_index), _)| ItemReference {
-            item_id: item_id.clone(),
-            item_index: *item_index,
-        })
-        .collect();
-    let missing_items: Vec<ItemReference> = expected_items
-        .into_iter()
-        .filter(|item| {
-            emit_counts
-                .get(&(item.item_id.clone(), item.item_index))
-                .copied()
-                .unwrap_or(0)
-                == 0
-        })
-        .collect();
+    record_resolve_duration(started_at, "completed");
+}
 
-    let summary = BatchSummary {
-        submitted_items,
-        item_outcomes: item_outcomes_count,
-        done_items,
-        error_items,
-        retry_items,
-        missing_items,
-        duplicate_items,
-    };
-
-    let sent = tx
-        .send(Ok(Outcome {
-            batch_id,
-            sequence: next_sequence(),
-            message: Some(outcome::Message::BatchSummary(summary)),
-        }))
-        .await
-        .is_ok();
-    record_resolve_duration(started_at, if sent { "completed" } else { "cancelled" });
+async fn send_overloaded(
+    tx: &mpsc::Sender<Result<ResolveOutcome, Status>>,
+    id: u64,
+    message: impl Into<String>,
+    _retry_after_ms: u32,
+) -> bool {
+    tx.send(Ok(ResolveOutcome {
+        id,
+        result: Some(error_result(codes::ErrorKind::Overloaded, message.into())),
+    }))
+    .await
+    .is_ok()
 }
 
 struct ProcessedItem {
-    item_id: String,
-    item_index: u32,
-    result: item_outcome::Result,
+    id: u64,
+    result: resolve_outcome::Result,
 }
 
 struct InFlightGuard {
@@ -180,7 +105,6 @@ struct InFlightGuard {
 
 impl InFlightGuard {
     fn new(load_monitor: LoadMonitor) -> Self {
-        load_monitor.increment_in_flight();
         Self { load_monitor }
     }
 }
@@ -193,86 +117,62 @@ impl Drop for InFlightGuard {
 
 async fn process_item(
     stage: ResolutionStage,
-    item: cymbal_proto::cymbal::resolution::v1::ExceptionResolutionItem,
-    item_limiter: ItemLimiter,
+    item: ResolveItem,
     in_flight_guard: InFlightGuard,
 ) -> ProcessedItem {
-    let item_id = item.item_id.clone();
-    let item_index = item.item_index;
+    let id = item.id;
+    let deadline = Duration::from_millis(item.deadline_ms as u64);
     let _in_flight_guard = in_flight_guard;
 
-    // Acquire a global item permit before doing any per-item work. If the
-    // semaphore has been closed (process shutting down), surface as Retry so
-    // the caller can route the item elsewhere. The permit drops at function
-    // exit, releasing the slot for the next waiter.
-    let _item_permit = match item_limiter.acquire_owned().await {
-        Ok(permit) => permit,
-        Err(_) => {
-            warn!(
-                item_id = %item_id,
-                item_index,
-                "item limiter closed, asking caller to retry",
-            );
-            return ProcessedItem {
-                item_id,
-                item_index,
-                result: item_outcome::Result::Retry(Retry {
-                    code: codes::RETRY_OVERLOADED.to_string(),
-                    message: "item limiter closed".to_string(),
-                    retry_after_ms: 0,
-                }),
-            };
-        }
-    };
-
-    let result = match resolve_item(&stage, &item).await {
-        Ok(resolved) => item_outcome::Result::Done(Done {
+    let result = match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
+        Ok(Ok(resolved)) => resolve_outcome::Result::Done(Done {
             resolved_exception_json: resolved,
         }),
-        Err(ItemFailure::Invalid(msg)) => {
+        Ok(Err(ItemFailure::InvalidPayload(msg))) => {
             debug!(
-                item_id = %item_id,
-                item_index,
+                id,
                 error = %msg,
                 "rejecting item with invalid payload",
             );
-            item_outcome::Result::Error(ItemError {
-                code: codes::ERROR_INVALID_PAYLOAD.to_string(),
-                message: msg,
-                details_json: Vec::new(),
-            })
+            error_result(codes::ErrorKind::InvalidPayload, msg)
         }
-        Err(ItemFailure::Overloaded(msg)) => {
-            warn!(
-                item_id = %item_id,
-                item_index,
-                "limiter closed mid-request, asking caller to retry",
-            );
-            item_outcome::Result::Retry(Retry {
-                code: codes::RETRY_OVERLOADED.to_string(),
-                message: msg,
-                retry_after_ms: 0,
-            })
+        Ok(Err(ItemFailure::Overloaded(msg))) => {
+            warn!(id, "limiter closed mid-request, asking caller to retry");
+            error_result(codes::ErrorKind::Overloaded, msg)
         }
-        Err(ItemFailure::Unhandled(err)) => {
+        Ok(Err(ItemFailure::Unhandled(err))) => {
             warn!(
-                item_id = %item_id,
-                item_index,
+                id,
                 error = %err,
                 "unhandled error during resolution",
             );
-            item_outcome::Result::Error(ItemError {
-                code: codes::ERROR_UNHANDLED.to_string(),
-                message: err,
-                details_json: Vec::new(),
-            })
+            error_result(codes::ErrorKind::Unhandled, err)
         }
+        Err(_) => error_result(
+            codes::ErrorKind::Overloaded,
+            "item deadline expired".to_string(),
+        ),
     };
 
-    ProcessedItem {
-        item_id,
-        item_index,
-        result,
+    ProcessedItem { id, result }
+}
+
+fn error_result(kind: codes::ErrorKind, message: String) -> resolve_outcome::Result {
+    metrics::counter!(SERVER_ERROR_KINDS, "kind" => error_kind_label(kind)).increment(1);
+    resolve_outcome::Result::Error(ItemError {
+        kind: kind as i32,
+        message,
+        details_json: Vec::new(),
+    })
+}
+
+fn error_kind_label(kind: codes::ErrorKind) -> &'static str {
+    match kind {
+        codes::ErrorKind::Unspecified => "unspecified",
+        codes::ErrorKind::InvalidPayload => "invalid_payload",
+        codes::ErrorKind::Poison => "poison",
+        codes::ErrorKind::Unhandled => "unhandled",
+        codes::ErrorKind::Overloaded => "overloaded",
     }
 }
 
@@ -282,30 +182,16 @@ fn record_resolve_duration(started_at: Instant, outcome: &'static str) {
 }
 
 enum ItemFailure {
-    Invalid(String),
+    InvalidPayload(String),
     Overloaded(String),
     Unhandled(String),
 }
 
-async fn resolve_item(
-    stage: &ResolutionStage,
-    item: &cymbal_proto::cymbal::resolution::v1::ExceptionResolutionItem,
-) -> Result<Vec<u8>, ItemFailure> {
-    let exception_payload = item
-        .exception
-        .as_ref()
-        .ok_or_else(|| ItemFailure::Invalid("missing exception payload".to_string()))?;
+async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec<u8>, ItemFailure> {
+    let exception: Exception = serde_json::from_slice(&item.exception_json)
+        .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
-    let exception: Exception = serde_json::from_slice(&exception_payload.exception_json)
-        .map_err(|e| ItemFailure::Invalid(format!("invalid exception_json: {e}")))?;
-
-    let debug_images: Vec<AppleDebugImage> = if exception_payload.apple_debug_images_json.is_empty()
-    {
-        Vec::new()
-    } else {
-        serde_json::from_slice(&exception_payload.apple_debug_images_json)
-            .map_err(|e| ItemFailure::Invalid(format!("invalid apple_debug_images_json: {e}")))?
-    };
+    let debug_images = apple_debug_images_from_metadata(&item.metadata)?;
 
     let resolved = resolve_one_exception(stage.clone(), item.team_id, exception, debug_images)
         .await
@@ -318,6 +204,21 @@ async fn resolve_item(
 
     serde_json::to_vec(&resolved)
         .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
+}
+
+fn apple_debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<AppleDebugImage>, ItemFailure> {
+    if metadata.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let metadata: serde_json::Value = serde_json::from_slice(metadata)
+        .map_err(|e| ItemFailure::InvalidPayload(format!("invalid metadata: {e}")))?;
+    let Some(debug_images) = metadata.get("apple_debug_images_json") else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_value(debug_images.clone()).map_err(|e| {
+        ItemFailure::InvalidPayload(format!("invalid metadata.apple_debug_images_json: {e}"))
+    })
 }
 
 enum ResolveOneError {

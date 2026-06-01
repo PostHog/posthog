@@ -1,12 +1,8 @@
 use std::str::FromStr;
 use std::time::Duration;
 
-use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolutionClient;
-use cymbal_proto::cymbal::resolution::v1::{Outcome, ResolveRequest};
-use futures::StreamExt;
 use thiserror::Error;
 use tonic::metadata::MetadataValue;
-use tonic::transport::Channel;
 use tonic::{Code, Request, Status};
 
 pub const INTERNAL_API_SECRET_HEADER: &str = "x-internal-api-secret";
@@ -67,52 +63,6 @@ fn code_tag(code: Code) -> &'static str {
     }
 }
 
-/// Issue one `Resolve` RPC against the given channel and drain its server
-/// stream into a vector of outcomes. The caller (the stage-owned
-/// orchestration layer) is responsible for retrying against another endpoint
-/// when this returns a retryable error.
-///
-/// The deadline is enforced two ways: as a gRPC request metadata timeout
-/// (server-observable), and as a tokio `timeout` wrapping the entire stream
-/// drain (caller-observable). Either one tripping returns
-/// [`RemoteCallError::Deadline`].
-pub async fn resolve(
-    channel: Channel,
-    request: ResolveRequest,
-    deadline: Duration,
-    internal_api_secret: &str,
-) -> Result<Vec<Outcome>, RemoteCallError> {
-    let mut tonic_request = with_internal_api_secret(Request::new(request), internal_api_secret)
-        .map_err(|status| classify_status(*status))?;
-    tonic_request.set_timeout(deadline);
-
-    let mut client = CymbalResolutionClient::new(channel);
-
-    let stream_future = client.resolve(tonic_request);
-    let response = match tokio::time::timeout(deadline, stream_future).await {
-        Ok(Ok(resp)) => resp,
-        Ok(Err(status)) => return Err(classify_status(status)),
-        Err(_) => return Err(RemoteCallError::Deadline(deadline)),
-    };
-
-    let mut stream = response.into_inner();
-    let mut outcomes: Vec<Outcome> = Vec::new();
-    let drain_deadline = tokio::time::Instant::now() + deadline;
-    loop {
-        let remaining = drain_deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            return Err(RemoteCallError::Deadline(deadline));
-        }
-        match tokio::time::timeout(remaining, stream.next()).await {
-            Ok(Some(Ok(outcome))) => outcomes.push(outcome),
-            Ok(Some(Err(status))) => return Err(classify_status(status)),
-            Ok(None) => break,
-            Err(_) => return Err(RemoteCallError::Deadline(deadline)),
-        }
-    }
-    Ok(outcomes)
-}
-
 pub(crate) fn with_internal_api_secret<T>(
     mut request: Request<T>,
     internal_api_secret: &str,
@@ -134,7 +84,7 @@ pub(crate) fn with_internal_api_secret<T>(
     Ok(request)
 }
 
-fn classify_status(status: Status) -> RemoteCallError {
+pub(crate) fn classify_status(status: Status) -> RemoteCallError {
     match status.code() {
         // Transport/availability/timeouts → retry against another endpoint.
         Code::Unavailable

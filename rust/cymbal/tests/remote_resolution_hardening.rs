@@ -1,28 +1,30 @@
-//! Batch 4 failure-mode hardening tests for the remote resolution client.
+//! Failure-mode hardening tests for the remote resolution client.
 //!
-//! Each test exercises one failure surface: connection refused, mid-stream
-//! interruption, missing items in the BatchSummary, caller deadline
-//! cancellation, accounting, and pool-empty fast fail. Fixtures live in
-//! `tests/common/mod.rs`; new failure modes should be added as variants on
-//! `common::ServerBehavior` so this file stays fixture-driven.
+//! These tests exercise the final bidi `ResolveItem` / `ResolveOutcome`
+//! protocol: transport failures, stream breaks, per-item terminal errors,
+//! caller cancellation, and endpoint lifecycle cleanup.
 
 mod common;
 
+use std::io;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_trait::async_trait;
 use common::{
-    build_event, make_ctx, process_one, remote_stage, spawn_stub_server, unbound_addr,
-    ServerBehavior,
+    build_event, make_config, make_ctx, process_one, remote_stage, spawn_stub_server, unbound_addr,
+    wait_until_routable, ServerBehavior,
 };
+use cymbal::stages::resolution::remote::dns::DnsResolver;
+use cymbal::stages::resolution::remote::resolver::RemoteResolutionContext;
+use cymbal_proto::cymbal::resolution::v1::ErrorKind;
+use tokio::sync::Mutex as TokioMutex;
 
 #[tokio::test]
 async fn connection_refused_endpoint_is_classified_as_retryable() {
-    // unbound_addr discovers a free port and immediately releases it — the
-    // address is guaranteed not to accept connections, so the first attempt
-    // returns a transport error. The Happy endpoint must serve the retry.
     let bad = unbound_addr();
-    let (good, _hits) = spawn_stub_server(ServerBehavior::Happy).await;
+    let (good, good_items) = spawn_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[bad, good], 4, Duration::from_secs(2)).await;
     let evt = build_event(1);
 
@@ -30,132 +32,59 @@ async fn connection_refused_endpoint_is_classified_as_retryable() {
         .await
         .expect("connection refused must not surface as terminal");
     assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(good_items.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn stream_interruption_mid_response_classifies_as_retryable() {
-    // First endpoint sends one Done outcome then drops the stream with an
-    // Internal status. The classifier must treat Internal as retryable so
-    // the caller rotates to the Happy endpoint.
-    let (interrupted, _interrupt_hits) =
-        spawn_stub_server(ServerBehavior::InterruptAfterFirst).await;
-    let (good, _good_hits) = spawn_stub_server(ServerBehavior::Happy).await;
-    let ctx = make_ctx(&[interrupted, good], 4, Duration::from_secs(2)).await;
-    let evt = build_event(2);
+async fn stream_interruption_reroutes_in_flight_items() {
+    for _ in 0..20 {
+        let (interrupted, interrupted_items) =
+            spawn_stub_server(ServerBehavior::InterruptAfterFirst).await;
+        let (good, good_items) = spawn_stub_server(ServerBehavior::Happy).await;
+        let ctx = make_ctx(&[interrupted, good], 4, Duration::from_secs(2)).await;
+        let selected = ctx
+            .pool
+            .select_for_key("team:7", &[])
+            .await
+            .expect("pool warmed")
+            .addr;
+        if selected != interrupted {
+            continue;
+        }
 
-    let resolved = process_one(remote_stage(ctx), evt)
-        .await
-        .expect("interrupted stream must not surface as terminal");
-    assert_eq!(resolved.exception_list.len(), 2);
+        let resolved = process_one(remote_stage(ctx), build_event(2))
+            .await
+            .expect("interrupted stream must reroute remaining items");
+        assert_eq!(resolved.exception_list.len(), 2);
+        assert_eq!(interrupted_items.lock().unwrap().len(), 1);
+        assert_eq!(good_items.lock().unwrap().len(), 1);
+        return;
+    }
+    panic!("failed to build fixture where rendezvous routing selected interrupted endpoint");
 }
 
 #[tokio::test]
-async fn missing_items_in_batch_summary_trigger_retry_then_succeed() {
-    // The DropsLastItem stub omits the last item and reports it in
-    // BatchSummary.missing_items. Pointing the pool at *only* the lossy
-    // endpoint guarantees we exercise the missing-item retry path
-    // deterministically: the first attempt observes the gap, the second
-    // attempt still observes a gap, and the caller surfaces an exhausted
-    // retries error rather than silently dropping the missing exception.
-    let (lossy, lossy_hits) = spawn_stub_server(ServerBehavior::DropsLastItem).await;
+async fn server_per_item_terminal_error_fails_batch_under_all_or_nothing_policy() {
+    let (lossy, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
+        kind: ErrorKind::InvalidPayload,
+    })
+    .await;
     let ctx = make_ctx(&[lossy], 1, Duration::from_secs(2)).await;
     let evt = build_event(3);
 
     let err = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("missing-items + exhausted retries must surface unhandled");
+        .expect_err("server per-item Error must fail the batch");
     let msg = format!("{err}");
     assert!(
-        msg.contains("exhausted"),
-        "expected exhausted retries error, got: {msg}"
-    );
-    // max_retries=1 → 2 attempts against the lossy endpoint.
-    assert_eq!(lossy_hits.lock().unwrap().len(), 2);
-}
-
-#[tokio::test]
-async fn server_stream_ending_without_summary_triggers_retry() {
-    // A clean stream end with all items Done but NO BatchSummary mimics the
-    // server's spawn task unwinding before its terminal send. The caller must
-    // not accept this as a successful response: without the summary, items
-    // the server never reached are indistinguishable from items it skipped,
-    // and silently passing them through downgrades resolved exceptions to
-    // unresolved ones. Pointing the pool at only the lossy endpoint forces
-    // every retry through it, so exhaustion proves the no-summary path stays
-    // in the retry loop rather than short-circuiting to success.
-    let (lossy, lossy_hits) = spawn_stub_server(ServerBehavior::DropsSummary).await;
-    let ctx = make_ctx(&[lossy], 1, Duration::from_secs(2)).await;
-    let evt = build_event(2);
-
-    let err = process_one(remote_stage(ctx), evt)
-        .await
-        .expect_err("no-summary response must surface as unhandled after exhaustion");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("exhausted"),
-        "expected exhausted retries error, got: {msg}"
-    );
-    // max_retries=1 → 2 attempts against the lossy endpoint.
-    assert_eq!(lossy_hits.lock().unwrap().len(), 2);
-}
-
-#[tokio::test]
-async fn server_stream_ending_without_summary_falls_over_to_healthy_endpoint() {
-    // Same shape as above but with a healthy endpoint in the pool: caller
-    // rotates to it on retry and produces a fully-resolved result, proving the
-    // no-summary path participates in the rotation policy like any other
-    // retryable failure.
-    let (lossy, _lossy_hits) = spawn_stub_server(ServerBehavior::DropsSummary).await;
-    let (good, _good_hits) = spawn_stub_server(ServerBehavior::Happy).await;
-    let ctx = make_ctx(&[lossy, good], 2, Duration::from_secs(2)).await;
-    let evt = build_event(2);
-
-    let resolved = process_one(remote_stage(ctx), evt)
-        .await
-        .expect("no-summary lossy endpoint must rotate to healthy on retry");
-    assert_eq!(resolved.exception_list.len(), 2);
-}
-
-#[tokio::test]
-async fn server_per_item_error_fails_batch_under_all_or_nothing_policy() {
-    // Server returns a clean stream: first item Done, every subsequent item
-    // an `Error` outcome (e.g. invalid_payload), with a valid BatchSummary.
-    // The `Error` path is not retryable on the client; under the all-or-nothing
-    // rollout policy these MUST fail the batch rather than silently downgrade
-    // the affected exceptions to unresolved-passthrough. Two endpoints + 1
-    // retry: the second endpoint behaves identically, so we exhaust attempts
-    // either way and the failure surfaces. (Retries don't help here, but we
-    // still verify the failure mode rather than success.)
-    let (lossy_a, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
-        code: "invalid_payload",
-    })
-    .await;
-    let (lossy_b, _) = spawn_stub_server(ServerBehavior::ErrorAfterFirst {
-        code: "invalid_payload",
-    })
-    .await;
-    let ctx = make_ctx(&[lossy_a, lossy_b], 1, Duration::from_secs(2)).await;
-    let evt = build_event(3);
-
-    let err = process_one(remote_stage(ctx), evt)
-        .await
-        .expect_err("server per-item Error must fail the batch under all-or-nothing policy");
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("item error") || msg.contains("items_failed"),
+        msg.contains("items_failed") || msg.contains("failed terminally"),
         "expected per-item-error failure surface, got: {msg}"
     );
 }
 
 #[tokio::test]
 async fn caller_drops_future_before_deadline_releases_pool_slot() {
-    // Verify that aborting the caller future (the way `/process` would on a
-    // request timeout) does not leave the pool's in-flight counter pinned.
-    // We use a HappyDelayed endpoint so remote resolution is mid-call when we
-    // race a tokio::time::timeout against it; after the timeout we re-select
-    // and observe zero in-flight, proving the EndpointPoolHandle's Drop guard
-    // releases the slot on cancellation.
-    let (addr, _hits) = spawn_stub_server(ServerBehavior::HappyDelayed {
+    let (addr, _items) = spawn_stub_server(ServerBehavior::HappyDelayed {
         delay: Duration::from_millis(500),
     })
     .await;
@@ -173,20 +102,13 @@ async fn caller_drops_future_before_deadline_releases_pool_slot() {
         "remote resolution should still be in-flight when the caller times out"
     );
 
-    // Wait briefly for the spawned tonic stream to detect the closed channel
-    // and unwind. After that point a fresh select on the same pool must
-    // succeed because the previous handle's Drop guard decremented in_flight.
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let _handle = pool.select().await.expect("pool should still be usable");
+    let _handle = pool.select(&[]).await.expect("pool should still be usable");
 }
 
 #[tokio::test]
 async fn accounting_preserves_order_and_team_id_on_resolved_payloads() {
-    // The remote orchestration layer must put each resolved exception back at the index
-    // it was submitted from. The stub Done payload echoes the input verbatim,
-    // so this is checking the operator's index bookkeeping, not the server's
-    // resolution behavior.
-    let (addr, _hits) = spawn_stub_server(ServerBehavior::Happy).await;
+    let (addr, _items) = spawn_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(2)).await;
     let evt = build_event(5);
 
@@ -206,15 +128,45 @@ async fn accounting_preserves_order_and_team_id_on_resolved_payloads() {
         .iter()
         .map(|e| e.exception_type.clone())
         .collect();
-    assert_eq!(resolved_types, original_types, "indices must be preserved");
+    assert_eq!(resolved_types, original_types, "slots must be preserved");
     assert_eq!(resolved.team_id, original_team_id);
 }
 
 #[tokio::test]
+async fn endpoint_refresh_closes_draining_mux_and_reroutes_in_flight_item() {
+    let (old_addr, old_items) = spawn_stub_server(ServerBehavior::HappyDelayed {
+        delay: Duration::from_millis(500),
+    })
+    .await;
+    let (new_addr, new_items) = spawn_stub_server(ServerBehavior::Happy).await;
+    let resolver = Arc::new(QueuedResolver::new(vec![vec![old_addr], vec![new_addr]]));
+    let config = make_config(50, Duration::from_secs(3));
+    let pool = cymbal::stages::resolution::remote::EndpointPool::new(config.clone(), resolver)
+        .await
+        .expect("build pool");
+    wait_until_routable(&pool).await;
+    let ctx = RemoteResolutionContext {
+        pool: Arc::clone(&pool),
+        config,
+    };
+
+    let task = tokio::spawn(process_one(remote_stage(ctx), build_event(1)));
+    tokio::time::sleep(Duration::from_millis(75)).await;
+    pool.refresh().await.expect("refresh to new endpoint");
+    wait_until_routable(&pool).await;
+
+    let resolved = task
+        .await
+        .expect("join remote resolution")
+        .expect("drained mux should reroute item");
+    assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(old_items.lock().unwrap().len(), 1);
+    assert_eq!(new_items.lock().unwrap().len(), 1);
+    assert_eq!(pool.endpoints().await, vec![new_addr]);
+}
+
+#[tokio::test]
 async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
-    // Caller-side overload check: the empty pool path (no endpoints) is the
-    // canonical fast-fail surface. We expect a clear `pool unavailable`
-    // unhandled error within a request deadline.
     let ctx = make_ctx(&[], 0, Duration::from_millis(50)).await;
     let evt = build_event(1);
 
@@ -232,4 +184,27 @@ async fn pool_with_only_draining_endpoints_fails_fast_without_local_fallback() {
         format!("{err}").contains("pool unavailable"),
         "expected pool-unavailable error: {err}"
     );
+}
+
+struct QueuedResolver {
+    results: TokioMutex<Vec<Vec<SocketAddr>>>,
+}
+
+impl QueuedResolver {
+    fn new(results: Vec<Vec<SocketAddr>>) -> Self {
+        Self {
+            results: TokioMutex::new(results),
+        }
+    }
+}
+
+#[async_trait]
+impl DnsResolver for QueuedResolver {
+    async fn resolve(&self, _host: &str, _port: u16) -> io::Result<Vec<SocketAddr>> {
+        let mut results = self.results.lock().await;
+        if results.is_empty() {
+            return Err(io::Error::other("no more resolver fixtures"));
+        }
+        Ok(results.remove(0))
+    }
 }

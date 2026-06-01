@@ -127,24 +127,22 @@ pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
 
-// Remote resolution — minimal set. Each metric below has a distinct purpose.
-//
-// RED: REQUESTS (rate + errors via outcome label) + LATENCY (duration).
-// USE: POOL_SIZE (saturation gate / DNS health) + ENDPOINT_IN_FLIGHT
-//      (per-endpoint utilization).
-// Rollout: SAMPLING (remote/local decision).
-// Retry shape: ATTEMPTS_PER_REQUEST (right-tail for storm detection).
-// Subscription health: LOAD_SUBSCRIPTIONS (connect/reconnect). When the
-//   Subscribe stream goes stale the pool excludes the pod outright;
-//   the resulting REQUESTS{outcome=pool_empty} ticks are the
-//   "routing is starved of fresh load data" signal.
+// Remote resolution observability. Keep labels bounded: endpoint labels are
+// limited to the discovered pod set, and protocol failures are classified by
+// fixed enums rather than free-form messages.
 pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
 pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
 pub const REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT: &str =
     "cymbal_remote_resolution_endpoint_in_flight";
-pub const REMOTE_RESOLUTION_ATTEMPTS_PER_REQUEST: &str =
-    "cymbal_remote_resolution_attempts_per_request";
+pub const REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_mux_in_flight";
+pub const REMOTE_RESOLUTION_ENDPOINT_ADMISSION_REJECTIONS: &str =
+    "cymbal_remote_resolution_endpoint_admission_rejections_total";
+pub const REMOTE_RESOLUTION_ERROR_KINDS: &str = "cymbal_remote_resolution_error_kinds_total";
+pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
+    "cymbal_remote_resolution_overload_escalations_total";
+pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";

@@ -14,7 +14,7 @@ The external Node.js error-tracking consumer contract stays unchanged.
 ## Node-side chunking
 
 `nodejs/src/ingestion/error-tracking/cymbal/client.ts` chunks HTTP requests by estimated original event body size before they reach cymbal.
-That remains valid with remote resolution enabled because cymbal preserves the HTTP boundary and performs its own internal exception-level grouping and chunking after it receives a HTTP chunk.
+That remains valid with remote resolution enabled because cymbal preserves the HTTP boundary and performs private exception-level gRPC work after it receives an HTTP chunk.
 
 No generated type changes are needed:
 
@@ -27,6 +27,8 @@ No generated type changes are needed:
 - `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE` deterministically chooses remote vs local resolution per event.
 - Sampled events use the remote pool and do not silently fall back to local resolution on remote failures.
 - Unsampled events use the local exception and frame resolvers.
-- Sampled remote exceptions are grouped per-team and packed into event-atomic chunks bounded by `CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS` before cymbal calls `cymbal-resolution`.
+- Sampled remote exceptions are grouped per team, flattened into `ResolveItem`s, and submitted over per-endpoint bidirectional `Resolve` streams.
+- Resolver-specific context is carried in `ResolveItem.metadata` as JSON bytes. The current Apple symbolication convention uses an `apple_debug_images_json` key.
+- Per-item `ResolveOutcome.Error.kind` is the control-flow surface. `ERROR_KIND_OVERLOADED` is result-only backpressure and triggers item reroute; `LoadEvent` is only endpoint freshness/draining state.
 
-This means Node request chunking limits protect cymbal's public HTTP body size, while cymbal's remote-resolution item limit caps how many exceptions ride in a single private gRPC request.
+This means Node request chunking limits protect cymbal's public HTTP body size, while cymbal's private gRPC path owns exception-level routing, reroute depth, and overload handling.

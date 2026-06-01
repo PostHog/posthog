@@ -7,10 +7,11 @@ use cymbal::stages::resolution::symbol::SymbolResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use std::pin::Pin;
 
-use crate::item_limiter::ItemLimiter;
 use crate::load_monitor::LoadMonitor;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolution;
-use cymbal_proto::cymbal::resolution::v1::{LoadEvent, Outcome, ResolveRequest, SubscribeRequest};
+use cymbal_proto::cymbal::resolution::v1::{
+    LoadEvent, ResolveItem, ResolveOutcome, SubscribeRequest,
+};
 
 use futures::Stream;
 use tokio::sync::mpsc;
@@ -36,7 +37,6 @@ const OUTCOME_CHANNEL_BUFFER: usize = 64;
 pub struct CymbalResolutionService {
     symbol_resolver: Arc<dyn SymbolResolver>,
     symbol_resolution_limiter: Arc<Semaphore>,
-    item_limiter: ItemLimiter,
     load_monitor: LoadMonitor,
     service_instance_id: Arc<str>,
     service_config: ServiceConfig,
@@ -46,7 +46,6 @@ impl CymbalResolutionService {
     pub fn new(
         symbol_resolver: Arc<dyn SymbolResolver>,
         symbol_resolution_limiter: Arc<Semaphore>,
-        item_limiter: ItemLimiter,
         load_monitor: LoadMonitor,
         service_instance_id: impl Into<Arc<str>>,
         service_config: ServiceConfig,
@@ -56,7 +55,6 @@ impl CymbalResolutionService {
         Self {
             symbol_resolver,
             symbol_resolution_limiter,
-            item_limiter,
             load_monitor,
             service_instance_id: service_instance_id.into(),
             service_config,
@@ -75,7 +73,7 @@ impl CymbalResolutionService {
     }
 }
 
-type ResolveStream = Pin<Box<dyn Stream<Item = Result<Outcome, Status>> + Send>>;
+type ResolveStream = Pin<Box<dyn Stream<Item = Result<ResolveOutcome, Status>> + Send>>;
 type SubscribeStream = Pin<Box<dyn Stream<Item = Result<LoadEvent, Status>> + Send>>;
 
 #[tonic::async_trait]
@@ -85,19 +83,18 @@ impl CymbalResolution for CymbalResolutionService {
 
     async fn resolve(
         &self,
-        request: Request<ResolveRequest>,
+        request: Request<tonic::Streaming<ResolveItem>>,
     ) -> Result<Response<Self::ResolveStream>, Status> {
-        let req = request.into_inner();
+        let input = request.into_inner();
 
         let stage = self.resolution_stage();
 
-        let (tx, rx) = mpsc::channel::<Result<Outcome, Status>>(OUTCOME_CHANNEL_BUFFER);
+        let (tx, rx) = mpsc::channel::<Result<ResolveOutcome, Status>>(OUTCOME_CHANNEL_BUFFER);
 
-        let item_limiter = self.item_limiter.clone();
         let load_monitor = self.load_monitor.clone();
 
         tokio::spawn(async move {
-            run_resolve(req, stage, tx, item_limiter, load_monitor).await;
+            run_resolve(input, stage, tx, load_monitor).await;
         });
 
         let stream = ReceiverStream::new(rx);
@@ -119,7 +116,7 @@ impl CymbalResolution for CymbalResolutionService {
         info!(
             subscriber = %subscriber_id,
             tick_ms = tick.as_millis() as u64,
-            "load event bus subscription opened",
+            "load event subscription opened",
         );
 
         let stream = load_event_stream(SubscribeRuntime {

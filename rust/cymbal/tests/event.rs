@@ -222,7 +222,6 @@ impl TestHarness {
                 // window even when the stub server runs at default cadence.
                 config.remote_resolution_subscribe_tick_hint_ms = 25;
                 config.remote_resolution_sample_rate = 1.0;
-                config.remote_resolution_max_batch_items = 64;
                 config.remote_resolution_dns_refresh_secs = 3600;
             },
         )
@@ -594,13 +593,13 @@ async fn handles_missing_sourcemap(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn remote_resolution_http_process_groups_same_team_events_into_one_request(db: PgPool) {
+async fn remote_resolution_http_process_streams_same_team_events_as_items(db: PgPool) {
     // Per-team routing collapses all of a team's exceptions onto one routing
-    // key, so two events for the same team (regardless of distinct symbol
-    // sets) ride in a single ResolveRequest. The HTTP response shape must
-    // still preserve input order and length.
+    // key, but the final gRPC contract sends them as independent streamed
+    // ResolveItems. The HTTP response shape must still preserve input order
+    // and length.
     let harness = TestHarness::new(db);
-    let (addr, _received, requests) =
+    let (addr, _streams, items) =
         common::spawn_recording_stub_server(common::ServerBehavior::Happy).await;
     let first = load_static_event("javascript_chunk_id");
     let second = load_static_event("javascript_chunk_id_2");
@@ -621,26 +620,16 @@ async fn remote_resolution_http_process_groups_same_team_events_into_one_request
         Some(expected_uuids[1])
     );
 
-    let recorded = requests.lock().unwrap();
+    let recorded = items.lock().unwrap();
     assert_eq!(
         recorded.len(),
-        1,
-        "per-team routing collapses both events into one ResolveRequest",
-    );
-    let request = recorded.first().expect("one recorded request");
-    assert_eq!(
-        request.items.len(),
         2,
-        "the request must carry one item per submitted exception",
+        "the stream must carry one item per submitted exception",
     );
 
-    let mut payloads = request
-        .items
+    let mut payloads = recorded
         .iter()
-        .map(|item| {
-            let exception = item.exception.as_ref().expect("item has exception payload");
-            String::from_utf8(exception.exception_json.clone()).expect("exception JSON is utf8")
-        })
+        .map(|item| String::from_utf8(item.exception_json.clone()).expect("exception JSON is utf8"))
         .collect::<Vec<_>>();
     payloads.sort();
     assert!(payloads

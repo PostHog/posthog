@@ -72,7 +72,7 @@ impl Stage for ResolutionStage {
         if let Some(remote) = self.remote.clone() {
             // Remote mode: the stage owns orchestration across the incoming
             // batch, including deterministic rollout sampling. Sampled events
-            // use grouped/chunked ResolveRequests, and unsampled events use
+            // use grouped exception-level Resolve items, and unsampled events use
             // the local exception/frame operators. PropertiesResolver still
             // runs afterwards because it operates on the resolved exception
             // list shape independently of how exception/frame resolution was

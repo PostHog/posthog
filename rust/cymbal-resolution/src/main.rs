@@ -57,7 +57,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let service = CymbalResolutionService::new(
         app_context.symbol_resolver.clone(),
         app_context.symbol_resolution_limiter.clone(),
-        app_context.item_limiter.clone(),
         app_context.load_monitor.clone(),
         app_context.service_instance_id.clone(),
         service_config,
@@ -75,11 +74,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .http2_keepalive_timeout(Some(Duration::from_secs(20)))
         .layer(GrpcMetricsLayer::default().with_processing_time_header())
         .layer(GrpcLoadShedLayer::new(config.max_concurrent_requests))
-        // The cymbal client chunks grouped ResolveRequests by item count
-        // (`CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS`). The server relies on
-        // tonic's 4 MiB per-message default; an oversized chunk (single event
-        // with many large exceptions) surfaces as `InvalidArgument`. Future:
-        // signal "send smaller" back via `LoadEvent`.
+        // The cymbal client submits exception-level ResolveItems. The server
+        // relies on tonic's 4 MiB per-message default; an oversized item
+        // surfaces as `InvalidArgument`. Future: signal "send smaller" back
+        // via `LoadEvent`.
         .add_service(CymbalResolutionServer::with_interceptor(
             service,
             move |request| auth_interceptor.authenticate(request),

@@ -24,7 +24,7 @@ struct CloseLog {
 
 impl Drop for CloseLog {
     fn drop(&mut self) {
-        info!(subscriber = %self.subscriber_id, "load event bus subscription closed");
+        info!(subscriber = %self.subscriber_id, "load event subscription closed");
     }
 }
 
@@ -51,13 +51,9 @@ pub(super) fn load_event_stream(
             let snapshot = runtime.load_monitor.snapshot();
             yield Ok(LoadEvent {
                 service_instance_id: runtime.service_instance_id.as_ref().to_string(),
-                degraded: snapshot.degraded,
                 draining: snapshot.draining,
                 sequence,
                 message: String::new(),
-                // Remaining in-flight headroom before the degraded threshold, so a
-                // caller can size its next batch to avoid tipping this pod over.
-                suggested_batch_size: snapshot.suggested_batch_size,
             });
         }
     }

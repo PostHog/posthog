@@ -31,7 +31,6 @@ use cymbal::types::batch::Batch;
 use cymbal::types::operator::TeamId;
 use cymbal::types::stage::Stage;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::item_limiter::ItemLimiter;
 use cymbal_resolution::load_monitor::LoadMonitor;
 use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
@@ -78,7 +77,6 @@ async fn spawn_cymbal_resolution_with_resolver(resolver: Arc<dyn SymbolResolver>
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let limiter = Arc::new(Semaphore::new(4));
-    let item_limiter = ItemLimiter::new(4);
     let service_config = ServiceConfig {
         default_tick_interval: Duration::from_millis(50),
         min_tick_interval: Duration::from_millis(10),
@@ -87,8 +85,7 @@ async fn spawn_cymbal_resolution_with_resolver(resolver: Arc<dyn SymbolResolver>
     let service = CymbalResolutionService::new(
         resolver,
         limiter,
-        item_limiter,
-        LoadMonitor::new(0),
+        LoadMonitor::new(4),
         "parity-stub",
         service_config,
         Arc::new(AtomicBool::new(false)),

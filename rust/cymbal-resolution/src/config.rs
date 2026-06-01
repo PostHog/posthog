@@ -28,8 +28,8 @@ pub struct Config {
     /// requests. Reuses the same semantic as cymbal's
     /// `SYMBOL_RESOLUTION_CONCURRENCY` knob. Items beyond this wait on the
     /// internal semaphore until the request deadline; sustained pressure
-    /// surfaces as caller-retryable `Retry { code = "overloaded" }` outcomes
-    /// when the limiter is closed.
+    /// surfaces as per-item `ErrorKind::Overloaded` outcomes when the limiter
+    /// is closed.
     #[envconfig(from = "SYMBOL_RESOLUTION_CONCURRENCY", default = "64")]
     pub symbol_resolution_concurrency: usize,
 
@@ -41,21 +41,13 @@ pub struct Config {
     #[envconfig(from = "MAX_ITEM_CONCURRENCY", default = "64")]
     pub max_item_concurrency: usize,
 
-    /// Absolute in-flight item count at which the server self-marks
-    /// `LoadEvent.degraded`, so callers route away preemptively before the
-    /// gRPC admission queue load-sheds with `UNAVAILABLE`. Independent of
-    /// `MAX_ITEM_CONCURRENCY` (which bounds concurrency); set it relative to
-    /// that cap to leave spillover headroom. `0` disables the signal.
-    #[envconfig(from = "DEGRADED_IN_FLIGHT_THRESHOLD", default = "64")]
-    pub degraded_in_flight_threshold: u32,
-
     /// Service instance identifier surfaced to callers via `LoadEvent` on
     /// the Subscribe stream. Defaults to a random uuid generated at boot
     /// when not provided.
     #[envconfig(from = "SERVICE_INSTANCE_ID")]
     pub service_instance_id: Option<String>,
 
-    /// Default cadence for the load event bus (`Subscribe` RPC) in
+    /// Default cadence for the freshness/draining `Subscribe` RPC in
     /// milliseconds. Callers may suggest a cadence via
     /// `SubscribeRequest.tick_hint_ms`; the server clamps to
     /// `[subscribe_min_tick_ms, subscribe_max_tick_ms]` so a misbehaving

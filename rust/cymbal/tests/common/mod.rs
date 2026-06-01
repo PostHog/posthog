@@ -4,9 +4,8 @@
 //! integration test binaries (`tests/remote_resolution.rs`,
 //! `tests/remote_resolution_hardening.rs`,
 //! `tests/remote_resolution_parity.rs`, …) reuse. Keep new fixtures here
-//! rather than duplicating them per test file — Batch 4 onwards leans heavily
-//! on this pattern so failure-mode tests can be extended without re-writing
-//! the in-process gRPC stub.
+//! rather than duplicating them per test file so failure-mode tests can be
+//! extended without re-writing the in-process gRPC stub.
 
 #![allow(dead_code)]
 
@@ -38,96 +37,77 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::{
     CymbalResolution, CymbalResolutionServer,
 };
 use cymbal_proto::cymbal::resolution::v1::{
-    item_outcome, outcome, BatchSummary, Done, Error as ItemError, ItemOutcome, LoadEvent, Outcome,
-    ResolveRequest, Retry, SubscribeRequest,
+    resolve_outcome, Done, Error as ItemError, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
+    Retry, SubscribeRequest,
 };
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub type ResolveStream = Pin<Box<dyn Stream<Item = Result<Outcome, Status>> + Send>>;
+pub type ResolveStream = Pin<Box<dyn Stream<Item = Result<ResolveOutcome, Status>> + Send>>;
+pub type SubscribeStream = Pin<Box<dyn Stream<Item = Result<LoadEvent, Status>> + Send>>;
 
-/// Fixture stub for the cymbal.resolution.v1 server. Each request the server
-/// receives is recorded so tests can assert which endpoint was chosen on
-/// which attempt and how many requests reached each behavior.
+/// Fixture stub for the cymbal.resolution.v1 server. Streams are recorded
+/// separately from items: the mux opens one long-lived bidi stream per
+/// endpoint, while tests usually care about the individual ResolveItems that
+/// actually crossed that stream.
 #[derive(Clone)]
 pub struct StubServer {
     pub behavior: ServerBehavior,
-    pub received: Arc<Mutex<Vec<SocketAddr>>>,
-    pub requests: Arc<Mutex<Vec<ResolveRequest>>>,
+    pub streams: Arc<Mutex<Vec<SocketAddr>>>,
+    pub items: Arc<Mutex<Vec<ResolveItem>>>,
     pub addr: SocketAddr,
-    pub attempt_counter: Arc<AtomicU32>,
+    pub stream_counter: Arc<AtomicU32>,
 }
 
-/// Catalog of behaviors a test stub can advertise. Extend this list when a new
-/// failure-mode test needs a new stub variant — keeping every variant here
-/// (instead of one-off custom stubs per test) keeps the integration suite
-/// fixture-driven and easy for the next agent to extend.
+/// Catalog of behaviors a test stub can advertise. Keep failure modes here so
+/// the integration suite stays fixture-driven and the bidi protocol shape is
+/// shared across remote-resolution tests.
 #[derive(Clone)]
 pub enum ServerBehavior {
     /// Echo each item back as Done with the input exception unchanged.
     Happy,
     /// Echo each item back as Done with the input exception unchanged but
-    /// sleep `delay` before emitting outcomes. Useful for cancellation tests.
+    /// sleep `delay` before emitting each outcome.
     HappyDelayed { delay: Duration },
-    /// Always return Status::Unavailable to force the caller to retry.
+    /// Fail the Resolve stream during setup with Status::Unavailable.
     AlwaysUnavailable,
-    /// Return Status::InvalidArgument — terminal, should not retry.
+    /// Fail the Resolve stream during setup with Status::InvalidArgument.
     AlwaysInvalidArgument,
-    /// Sleep longer than the caller's deadline before responding with a
-    /// deadline-exceeded status. Used by deadline cancellation tests.
+    /// Delay stream setup long enough for caller deadlines to fire.
     SlowerThanDeadline { sleep: Duration },
-    /// Emit one Retry outcome per item plus a BatchSummary; caller should
-    /// retry. After `retry_until_attempt` attempts, transition to Happy.
-    RetryUntil { retry_until_attempt: u32 },
-    /// Emit one Done for the first item then drop the stream with an internal
-    /// error. Used to verify mid-stream interruption is classified as
-    /// retryable.
+    /// Emit Retry outcomes for every item on this stream.
+    Retry,
+    /// Emit ErrorKind::Overloaded outcomes for every item on this stream.
+    Overloaded,
+    /// Emit one Done for the first item then break the stream with Internal.
     InterruptAfterFirst,
-    /// Emit fewer ItemOutcomes than items submitted and a BatchSummary that
-    /// flags the gap as `missing_items`. Used to verify missing-item retry.
-    DropsLastItem,
-    /// Emit all ItemOutcomes successfully but close the stream cleanly
-    /// without ever sending the terminal BatchSummary. Mimics the server's
-    /// spawn task panicking or `tx.send` failing after items but before
-    /// summary: items it never produced look identical to "missing" on the
-    /// client without a summary to disambiguate, so the caller must retry.
-    DropsSummary,
-    /// Emit the first item as Done and every subsequent item as a non-retryable
-    /// `Error` outcome (e.g. server-side `invalid_payload`), plus a valid
-    /// BatchSummary. The retry loop has no path for `Error`, so this exercises
-    /// the all-or-nothing rollout policy: any `Error` item must fail the batch
-    /// rather than silently downgrade the affected exceptions.
-    ErrorAfterFirst { code: &'static str },
+    /// Emit the first item as Done and every subsequent item as Error.
+    ErrorAfterFirst { kind: ErrorKind },
 }
 
 impl StubServer {
     pub fn new(behavior: ServerBehavior, addr: SocketAddr) -> Self {
         Self {
             behavior,
-            received: Arc::new(Mutex::new(Vec::new())),
-            requests: Arc::new(Mutex::new(Vec::new())),
+            streams: Arc::new(Mutex::new(Vec::new())),
+            items: Arc::new(Mutex::new(Vec::new())),
             addr,
-            attempt_counter: Arc::new(AtomicU32::new(0)),
+            stream_counter: Arc::new(AtomicU32::new(0)),
         }
     }
 }
-
-pub type SubscribeStream = Pin<Box<dyn Stream<Item = Result<LoadEvent, Status>> + Send>>;
 
 #[tonic::async_trait]
 impl CymbalResolution for StubServer {
     type ResolveStream = ResolveStream;
     type SubscribeStream = SubscribeStream;
 
-    /// Default Subscribe behaviour: emit `LoadEvent`s on a fast tick so the
-    /// caller's `LoadSnapshot` stays fresh under snapshot-required routing.
-    /// Mimics the real cymbal-resolution server's periodic tick — the
-    /// previous one-shot stub left snapshots to expire and the pool would
-    /// stop routing once the freshness window elapsed.
+    /// Default Subscribe behaviour: emit freshness/draining-only `LoadEvent`s
+    /// on a fast tick so snapshot-required routing can warm up quickly.
     async fn subscribe(
         &self,
         _request: Request<SubscribeRequest>,
@@ -143,46 +123,26 @@ impl CymbalResolution for StubServer {
                 sequence += 1;
                 let event = LoadEvent {
                     service_instance_id: instance.clone(),
-                    degraded: false,
                     draining: false,
                     sequence,
                     message: String::new(),
-                    suggested_batch_size: 8,
                 };
                 if tx.send(Ok(event)).await.is_err() {
-                    return; // caller dropped the stream
+                    return;
                 }
             }
         });
-        let stream: SubscribeStream = Box::pin(ReceiverStream::new(rx));
-        Ok(Response::new(stream))
+        Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
     }
 
     async fn resolve(
         &self,
-        request: Request<ResolveRequest>,
+        request: Request<tonic::Streaming<ResolveItem>>,
     ) -> Result<Response<Self::ResolveStream>, Status> {
-        self.received.lock().unwrap().push(self.addr);
-        let attempt = self.attempt_counter.fetch_add(1, Ordering::SeqCst);
-        let req = request.into_inner();
-        self.requests.lock().unwrap().push(req.clone());
+        self.streams.lock().unwrap().push(self.addr);
+        self.stream_counter.fetch_add(1, Ordering::SeqCst);
 
-        let behavior = match &self.behavior {
-            ServerBehavior::RetryUntil {
-                retry_until_attempt,
-            } => {
-                if attempt < *retry_until_attempt {
-                    ServerBehavior::RetryUntil {
-                        retry_until_attempt: *retry_until_attempt,
-                    }
-                } else {
-                    ServerBehavior::Happy
-                }
-            }
-            other => other.clone(),
-        };
-
-        match behavior {
+        match self.behavior.clone() {
             ServerBehavior::AlwaysUnavailable => Err(Status::unavailable("forced shed")),
             ServerBehavior::AlwaysInvalidArgument => {
                 Err(Status::invalid_argument("forced bad request"))
@@ -191,227 +151,102 @@ impl CymbalResolution for StubServer {
                 tokio::time::sleep(sleep).await;
                 Err(Status::deadline_exceeded("server slow"))
             }
-            ServerBehavior::RetryUntil { .. } => {
-                let outcomes = build_retry_outcomes(&req);
-                Ok(Response::new(stream_of(outcomes).await))
-            }
-            ServerBehavior::Happy => {
-                let outcomes = build_happy_outcomes(&req);
-                Ok(Response::new(stream_of(outcomes).await))
-            }
-            ServerBehavior::HappyDelayed { delay } => {
-                tokio::time::sleep(delay).await;
-                let outcomes = build_happy_outcomes(&req);
-                Ok(Response::new(stream_of(outcomes).await))
-            }
-            ServerBehavior::InterruptAfterFirst => {
-                // Emit one Done outcome then close the stream with an internal
-                // error so the client side observes a mid-stream tonic Status
-                // rather than a clean end-of-stream.
-                let (tx, rx) = mpsc::channel(2);
-                if let Some(first) = req.items.first() {
-                    let outcome = build_done_outcome(&req.batch_id, 1, first);
-                    let _send = tx.send(Ok(outcome)).await;
-                }
-                let _send = tx
-                    .send(Err(Status::internal("simulated interruption")))
-                    .await;
-                let stream: ResolveStream = Box::pin(ReceiverStream::new(rx));
-                Ok(Response::new(stream))
-            }
-            ServerBehavior::DropsLastItem => {
-                let mut seq = 0u64;
-                let mut outcomes: Vec<Outcome> = Vec::with_capacity(req.items.len());
-                let mut missing = Vec::new();
-                for (i, item) in req.items.iter().enumerate() {
-                    if i + 1 == req.items.len() {
-                        // Last item is intentionally dropped; record it in
-                        // the BatchSummary so the caller treats this as a
-                        // missing-item retry.
-                        missing.push(cymbal_proto::cymbal::resolution::v1::ItemReference {
-                            item_id: item.item_id.clone(),
-                            item_index: item.item_index,
-                        });
-                        continue;
+            behavior => {
+                let mut inbound = request.into_inner();
+                let (tx, rx) = mpsc::channel(16);
+                let items = self.items.clone();
+                tokio::spawn(async move {
+                    let mut seen = 0usize;
+                    while let Some(next) = inbound.next().await {
+                        let item = match next {
+                            Ok(item) => item,
+                            Err(err) => {
+                                let _ignored = tx.send(Err(err)).await;
+                                return;
+                            }
+                        };
+                        items.lock().unwrap().push(item.clone());
+                        seen += 1;
+
+                        match behavior {
+                            ServerBehavior::Happy => {
+                                send_outcome(&tx, done_outcome(&item)).await;
+                            }
+                            ServerBehavior::HappyDelayed { delay } => {
+                                tokio::time::sleep(delay).await;
+                                send_outcome(&tx, done_outcome(&item)).await;
+                            }
+                            ServerBehavior::Retry => {
+                                send_outcome(&tx, retry_outcome(&item)).await;
+                            }
+                            ServerBehavior::Overloaded => {
+                                send_outcome(&tx, error_outcome(&item, ErrorKind::Overloaded))
+                                    .await;
+                            }
+                            ServerBehavior::InterruptAfterFirst => {
+                                if seen == 1 {
+                                    send_outcome(&tx, done_outcome(&item)).await;
+                                    let _ignored = tx
+                                        .send(Err(Status::internal("simulated interruption")))
+                                        .await;
+                                    return;
+                                }
+                                send_outcome(&tx, done_outcome(&item)).await;
+                            }
+                            ServerBehavior::ErrorAfterFirst { kind } => {
+                                if seen == 1 {
+                                    send_outcome(&tx, done_outcome(&item)).await;
+                                } else {
+                                    send_outcome(&tx, error_outcome(&item, kind)).await;
+                                }
+                            }
+                            ServerBehavior::AlwaysUnavailable
+                            | ServerBehavior::AlwaysInvalidArgument
+                            | ServerBehavior::SlowerThanDeadline { .. } => unreachable!(
+                                "stream setup failures return before spawning the bidi task"
+                            ),
+                        }
                     }
-                    seq += 1;
-                    outcomes.push(build_done_outcome(&req.batch_id, seq, item));
-                }
-                seq += 1;
-                outcomes.push(Outcome {
-                    batch_id: req.batch_id.clone(),
-                    sequence: seq,
-                    message: Some(outcome::Message::BatchSummary(BatchSummary {
-                        submitted_items: req.items.len() as u32,
-                        item_outcomes: (req.items.len() - 1) as u32,
-                        done_items: (req.items.len() - 1) as u32,
-                        error_items: 0,
-                        retry_items: 0,
-                        missing_items: missing,
-                        duplicate_items: vec![],
-                    })),
                 });
-                Ok(Response::new(stream_of(outcomes).await))
-            }
-            ServerBehavior::DropsSummary => {
-                // Emit Done for every item, then close the stream without
-                // ever sending a BatchSummary — mimics the server-side spawn
-                // task unwinding after items but before its terminal send.
-                let mut outcomes: Vec<Outcome> = Vec::with_capacity(req.items.len());
-                for (i, item) in req.items.iter().enumerate() {
-                    outcomes.push(build_done_outcome(&req.batch_id, (i + 1) as u64, item));
-                }
-                Ok(Response::new(stream_of(outcomes).await))
-            }
-            ServerBehavior::ErrorAfterFirst { code } => {
-                let mut outcomes: Vec<Outcome> = Vec::with_capacity(req.items.len() + 1);
-                let mut done_count = 0u32;
-                let mut error_count = 0u32;
-                for (i, item) in req.items.iter().enumerate() {
-                    let result = if i == 0 {
-                        done_count += 1;
-                        item_outcome::Result::Done(Done {
-                            resolved_exception_json: item
-                                .exception
-                                .as_ref()
-                                .map(|p| p.exception_json.clone())
-                                .unwrap_or_default(),
-                        })
-                    } else {
-                        error_count += 1;
-                        item_outcome::Result::Error(ItemError {
-                            code: code.to_string(),
-                            message: format!("forced {code} from stub"),
-                            details_json: Vec::new(),
-                        })
-                    };
-                    outcomes.push(Outcome {
-                        batch_id: req.batch_id.clone(),
-                        sequence: (i + 1) as u64,
-                        message: Some(outcome::Message::ItemOutcome(ItemOutcome {
-                            item_id: item.item_id.clone(),
-                            item_index: item.item_index,
-                            result: Some(result),
-                        })),
-                    });
-                }
-                outcomes.push(Outcome {
-                    batch_id: req.batch_id.clone(),
-                    sequence: (req.items.len() + 1) as u64,
-                    message: Some(outcome::Message::BatchSummary(BatchSummary {
-                        submitted_items: req.items.len() as u32,
-                        item_outcomes: req.items.len() as u32,
-                        done_items: done_count,
-                        error_items: error_count,
-                        retry_items: 0,
-                        missing_items: vec![],
-                        duplicate_items: vec![],
-                    })),
-                });
-                Ok(Response::new(stream_of(outcomes).await))
+                Ok(Response::new(Box::pin(ReceiverStream::new(rx))))
             }
         }
     }
 }
 
-fn build_done_outcome(
-    batch_id: &str,
-    sequence: u64,
-    item: &cymbal_proto::cymbal::resolution::v1::ExceptionResolutionItem,
-) -> Outcome {
-    let payload = item
-        .exception
-        .as_ref()
-        .map(|e| e.exception_json.clone())
-        .unwrap_or_default();
-    Outcome {
-        batch_id: batch_id.to_string(),
-        sequence,
-        message: Some(outcome::Message::ItemOutcome(ItemOutcome {
-            item_id: item.item_id.clone(),
-            item_index: item.item_index,
-            result: Some(item_outcome::Result::Done(Done {
-                resolved_exception_json: payload,
-            })),
+async fn send_outcome(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, outcome: ResolveOutcome) {
+    let _ignored = tx.send(Ok(outcome)).await;
+}
+
+fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
+    ResolveOutcome {
+        id: item.id,
+        result: Some(resolve_outcome::Result::Done(Done {
+            resolved_exception_json: item.exception_json.clone(),
         })),
     }
 }
 
-pub fn build_happy_outcomes(req: &ResolveRequest) -> Vec<Outcome> {
-    // ServiceInfo no longer rides on the Resolve stream — load lives on the
-    // Subscribe stream now. Resolve outcomes are item outcomes plus the
-    // terminal summary only.
-    let mut sequence = 0u64;
-    let mut next_seq = || {
-        sequence += 1;
-        sequence
-    };
-    let mut outcomes = Vec::with_capacity(req.items.len() + 1);
-    let mut done = 0u32;
-    for item in &req.items {
-        done += 1;
-        outcomes.push(build_done_outcome(&req.batch_id, next_seq(), item));
-    }
-    outcomes.push(Outcome {
-        batch_id: req.batch_id.clone(),
-        sequence: next_seq(),
-        message: Some(outcome::Message::BatchSummary(BatchSummary {
-            submitted_items: req.items.len() as u32,
-            item_outcomes: done,
-            done_items: done,
-            error_items: 0,
-            retry_items: 0,
-            missing_items: vec![],
-            duplicate_items: vec![],
+fn retry_outcome(item: &ResolveItem) -> ResolveOutcome {
+    ResolveOutcome {
+        id: item.id,
+        result: Some(resolve_outcome::Result::Retry(Retry {
+            code: "retry".to_string(),
+            message: "try later".to_string(),
+            retry_after_ms: 0,
         })),
-    });
-    outcomes
+    }
 }
 
-pub fn build_retry_outcomes(req: &ResolveRequest) -> Vec<Outcome> {
-    let mut sequence = 0u64;
-    let mut next_seq = || {
-        sequence += 1;
-        sequence
-    };
-    let mut outcomes = Vec::with_capacity(req.items.len() + 1);
-    for item in &req.items {
-        outcomes.push(Outcome {
-            batch_id: req.batch_id.clone(),
-            sequence: next_seq(),
-            message: Some(outcome::Message::ItemOutcome(ItemOutcome {
-                item_id: item.item_id.clone(),
-                item_index: item.item_index,
-                result: Some(item_outcome::Result::Retry(Retry {
-                    code: "overloaded".to_string(),
-                    message: "try later".to_string(),
-                    retry_after_ms: 0,
-                })),
-            })),
-        });
-    }
-    outcomes.push(Outcome {
-        batch_id: req.batch_id.clone(),
-        sequence: next_seq(),
-        message: Some(outcome::Message::BatchSummary(BatchSummary {
-            submitted_items: req.items.len() as u32,
-            item_outcomes: req.items.len() as u32,
-            done_items: 0,
-            error_items: 0,
-            retry_items: req.items.len() as u32,
-            missing_items: vec![],
-            duplicate_items: vec![],
+fn error_outcome(item: &ResolveItem, kind: ErrorKind) -> ResolveOutcome {
+    ResolveOutcome {
+        id: item.id,
+        result: Some(resolve_outcome::Result::Error(ItemError {
+            kind: kind as i32,
+            message: format!("forced {} from stub", kind.as_str_name()),
+            details_json: Vec::new(),
         })),
-    });
-    outcomes
-}
-
-async fn stream_of(outcomes: Vec<Outcome>) -> ResolveStream {
-    let (tx, rx) = mpsc::channel(outcomes.len().max(1));
-    for outcome in outcomes {
-        tx.send(Ok(outcome)).await.unwrap();
     }
-    Box::pin(ReceiverStream::new(rx))
 }
 
 /// Bind to an OS-assigned local port, drop the listener, and spawn a tonic
@@ -419,9 +254,9 @@ async fn stream_of(outcomes: Vec<Outcome>) -> ResolveStream {
 /// never dial before the bind has actually happened.
 pub async fn spawn_stub_server(
     behavior: ServerBehavior,
-) -> (SocketAddr, Arc<Mutex<Vec<SocketAddr>>>) {
-    let (addr, received, _requests) = spawn_recording_stub_server(behavior).await;
-    (addr, received)
+) -> (SocketAddr, Arc<Mutex<Vec<ResolveItem>>>) {
+    let (addr, _streams, items) = spawn_recording_stub_server(behavior).await;
+    (addr, items)
 }
 
 pub async fn spawn_recording_stub_server(
@@ -429,14 +264,14 @@ pub async fn spawn_recording_stub_server(
 ) -> (
     SocketAddr,
     Arc<Mutex<Vec<SocketAddr>>>,
-    Arc<Mutex<Vec<ResolveRequest>>>,
+    Arc<Mutex<Vec<ResolveItem>>>,
 ) {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
     let stub = StubServer::new(behavior, addr);
-    let received = stub.received.clone();
-    let requests = stub.requests.clone();
+    let streams = stub.streams.clone();
+    let items = stub.items.clone();
 
     tokio::spawn(async move {
         let _outcome = tonic::transport::Server::builder()
@@ -447,7 +282,7 @@ pub async fn spawn_recording_stub_server(
 
     for _ in 0..40 {
         if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
-            return (addr, received, requests);
+            return (addr, streams, items);
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
@@ -473,15 +308,6 @@ pub fn make_config_with_sample_rate(
     deadline: Duration,
     sample_rate: f64,
 ) -> RemoteResolutionConfig {
-    make_config_with_sample_rate_and_limits(max_retries, deadline, sample_rate, 64)
-}
-
-pub fn make_config_with_sample_rate_and_limits(
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-    max_batch_items: usize,
-) -> RemoteResolutionConfig {
     RemoteResolutionConfig {
         host: "test-only".to_string(),
         port: 0,
@@ -495,7 +321,6 @@ pub fn make_config_with_sample_rate_and_limits(
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
         sample_rate,
-        max_batch_items,
         // Subscription cadence is irrelevant for tests that don't wire the
         // subscription client — kept short so tests that do consume it run
         // quickly when they opt in via a dedicated pool builder.
@@ -531,35 +356,15 @@ pub async fn make_ctx_with_sample_rate(
     RemoteResolutionContext { pool, config }
 }
 
-pub async fn make_ctx_with_sample_rate_and_limits(
-    addrs: &[SocketAddr],
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-    max_batch_items: usize,
-) -> RemoteResolutionContext {
-    let config = make_config_with_sample_rate_and_limits(
-        max_retries,
-        deadline,
-        sample_rate,
-        max_batch_items,
-    );
-    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
-    if !addrs.is_empty() {
-        wait_until_routable(&pool).await;
-    }
-    RemoteResolutionContext { pool, config }
-}
-
 /// Wait until the pool has at least one routable endpoint (a fresh
 /// `LoadEvent` snapshot has arrived). Snapshot-required routing means an
 /// empty pool persists until the per-endpoint Subscribe stream delivers its
 /// first event; without this small warm-up tests race the first tick and
 /// observe spurious `pool_empty` failures.
-async fn wait_until_routable(pool: &Arc<cymbal::stages::resolution::remote::EndpointPool>) {
+pub async fn wait_until_routable(pool: &Arc<cymbal::stages::resolution::remote::EndpointPool>) {
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        if pool.select().await.is_ok() {
+        if pool.select(&[]).await.is_ok() {
             return;
         }
         if Instant::now() >= deadline {

@@ -8,17 +8,14 @@
 
 mod common;
 
-use std::collections::HashSet;
-use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use common::{
-    build_event, local_stage, make_ctx, make_ctx_with_sample_rate,
-    make_ctx_with_sample_rate_and_limits, process_one, remote_stage, spawn_recording_stub_server,
-    spawn_stub_server, ServerBehavior,
+    build_event, local_stage, make_ctx, make_ctx_with_sample_rate, process_one, remote_stage,
+    spawn_recording_stub_server, spawn_stub_server, ServerBehavior,
 };
 
 use cymbal::error::{ResolveError, UnhandledError};
@@ -282,14 +279,14 @@ async fn sample_rate_one_routes_all_eligible_events_remotely() {
 
     assert_eq!(
         hits.lock().unwrap().len(),
-        1,
-        "sample_rate=1.0 should group eligible events that share a routing key"
+        3,
+        "sample_rate=1.0 should submit one streamed item per exception"
     );
 }
 
 #[tokio::test]
-async fn exceptions_with_same_routing_key_share_one_resolve_request() {
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::Happy).await;
+async fn exceptions_with_same_routing_key_submit_independent_stream_items() {
+    let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
     let evt_a = build_event_with_symbol_refs(Uuid::from_u128(101), &["shared-bundle"]);
     let evt_b = build_event_with_symbol_refs(Uuid::from_u128(102), &["shared-bundle"]);
@@ -300,19 +297,16 @@ async fn exceptions_with_same_routing_key_share_one_resolve_request() {
         .expect("stage processed");
     assert_eq!(result.len(), 2);
 
-    let requests = requests.lock().unwrap();
-    assert_eq!(requests.len(), 1, "same routing key should batch together");
-    assert_eq!(requests[0].items.len(), 2);
-    assert_eq!(requests[0].items[0].item_index, 0);
-    assert_eq!(requests[0].items[1].item_index, 1);
+    let items = items.lock().unwrap();
+    assert_eq!(items.len(), 2, "each exception should be a streamed item");
+    assert!(items.iter().all(|item| item.team_id == 7));
+    assert!(items.iter().all(|item| item.deadline_ms > 0));
+    assert_ne!(items[0].id, items[1].id, "stream ids must be unique");
 }
 
 #[tokio::test]
-async fn exceptions_with_distinct_symbol_sets_share_one_request_under_per_team_routing() {
-    // Per-team routing means an event's exceptions all go to one pod even
-    // when they reference distinct symbol sets — they share `team:{team_id}`
-    // as the routing key. Previously this used to fan out per-symbol-set.
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::Happy).await;
+async fn distinct_symbol_sets_are_streamed_as_independent_items_under_team_routing() {
+    let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
     let evt = build_event_with_symbol_refs(Uuid::from_u128(201), &["bundle-a", "bundle-b"]);
 
@@ -322,58 +316,23 @@ async fn exceptions_with_distinct_symbol_sets_share_one_request_under_per_team_r
         .expect("stage processed");
     assert_eq!(result.len(), 1);
 
-    let requests = requests.lock().unwrap();
-    assert_eq!(
-        requests.len(),
-        1,
-        "per-team routing collapses distinct symbol sets into one RPC",
-    );
-    assert_eq!(requests[0].items.len(), 2);
-    let mut item_indices: Vec<u32> = requests[0]
-        .items
+    let items = items.lock().unwrap();
+    assert_eq!(items.len(), 2);
+    let exception_types: Vec<String> = items
         .iter()
-        .map(|item| item.item_index)
+        .map(|item| {
+            let exc: cymbal::types::Exception =
+                serde_json::from_slice(&item.exception_json).expect("valid exception json");
+            exc.exception_type
+        })
         .collect();
-    item_indices.sort();
-    assert_eq!(item_indices, vec![0, 1]);
+    assert_eq!(exception_types, vec!["Boom0", "Boom1"]);
 }
 
 #[tokio::test]
-async fn chunks_split_at_event_boundaries_up_to_max_items() {
-    // Event-atomic chunking: three events of sizes (2, 2, 1) with max_items=2
-    // produce three chunks that match the event sizes exactly. We never split
-    // an event's exceptions across chunks.
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::Happy).await;
-    let ctx =
-        make_ctx_with_sample_rate_and_limits(&[addr], 0, Duration::from_secs(5), 1.0, 2).await;
-    let evt_a = build_event_with_symbol_refs(Uuid::from_u128(301), &["a", "a"]);
-    let evt_b = build_event_with_symbol_refs(Uuid::from_u128(302), &["b", "b"]);
-    let evt_c = build_event_with_symbol_refs(Uuid::from_u128(303), &["c"]);
-
-    let result = remote_stage(ctx)
-        .process(Batch::from(vec![Ok(evt_a), Ok(evt_b), Ok(evt_c)]))
-        .await
-        .expect("stage processed");
-    assert_eq!(result.len(), 3);
-
-    let item_counts: Vec<usize> = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|request| request.items.len())
-        .collect();
-    assert_eq!(item_counts, vec![2, 2, 1]);
-}
-
-#[tokio::test]
-async fn server_suggested_batch_size_shrinks_chunks_below_client_config() {
-    // The stub server advertises `suggested_batch_size = 8` on every
-    // LoadEvent (see tests/common/mod.rs). With a client config of 64,
-    // chunks must honor the smaller server-driven cap. Build 10 single-
-    // exception events; expect chunks of size 8 + 2.
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::Happy).await;
-    let ctx =
-        make_ctx_with_sample_rate_and_limits(&[addr], 0, Duration::from_secs(5), 1.0, 64).await;
+async fn load_events_do_not_shrink_streamed_item_submission() {
+    let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
+    let ctx = make_ctx_with_sample_rate(&[addr], 0, Duration::from_secs(5), 1.0).await;
     let events: Vec<_> = (0..10)
         .map(|i| {
             Ok(build_event_with_symbol_refs(
@@ -388,31 +347,23 @@ async fn server_suggested_batch_size_shrinks_chunks_below_client_config() {
         .await
         .expect("stage processed");
     assert_eq!(result.len(), 10);
-
-    let item_counts: Vec<usize> = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|request| request.items.len())
-        .collect();
-    assert_eq!(
-        item_counts,
-        vec![8, 2],
-        "server suggestion (8) must beat client config (64)"
-    );
+    assert_eq!(items.lock().unwrap().len(), 10);
 }
 
 #[tokio::test]
-async fn single_oversized_event_ships_as_one_chunk() {
-    // A single event whose exception count exceeds max_items can't be split
-    // (event-atomic chunking); it goes out as one oversized chunk. The byte
-    // cap that used to enforce a hard 1 MiB wire limit is gone — the server
-    // is responsible for signalling back (future LoadEvent extension) when
-    // it wants smaller batches.
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::Happy).await;
-    let ctx =
-        make_ctx_with_sample_rate_and_limits(&[addr], 0, Duration::from_secs(5), 1.0, 2).await;
-    let evt = build_event_with_symbol_refs(Uuid::from_u128(304), &["x", "x", "x", "x", "x"]);
+async fn metadata_encodes_apple_debug_images_as_json_field() {
+    let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
+    let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;
+    let mut evt = build_event(1);
+    evt.debug_images = vec![AppleDebugImage {
+        debug_id: "ABCDEF".to_string(),
+        image_addr: "0x100000000".to_string(),
+        image_vmaddr: Some("0x100000000".to_string()),
+        image_size: Some(4096),
+        code_file: Some("Example.app/Example".to_string()),
+        image_type: Some("macho".to_string()),
+        arch: Some("arm64".to_string()),
+    }];
 
     let result = remote_stage(ctx)
         .process(Batch::from(vec![Ok(evt)]))
@@ -420,47 +371,36 @@ async fn single_oversized_event_ships_as_one_chunk() {
         .expect("stage processed");
     assert_eq!(result.len(), 1);
 
-    let item_counts: Vec<usize> = requests
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|request| request.items.len())
-        .collect();
-    assert_eq!(item_counts, vec![5]);
+    let items = items.lock().unwrap();
+    assert_eq!(items.len(), 1);
+    let metadata: serde_json::Value =
+        serde_json::from_slice(&items[0].metadata).expect("metadata is json");
+    assert_eq!(
+        metadata["apple_debug_images_json"][0]["debug_id"],
+        serde_json::Value::String("ABCDEF".to_string())
+    );
 }
 
 #[tokio::test]
-async fn retrying_a_per_team_group_replays_the_full_request() {
-    // Under per-team routing all of an event's exceptions land in one
-    // RPC. When the server signals a retry, the entire request is replayed
-    // against (potentially) another endpoint; the test asserts we don't
-    // duplicate items mid-replay.
-    let (addr, _hits, requests) = spawn_recording_stub_server(ServerBehavior::RetryUntil {
-        retry_until_attempt: 1,
-    })
-    .await;
-    let ctx = make_ctx(&[addr], 2, Duration::from_secs(5)).await;
+async fn per_item_overloaded_outcomes_reroute_independently() {
+    let (overloaded_addr, overloaded_items) = spawn_stub_server(ServerBehavior::Overloaded).await;
+    let (good_addr, good_items) = spawn_stub_server(ServerBehavior::Happy).await;
+    let ctx = make_ctx(&[overloaded_addr, good_addr], 3, Duration::from_secs(5)).await;
     let evt = build_event_with_symbol_refs(Uuid::from_u128(401), &["bundle-a", "bundle-b"]);
 
     let result = remote_stage(ctx)
         .process(Batch::from(vec![Ok(evt)]))
         .await
-        .expect("stage processed after retry");
+        .expect("stage processed after per-item reroute");
     let resolved: Vec<_> = result
         .into_iter()
         .map(|item| item.expect("event must not be EventError"))
         .collect();
     assert_eq!(resolved[0].exception_list.len(), 2);
-
-    let requests = requests.lock().unwrap();
-    assert_eq!(
-        requests.len(),
-        2,
-        "one retry of the per-team group means exactly two recorded RPCs",
-    );
+    assert_eq!(good_items.lock().unwrap().len(), 2);
     assert!(
-        requests.iter().all(|request| request.items.len() == 2),
-        "each RPC must carry both exceptions of the per-team group",
+        overloaded_items.lock().unwrap().len() <= 2,
+        "items may hash directly to the healthy endpoint, but overload retries must not duplicate successes"
     );
 }
 
@@ -532,7 +472,7 @@ async fn sampled_remote_failure_does_not_fall_back_to_local_resolution() {
     .expect_err("sampled remote failure must surface");
 
     assert!(format!("{err}").contains("exhausted"));
-    assert_eq!(hits.lock().unwrap().len(), 1);
+    assert!(hits.lock().unwrap().is_empty());
     assert_eq!(resolver.dart_name_calls.load(Ordering::SeqCst), 0);
     assert_eq!(resolver.raw_frame_calls.load(Ordering::SeqCst), 0);
 }
@@ -580,72 +520,68 @@ async fn transport_unavailable_retries_against_another_endpoint() {
         .expect("stage succeeded");
     assert_eq!(resolved.exception_list.len(), 1);
 
-    // With max_retries=4 against a 2-endpoint pool, the caller is allowed up
-    // to 5 attempts; the bad endpoint can be hit zero or more times depending
-    // on round-robin order, but the good endpoint MUST end up serving the
-    // successful attempt at least once.
-    let touched: HashSet<SocketAddr> = bad_hits
-        .lock()
-        .unwrap()
-        .iter()
-        .chain(good_hits.lock().unwrap().iter())
-        .copied()
-        .collect();
     assert!(
-        touched.contains(&good_addr),
-        "good endpoint must have served the successful retry, touched={touched:?}"
+        bad_hits.lock().unwrap().is_empty(),
+        "setup-level Unavailable should fail before any items are processed"
+    );
+    assert_eq!(
+        good_hits.lock().unwrap().len(),
+        1,
+        "good endpoint must serve the successful retry"
     );
 }
 
 #[tokio::test]
-async fn per_item_retry_outcome_triggers_caller_side_retry() {
-    let (addr, _) = spawn_stub_server(ServerBehavior::RetryUntil {
-        retry_until_attempt: 1,
-    })
-    .await;
-    let ctx = make_ctx(&[addr], 3, Duration::from_secs(5)).await;
+async fn per_item_retry_outcome_triggers_caller_side_reroute() {
+    let (retry_addr, retry_items) = spawn_stub_server(ServerBehavior::Retry).await;
+    let (good_addr, good_items) = spawn_stub_server(ServerBehavior::Happy).await;
+    let ctx = make_ctx(&[retry_addr, good_addr], 3, Duration::from_secs(5)).await;
     let evt = build_event(1);
 
     let resolved = process_one(remote_stage(ctx), evt)
         .await
         .expect("stage succeeded");
     assert_eq!(resolved.exception_list.len(), 1);
+    assert_eq!(good_items.lock().unwrap().len(), 1);
+    assert!(retry_items.lock().unwrap().len() <= 1);
 }
 
 #[tokio::test]
-async fn terminal_status_surfaces_as_unhandled_error_without_retry() {
-    let (addr, hits) = spawn_stub_server(ServerBehavior::AlwaysInvalidArgument).await;
-    let ctx = make_ctx(&[addr], 5, Duration::from_secs(5)).await;
+async fn terminal_setup_status_closes_mux_without_processing_items() {
+    let (addr, streams, items) =
+        spawn_recording_stub_server(ServerBehavior::AlwaysInvalidArgument).await;
+    let ctx = make_ctx(&[addr], 1, Duration::from_secs(5)).await;
     let evt = build_event(1);
 
     let err = process_one(remote_stage(ctx), evt)
         .await
-        .expect_err("terminal status must surface as unhandled error");
+        .expect_err("closed mux must surface as unhandled error");
 
     let msg = format!("{err}");
     assert!(
-        msg.contains("terminal"),
-        "expected terminal failure, got: {msg}"
+        msg.contains("exhausted"),
+        "expected exhaustion after closed stream, got: {msg}"
     );
-    // Only one attempt — terminal statuses should not be retried.
-    assert_eq!(hits.lock().unwrap().len(), 1);
+    assert!(items.lock().unwrap().is_empty());
+    assert_eq!(streams.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn caller_deadline_cancels_slow_request_and_retries() {
-    let (slow_addr, _) = spawn_stub_server(ServerBehavior::SlowerThanDeadline {
-        sleep: Duration::from_millis(400),
+async fn caller_deadline_on_slow_item_surfaces_without_local_fallback() {
+    let (slow_addr, _) = spawn_stub_server(ServerBehavior::HappyDelayed {
+        delay: Duration::from_millis(400),
     })
     .await;
-    let (fast_addr, _) = spawn_stub_server(ServerBehavior::Happy).await;
-
-    let ctx = make_ctx(&[slow_addr, fast_addr], 2, Duration::from_millis(150)).await;
+    let ctx = make_ctx(&[slow_addr], 1, Duration::from_millis(100)).await;
     let evt = build_event(1);
 
-    let resolved = process_one(remote_stage(ctx), evt)
+    let err = process_one(remote_stage(ctx), evt)
         .await
-        .expect("stage succeeded after retry");
-    assert_eq!(resolved.exception_list.len(), 1);
+        .expect_err("shared item deadline must surface");
+    assert!(
+        format!("{err}").contains("deadline"),
+        "expected deadline error, got: {err}"
+    );
 }
 
 #[tokio::test]
@@ -675,6 +611,8 @@ async fn exhausting_retries_returns_unhandled_error_with_no_local_fallback() {
         msg.contains("exhausted"),
         "expected exhaustion error, got: {msg}"
     );
-    // max_retries=1 → 2 attempts total against the only endpoint.
-    assert_eq!(hits.lock().unwrap().len(), 2);
+    assert!(
+        hits.lock().unwrap().is_empty(),
+        "setup-level Unavailable should fail before any items are processed"
+    );
 }

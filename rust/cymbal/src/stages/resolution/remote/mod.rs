@@ -12,6 +12,7 @@
 pub mod client;
 pub mod config;
 pub mod dns;
+pub mod mux;
 pub mod pool;
 pub mod resolver;
 pub mod subscription;

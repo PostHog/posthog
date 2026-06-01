@@ -224,7 +224,7 @@ pub struct Config {
     /// Each subsequent attempt doubles the wait (capped at
     /// `CYMBAL_REMOTE_RESOLUTION_RETRY_MAX_BACKOFF_MS`), plus up to ~50% random
     /// jitter so a fleet of cymbal pods does not synchronize retries against a
-    /// briefly-degraded upstream.
+    /// briefly-overloaded upstream.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_RETRY_BACKOFF_MS", default = "50")]
     pub remote_resolution_retry_backoff_ms: u64,
 
@@ -245,17 +245,8 @@ pub struct Config {
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
     pub remote_resolution_sample_rate: f64,
 
-    /// Maximum exception-level items to include in one remote ResolveRequest.
-    /// Chunking is event-atomic: an event's exceptions are never split across
-    /// chunks, so a single event with more than this many exceptions will be
-    /// sent as one oversized chunk. Byte-level chunking is intentionally
-    /// absent — the server is the right place to signal "send smaller"
-    /// (future LoadEvent extension).
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_MAX_BATCH_ITEMS", default = "64")]
-    pub remote_resolution_max_batch_items: usize,
-
     /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
-    /// cymbal-resolution load event bus. The server clamps to its own bounds
+    /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds
     /// (see cymbal-resolution `SUBSCRIBE_MIN_TICK_MS`/`SUBSCRIBE_MAX_TICK_MS`),
     /// so this is only a hint.
     #[envconfig(

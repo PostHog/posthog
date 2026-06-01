@@ -317,6 +317,13 @@ async fn build_remote_resolution(
         .map_err(|e| {
             UnhandledError::Other(format!("failed to build remote resolution pool: {e}"))
         })?;
+    let readiness_timeout = std::cmp::max(
+        remote_config.subscribe_tick_hint.saturating_mul(3),
+        remote_config.connect_timeout,
+    );
+    pool.wait_ready(readiness_timeout).await.map_err(|e| {
+        UnhandledError::Other(format!("remote resolution pool did not become ready: {e}"))
+    })?;
     let refresh_task = crate::stages::resolution::remote::pool::spawn_refresh_task(pool.clone());
 
     Ok((

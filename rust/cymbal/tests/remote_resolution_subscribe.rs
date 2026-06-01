@@ -1,4 +1,4 @@
-//! End-to-end coverage for the load event bus (`Subscribe` RPC) and
+//! End-to-end coverage for the freshness/draining `Subscribe` RPC and
 //! pool routing on server-reported health.
 //!
 //! These tests bring up a real cymbal-resolution server with a fake symbol
@@ -24,7 +24,6 @@ use cymbal::symbol_store::chunk_id::OrChunkId;
 use cymbal::symbol_store::proguard::ProguardRef;
 use cymbal::types::operator::TeamId;
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::CymbalResolutionServer;
-use cymbal_resolution::item_limiter::ItemLimiter;
 use cymbal_resolution::load_monitor::LoadMonitor;
 use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
 use tokio::sync::Semaphore;
@@ -81,14 +80,12 @@ async fn spawn_real_server(item_limiter: Arc<Semaphore>, max_in_flight: u32) -> 
     // never acquires; size it generously so it never gates anything.
     let symbol_limiter = Arc::new(Semaphore::new(64));
     // Degraded signal disabled (threshold 0); these tests don't exercise it.
-    let load_monitor = LoadMonitor::new(0);
+    let load_monitor = LoadMonitor::new(max_in_flight);
     load_monitor
         .set_in_flight(max_in_flight.saturating_sub(item_limiter.available_permits() as u32));
-    let item_limiter = ItemLimiter::from_semaphore(item_limiter, max_in_flight as usize);
     let service = CymbalResolutionService::new(
         resolver,
         symbol_limiter,
-        item_limiter,
         load_monitor,
         format!("real-{addr}"),
         service_config,
@@ -123,7 +120,6 @@ fn pool_config(host: &str, tick_hint: Duration) -> RemoteResolutionConfig {
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
         sample_rate: 1.0,
-        max_batch_items: 64,
         subscribe_tick_hint: tick_hint,
         subscribe_reconnect_backoff: Duration::from_millis(20),
     }
@@ -150,11 +146,17 @@ async fn pool_routes_across_endpoints_with_fresh_load_events() {
     // The server's tick is 25ms; 500ms is generous but keeps the test snappy.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let h1 = pool.select().await.expect("select succeeds");
-    let h2 = pool.select().await.expect("select succeeds");
-    let mut picks = [h1.addr, h2.addr];
-    picks.sort();
-    let mut expected = [pod_a, pod_b];
-    expected.sort();
-    assert_eq!(picks, expected);
+    // Random selection across the fresh, healthy set: over many picks both
+    // pods must appear (and only those two — every pick is a known pod).
+    let mut picks = std::collections::HashSet::new();
+    for _ in 0..50 {
+        let handle = pool.select(&[]).await.expect("select succeeds");
+        assert!(handle.addr == pod_a || handle.addr == pod_b);
+        picks.insert(handle.addr);
+    }
+    assert_eq!(
+        picks.len(),
+        2,
+        "both fresh pods should be selected over time"
+    );
 }

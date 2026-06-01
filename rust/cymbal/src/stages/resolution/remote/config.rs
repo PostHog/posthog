@@ -25,10 +25,6 @@ pub struct RemoteResolutionConfig {
     /// cymbal-resolution. Defaults to 0.0 in [`Config`] so enabling remote mode
     /// alone does not start sending traffic until rollout is ramped explicitly.
     pub sample_rate: f64,
-    /// Maximum exception items per grouped ResolveRequest. Chunking is
-    /// event-atomic: an event's exceptions are never split, so a single event
-    /// with more than this many exceptions ships as one oversized chunk.
-    pub max_batch_items: usize,
     /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
     /// clamp this; the caller relies on whatever cadence the server settles on.
     /// Doubles as the freshness window: snapshots older than `2 *
@@ -71,7 +67,6 @@ impl RemoteResolutionConfig {
                     .max(config.remote_resolution_retry_backoff_ms.max(1)),
             ),
             sample_rate: normalized_sample_rate(config.remote_resolution_sample_rate),
-            max_batch_items: config.remote_resolution_max_batch_items.max(1),
             subscribe_tick_hint: Duration::from_millis(
                 config.remote_resolution_subscribe_tick_hint_ms.max(1),
             ),

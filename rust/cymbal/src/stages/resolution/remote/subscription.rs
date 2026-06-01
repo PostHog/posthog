@@ -4,7 +4,7 @@
 //! Each pooled gRPC channel runs a long-lived `Subscribe` stream in the
 //! background. The latest [`LoadSnapshot`] is stashed on the endpoint state
 //! and consulted by [`super::pool::EndpointPool::select_for_key`] to route
-//! the rendezvous-ranked endpoint that is not degraded/draining. The
+//! the rendezvous-ranked endpoint that is not draining. The
 //! subscription is cooperative: stream termination triggers a small
 //! backoff (with jitter) and a reconnect, so a transient blip leaves the
 //! snapshot cleared and the pool stops routing to that endpoint rather than
@@ -32,7 +32,6 @@ use super::client::with_internal_api_secret;
 /// per endpoint and refreshed by the subscription task.
 #[derive(Clone, Debug)]
 pub struct LoadSnapshot {
-    pub degraded: bool,
     pub draining: bool,
     /// Local wall-clock at which this snapshot was received. Used by the pool
     /// to ignore stale snapshots when routing.
@@ -40,9 +39,6 @@ pub struct LoadSnapshot {
     /// Sequence number from the server. Useful for diagnostics when stream
     /// restarts reset the count.
     pub sequence: u64,
-    /// Server's current suggested max items per `Resolve` request. `0` means
-    /// the server has no opinion; the client falls back to its own ceiling.
-    pub suggested_batch_size: u32,
 }
 
 impl LoadSnapshot {
@@ -73,7 +69,7 @@ impl SubscriptionHandle {
     }
 }
 
-/// Spawn a background task that subscribes to one endpoint's load event bus
+/// Spawn a background task that subscribes to one endpoint's freshness/draining stream
 /// and keeps `cell` populated with the latest [`LoadSnapshot`]. The task
 /// reconnects automatically on stream end or error, with a fixed backoff so
 /// a misbehaving server doesn't spin a hot reconnect loop.
@@ -84,6 +80,7 @@ pub fn spawn_subscription(
     tick_hint: Duration,
     reconnect_backoff: Duration,
     internal_api_secret: String,
+    ready: Arc<Notify>,
 ) -> SubscriptionHandle {
     let cancel = Arc::new(Notify::new());
     let cancel_clone = cancel.clone();
@@ -99,6 +96,7 @@ pub fn spawn_subscription(
                 subscriber_id.clone(),
                 cancel_clone.clone(),
                 internal_api_secret.clone(),
+                ready.clone(),
             )
             .await;
             match outcome {
@@ -151,6 +149,7 @@ async fn run_subscription_once(
     subscriber_id: String,
     cancel: Arc<Notify>,
     internal_api_secret: String,
+    ready: Arc<Notify>,
 ) -> SubscriptionExit {
     let mut client = CymbalResolutionClient::new(channel);
     let request = SubscribeRequest {
@@ -191,8 +190,12 @@ async fn run_subscription_once(
         match next {
             Some(Ok(event)) => {
                 let snapshot = snapshot_from_event(event);
+                let should_notify = !snapshot.draining;
                 if let Ok(mut slot) = cell.lock() {
                     *slot = Some(snapshot);
+                }
+                if should_notify {
+                    ready.notify_waiters();
                 }
             }
             Some(Err(status)) => {
@@ -217,11 +220,9 @@ fn jitter_for(backoff: Duration) -> Duration {
 
 fn snapshot_from_event(event: LoadEvent) -> LoadSnapshot {
     LoadSnapshot {
-        degraded: event.degraded,
         draining: event.draining,
         observed_at: Instant::now(),
         sequence: event.sequence,
-        suggested_batch_size: event.suggested_batch_size,
     }
 }
 
@@ -233,11 +234,9 @@ mod tests {
     fn freshness_window_distinguishes_recent_and_old_snapshots() {
         let now = Instant::now();
         let snap = LoadSnapshot {
-            degraded: false,
             draining: false,
             observed_at: now - Duration::from_secs(10),
             sequence: 1,
-            suggested_batch_size: 0,
         };
         assert!(!snap.is_fresh(now, Duration::from_secs(1)));
         assert!(snap.is_fresh(now, Duration::from_secs(30)));
