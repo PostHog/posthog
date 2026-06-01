@@ -407,18 +407,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-    def _get_uuids_for_distinct_ids_batch(self, distinct_ids: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for a batch of distinct IDs.
-
-        Dedup against existing cohort members is NOT done here — the downstream
-        insert_users_list_by_uuid / _insert_users_list_with_batching handles it
-        more efficiently.
-        """
-        from posthog.models.person.util import get_person_uuids_by_distinct_ids
-
-        return get_person_uuids_by_distinct_ids(team_id, list(distinct_ids))
-
     def insert_users_by_list(
         self,
         items: list[str],
@@ -443,19 +431,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Process distinct IDs in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from distinct IDs, excluding those already in cohort."""
+            from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_distinct_ids = items[start_idx:end_idx]
+            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
-            return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
-
-        # Use FunctionBatchIterator to process distinct IDs in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(
@@ -566,20 +549,69 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from posthog.models.cohort.util import count_cohort_members
-        from posthog.models.person.util import _personhog_preferred
+        from posthog.models.cohort.util import count_cohort_members, insert_static_cohort
+        from posthog.personhog_client.gate import use_personhog
 
         current_batch_index = -1
         processing_error = None
+        personhog = use_personhog()
         try:
-            for batch_index, batch in batch_iterator:
-                current_batch_index = batch_index
-                _personhog_preferred(
-                    "insert_cohort_batch",
-                    lambda b=batch: self._insert_batch_via_personhog(b, insert_in_clickhouse, team_id=team_id),
-                    lambda b=batch: self._insert_batch_via_orm(b, insert_in_clickhouse, team_id=team_id),
-                    team_id=team_id,
-                )
+            from django.db import connections, router
+
+            if personhog:
+                for batch_index, batch in batch_iterator:
+                    current_batch_index = batch_index
+                    self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
+            else:
+                db_write = router.db_for_write(Person) or "default"
+                db_read = router.db_for_read(Person) or "default"
+                persons_connection = connections[db_write]
+                cursor = persons_connection.cursor()
+                cohort_people_table = CohortPeople._meta.db_table
+                for batch_index, batch in batch_iterator:
+                    current_batch_index = batch_index
+
+                    persons_query = (
+                        Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
+                        .filter(team_id=team_id)
+                        .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
+                    )
+                    if insert_in_clickhouse:
+                        # Both querysets must use db_write so Django can merge the
+                        # .exclude() into a single NOT IN subquery. Using db_read
+                        # for Person + db_write for CohortPeople causes a
+                        # "Subqueries aren't allowed across different databases"
+                        # ValueError when the aliases differ (production config).
+                        insert_uuids_query = (
+                            Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
+                            .filter(team_id=team_id, uuid__in=batch)
+                            .exclude(
+                                id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
+                                .filter(cohort_id=self.id)
+                                .values_list("person_id", flat=True)
+                            )
+                        )
+                        insert_static_cohort(
+                            list(insert_uuids_query.values_list("uuid", flat=True)),
+                            self.pk,
+                            team_id=team_id,
+                        )
+
+                    # Dedup via LEFT JOIN so the exclusion stays entirely in SQL,
+                    # avoiding the O(cohort_size) memory cost of loading all
+                    # existing member IDs into Python. Both tables live on the
+                    # persons DB so the join works on the db_write cursor.
+                    sql, params = persons_query.only("pk").query.sql_with_params()
+                    query = f"""
+                        INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
+                        SELECT p."id", {self.pk}, {self.version or "NULL"}
+                        FROM ({sql}) AS p
+                        LEFT JOIN "{cohort_people_table}" AS cp
+                            ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
+                        WHERE cp."person_id" IS NULL
+                        ON CONFLICT DO NOTHING
+                    """
+                    cursor.execute(query, params)
 
         except Exception as err:
             processing_error = err
@@ -672,65 +704,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             },
         )
         return {str(row[0]) for row in rows}
-
-    def _insert_batch_via_orm(
-        self,
-        batch: list[str],
-        insert_in_clickhouse: bool,
-        *,
-        team_id: int,
-    ) -> None:
-        """ORM fallback path for inserting a single batch of cohort members."""
-        from django.db import connections, router
-
-        from posthog.models.cohort.util import insert_static_cohort
-
-        db_write = router.db_for_write(Person) or "default"
-        db_read = router.db_for_read(Person) or "default"
-
-        persons_query = (
-            Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id)
-            .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
-        )
-        if insert_in_clickhouse:
-            # Both querysets must use db_write so Django can merge the
-            # .exclude() into a single NOT IN subquery. Using db_read
-            # for Person + db_write for CohortPeople causes a
-            # "Subqueries aren't allowed across different databases"
-            # ValueError when the aliases differ (production config).
-            insert_uuids_query = (
-                Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                .filter(team_id=team_id, uuid__in=batch)
-                .exclude(
-                    id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                    .filter(cohort_id=self.id)
-                    .values_list("person_id", flat=True)
-                )
-            )
-            insert_static_cohort(
-                list(insert_uuids_query.values_list("uuid", flat=True)),
-                self.pk,
-                team_id=team_id,
-            )
-
-        cohort_people_table = CohortPeople._meta.db_table
-        # Dedup via LEFT JOIN so the exclusion stays entirely in SQL,
-        # avoiding the O(cohort_size) memory cost of loading all
-        # existing member IDs into Python. Both tables live on the
-        # persons DB so the join works on the db_write cursor.
-        sql, params = persons_query.only("pk").query.sql_with_params()
-        query = f"""
-            INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
-            SELECT p."id", {self.pk}, {self.version or "NULL"}
-            FROM ({sql}) AS p
-            LEFT JOIN "{cohort_people_table}" AS cp
-                ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
-            WHERE cp."person_id" IS NULL
-            ON CONFLICT DO NOTHING
-        """
-        cursor = connections[db_write].cursor()
-        cursor.execute(query, params)
 
     def remove_user_by_uuid(self, user_uuid: str, *, team_id: int) -> bool:
         """
