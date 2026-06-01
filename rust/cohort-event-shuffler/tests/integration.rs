@@ -5,7 +5,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cohort_event_shuffler::config::Config;
+use cohort_event_shuffler::config::{Config, TeamAllowlist};
 use cohort_event_shuffler::consumer::EventShuffler;
 use cohort_event_shuffler::event::CohortStreamEvent;
 use cohort_event_shuffler::filter_team_index::TeamIndex;
@@ -53,6 +53,9 @@ fn test_config(bootstrap: &str) -> Config {
         pg_statement_timeout_ms: 0,
         team_index_refresh_secs: 300,
         team_index_refresh_jitter_secs: 0,
+        // The test loads the team index directly via `TeamIndex::from_teams`, so the gate is exercised
+        // by that set, not this field.
+        team_allowlist: TeamAllowlist::All,
         recv_batch_size: 100,
         recv_batch_timeout_ms: 200,
     }

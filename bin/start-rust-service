@@ -222,6 +222,8 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime team gate
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
     # earliest replays existing local events; prod defaults to "latest".
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
     export BIND_PORT=3310
@@ -233,6 +235,8 @@ case "$RS_SVC" in
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime filter catalog
+    # Code default gates to team 2 (the parity baseline); dev uses the local team, so open the gate.
+    export REALTIME_COHORT_TEAM_ALLOWLIST="${REALTIME_COHORT_TEAM_ALLOWLIST:-all}"
     # Fast refresh in dev so window/threshold edits surface a new LeafStateKey quickly.
     export FILTER_CATALOG_REFRESH_SECS="${FILTER_CATALOG_REFRESH_SECS:-30}"
     export FILTER_CATALOG_REFRESH_JITTER_SECS="${FILTER_CATALOG_REFRESH_JITTER_SECS:-5}"

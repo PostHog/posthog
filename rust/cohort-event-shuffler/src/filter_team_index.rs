@@ -18,8 +18,9 @@ use lifecycle::Handle;
 use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
+use crate::config::TeamAllowlist;
 use crate::observability::metrics::ACTIVE_TEAMS;
 
 /// Must match the Node filter manager's predicate (`cohort_type='realtime'`, not deleted, non-null
@@ -31,13 +32,23 @@ const TEAMS_WITH_REALTIME_COHORTS_SQL: &str = "SELECT DISTINCT team_id \
 pub struct TeamIndex {
     teams: ArcSwap<HashSet<i32>>,
     loaded: AtomicBool,
+    /// Applied at [`refresh`](Self::refresh) time: teams the DB reports as realtime but outside this
+    /// allowlist never enter the snapshot, so the hot-path gate and the `ACTIVE_TEAMS` gauge both
+    /// reflect the scoped set for free.
+    allowlist: TeamAllowlist,
 }
 
 impl TeamIndex {
     pub fn new() -> Self {
+        Self::with_allowlist(TeamAllowlist::All)
+    }
+
+    /// The production constructor: gate refreshes to `allowlist`.
+    pub fn with_allowlist(allowlist: TeamAllowlist) -> Self {
         Self {
             teams: ArcSwap::from_pointee(HashSet::new()),
             loaded: AtomicBool::new(false),
+            allowlist,
         }
     }
 
@@ -72,14 +83,33 @@ impl TeamIndex {
     }
 
     pub async fn refresh(&self, pool: &PgPool) -> Result<usize> {
-        let rows: Vec<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
+        let fetched: Vec<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
             .fetch_all(pool)
             .await
             .context("querying posthog_cohort for realtime teams")?;
-        let count = rows.len();
-        self.store(rows.into_iter().collect());
+        let fetched_count = fetched.len();
+        let kept = filter_by_allowlist(fetched, &self.allowlist);
+        if kept.len() != fetched_count {
+            debug!(
+                fetched = fetched_count,
+                kept = kept.len(),
+                excluded = fetched_count - kept.len(),
+                "team index filtered realtime teams by the allowlist",
+            );
+        }
+        let count = kept.len();
+        self.store(kept);
         Ok(count)
     }
+}
+
+/// Keep only the teams in scope. Separated from [`TeamIndex::refresh`] so the allowlist filter is
+/// testable without a database.
+fn filter_by_allowlist(fetched: Vec<i32>, allowlist: &TeamAllowlist) -> HashSet<i32> {
+    fetched
+        .into_iter()
+        .filter(|team_id| allowlist.includes(*team_id))
+        .collect()
 }
 
 impl Default for TeamIndex {
@@ -109,7 +139,10 @@ pub async fn run_refresh_loop(
             _ = handle.shutdown_recv() => break,
             _ = tokio::time::sleep(sleep_for) => match index.refresh(&pool).await {
                 Ok(0) => {
-                    warn!("team index refreshed with zero realtime teams; forwarding nothing");
+                    warn!(
+                        "team index has zero in-scope teams (no realtime cohorts, or all filtered \
+                         by REALTIME_COHORT_TEAM_ALLOWLIST); forwarding nothing",
+                    );
                 }
                 Ok(count) => info!(active_teams = count, "team index refreshed"),
                 Err(err) => warn!(
@@ -165,6 +198,24 @@ mod tests {
         assert!(!index.contains(1));
         assert!(index.contains(3));
         assert_eq!(index.len(), 1);
+    }
+
+    #[test]
+    fn filter_by_allowlist_all_keeps_everything() {
+        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::All);
+        assert_eq!(kept, HashSet::from([1, 2, 99]));
+    }
+
+    #[test]
+    fn filter_by_allowlist_only_drops_out_of_scope_teams() {
+        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::Only(HashSet::from([2])));
+        assert_eq!(kept, HashSet::from([2]));
+    }
+
+    #[test]
+    fn filter_by_allowlist_empty_scope_keeps_nothing() {
+        let kept = filter_by_allowlist(vec![1, 2, 99], &TeamAllowlist::Only(HashSet::new()));
+        assert!(kept.is_empty());
     }
 
     #[test]

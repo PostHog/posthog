@@ -75,7 +75,7 @@ async fn async_main(config: Config) -> Result<()> {
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
-    let team_index = Arc::new(TeamIndex::new());
+    let team_index = Arc::new(TeamIndex::with_allowlist(config.team_allowlist.clone()));
     match team_index.refresh(&pool).await {
         Ok(count) => info!(active_teams = count, "initial team index loaded"),
         Err(err) => warn!(
@@ -150,6 +150,7 @@ fn log_startup(config: &Config) {
         offset_reset = %config.kafka_consumer_offset_reset,
         recv_batch_size = config.recv_batch_size,
         team_index_refresh_secs = config.team_index_refresh_secs,
+        team_allowlist = ?config.team_allowlist,
         "starting cohort-event-shuffler",
     );
 }

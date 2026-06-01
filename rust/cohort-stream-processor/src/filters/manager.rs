@@ -15,9 +15,10 @@ use lifecycle::Handle;
 use metrics::gauge;
 use rand::Rng;
 use sqlx::PgPool;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
-use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts};
+use crate::config::TeamAllowlist;
+use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, retain_allowlisted};
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
@@ -79,13 +80,23 @@ pub struct CatalogStats {
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
+    /// Applied at [`refresh`](Self::refresh) time: cohorts for teams outside this allowlist never
+    /// enter the catalog, so per-team lookups, the `FILTER_CATALOG_TEAMS` gauge, and shadow output
+    /// all reflect the scoped set for free.
+    allowlist: TeamAllowlist,
 }
 
 impl CatalogHandle {
     pub fn new() -> Self {
+        Self::with_allowlist(TeamAllowlist::All)
+    }
+
+    /// The production constructor: gate refreshes to `allowlist`.
+    pub fn with_allowlist(allowlist: TeamAllowlist) -> Self {
         Self {
             catalog: ArcSwap::from_pointee(FilterCatalog::new()),
             loaded: AtomicBool::new(false),
+            allowlist,
         }
     }
 
@@ -115,9 +126,18 @@ impl CatalogHandle {
         self.loaded.store(true, Ordering::Release);
     }
 
-    /// Query `posthog_cohort`, rebuild the catalog, and swap it in.
+    /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, FilterError> {
-        let rows = load_realtime_cohorts(pool).await?;
+        let mut rows = load_realtime_cohorts(pool).await?;
+        let fetched_rows = rows.len();
+        retain_allowlisted(&mut rows, &self.allowlist);
+        if rows.len() != fetched_rows {
+            debug!(
+                fetched_rows,
+                kept_rows = rows.len(),
+                "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
+            );
+        }
         let catalog = build_catalog_from_rows(rows);
         let stats = CatalogStats {
             teams: catalog.team_count(),

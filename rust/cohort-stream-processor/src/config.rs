@@ -1,6 +1,8 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 use common_database::PoolConfig;
@@ -11,6 +13,75 @@ use rdkafka::ClientConfig;
 use crate::store::StoreConfig;
 
 const POOL_NAME: &str = "posthog_cohort";
+
+/// Which teams the realtime-cohort filter catalog is scoped to, parsed from
+/// `REALTIME_COHORT_TEAM_ALLOWLIST`.
+///
+/// Mirrors the `TeamIdCollection` idiom in `rust/feature-flags/src/config.rs` (and the shuffler's own
+/// copy): `""` / `all` / `*` → no gate; `none` → gate everything; a comma-separated list with
+/// optional `a:b` ranges → only those teams. The code default is `2` (the parity baseline's gate,
+/// `REALTIME_COHORT_CALCULATION_TEAMS`) so prod is scoped correctly without chart wiring;
+/// `bin/start-rust-service` overrides it to `all` for local dev.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TeamAllowlist {
+    /// No gate — every team with a realtime cohort is in scope.
+    All,
+    /// Only these teams are in scope (an empty set drops every cohort).
+    Only(HashSet<i32>),
+}
+
+impl TeamAllowlist {
+    /// Whether `team_id` is in scope.
+    pub fn includes(&self, team_id: i32) -> bool {
+        match self {
+            TeamAllowlist::All => true,
+            TeamAllowlist::Only(ids) => ids.contains(&team_id),
+        }
+    }
+}
+
+impl FromStr for TeamAllowlist {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        // envconfig's `default` only covers an *unset* var; a set-but-empty value must still mean
+        // "no gate", never "gate everything".
+        if s.is_empty() || s.eq_ignore_ascii_case("all") || s == "*" {
+            return Ok(TeamAllowlist::All);
+        }
+        if s.eq_ignore_ascii_case("none") {
+            return Ok(TeamAllowlist::Only(HashSet::new()));
+        }
+
+        let mut ids = HashSet::new();
+        for part in s.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part.split_once(':') {
+                Some((start, end)) => {
+                    let start: i32 = start
+                        .trim()
+                        .parse()
+                        .map_err(|e| format!("invalid range start in '{part}': {e}"))?;
+                    let end: i32 = end
+                        .trim()
+                        .parse()
+                        .map_err(|e| format!("invalid range end in '{part}': {e}"))?;
+                    if end < start {
+                        return Err(format!("invalid range '{part}': end < start"));
+                    }
+                    ids.extend(start..=end);
+                }
+                None => {
+                    let id: i32 = part
+                        .parse()
+                        .map_err(|e| format!("invalid team id '{part}': {e}"))?;
+                    ids.insert(id);
+                }
+            }
+        }
+        Ok(TeamAllowlist::Only(ids))
+    }
+}
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
@@ -50,6 +121,11 @@ pub struct Config {
 
     #[envconfig(default = "60")]
     pub filter_catalog_refresh_jitter_secs: u64,
+
+    /// Teams the filter catalog is scoped to. Defaults to team 2 (the parity baseline's gate); set
+    /// `all` to disable the gate. See [`TeamAllowlist`].
+    #[envconfig(from = "REALTIME_COHORT_TEAM_ALLOWLIST", default = "2")]
+    pub team_allowlist: TeamAllowlist,
 
     // ── Partition routing ─────────────────────────────────────────────────
     /// Bounded buffer (in sub-batches) per per-partition worker channel: the backpressure knob.
@@ -237,6 +313,7 @@ mod tests {
             pg_statement_timeout_ms: 5000,
             filter_catalog_refresh_secs: 300,
             filter_catalog_refresh_jitter_secs: 60,
+            team_allowlist: TeamAllowlist::All,
             partition_channel_buffer: 1024,
             kafka_hosts: "localhost:9092".to_string(),
             kafka_tls: false,
@@ -326,5 +403,50 @@ mod tests {
         );
         assert_eq!(kafka.kafka_compression_codec, "none");
         assert_eq!(kafka.kafka_hosts, "localhost:9092");
+    }
+
+    #[test]
+    fn team_allowlist_blank_and_keywords_disable_or_clear_the_gate() {
+        assert_eq!("".parse::<TeamAllowlist>().unwrap(), TeamAllowlist::All);
+        assert_eq!("  ".parse::<TeamAllowlist>().unwrap(), TeamAllowlist::All);
+        assert_eq!("all".parse::<TeamAllowlist>().unwrap(), TeamAllowlist::All);
+        assert_eq!("ALL".parse::<TeamAllowlist>().unwrap(), TeamAllowlist::All);
+        assert_eq!("*".parse::<TeamAllowlist>().unwrap(), TeamAllowlist::All);
+        assert_eq!(
+            "none".parse::<TeamAllowlist>().unwrap(),
+            TeamAllowlist::Only(HashSet::new()),
+        );
+    }
+
+    #[test]
+    fn team_allowlist_parses_lists_and_ranges() {
+        assert_eq!(
+            "2".parse::<TeamAllowlist>().unwrap(),
+            TeamAllowlist::Only(HashSet::from([2])),
+        );
+        assert_eq!(
+            "2, 42 ,7".parse::<TeamAllowlist>().unwrap(),
+            TeamAllowlist::Only(HashSet::from([2, 42, 7])),
+        );
+        assert_eq!(
+            "1:3".parse::<TeamAllowlist>().unwrap(),
+            TeamAllowlist::Only(HashSet::from([1, 2, 3])),
+        );
+    }
+
+    #[test]
+    fn team_allowlist_rejects_garbage_and_inverted_ranges() {
+        assert!("nope".parse::<TeamAllowlist>().is_err());
+        assert!("3:1".parse::<TeamAllowlist>().is_err());
+        assert!("2,x".parse::<TeamAllowlist>().is_err());
+    }
+
+    #[test]
+    fn team_allowlist_includes_honours_scope() {
+        assert!(TeamAllowlist::All.includes(999));
+        let only = TeamAllowlist::Only(HashSet::from([2]));
+        assert!(only.includes(2));
+        assert!(!only.includes(3));
+        assert!(!TeamAllowlist::Only(HashSet::new()).includes(2));
     }
 }
