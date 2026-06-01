@@ -228,8 +228,8 @@ tools:
             endpoint when invoking from an MCP client.
         param_overrides:
             limit:
-                default: 100
                 description: Maximum number of entries to return (default 100, max 5000)
+                default: 100
         feature_flag: tasks
     tasks-runs-set-output-partial-update:
         operation: tasks_runs_set_output_partial_update

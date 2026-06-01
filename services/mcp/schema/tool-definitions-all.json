@@ -5151,7 +5151,6 @@
         "summary": "List tasks",
         "title": "List tasks",
         "required_scopes": ["task:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5167,7 +5166,6 @@
         "summary": "Get task",
         "title": "Get task",
         "required_scopes": ["task:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5183,7 +5181,6 @@
         "summary": "List task runs",
         "title": "List task runs",
         "required_scopes": ["task:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5199,7 +5196,6 @@
         "summary": "Get task run",
         "title": "Get task run",
         "required_scopes": ["task:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5215,7 +5211,6 @@
         "summary": "Get task run session logs",
         "title": "Get task run session logs",
         "required_scopes": ["task:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
