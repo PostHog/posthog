@@ -1,5 +1,5 @@
+from posthog.clickhouse.dictionaries import dictionary_source_clickhouse
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.settings import CLICKHOUSE_PASSWORD
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 
@@ -91,7 +91,7 @@ CREATE DICTIONARY IF NOT EXISTS {BOT_DEFINITION_DICTIONARY_NAME} (
     operator String
 )
 PRIMARY KEY regexp
-SOURCE(CLICKHOUSE(TABLE '{BOT_DEFINITION_TABLE_NAME}' PASSWORD '{CLICKHOUSE_PASSWORD}'))
+{dictionary_source_clickhouse(BOT_DEFINITION_TABLE_NAME)}
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(REGEXP_TREE())
 """
