@@ -1,4 +1,4 @@
-import { type ErrorInfo } from 'react'
+import { type ErrorInfo, useMemo } from 'react'
 
 import {
     BarChart,
@@ -13,6 +13,8 @@ import {
     type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
 } from './funnelBarHorizontalTransforms'
+
+const BAR_CORNER_RADIUS = 4
 
 interface SingleStepBarProps {
     stepData: FunnelBarHorizontalStepData
@@ -31,12 +33,13 @@ const CHART_CONFIG: BarChartConfig = {
     showGrid: false,
     animateHover: true,
     margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    tooltip: { placement: 'top' },
+    tooltip: { placement: 'cursor' },
     bars: {
-        cornerRadius: 4,
+        cornerRadius: BAR_CORNER_RADIUS,
         bandPadding: 0,
         minBandSize: 0,
         valueDomain: FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
+        roundStackEnds: true,
     },
 }
 
@@ -48,14 +51,18 @@ export function SingleStepBar({
     renderTooltip,
     onError,
 }: SingleStepBarProps): JSX.Element {
-    const onPointClick = interactive
-        ? (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
-              const meta = clickData.series.meta
-              if (meta) {
-                  onSegmentClick(meta)
-              }
-          }
-        : undefined
+    const onPointClick = useMemo(
+        () =>
+            interactive
+                ? (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): void => {
+                      const meta = clickData.series.meta
+                      if (meta) {
+                          onSegmentClick(meta)
+                      }
+                  }
+                : undefined,
+        [interactive, onSegmentClick]
+    )
 
     return (
         <div className="flex flex-col h-8 my-1">
