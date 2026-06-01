@@ -50,7 +50,7 @@ file (and out of this list) once the design lands.
       coalesce into long-running sessions via `external_key_reuse`.
       Plan was checked off prematurely — the most recent commit on the
       plan file is `078ce5bb89 wip — cron plan, auth refresh, hogli
-    ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
+      ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
       the codebase yet.
 
 - [x] ~~**Streaming deltas + unified reasoning knob**~~ — see
@@ -277,16 +277,15 @@ message, session_id? })` tool, sessions exposed as MCP
       that. Two options on the table:
 
       - **Option A** — extend `McpRefExternal` with
-        `tools: Array<string | { name, requires_approval,
-
-approval_policy }>`. Reuses`ApprovalPolicySchema`. Concierge
-        migrates mechanically. Doesn't unify with`ToolRef`.
+        `tools: Array<string | { name, requires_approval, approval_policy }>`.
+        Reuses `ApprovalPolicySchema`. Concierge migrates
+        mechanically. Doesn't unify with `ToolRef`.
       - **Option C** — promote approvals to a top-level
-        `spec.approvals.rules[]`with glob matching against the
-        fully-qualified tool name (`@posthog/...`for native,
-       `<prefix>\_\_<remoteName>`for MCP). One surface for all gating.
-       `ToolRef.requires_approval` becomes desugaring sugar. Bigger
-schema change; migration story needed.
+        `spec.approvals.rules[]` with glob matching against the
+        fully-qualified tool name (`@posthog/...` for native,
+        `<prefix>__<remoteName>` for MCP). One surface for all gating.
+        `ToolRef.requires_approval` becomes desugaring sugar. Bigger
+        schema change; migration story needed.
 
       Pragmatic decision (made during the PR 6 design conversation)
       is Option A first — concierge is the only customer today, the
@@ -296,15 +295,13 @@ schema change; migration story needed.
       (Linear / GitHub / SRE bot from [`_APP_IDEAS.md`](_APP_IDEAS.md))
       forces globs like `linear__*-delete` onto the design.
 
-      **Coupled gap:** the concierge wants `approvers:
-
-['session_principal']`as the approver scope. That scope isn't in
-      the v0`ApprovalPolicySchema.approvers`enum (which is locked to
-     `['team_admins']`) — covered separately in
+      **Coupled gap:** the concierge wants
+      `approvers: ['session_principal']` as the approver scope. That
+      scope isn't in the v0 `ApprovalPolicySchema.approvers` enum
+      (which is locked to `['team_admins']`) — covered separately in
       [`approval-gated-tools.md`](approval-gated-tools.md) §6 as a B.2
-      v1 line item. PR 7 needs to pull the`session_principal`
-addition forward alongside whichever approval-on-MCP shape
-ships.
+      v1 line item. PR 7 needs to pull the `session_principal`
+      addition forward alongside whichever approval-on-MCP shape ships.
 
       Synthesis writeup with full tradeoff matrix lives in
       [`runtime-mcps.md`](runtime-mcps.md) "Open design — per-MCP-tool

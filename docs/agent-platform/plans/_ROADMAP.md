@@ -368,10 +368,11 @@ The agent-stack authoring AI. Sits at the seam between **D.1**
 dock's default agent and is itself authored as a deployed bundle in
 `services/agent-tests/src/examples/agent-concierge/`. Its
 forward-looking spec depends on **C.2** runtime-mcps PR 7 (per-MCP-
-tool approval gating) — until that lands, `scripts/seed.py`
-mechanically strips `mcps[]` before push. **Status:** bundle authored,
-skills + client-tool surface live; full deploy pending the C.2 + B.2
-work tracked in [`_TODO.md`](_TODO.md) "MCP tool approval gating."
+tool approval gating) + the `session_principal` approver scope from
+**B.2** v1 — until those land, `scripts/seed.py` mechanically strips
+`mcps[]` before push. **Status:** bundle authored, skills + client-
+tool surface live; full deploy pending the C.2 + B.2 work tracked in
+[`_TODO.md`](_TODO.md) "MCP tool approval gating."
 
 **Shared cross-cut introduced by this layer:**
 
