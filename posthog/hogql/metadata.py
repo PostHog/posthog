@@ -11,7 +11,7 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
@@ -49,7 +49,7 @@ def get_hogql_metadata(
     source = get_direct_connection_source(team, query.connectionId)
     if query.connectionId and source is None:
         response.isValid = False
-        response.errors = [HogQLNotice(message="Invalid connectionId for this team")]
+        response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
         return response
 
     database = None
@@ -119,7 +119,8 @@ def get_hogql_metadata(
         response.isValid = False
         if isinstance(e, ExposedHogQLError):
             error = str(e)
-            if "mismatched input '<EOF>' expecting" in error:
+            # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
+            if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
                 error = "Unexpected end of query"
             if e.end and e.start and e.end < e.start:
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))

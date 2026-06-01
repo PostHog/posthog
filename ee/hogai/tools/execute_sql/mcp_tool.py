@@ -2,7 +2,7 @@ import re
 
 from pydantic import BaseModel, Field
 
-from posthog.schema import HogQLNotice
+from posthog.schema import AssistantHogQLQuery, HogQLNotice, HogQLQuery
 
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
@@ -23,6 +23,14 @@ class ExecuteSQLMCPToolArgs(BaseModel):
         default=True,
         description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=(
+            "Optional id of an external data source (e.g. a Postgres or DuckDB direct-query connection). "
+            "When set, runs the query against that source instead of the ClickHouse catalog. "
+            "Use external-data-sources-list to discover available connection ids."
+        ),
+    )
 
 
 @mcp_tool_registry.register(scopes=["query:read"])
@@ -37,19 +45,32 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
     args_schema = ExecuteSQLMCPToolArgs
 
     async def execute(self, args: ExecuteSQLMCPToolArgs) -> str:
-        try:
-            validated_query = await self._validate_hogql_query(args.query)
-        except PydanticOutputParserException as e:
-            raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
+        query: AssistantHogQLQuery | HogQLQuery
+        taxonomy_warnings: list[HogQLNotice] = []
+        if args.connectionId:
+            # Queries targeting an external connection reference tables that aren't in the
+            # default ClickHouse database, so the local parse/print HogQL validation step
+            # would reject them. Defer validation to the runner, which resolves the schema
+            # for the selected connection. Taxonomy validation is ClickHouse-catalog-specific,
+            # so it doesn't apply here either.
+            cleaned_query = args.query.rstrip(";").strip() if args.query else ""
+            if not cleaned_query:
+                raise MaxToolRetryableError("Query validation failed: Query is empty")
+            query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
+        else:
+            try:
+                query = await self._validate_hogql_query(args.query)
+            except PydanticOutputParserException as e:
+                raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
 
-        # Warn (non-fatally) when the query references events/properties absent from the project
-        # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
-        # returning 0 because the real event is `paid_bill`). The query still runs.
-        taxonomy_warnings = await self._get_taxonomy_warnings(validated_query.query)
+            # Warn (non-fatally) when the query references events/properties absent from the project
+            # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
+            # returning 0 because the real event is `paid_bill`). The query still runs.
+            taxonomy_warnings = await self._get_taxonomy_warnings(query.query)
 
         insight_context = InsightContext(
             team=self._team,
-            query=validated_query,
+            query=query,
             name="",
             description="",
             user=self._user,

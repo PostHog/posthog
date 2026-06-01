@@ -7,53 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DataWarehouseSavedQueryDraftApi {
-    readonly id: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
-export interface PaginatedDataWarehouseSavedQueryDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseSavedQueryDraftApi[]
-}
-
-export interface PatchedDataWarehouseSavedQueryDraftApi {
-    readonly id?: string
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
 /**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
@@ -584,6 +537,7 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
+ * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -734,6 +688,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
+    Custom: 'Custom',
 } as const
 
 /**
@@ -812,6 +767,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection: boolean
 }
 
 export interface PaginatedExternalDataSourceSerializersListApi {
@@ -975,7 +932,8 @@ export interface ExternalDataSourceCreateApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -1053,6 +1011,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether this source supports per-column sync selection via `enabled_columns`. */
+    readonly supports_column_selection?: boolean
 }
 
 export interface ExternalDataSourceBulkUpdateSchemaApi {
@@ -1280,7 +1240,8 @@ export interface DatabaseSchemaRequestApi {
   * `ClickHouse` - ClickHouse
   * `Plain` - Plain
   * `Resend` - Resend
-  * `PgAnalyze` - PgAnalyze */
+  * `PgAnalyze` - PgAnalyze
+  * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -1783,6 +1744,53 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
 }
 
+export interface DataWarehouseSavedQueryDraftApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PaginatedDataWarehouseSavedQueryDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryDraftApi[]
+}
+
+export interface PatchedDataWarehouseSavedQueryDraftApi {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -1906,6 +1914,42 @@ export interface PaginatedTableListApi {
     results: TableApi[]
 }
 
+export type PatchedTableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
+
+export type PatchedTableApiOptions = { [key: string]: unknown }
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedTableApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: CredentialApi
+    readonly columns?: readonly PatchedTableApiColumnsItem[]
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
+    /** @nullable */
+    readonly external_schema?: PatchedTableApiExternalSchema
+    options?: PatchedTableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
 export interface ViewLinkApi {
     readonly id: string
     /** @nullable */
@@ -1934,6 +1978,25 @@ export interface PaginatedViewLinkListApi {
     results: ViewLinkApi[]
 }
 
+export interface PatchedViewLinkApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown
+}
+
 export interface ViewLinkValidationApi {
     /** @maxLength 255 */
     joining_table_name: string
@@ -1943,28 +2006,6 @@ export interface ViewLinkValidationApi {
     source_table_name: string
     /** @maxLength 255 */
     source_table_key: string
-}
-
-export type FixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type DataModelingJobsListParams = {
@@ -2052,6 +2093,17 @@ export type ExternalDataSourcesConnectionsListParams = {
     search?: string
 }
 
+export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type InsightVariablesListParams = {
     /**
      * A page number within the paginated result set.
@@ -2090,6 +2142,17 @@ export type WarehouseSavedQueriesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseTablesListParams = {

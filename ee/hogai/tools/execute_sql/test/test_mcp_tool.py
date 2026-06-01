@@ -1,9 +1,9 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.schema import HogQLNotice
+from posthog.schema import HogQLNotice, HogQLQuery
 
 from posthog.models import EventDefinition
 
@@ -120,3 +120,36 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         block = output.split("</taxonomy_warnings>")[0]
         self.assertIn("- Event 'evil name' not found", block)
         self.assertNotIn("evil\nname", block)
+
+    async def test_connection_id_skips_local_validation_and_wraps_in_hogql_query(self):
+        # When a connectionId is set the query may reference tables that only exist on the
+        # external connection, so we must bypass the local HogQL parse/print step and pass
+        # a real HogQLQuery (which carries connectionId) down to the runner.
+        captured: dict = {}
+
+        async def fake_execute_and_format(self, *args, **kwargs):
+            captured["query"] = self.query
+            return "ok"
+
+        with (
+            patch(
+                "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
+                new=fake_execute_and_format,
+            ),
+            patch.object(self.tool, "_validate_hogql_query", new=AsyncMock()) as validate_mock,
+        ):
+            result = await self.tool.execute(
+                ExecuteSQLMCPToolArgs(query="SELECT * FROM ducklake_orders", connectionId="conn_abc"),
+            )
+
+        self.assertEqual(result, "ok")
+        validate_mock.assert_not_awaited()
+        self.assertIsInstance(captured["query"], HogQLQuery)
+        self.assertEqual(captured["query"].connectionId, "conn_abc")
+        self.assertEqual(captured["query"].query, "SELECT * FROM ducklake_orders")
+
+    async def test_connection_id_with_empty_query_raises(self):
+        with self.assertRaises(MaxToolRetryableError):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(query="   ", connectionId="conn_abc"),
+            )

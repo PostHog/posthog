@@ -38,7 +38,12 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    Column,
+    Table,
+    compute_projected_columns,
+    project_arrow_columns,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
@@ -91,6 +96,18 @@ class JsonAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+def _redshift_select_clause(
+    enabled_columns: Optional[list[str]],
+    primary_keys: Optional[list[str]],
+    incremental_field: Optional[str],
+) -> sql.Composable:
+    """Build the SELECT-list fragment as a `psycopg.sql.Composable`."""
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    if projected is None:
+        return sql.SQL("*")
+    return sql.SQL(", ").join(sql.Identifier(column) for column in projected)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -100,13 +117,21 @@ def _build_query(
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
     add_sampling: Optional[bool] = False,
+    enabled_columns: Optional[list[str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
+    select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
+
     if not should_use_incremental_field:
         if add_sampling:
             # Redshift doesn't support TABLESAMPLE SYSTEM, use random() instead
-            query = sql.SQL("SELECT * FROM {} WHERE random() < 0.01").format(sql.Identifier(schema, table_name))
+            query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
+                cols=select_clause, table=sql.Identifier(schema, table_name)
+            )
         else:
-            query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(schema, table_name))
+            query = sql.SQL("SELECT {cols} FROM {table}").format(
+                cols=select_clause, table=sql.Identifier(schema, table_name)
+            )
 
         if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
@@ -125,8 +150,9 @@ def _build_query(
     if add_sampling:
         # Redshift doesn't support TABLESAMPLE SYSTEM
         query = sql.SQL(
-            "SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
+            "SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value} AND random() < 0.01"
         ).format(
+            cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -134,7 +160,8 @@ def _build_query(
             last_value=sql.Literal(db_incremental_field_last_value),
         )
     else:
-        query = sql.SQL("SELECT * FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+            cols=select_clause,
             schema=sql.Identifier(schema),
             table=sql.Identifier(table_name),
             incremental_field=sql.Identifier(incremental_field),
@@ -748,33 +775,13 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
                 logger.debug("Getting table types...")
-                table = self.get_table_metadata(cursor, schema, table_name, logger)
-                logger.debug(f"Source schema: {table.to_arrow_schema()}")
+                full_table = self.get_table_metadata(cursor, schema, table_name, logger)
 
-                inner_query_with_limit = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    table.type,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                    add_sampling=True,
-                )
-
-                inner_query_without_limit = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    table.type,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                )
                 cursor.execute(
                     sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 60 * 10))  # 10 mins
                 )
@@ -783,6 +790,40 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name, logger)
                     if primary_keys:
                         logger.debug(f"Found primary keys: {primary_keys}")
+
+                    # Resolve PKs before projection so SELECT and Arrow schema agree.
+                    if primary_keys is None and "id" in full_table:
+                        logger.debug("Falling back to ['id'] for primary keys...")
+                        primary_keys = ["id"]
+
+                    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                    table = project_arrow_columns(full_table, projected)
+                    logger.debug(f"Source schema: {table.to_arrow_schema()}")
+
+                    inner_query_with_limit = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        add_sampling=True,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                    )
+
+                    inner_query_without_limit = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        table.type,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                    )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
                         chunk_size = chunk_size_override
@@ -808,11 +849,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         else None
                     )
                     duplicate_primary_keys = False
-
-                    # Fallback on checking for an `id` field on the table
-                    if primary_keys is None and "id" in table:
-                        logger.debug("Falling back to ['id'] for primary keys...")
-                        primary_keys = ["id"]
+                    if primary_keys == ["id"] and "id" in full_table:
+                        # Only check dupes when we fell back to the `id` PK above.
                         logger.debug("Checking duplicate primary keys...")
                         duplicate_primary_keys = self.has_duplicate_primary_keys(
                             cursor, schema, table_name, primary_keys, logger
@@ -837,6 +875,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
                     logger.debug(f"Redshift query: {query.as_string()}")
 

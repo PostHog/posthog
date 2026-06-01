@@ -10,10 +10,12 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdownWithMermaid } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -554,21 +556,36 @@ function SkillFileViewer({
     const isMarkdown = file.content_type === 'text/markdown' || file.path.endsWith('.md')
     const codeLanguage = isMarkdown ? null : getFileLanguage(file.path, file.content_type)
 
+    const copyFileLink = (): void => {
+        const path = urls.aiObservabilitySkill(skillName, { file: file.path, version })
+        void copyToClipboard(urls.absolute(urls.currentProject(path)), 'file link')
+    }
+
     return (
         <div ref={containerRef} className="rounded border">
-            <button
-                type="button"
-                className="flex w-full cursor-pointer items-center gap-2 border-none bg-transparent px-3 py-2 text-left text-sm hover:bg-fill-secondary"
-                onClick={() => toggleExpand()}
-                data-attr={`llma-skill-file-toggle-${file.path}`}
-            >
-                <IconChevronRight
-                    className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+            <div className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-fill-secondary">
+                <button
+                    type="button"
+                    className="flex flex-1 cursor-pointer items-center gap-2 border-none bg-transparent p-0 text-left"
+                    onClick={() => toggleExpand()}
+                    data-attr={`llma-skill-file-toggle-${file.path}`}
+                >
+                    <IconChevronRight
+                        className={`h-3.5 w-3.5 shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                    />
+                    <IconDocument className="h-3.5 w-3.5 shrink-0 text-muted" />
+                    <span className="font-mono flex-1">{file.path}</span>
+                    <span className="text-muted-alt text-xs">{file.content_type}</span>
+                </button>
+                <LemonButton
+                    size="xsmall"
+                    noPadding
+                    icon={<IconLink />}
+                    tooltip="Copy link to this file"
+                    onClick={copyFileLink}
+                    data-attr={`llma-skill-file-copy-link-${file.path}`}
                 />
-                <IconDocument className="h-3.5 w-3.5 shrink-0 text-muted" />
-                <span className="font-mono flex-1">{file.path}</span>
-                <span className="text-muted-alt text-xs">{file.content_type}</span>
-            </button>
+            </div>
             {expanded && (
                 <div className="border-t bg-bg-light px-3 py-2">
                     {contentLoading ? (

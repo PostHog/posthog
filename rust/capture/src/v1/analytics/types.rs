@@ -31,7 +31,7 @@ fn empty_raw_object() -> Box<RawValue> {
 }
 
 /// Per-event outcome in the batch response.
-/// Ok: captured successfully. Drop: rejected (billing/validation). Limited: accepted
+/// Ok: captured successfully. Drop: rejected (billing/validation). Warning: accepted
 /// with person processing disabled (do not resubmit). Retry: not persisted, safe to resubmit.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,7 +39,7 @@ pub enum EventResult {
     #[default]
     Ok,
     Drop,
-    Limited,
+    Warning,
     Retry,
 }
 
@@ -53,7 +53,7 @@ pub struct Batch {
     pub batch: Vec<Event>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 pub struct Options {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cookieless_mode: Option<bool>,
@@ -73,6 +73,7 @@ pub struct Event {
     pub timestamp: String,
     pub session_id: Option<String>,
     pub window_id: Option<String>,
+    #[serde(default)]
     pub options: Options,
     #[serde(default = "empty_raw_object")]
     pub properties: Box<RawValue>,
@@ -106,9 +107,9 @@ impl SinkEvent for WrappedEvent {
         self.uuid
     }
 
-    // Publish Ok and Limited events; skip Drop, Retry, and anything routed to Destination::Drop.
+    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Limited)
+        (self.result == EventResult::Ok || self.result == EventResult::Warning)
             && self.destination != Destination::Drop
     }
 
@@ -640,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_event_missing_options_fails() {
+    fn parse_event_missing_options_defaults() {
         let json = r#"{
             "created_at": "2026-03-19T14:30:00.000Z",
             "batch": [{
@@ -650,7 +651,12 @@ mod tests {
                 "timestamp": "2026-03-19T14:29:58.123Z"
             }]
         }"#;
-        assert!(serde_json::from_str::<Batch>(json).is_err());
+        let batch: Batch = serde_json::from_str(json).unwrap();
+        let event = &batch.batch[0];
+        assert_eq!(event.options.cookieless_mode, None);
+        assert_eq!(event.options.disable_skew_correction, None);
+        assert_eq!(event.options.product_tour_id, None);
+        assert_eq!(event.options.process_person_profile, None);
     }
 
     #[test]
@@ -696,9 +702,9 @@ mod tests {
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
     #[case::ok_overflow(EventResult::Ok, Destination::Overflow)]
-    #[case::limited_main(EventResult::Limited, Destination::AnalyticsMain)]
-    #[case::limited_historical(EventResult::Limited, Destination::AnalyticsHistorical)]
-    #[case::limited_overflow(EventResult::Limited, Destination::Overflow)]
+    #[case::warning_main(EventResult::Warning, Destination::AnalyticsMain)]
+    #[case::warning_historical(EventResult::Warning, Destination::AnalyticsHistorical)]
+    #[case::warning_overflow(EventResult::Warning, Destination::Overflow)]
     fn should_publish_true(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;
@@ -710,7 +716,7 @@ mod tests {
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
     #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::limited_dest_drop(EventResult::Limited, Destination::Drop)]
+    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
     #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
     #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
@@ -1559,7 +1565,7 @@ mod tests {
     fn round_trip_spread_destinations() {
         let ctx = serialize_ctx();
         for ev in &realistic_spread_destinations() {
-            if (ev.result == EventResult::Ok || ev.result == EventResult::Limited)
+            if (ev.result == EventResult::Ok || ev.result == EventResult::Warning)
                 && ev.adjusted_timestamp.is_some()
             {
                 assert_round_trip(ev, &ctx);

@@ -43,6 +43,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     source_requires_ssl,
 )
 
+from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 log = logging.getLogger(__name__)
@@ -189,6 +190,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Delegates to `reconcile_postgres_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Drop the Temporal schedule + PostHog-managed slot/publication.
@@ -541,7 +551,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             team_id=inputs.team_id,
             require_ssl=require_ssl,
             is_initial_sync=not schema.initial_sync_complete,
-            enabled_columns=schema.enabled_columns,
+            enabled_columns=inputs.enabled_columns,
         )
         # `SourceResponse.name` must match `DataWarehouseTable.url_pattern` (both derived from the
         # storage key when present, otherwise the row name) so HogQL reads from where we wrote.
