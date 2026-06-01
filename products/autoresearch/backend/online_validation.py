@@ -258,12 +258,18 @@ def _fetch_realized_labels(
     prediction_date: date,
 ) -> frozenset[str]:
     """
-    Return distinct_ids that performed pipeline.target_event in the window
+    Return person_ids that performed pipeline.target_event in the window
     [prediction_date, prediction_date + horizon_days).
+
+    Keyed on person_id (not distinct_id) to match the prediction events, which
+    are emitted with distinct_id = str(person_id) — the feature/score SQL keys
+    every scored row on person_id (see labeling.py, sandbox_inference.py).
+    Joining on the raw event distinct_id would compare two disjoint key spaces
+    and yield all-negative labels (AUC ≈ 0.5 / single-class).
     """
     end_date = prediction_date + timedelta(days=pipeline.horizon_days)
     sql = (
-        "SELECT DISTINCT distinct_id"
+        "SELECT DISTINCT person_id"
         " FROM events"
         " WHERE event = {target_event}"
         " AND toDate(timestamp) >= {start_date}"
