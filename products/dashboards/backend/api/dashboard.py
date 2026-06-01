@@ -2641,12 +2641,23 @@ class DashboardsViewSet(
         tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
 
         with transaction.atomic():
-            tiles = self._create_widget_tiles_from_payloads(
-                dashboard=dashboard,
-                user=user,
-                user_access_control=user_access_control,
-                payloads=widget_payloads,
-            )
+            existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
+            pending_sm_layouts: builtins.list[dict[str, Any]] = []
+            tiles: builtins.list[DashboardTile] = []
+
+            for payload in widget_payloads:
+                tile = self._create_widget_tile_from_payload(
+                    dashboard=dashboard,
+                    user=user,
+                    user_access_control=user_access_control,
+                    payload=payload,
+                    existing_sm_layouts=existing_sm_layouts,
+                    pending_sm_layouts=pending_sm_layouts,
+                )
+                tiles.append(tile)
+                sm_layout = tile.layouts.get("sm") if isinstance(tile.layouts, dict) else None
+                if isinstance(sm_layout, dict):
+                    pending_sm_layouts.append(sm_layout)
 
         for tile in tiles:
             assert tile.widget is not None
@@ -2662,34 +2673,6 @@ class DashboardsViewSet(
             {"tiles": DashboardTileSerializer(tiles, context=tile_context, many=True).data},
             status=status.HTTP_201_CREATED,
         )
-
-    def _create_widget_tiles_from_payloads(
-        self,
-        *,
-        dashboard: Dashboard,
-        user: User,
-        user_access_control: UserAccessControl,
-        payloads: builtins.list[dict[str, Any]],
-    ) -> builtins.list[DashboardTile]:
-        existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-        pending_sm_layouts: builtins.list[dict[str, Any]] = []
-        created_tiles: builtins.list[DashboardTile] = []
-
-        for payload in payloads:
-            tile = self._create_widget_tile_from_payload(
-                dashboard=dashboard,
-                user=user,
-                user_access_control=user_access_control,
-                payload=payload,
-                existing_sm_layouts=existing_sm_layouts,
-                pending_sm_layouts=pending_sm_layouts,
-            )
-            created_tiles.append(tile)
-            sm_layout = tile.layouts.get("sm") if isinstance(tile.layouts, dict) else None
-            if isinstance(sm_layout, dict):
-                pending_sm_layouts.append(sm_layout)
-
-        return created_tiles
 
     def _create_widget_tile_from_payload(
         self,
