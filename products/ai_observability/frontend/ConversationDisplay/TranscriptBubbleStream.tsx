@@ -226,19 +226,19 @@ function ScaffoldGroupPill({
     const count = messages.length
     const label = count === 1 ? '1 hidden context block' : `${count} hidden context blocks`
     // Mirror the bubble-alignment convention: user-role on the right, everything else on the left.
-    const alignSelf = role === 'user' ? 'self-end' : 'self-start'
+    const isUser = role === 'user'
+    const alignSelf = isUser ? 'self-end' : 'self-start'
+    const buttonAlignSelf = isUser ? 'self-end' : 'self-start'
     return (
         <div className={`flex flex-col gap-1 text-xs text-muted max-w-[75%] ${alignSelf}`}>
             <button
                 type="button"
-                className="flex items-center gap-1 hover:text-default text-left cursor-pointer"
+                className={`flex items-center gap-1 hover:text-default text-left cursor-pointer ${buttonAlignSelf}`}
                 onClick={() => setExpanded((v) => !v)}
             >
                 <IconChevronRight className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
                 <span>{expanded ? `Hide ${label}` : `Show ${label}`}</span>
-                {!expanded && distinctTags.length > 0 && (
-                    <span className="font-mono opacity-60">— {distinctTags.join(', ')}</span>
-                )}
+                {distinctTags.length > 0 && <span className="font-mono opacity-60">— {distinctTags.join(', ')}</span>}
             </button>
             {expanded && (
                 <div className="flex flex-col gap-1.5 opacity-70">

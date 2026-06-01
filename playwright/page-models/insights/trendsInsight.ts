@@ -21,7 +21,6 @@ export class TrendsInsight extends ChartInsightBase {
 
     private readonly detailsLoader: Locator
     private readonly addSeriesButton: Locator
-    private readonly addFormulaButton: Locator
 
     constructor(page: Page) {
         super(page, page.getByTestId('insights-graph'))
@@ -35,7 +34,6 @@ export class TrendsInsight extends ChartInsightBase {
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.formulaSwitch = page.locator('#trends-formula-switch')
         this.formulaInput = page.getByPlaceholder('Example: (A + B) / 100')
-        this.addFormulaButton = page.getByRole('button', { name: 'Add formula' })
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')
@@ -99,10 +97,10 @@ export class TrendsInsight extends ChartInsightBase {
 
     async setFormula(formula: string): Promise<void> {
         await this.formulaSwitch.click()
-        await this.addFormulaButton.click()
         await this.formulaInput.first().waitFor({ state: 'visible' })
         await this.formulaInput.first().fill(formula)
         await this.formulaInput.first().press('Enter')
+        await this.waitForChart()
     }
 
     mathSelector(seriesIndex: number): Locator {

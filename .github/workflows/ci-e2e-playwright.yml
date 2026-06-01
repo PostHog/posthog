@@ -353,11 +353,11 @@ jobs:
                   pnpm --filter=@posthog/frontend build
 
             - name: Collect static files
-              run: |
-                  # KLUDGE: posthog-js now bundles rrweb and ships image-bitmap-data-url-worker-*.js.map
-                  # KLUDGE: under its own dist; the worker references the map alongside, so copy it into
-                  # KLUDGE: dist/ or django's collectstatic fails on the missing source map
-                  cp frontend/node_modules/posthog-js/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+              # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+              # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+              # (see common/esbuilder/utils.mjs), which runs as part of the
+              # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |

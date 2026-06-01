@@ -74,6 +74,8 @@ class ModelCostService:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
             litellm.model_cost = model_cost
+            # Keep provider sets in sync — see cost_refresh.py.
+            litellm.add_known_models(model_cost)
             self._costs = cast(dict[str, ModelCost], model_cost)
             new_limits: dict[str, ModelLimits] = {}
             for model, cost in self._costs.items():

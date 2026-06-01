@@ -24,6 +24,7 @@ import type {
     RepositoryReadinessResponseApi,
     SandboxEnvironmentApi,
     SandboxListParams,
+    SlackThreadContextResponseApi,
     TaskApi,
     TaskAutomationApi,
     TaskAutomationsListParams,
@@ -55,6 +56,7 @@ import type {
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
+    TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
 } from './api.schemas'
 
@@ -1043,6 +1045,40 @@ export const tasksRepositoryReadinessRetrieve = async (
     options?: RequestInit
 ): Promise<RepositoryReadinessResponseApi> => {
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSlackThreadContextRetrieveUrl = (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/slack_thread_context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/slack_thread_context/`
+}
+
+/**
+ * PostHog-internal debug tool. Resolves a Slack permalink to the linked task, its runs, the task-processing and mention-dispatch Temporal workflow ids/URLs, and presigned log URLs.
+ * @summary Resolve a Slack thread to its task, runs, and Temporal workflows
+ */
+export const tasksSlackThreadContextRetrieve = async (
+    projectId: string,
+    params: TasksSlackThreadContextRetrieveParams,
+    options?: RequestInit
+): Promise<SlackThreadContextResponseApi> => {
+    return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
