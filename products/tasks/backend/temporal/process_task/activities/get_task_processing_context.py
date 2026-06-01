@@ -10,8 +10,8 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,

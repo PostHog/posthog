@@ -9,8 +9,8 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import SANDBOX_EVENT_INGEST_FEATURE_FLAG
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.models import SandboxEnvironment, Task
-from products.tasks.backend.temporal.exceptions import TaskInvalidStateError, TaskNotFoundError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,

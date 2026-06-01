@@ -12,6 +12,8 @@ FORBIDDEN_AT_SETUP = [
     "ee.hogai.chat_agent.graph",  # the assistant graph
     "ee.hogai.tools",  # the agent tool registry
     "chdb",  # embedded ClickHouse
+    "posthog.temporal.ai_observability",  # eval/clustering workers (pulls scipy, etc.)
+    "scipy",  # only reached via ai_observability clustering — must not be at startup
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot

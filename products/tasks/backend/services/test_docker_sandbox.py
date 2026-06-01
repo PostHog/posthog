@@ -4,6 +4,7 @@ import subprocess
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.tasks.backend.exceptions import SandboxExecutionError
 from products.tasks.backend.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.services.sandbox import (
     ExecutionResult,
@@ -14,7 +15,6 @@ from products.tasks.backend.services.sandbox import (
     parse_sandbox_repo_mount_map,
     redact_sandbox_command,
 )
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError
 
 
 def docker_available() -> bool:

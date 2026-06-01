@@ -27,6 +27,14 @@ import requests
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+    SnapshotCreationError,
+)
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.agentsh import (
     ENV_FILE,
@@ -55,14 +63,6 @@ from products.tasks.backend.services.sandbox import (
     build_agent_runtime_env_prefix,
     redact_sandbox_command,
     wait_for_health_check,
-)
-from products.tasks.backend.temporal.exceptions import (
-    SandboxCleanupError,
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxProvisionError,
-    SandboxTimeoutError,
-    SnapshotCreationError,
 )
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate

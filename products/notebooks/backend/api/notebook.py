@@ -46,8 +46,8 @@ from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
+from products.tasks.backend.exceptions import SandboxProvisionError
 from products.tasks.backend.services.sandbox import SandboxStatus
-from products.tasks.backend.temporal.exceptions import SandboxProvisionError
 
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.asgi import SyncIterableToAsync
