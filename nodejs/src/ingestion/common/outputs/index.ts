@@ -28,6 +28,24 @@ export const HOG_INVOCATION_RESULTS_OUTPUT = 'hog_invocation_results' as const
 export type HogInvocationResultsOutput = typeof HOG_INVOCATION_RESULTS_OUTPUT
 
 // Producer names
+//
+// A producer name is a named Kafka *connection slot*, not a fixed cluster. The code
+// declares which slots exist; each pipeline's Helm charts decide which Kafka cluster a
+// slot connects to (broker list + security protocol) and which outputs route through it.
+//
+// The same slot can therefore point at different clusters in different pipelines — e.g.
+// today WARPSTREAM is the warpstream-ingestion cluster for the analytics family but the
+// warpstream-replay cluster for session replay. Treat these as slots, not clusters.
+//
+// The slot → cluster mapping (the infra side) is documented in the charts repo:
+// shared/ingestion/common*.yaml and argocd/ingestion/config/*.yaml.
+//
+// Consolidation in progress: the legacy DEFAULT/WARPSTREAM/INGESTION slots are being
+// replaced by cluster-accurate slots, so each name means exactly one cluster fleet-wide:
+//   INGESTION_UPSTREAM      — dedicated ingestion cluster; re-consumed topics (overflow/async/dlq)
+//   INGESTION_DOWNSTREAM    — warpstream-ingestion cluster; ClickHouse-bound outputs
+//   INGESTION_SESSIONREPLAY — warpstream-replay cluster; replay-domain topics (both directions)
+// DEFAULT is being retired (redundant with INGESTION_DOWNSTREAM).
 
 /**
  * DEFAULT uses the existing KAFKA_PRODUCER_* env vars — backwards compatible
