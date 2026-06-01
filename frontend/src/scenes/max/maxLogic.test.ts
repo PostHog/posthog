@@ -80,11 +80,8 @@ describe('maxLogic', () => {
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                '/api/environments/:team_id/conversations/': { results: [] },
-                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => [
-                    404,
-                    { detail: 'Not found' },
-                ],
+                '/api/projects/:team_id/conversations/': { results: [] },
+                [`/api/projects/:team_id/conversations/${mockConversationId}`]: () => [404, { detail: 'Not found' }],
             },
         })
 
@@ -409,7 +406,7 @@ describe('maxLogic', () => {
                 ...maxMocks,
                 get: {
                     ...maxMocks.get,
-                    '/api/environments/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
+                    '/api/projects/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
                 },
             })
 
@@ -478,7 +475,7 @@ describe('maxLogic', () => {
                 ...maxMocks,
                 get: {
                     ...maxMocks.get,
-                    '/api/environments/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
+                    '/api/projects/:team_id/conversations/': { results: [MOCK_CONVERSATION] },
                 },
             })
 

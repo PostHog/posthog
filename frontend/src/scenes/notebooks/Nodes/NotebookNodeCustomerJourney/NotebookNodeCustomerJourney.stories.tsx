@@ -85,8 +85,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/customer_journeys/': journeysList,
-                'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/projects/:team_id/customer_journeys/': journeysList,
+                'api/projects/:team_id/customer_profile_configs/': { count: 0, results: [] },
                 'api/projects/:team_id/notebooks/': notebooksListMock,
                 'api/projects/:team_id/notebooks/cj-all-completed/': makeNotebook('cj-all-completed'),
                 'api/projects/:team_id/notebooks/cj-some-completed/': makeNotebook('cj-some-completed'),

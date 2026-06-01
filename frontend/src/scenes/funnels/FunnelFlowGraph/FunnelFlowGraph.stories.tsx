@@ -26,8 +26,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                'api/environments/:team_id/customer_journeys/': journeysList,
-                'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/projects/:team_id/customer_journeys/': journeysList,
+                'api/projects/:team_id/customer_profile_configs/': { count: 0, results: [] },
             },
         }),
     ],

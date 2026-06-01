@@ -9,11 +9,11 @@ import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 export const maxMocks: Mocks = {
     get: {
-        '/api/environments/:team_id/conversations/': { results: [] },
+        '/api/projects/:team_id/conversations/': { results: [] },
     },
     post: {
         '/api/environments/:team_id/query/': { questions: ['Question'] },
-        '/api/environments/:team_id/conversations/': {},
+        '/api/projects/:team_id/conversations/': {},
     },
 }
 

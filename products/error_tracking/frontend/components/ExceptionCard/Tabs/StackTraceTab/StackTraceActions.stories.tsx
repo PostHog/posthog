@@ -39,7 +39,7 @@ const meta: Meta = {
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../__mocks__/stack_frames/batch_get'),
+                'api/projects/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../__mocks__/stack_frames/batch_get'),
             },
         }),
     ],

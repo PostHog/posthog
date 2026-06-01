@@ -31,10 +31,10 @@ describe('llmPlaygroundLogic', () => {
         useMocks({
             get: {
                 '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
-                '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
                 },
-                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                '/api/projects/:team_id/llm_analytics/provider_keys/': {
                     results: [],
                 },
             },
@@ -97,10 +97,10 @@ describe('llmPlaygroundLogic', () => {
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': [],
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
                 },
@@ -187,10 +187,10 @@ describe('llmPlaygroundLogic', () => {
             useMocks({
                 get: {
                     '/api/llm_proxy/models/': extendedMockOptions,
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
                 },
@@ -229,10 +229,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -274,10 +274,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -320,10 +320,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -358,10 +358,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         // Deliberately reverse API order to ensure we don't pick "last loaded"
                         results: [
                             { id: 'openrouter-key-z', provider: 'openrouter', name: 'Z key', state: 'ok' },
@@ -418,10 +418,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -488,10 +488,10 @@ describe('llmPlaygroundLogic', () => {
                     '/api/llm_proxy/models/': () => {
                         throw new Error('API Error')
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': () => {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': () => {
                         throw new Error('API Error')
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': () => {
                         throw new Error('API Error')
                     },
                 },
@@ -671,10 +671,10 @@ describe('llmPlaygroundLogic', () => {
         it('should return trial models when all keys are invalid', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
                     '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
@@ -694,10 +694,10 @@ describe('llmPlaygroundLogic', () => {
         it('should return trial models when provider keys API fails', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': () => {
                         throw new Error('API Error')
                     },
                     '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
@@ -720,10 +720,10 @@ describe('llmPlaygroundLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -1566,7 +1566,7 @@ describe('llmPlaygroundLogic', () => {
         it('should reflect source after setupPlaygroundFromEvent with sourcePromptName', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1589,7 +1589,7 @@ describe('llmPlaygroundLogic', () => {
         it('should reflect source after setupPlaygroundFromEvent with sourceEvaluationId', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/evaluations/:id/': {
+                    '/api/projects/:team_id/evaluations/:id/': {
                         id: 'eval-456',
                         name: 'my-eval',
                         evaluation_type: 'llm_judge',
@@ -1614,7 +1614,7 @@ describe('llmPlaygroundLogic', () => {
         it('should clear linked source', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1641,7 +1641,7 @@ describe('llmPlaygroundLogic', () => {
         it('should set system prompt from fetched prompt', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-1',
                         name: 'test-prompt',
                         prompt: 'Be concise.',
@@ -1663,7 +1663,7 @@ describe('llmPlaygroundLogic', () => {
         it('should set system prompt and model from fetched evaluation', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/evaluations/:id/': {
+                    '/api/projects/:team_id/evaluations/:id/': {
                         id: 'eval-1',
                         name: 'judge-eval',
                         evaluation_type: 'llm_judge',
@@ -1686,7 +1686,7 @@ describe('llmPlaygroundLogic', () => {
         it('should show error toast when prompt fetch fails', async () => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
+                    '/api/projects/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
                 },
             })
 
@@ -1709,7 +1709,7 @@ describe('llmPlaygroundLogic', () => {
             // bounded so a single missed dedup cannot snowball.
             useMocks({
                 get: {
-                    '/api/environments/:team_id/evaluations/:id/': {
+                    '/api/projects/:team_id/evaluations/:id/': {
                         id: 'eval-1',
                         name: 'judge-eval',
                         evaluation_type: 'llm_judge',
@@ -1738,7 +1738,7 @@ describe('llmPlaygroundLogic', () => {
             // to the URL is what turned a missed dedup into a runaway pageview loop.
             useMocks({
                 get: {
-                    '/api/environments/:team_id/evaluations/:id/': {
+                    '/api/projects/:team_id/evaluations/:id/': {
                         id: 'eval-2',
                         name: 'judge-eval',
                         evaluation_type: 'llm_judge',
@@ -1781,7 +1781,7 @@ describe('llmPlaygroundLogic', () => {
             let createCalled = false
             useMocks({
                 post: {
-                    '/api/environments/:team_id/llm_prompts/': () => {
+                    '/api/projects/:team_id/llm_prompts/': () => {
                         createCalled = true
                         return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
                     },
@@ -1803,7 +1803,7 @@ describe('llmPlaygroundLogic', () => {
             let createCalled = false
             useMocks({
                 post: {
-                    '/api/environments/:team_id/evaluations/': () => {
+                    '/api/projects/:team_id/evaluations/': () => {
                         createCalled = true
                         return [201, { id: 'eval-new', name: 'saved-eval' }]
                     },
@@ -1829,7 +1829,7 @@ describe('llmPlaygroundLogic', () => {
             let updatedPrompt: string | undefined
             useMocks({
                 get: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-linked',
                         name: 'linked',
                         prompt: 'Old prompt.',
@@ -1837,7 +1837,7 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
+                    '/api/projects/:team_id/llm_prompts/name/:name/': (req: any) => {
                         updatedPrompt = req.body.prompt
                         return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
                     },
@@ -1864,7 +1864,7 @@ describe('llmPlaygroundLogic', () => {
             let updateCalled = false
             useMocks({
                 get: {
-                    '/api/environments/:team_id/evaluations/:id/': {
+                    '/api/projects/:team_id/evaluations/:id/': {
                         id: 'eval-linked',
                         name: 'linked-eval',
                         evaluation_type: 'llm_judge',
@@ -1872,7 +1872,7 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/environments/:team_id/evaluations/:id/': () => {
+                    '/api/projects/:team_id/evaluations/:id/': () => {
                         updateCalled = true
                         return [200, { id: 'eval-linked', name: 'linked-eval' }]
                     },

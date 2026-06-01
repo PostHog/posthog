@@ -131,8 +131,8 @@ describe('llmEvaluationLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
+                '/api/projects/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
+                '/api/projects/:teamId/llm_analytics/evaluation_config/': {
                     trial_eval_limit: 100,
                     trial_evals_used: 0,
                     trial_evals_remaining: 100,
@@ -140,8 +140,8 @@ describe('llmEvaluationLogic', () => {
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
-                '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
-                '/api/environments/:teamId/llm_analytics/models/': {
+                '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
+                '/api/projects/:teamId/llm_analytics/models/': {
                     models: [
                         { id: 'gpt-5-mini', posthog_available: true },
                         { id: 'gpt-5', posthog_available: false },
@@ -832,8 +832,8 @@ describe('llmEvaluationLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                    '/api/environments/:teamId/llm_analytics/evaluation_config/': {
+                    '/api/projects/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
+                    '/api/projects/:teamId/llm_analytics/evaluation_config/': {
                         trial_eval_limit: 100,
                         trial_evals_used: 100,
                         trial_evals_remaining: 0,
@@ -841,10 +841,10 @@ describe('llmEvaluationLogic', () => {
                         created_at: '2024-01-01T00:00:00Z',
                         updated_at: '2024-01-01T00:00:00Z',
                     },
-                    '/api/environments/:teamId/evaluations/:id/': mockEvaluation,
+                    '/api/projects/:teamId/evaluations/:id/': mockEvaluation,
                 },
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
+                    '/api/projects/:teamId/evaluations/:id/': (_, __, ctx) => [
                         ctx.status(400),
                         ctx.json({
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],

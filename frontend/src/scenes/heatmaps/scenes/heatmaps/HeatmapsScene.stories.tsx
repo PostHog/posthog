@@ -62,7 +62,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/saved/': savedList,
+                '/api/projects/:team_id/saved/': savedList,
             },
         }),
     ],

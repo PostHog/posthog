@@ -80,8 +80,8 @@ describe('llmEvaluationsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                '/api/environments/:teamId/llm_analytics/evaluation_config/': {
+                '/api/projects/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
+                '/api/projects/:teamId/llm_analytics/evaluation_config/': {
                     trial_eval_limit: 100,
                     trial_evals_used: 0,
                     trial_evals_remaining: 100,
@@ -89,7 +89,7 @@ describe('llmEvaluationsLogic', () => {
                     created_at: '2024-01-01T00:00:00Z',
                     updated_at: '2024-01-01T00:00:00Z',
                 },
-                '/api/environments/:teamId/evaluations/': {
+                '/api/projects/:teamId/evaluations/': {
                     results: [
                         evaluationWithKey('eval-ok', 'key-ok'),
                         evaluationWithKey('eval-invalid', 'key-invalid'),
@@ -143,7 +143,7 @@ describe('llmEvaluationsLogic', () => {
         it('dispatches toggleEvaluationEnabledFailure when the API rejects the toggle', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:teamId/evaluations/:id/': (_, __, ctx) => [
+                    '/api/projects/:teamId/evaluations/:id/': (_, __, ctx) => [
                         ctx.status(400),
                         ctx.json({
                             enabled: ['Trial evaluation limit reached. Add a provider API key to re-enable.'],

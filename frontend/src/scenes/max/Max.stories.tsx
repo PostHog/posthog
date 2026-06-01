@@ -46,7 +46,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
             },
             get: {
                 '/api/organizations/@current/': () => [
@@ -56,8 +56,8 @@ const meta: Meta = {
                         is_ai_data_processing_approved: true,
                     },
                 ],
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
+                [`/api/projects/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
                     200,
                     {
                         id: CONVERSATION_ID,
@@ -155,7 +155,7 @@ export const EmptyThreadLoading: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/projects/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
             },
         })
 
@@ -190,7 +190,7 @@ export const GenerationFailureThread: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
             },
         })
 
@@ -226,7 +226,7 @@ export const ThreadWithFailedGeneration: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
             },
         })
 
@@ -256,7 +256,7 @@ export const ThreadWithRateLimit: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     // Retry-After header is present so we should be showing its value in the UI
                     res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
             },
@@ -288,7 +288,7 @@ export const ThreadWithRateLimitNoRetryAfter: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     // Testing rate limit error when the Retry-After header is MISSING
                     res(ctx.text(chatResponseChunk), ctx.status(429)),
             },
@@ -320,7 +320,7 @@ export const ThreadWithBillingLimitExceeded: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     // Testing billing limit exceeded error (402 Payment Required)
                     res(
                         ctx.status(402),
@@ -357,7 +357,7 @@ export const ThreadWithQuickReplies: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
             },
         })
 
@@ -387,7 +387,7 @@ export const ThreadWithConversationLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/projects/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
             },
         })
 
@@ -410,7 +410,7 @@ export const ThreadWithEmptyConversation: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
             },
         })
 
@@ -430,8 +430,8 @@ export const SharedThread: Story = {
 
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                [`/api/environments/:team_id/conversations/${sharedConversationId}/`]: () => [
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
+                [`/api/projects/:team_id/conversations/${sharedConversationId}/`]: () => [
                     200,
                     {
                         id: sharedConversationId,
@@ -486,8 +486,8 @@ export const ThreadWithInProgressConversation: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
             },
         })
 
@@ -510,7 +510,7 @@ export const WelcomeWithLatestConversations: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
             },
         })
 
@@ -527,7 +527,7 @@ export const ChatHistory: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
             },
         })
 
@@ -550,7 +550,7 @@ export const ChatHistoryEmpty: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [400],
+                '/api/projects/:team_id/conversations/': () => [400],
             },
         })
 
@@ -573,7 +573,7 @@ export const ChatHistoryLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/projects/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
             },
         })
 
@@ -639,7 +639,7 @@ export const ThreadWithMultipleContextObjects: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
             },
         })
 
@@ -681,10 +681,10 @@ export const ThreadScrollsToBottomOnNewMessages: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
             },
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(ctx.delay(100), ctx.text(longResponseChunk)),
             },
         })
@@ -723,12 +723,11 @@ export const ChatWithUIContext: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(ctx.text(chatResponseWithEventContext)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseWithEventContext)),
             },
             get: {
-                '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                '/api/projects/:team_id/conversations/': () => [200, conversationList],
+                [`/api/projects/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
                     200,
                     {
                         id: CONVERSATION_ID,
@@ -840,7 +839,7 @@ export const PlanningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -900,7 +899,7 @@ export const ReasoningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1032,7 +1031,7 @@ export const TaskExecutionComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1059,7 +1058,7 @@ export const TaskExecutionComponent: Story = {
                     ),
             },
             get: {
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/projects/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
             },
         })
 
@@ -1163,7 +1162,7 @@ export const TaskExecutionWithFailure: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1224,7 +1223,7 @@ export const MultiVisualizationInThread: Story = {
                         hogql: 'SELECT count() FROM events',
                     },
                 ],
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => {
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => {
                     const humanMsg = {
                         type: AssistantMessageType.Human,
                         content: 'Analyze our product metrics comprehensively',
@@ -1323,7 +1322,7 @@ export const ThreadWithSQLQueryOverflow: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+                '/api/projects/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
             },
         })
 
@@ -1423,7 +1422,7 @@ export const SearchSessionRecordingsEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1527,7 +1526,7 @@ export const SearchSessionRecordingsWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1629,7 +1628,7 @@ export const SearchErrorTrackingIssuesEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1754,7 +1753,7 @@ export const SearchErrorTrackingIssuesWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1855,7 +1854,7 @@ export const DangerousOperationPendingApproval: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -1875,7 +1874,7 @@ export const DangerousOperationPendingApproval: Story = {
                     ),
             },
             get: {
-                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                [`/api/projects/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
                     200,
                     {
                         id: CONVERSATION_ID,
@@ -2045,7 +2044,7 @@ The following services will need to be notified:
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2065,7 +2064,7 @@ The following services will need to be notified:
                     ),
             },
             get: {
-                [`/api/environments/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
+                [`/api/projects/:team_id/conversations/${CONVERSATION_ID}/`]: () => [
                     200,
                     {
                         id: CONVERSATION_ID,
@@ -2171,7 +2170,7 @@ export const ThreadWithMultiQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2265,7 +2264,7 @@ export const ThreadWithMultiFieldQuestion: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2345,7 +2344,7 @@ export const ThreadWithSingleQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2495,7 +2494,7 @@ export const ThreadWithMultiQuestionFormLongContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2593,7 +2592,7 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2679,7 +2678,7 @@ export const NotebookArtifactMarkdownOnly: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2768,7 +2767,7 @@ export const NotebookArtifactWithVisualizations: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2878,7 +2877,7 @@ export const NotebookArtifactMixedContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -2972,7 +2971,7 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -3230,7 +3229,7 @@ export const ThreadWithMixedFieldTypeForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -3326,7 +3325,7 @@ export const ThreadWithTextAndNumberForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
@@ -3404,7 +3403,7 @@ export const ThreadWithSliderForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                '/api/projects/:team_id/conversations/': (_, res, ctx) =>
                     res(
                         ctx.text(
                             generateChunk([
