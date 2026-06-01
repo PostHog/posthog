@@ -14,6 +14,7 @@ import {
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
+    checkUrlIsAuthorized,
     directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
@@ -114,6 +115,38 @@ describe('the authorized urls list logic', () => {
                 proposedUrlChanged: true,
                 proposedUrlHasErrors: true,
                 proposedUrlValidationErrors: { url: 'Please enter a valid URL' },
+            })
+        })
+    })
+
+    describe('checkUrlIsAuthorized', () => {
+        const testCases: { url: string; authorized: string[]; expected: boolean }[] = [
+            // Legitimate matches
+            { url: 'https://example.com', authorized: ['https://example.com'], expected: true },
+            { url: 'https://example.com/some/path?q=1', authorized: ['https://example.com'], expected: true },
+            { url: 'https://example.com', authorized: ['https://example.com/already/has/a/path'], expected: true },
+            // www-equivalence both directions
+            { url: 'https://example.com', authorized: ['https://www.example.com'], expected: true },
+            { url: 'https://www.example.com', authorized: ['https://example.com'], expected: true },
+            // wildcard subdomains and ports
+            { url: 'https://app.example.com', authorized: ['https://*.example.com'], expected: true },
+            { url: 'https://a.b.example.com', authorized: ['https://*.example.com'], expected: true },
+            { url: 'http://localhost:3000', authorized: ['http://localhost:*'], expected: true },
+            // Suffix bypass: an attacker domain that merely ends with the authorized origin string
+            { url: 'https://example.com.evil.com', authorized: ['https://example.com'], expected: false },
+            { url: 'https://app.example.com.evil.com', authorized: ['https://*.example.com'], expected: false },
+            // Prefix/substring bypass: a different registrable domain that is a substring of the entry
+            { url: 'https://example.co', authorized: ['https://example.com'], expected: false },
+            // Plain unrelated origin
+            { url: 'https://evil.com', authorized: ['https://example.com'], expected: false },
+            { url: 'https://example.org', authorized: ['https://example.com'], expected: false },
+            // Nothing authorized
+            { url: 'https://example.com', authorized: [], expected: false },
+        ]
+
+        testCases.forEach(({ url, authorized, expected }) => {
+            it(`"${url}" against [${authorized.join(', ')}] is ${expected ? 'authorized' : 'not authorized'}`, () => {
+                expect(checkUrlIsAuthorized(url, authorized)).toBe(expected)
             })
         })
     })
