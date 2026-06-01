@@ -61,6 +61,9 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
         if (params.evaluation_contexts !== undefined) {
             body['evaluation_contexts'] = params.evaluation_contexts
         }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
+        }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
@@ -613,6 +616,9 @@ const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostH
         }
         if (params.evaluation_contexts !== undefined) {
             body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        if (params.is_remote_configuration !== undefined) {
+            body['is_remote_configuration'] = params.is_remote_configuration
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',

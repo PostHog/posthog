@@ -18019,6 +18019,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface FeatureFlagStatusResponse {
@@ -28852,6 +28857,11 @@ export namespace Schemas {
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
       evaluation_contexts?: string[];
+      /**
+         * Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.
+         * @nullable
+         */
+      is_remote_configuration?: boolean | null;
     }
 
     export interface PatchedFileSystem {

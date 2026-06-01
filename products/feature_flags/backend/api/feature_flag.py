@@ -731,6 +731,11 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
     )
+    is_remote_configuration = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -751,6 +756,11 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         help_text="Evaluation contexts that control where this flag evaluates at runtime.",
+    )
+    is_remote_configuration = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether this flag is a remote configuration flag that delivers a payload rather than gating a feature.",
     )
 
 
