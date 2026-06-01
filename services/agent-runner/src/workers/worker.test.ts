@@ -6,6 +6,10 @@ import {
     registerFauxProvider,
     type ToolCall,
 } from '@earendil-works/pi-ai'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { z } from 'zod'
 
 import {
     AgentSession,
@@ -19,6 +23,7 @@ import {
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
+import type { McpTransportFactory } from '../loop/mcp-clients'
 import { Worker } from './worker'
 
 // The driver streams through pi-ai's registered faux provider (the same surface
@@ -158,6 +163,102 @@ describe('Worker', () => {
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
         const after = await queue.get('sess2')
         expect(after!.state).toBe('completed')
+    })
+
+    it('opens spec.mcps[] at session start, dispatches a remote tool, closes on finish', async () => {
+        // End-to-end shape: spec declares an MCP, the worker calls
+        // `openMcpClients` via the injected transport factory (paired with an
+        // in-process `McpServer`), the faux model invokes the prefixed tool,
+        // the result lands in `session.conversation`, and the transport pair
+        // is closed in the worker's `finally`.
+        const revisions = new MemoryRevisionStore()
+        const bundle = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+
+        const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'faux/test',
+                mcps: [{ kind: 'external', id: 'echo', url: 'https://example.com/echo' }],
+            }),
+        })
+        await bundle.write(rev.id, 'agent.md', 'you are a bot')
+
+        const session: AgentSession = {
+            id: 'sess_mcp',
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            state: 'queued',
+            conversation: [{ role: 'user', content: 'say hi', timestamp: Date.now() }],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            acl: [],
+            pending_elevation_requests: [],
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: '2026-05-27',
+            updated_at: '2026-05-27',
+        }
+        await queue.enqueue(session)
+
+        // Track whether the server-side transport got a close call — proves
+        // the worker's `finally` ran. Each connect builds a fresh pair so
+        // multiple sessions in the same suite stay isolated.
+        const serverClosed = { count: 0 }
+        const echoCalls: Array<{ msg: string }> = []
+        const factory: McpTransportFactory = (): Transport => {
+            const server = new McpServer({ name: 'echo-mcp', version: '1.0.0' })
+            server.registerTool(
+                'echo',
+                {
+                    title: 'Echo',
+                    description: 'Echo input back.',
+                    inputSchema: { msg: z.string() },
+                },
+                async ({ msg }) => {
+                    echoCalls.push({ msg })
+                    return { content: [{ type: 'text' as const, text: msg }] }
+                }
+            )
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+            const originalClose = serverTransport.close?.bind(serverTransport)
+            serverTransport.close = async () => {
+                serverClosed.count++
+                await originalClose?.()
+            }
+            void server.server.connect(serverTransport)
+            return clientTransport
+        }
+
+        const worker = new Worker({
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            broker: new SecretBroker(),
+            resolveIntegrations: async () => ({}),
+            resolveSecrets: async () => ({}),
+            resolveModel: () =>
+                fauxModel([toolUseTurn([toolCall('echo__echo', { msg: 'hi there' })]), endTurn('done')]),
+            mcpTransportFactory: factory,
+        })
+
+        await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
+        const after = await queue.get('sess_mcp')
+        expect(after!.state).toBe('completed')
+        expect(echoCalls).toEqual([{ msg: 'hi there' }])
+        // The transport pair is closed via the worker's `finally`. The
+        // batched closer runs `client.close()`, which terminates the
+        // paired server transport — we assert the count is ≥1 rather
+        // than == to tolerate the SDK calling close again on its own
+        // teardown path.
+        expect(serverClosed.count).toBeGreaterThanOrEqual(1)
     })
 
     it('shutdown signal re-queues an in-flight session as queued for handoff', async () => {
