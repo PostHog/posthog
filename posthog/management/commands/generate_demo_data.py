@@ -3,6 +3,7 @@
 import sys
 import logging
 import secrets
+import argparse
 import datetime as dt
 from time import monotonic
 from typing import Optional
@@ -33,8 +34,49 @@ logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspa
 class Command(BaseCommand):
     help = "Generate demo data using the Matrix"
 
+    # Vetted parameter sets so the fast path is discoverable instead of living only in CI YAML.
+    # An explicitly-passed flag always overrides the profile; no profile reproduces the historical defaults.
+    DEFAULTS: dict[str, object] = {
+        "n_clusters": 500,
+        "days_past": 120,
+        "days_future": 30,
+        "skip_materialization": False,
+        "skip_flag_sync": False,
+        "skip_user_product_list": False,
+    }
+    PROFILES: dict[str, dict[str, object]] = {
+        # Tiny and fast, matching the MCP CI job — for "just give me some data".
+        "smoke": {
+            "n_clusters": 10,
+            "days_past": 7,
+            "days_future": 0,
+            "skip_materialization": True,
+            "skip_flag_sync": True,
+            "skip_user_product_list": True,
+        },
+        # A complete-but-quick project to click around in.
+        "small": {
+            "n_clusters": 100,
+            "days_past": 30,
+            "days_future": 7,
+            "skip_materialization": True,
+            "skip_flag_sync": True,
+            "skip_user_product_list": False,
+        },
+        # The historical default (everything on).
+        "full": dict(DEFAULTS),
+    }
+
     def add_arguments(self, parser):
         parser.add_argument("--seed", type=str, help="Simulation seed for deterministic output")
+        parser.add_argument(
+            "--profile",
+            type=str,
+            choices=sorted(self.PROFILES),
+            default=None,
+            help="Preset parameter bundle (smoke=tiny/fast, small=quick, full=historical default). "
+            "Explicit flags override the profile.",
+        )
         parser.add_argument(
             "--now",
             type=dt.datetime.fromisoformat,
@@ -43,19 +85,19 @@ class Command(BaseCommand):
         parser.add_argument(
             "--days-past",
             type=int,
-            default=120,
+            default=None,
             help="At how many days before 'now' should the simulation start (default: 120)",
         )
         parser.add_argument(
             "--days-future",
             type=int,
-            default=30,
+            default=None,
             help="At how many days after 'now' should the simulation end (default: 30)",
         )
         parser.add_argument(
             "--n-clusters",
             type=int,
-            default=500,
+            default=None,
             help="Number of clusters (default: 500)",
         )
         parser.add_argument("--dry-run", action="store_true", help="Don't save simulation results")
@@ -91,20 +133,20 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--skip-materialization",
-            action="store_true",
-            default=False,
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help="Skip materializing common columns after data generation",
         )
         parser.add_argument(
             "--skip-flag-sync",
-            action="store_true",
-            default=False,
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help="Skip syncing feature flags from API after data generation",
         )
         parser.add_argument(
             "--skip-user-product-list",
-            action="store_true",
-            default=False,
+            action=argparse.BooleanOptionalAction,
+            default=None,
             help="Skip creating UserProductList entries after data generation",
         )
         parser.add_argument(
@@ -128,6 +170,27 @@ class Command(BaseCommand):
                 print(f"Team with ID {options['team_id']} does not exist!")
                 return
 
+        profile_config = self.PROFILES.get(options.get("profile") or "", {})
+
+        def resolve(key: str):
+            explicit = options.get(key)
+            if explicit is not None:
+                return explicit
+            return profile_config.get(key, self.DEFAULTS[key])
+
+        n_clusters = resolve("n_clusters")
+        days_past = resolve("days_past")
+        days_future = resolve("days_future")
+        skip_materialization = resolve("skip_materialization")
+        skip_flag_sync = resolve("skip_flag_sync")
+        skip_user_product_list = resolve("skip_user_product_list")
+        if options.get("profile"):
+            print(
+                f"Using '{options['profile']}' profile: n_clusters={n_clusters}, days_past={days_past}, "
+                f"days_future={days_future}, skip_materialization={skip_materialization}, "
+                f"skip_flag_sync={skip_flag_sync}, skip_user_product_list={skip_user_product_list}."
+            )
+
         print("Instantiating the Matrix...")
         try:
             RelevantMatrix = {"hedgebox": HedgeboxMatrix, "spikegpt": SpikeGPTMatrix}[options["product"]]
@@ -137,9 +200,9 @@ class Command(BaseCommand):
         matrix = RelevantMatrix(
             seed,
             now=now,
-            days_past=options["days_past"],
-            days_future=options["days_future"],
-            n_clusters=options["n_clusters"],
+            days_past=days_past,
+            days_future=days_future,
+            n_clusters=n_clusters,
             group_type_index_offset=(
                 len(get_group_types_for_project(existing_team.project_id)) if existing_team else 0
             ),
@@ -187,13 +250,13 @@ class Command(BaseCommand):
             except exceptions.ValidationError as e:
                 print(f"Error: {e}")
 
-            if not options.get("skip_materialization"):
+            if not skip_materialization:
                 print("Materializing common columns...")
-                self.materialize_common_columns(options["days_past"])
+                self.materialize_common_columns(days_past)
             else:
                 print("Skipping materialization of common columns.")
 
-            if not options.get("skip_flag_sync"):
+            if not skip_flag_sync:
                 print("Syncing feature flags from API...")
                 try:
                     sync_feature_flags_from_api(distinct_id="generate_demo_data", output_fn=self.stdout.write)
@@ -203,7 +266,7 @@ class Command(BaseCommand):
             else:
                 print("Skipping feature flag sync.")
 
-            if not options.get("skip_user_product_list"):
+            if not skip_user_product_list:
                 # Create UserProductList entries for all products
                 # Skip if existing_team_id == 0 (master project reset)
                 if existing_team_id != 0 and team and user:
