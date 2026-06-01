@@ -163,19 +163,67 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
     }),
 ])
 
+/**
+ * Runtime MCP servers an agent connects to at session start. The runner opens
+ * one client per entry, exposes each remote tool as a regular `AgentTool` to
+ * pi-ai (name-prefixed `<id>__<toolName>`), and routes dispatch back through
+ * the open client. See `docs/agent-platform/plans/runtime-mcps.md`.
+ *
+ * Two variants:
+ *   - `agent` — points at another PostHog agent's MCP server (`spec.triggers`
+ *     of type `mcp` on the target). Auth piggybacks on `posthog_internal`;
+ *     the runner resolves the route from the local revision store. Acts as
+ *     the in-platform composability shortcut (see
+ *     `docs/agent-platform/plans/agent-as-mcp-server.md` §9). Uses `slug` as
+ *     the tool-name prefix.
+ *   - `external` — a third-party MCP server reachable over HTTP. `auth.integration`
+ *     plugs into PostHog's integrations registry (OAuth-style); `secrets[]`
+ *     is the simpler per-MCP token case, resolved through the same
+ *     encrypted-env path the agent's main `spec.secrets` uses. Uses `id` as
+ *     the tool-name prefix.
+ *
+ * **Future migration (not blocking):** the runtime-mcps plan describes a
+ * flatter shape `{ id, endpoint, tools[], secrets[] }` with no discriminator,
+ * mirrored by the concierge example bundle. We're holding the union for now
+ * because the console + spec tests already depend on the `kind` discriminator
+ * — flattening would be a multi-PR migration with no functional payoff. When
+ * we revisit (likely tied to v2 of the runtime-mcp surface), the `agent`
+ * variant becomes `{ id: slug, endpoint: '<internal-url>', ... }` and the
+ * discriminator disappears.
+ */
 export const McpRefSchema = z.discriminatedUnion('kind', [
     z.object({
         kind: z.literal('agent'),
+        /** Target agent slug. Doubles as the tool-name prefix at runtime. */
         slug: z.string(),
     }),
     z.object({
         kind: z.literal('external'),
+        /**
+         * Stable id within the spec. Tool-name prefix at runtime —
+         * `<id>__<toolName>` is what the model sees so it can tell which MCP
+         * a tool came from. Must be unique across `spec.mcps[]`.
+         */
+        id: z.string().min(1),
         url: z.string().url(),
         auth: z
             .object({
                 integration: z.string().optional(),
             })
             .optional(),
+        /**
+         * Per-MCP secret names. Resolved at session start through the same
+         * encrypted-env path as the agent's main `spec.secrets`. The runner
+         * substitutes `${name}` placeholders in the URL + auth headers before
+         * opening the client; the plaintext never leaves the runner process.
+         */
+        secrets: z.array(z.string()).default([]),
+        /**
+         * Allowlist of tool names from the remote server. Omitted/empty array
+         * means "expose every tool the server lists." Names match against
+         * the raw remote tool name (pre-prefix), so an entry like
+         * `create-issue` filters in `mcp.callTool('create-issue', ...)`.
+         */
         allowlist: z.array(z.string()).optional(),
     }),
 ])

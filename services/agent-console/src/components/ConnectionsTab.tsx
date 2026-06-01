@@ -54,14 +54,20 @@ interface ConnectionsTabProps {
     onChangeEditingSecret: (key: string | null) => void
 }
 
+// Hand-rolled mirror of `McpRefSchema` in @posthog/agent-shared. Kept in sync
+// by hand to avoid a workspace import. TODO: once runtime-mcps flattens to a
+// single shape (see plans/runtime-mcps.md "Future migration"), drop the union.
 interface McpRefAgent {
     kind: 'agent'
     slug: string
 }
 interface McpRefExternal {
     kind: 'external'
+    id: string
     url: string
     auth?: { integration?: string }
+    secrets?: string[]
+    allowlist?: string[]
 }
 type McpRef = McpRefAgent | McpRefExternal
 

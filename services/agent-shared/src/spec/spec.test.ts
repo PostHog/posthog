@@ -197,6 +197,81 @@ describe('AgentSpecSchema', () => {
         })
     })
 
+    describe('mcps[] runtime refs', () => {
+        it('parses an external MCP with all optional fields', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        auth: { integration: 'linear:T01' },
+                        secrets: ['LINEAR_TOKEN'],
+                        allowlist: ['create-issue', 'list-issues'],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            if (m.kind !== 'external') {
+                throw new Error('expected external mcp')
+            }
+            expect(m.id).toBe('linear')
+            expect(m.url).toBe('https://mcp.linear.app/sse')
+            expect(m.auth?.integration).toBe('linear:T01')
+            expect(m.secrets).toEqual(['LINEAR_TOKEN'])
+            expect(m.allowlist).toEqual(['create-issue', 'list-issues'])
+        })
+
+        it('defaults secrets to [] when omitted on external', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [{ kind: 'external', id: 'linear', url: 'https://mcp.linear.app/sse' }],
+            })
+            const m = spec.mcps[0]
+            if (m.kind !== 'external') {
+                throw new Error('expected external mcp')
+            }
+            expect(m.secrets).toEqual([])
+            expect(m.allowlist).toBeUndefined()
+        })
+
+        it('rejects an external entry missing id', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    mcps: [{ kind: 'external', url: 'https://mcp.linear.app/sse' }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an external entry with empty id', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    mcps: [{ kind: 'external', id: '', url: 'https://mcp.linear.app/sse' }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an external entry with a non-URL endpoint', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    mcps: [{ kind: 'external', id: 'linear', url: 'not-a-url' }],
+                })
+            ).toThrow()
+        })
+
+        it('still parses the agent variant with just a slug', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
+            })
+            expect(spec.mcps[0]).toEqual({ kind: 'agent', slug: 'weekly-digest' })
+        })
+    })
+
     describe('resume config (per-agent TTL on completed sessions)', () => {
         it('defaults to undefined when not present (preserves today behaviour)', () => {
             const spec = AgentSpecSchema.parse({ model: 'x' })
