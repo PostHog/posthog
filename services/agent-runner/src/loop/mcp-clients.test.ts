@@ -242,26 +242,55 @@ describe('openMcpClients', () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
         await expect(
-            openMcpClients(refs, { integrations: {}, secrets: {}, transportFactory: factory })
+            openMcpClients(refs, {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+                callerContext: { teamId: 1, sessionId: 's1' },
+            })
         ).rejects.toThrow(/agent_mcp_resolver_not_wired/)
         await closePairs(pairs)
     })
 
-    it('delegates kind: agent to the supplied resolver and uses slug as prefix', async () => {
+    it('throws agent_mcp_caller_context_missing when an agent ref needs but lacks ctx', async () => {
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
+        await expect(
+            openMcpClients(refs, {
+                integrations: {},
+                secrets: {},
+                transportFactory: factory,
+                agentMcpResolver: async (slug) => ({ url: `https://ingress/${slug}`, headers: {} }),
+                // callerContext deliberately omitted — proves the runner
+                // protects the resolver from a missing-isolation case rather
+                // than letting it silently see `undefined`.
+            })
+        ).rejects.toThrow(/agent_mcp_caller_context_missing/)
+        await closePairs(pairs)
+    })
+
+    it('delegates kind: agent to the supplied resolver, passing slug + caller ctx', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [{ kind: 'agent', slug: 'weekly-digest' }]
+        const seenCtx: Array<{ slug: string; teamId: number; sessionId: string }> = []
         const { clients, close } = await openMcpClients(refs, {
             integrations: {},
             secrets: {},
             transportFactory: factory,
-            agentMcpResolver: async (slug) => ({
-                url: `https://ingress.local/agents/${slug}/mcp`,
-                headers: { 'X-PostHog-Internal': 'yes' },
-            }),
+            callerContext: { teamId: 42, sessionId: 'sess-abc' },
+            agentMcpResolver: async (slug, ctx) => {
+                seenCtx.push({ slug, ...ctx })
+                return {
+                    url: `https://ingress.local/teams/${ctx.teamId}/agents/${slug}/mcp`,
+                    headers: { 'X-PostHog-Internal': 'yes', 'X-Session-Id': ctx.sessionId },
+                }
+            },
         })
         expect(clients[0].prefix).toBe('weekly-digest')
-        expect(targets[0].url).toBe('https://ingress.local/agents/weekly-digest/mcp')
+        expect(seenCtx).toEqual([{ slug: 'weekly-digest', teamId: 42, sessionId: 'sess-abc' }])
+        expect(targets[0].url).toBe('https://ingress.local/teams/42/agents/weekly-digest/mcp')
         expect(targets[0].headers['X-PostHog-Internal']).toBe('yes')
+        expect(targets[0].headers['X-Session-Id']).toBe('sess-abc')
         await close()
         await closePairs(pairs)
     })

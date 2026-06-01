@@ -67,13 +67,30 @@ export interface OpenedMcp {
 }
 
 /**
- * Resolves a `kind: 'agent'` ref into a transport target. PR 6 wires the real
- * impl (look up the target agent's slug in the local revision store, build the
- * ingress URL, mint a `posthog_internal` bearer). Until then, opening an
- * `agent` ref throws — that's intentional during the PR 2-5 staging window so
- * the gap is loud rather than silent.
+ * Caller context passed to `AgentMcpResolver`. Production resolvers need this
+ * to enforce team isolation — slug alone is ambiguous across teams, and the
+ * "agent A in team 1 reaches into agent B in team 2 because they share a
+ * slug" hole would otherwise be open by default.
  */
-export type AgentMcpResolver = (slug: string) => Promise<{ url: string; headers: Record<string, string> }>
+export interface AgentMcpResolverContext {
+    teamId: number
+    sessionId: string
+}
+
+/**
+ * Resolves a `kind: 'agent'` ref into a transport target. Production wires a
+ * default that looks up the target by `(teamId, slug)` in the local revision
+ * store, builds the ingress URL (`/agents/<slug>/mcp` in path mode,
+ * `<slug>.agents.posthog.com/mcp` in domain mode), and mints a
+ * `posthog_internal` bearer. Tests inject a synthetic resolver that just
+ * fabricates a URL — see `cases/mcp-tools.test.ts`. When unset, opening an
+ * `agent` ref throws `agent_mcp_resolver_not_wired` so the gap is loud
+ * rather than silent.
+ */
+export type AgentMcpResolver = (
+    slug: string,
+    ctx: AgentMcpResolverContext
+) => Promise<{ url: string; headers: Record<string, string> }>
 
 /**
  * Factory for the underlying SDK transport. Defaults to
@@ -88,6 +105,12 @@ export interface OpenMcpClientsDeps {
      *  already threads through). Only the names listed on a given ref's
      *  `secrets[]` are substituted into that ref's URL. */
     secrets: Record<string, string>
+    /**
+     * Forwarded to `agentMcpResolver` for every `kind: 'agent'` ref. Required
+     * iff at least one ref is `kind: 'agent'` — `external` refs ignore it.
+     * The caller (worker) populates this from the session being run.
+     */
+    callerContext?: AgentMcpResolverContext
     agentMcpResolver?: AgentMcpResolver
     transportFactory?: McpTransportFactory
     log?: (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
@@ -201,7 +224,14 @@ async function resolveTarget(
         if (!deps.agentMcpResolver) {
             throw new Error('agent_mcp_resolver_not_wired')
         }
-        return deps.agentMcpResolver(ref.slug)
+        if (!deps.callerContext) {
+            // The resolver needs `(teamId, sessionId)` to enforce isolation; a
+            // missing context here means the worker forgot to forward session
+            // info. Surface loudly rather than letting the resolver decide what
+            // to do with `undefined`.
+            throw new Error('agent_mcp_caller_context_missing')
+        }
+        return deps.agentMcpResolver(ref.slug, deps.callerContext)
     }
     // `external` variant.
     const url = substituteSecrets(ref.url, ref.secrets, deps.secrets)

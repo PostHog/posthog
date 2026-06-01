@@ -220,8 +220,11 @@ describe('runtime MCPs: real e2e', () => {
         })
         c = await buildCluster({
             mcpTransportFactory: factory,
-            agentMcpResolver: async (slug) => ({
-                url: `https://ingress.local/agents/${slug}/mcp`,
+            agentMcpResolver: async (slug, ctx) => ({
+                // ctx.teamId is the load-bearing isolation lever — the prod
+                // resolver uses it to scope the revision lookup. Tests just
+                // assert it was forwarded.
+                url: `https://ingress.local/teams/${ctx.teamId}/agents/${slug}/mcp`,
                 headers: { 'X-PostHog-Internal': 'yes' },
             }),
         })
@@ -234,11 +237,32 @@ describe('runtime MCPs: real e2e', () => {
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         expect(session!.state).toBe('completed')
-        // The harness resolver was consulted — proves the runner doesn't
-        // short-circuit kind:'agent' refs.
-        expect(targets[0].url).toBe('https://ingress.local/agents/weekly-digest/mcp')
+        // The harness resolver was consulted with the runner's teamId — proves
+        // the runner doesn't short-circuit kind:'agent' refs and proves the
+        // caller-context plumbing fires correctly.
+        expect(targets[0].url).toBe('https://ingress.local/teams/1/agents/weekly-digest/mcp')
         expect(captured).toEqual([
-            { name: 'ask', args: { topic: 'kpi' }, target: { url: 'https://ingress.local/agents/weekly-digest/mcp' } },
+            {
+                name: 'ask',
+                args: { topic: 'kpi' },
+                target: { url: 'https://ingress.local/teams/1/agents/weekly-digest/mcp' },
+            },
         ])
+    })
+
+    it('fails fast when a kind: agent ref is declared but no resolver is wired', async () => {
+        // Default cluster has no `agentMcpResolver`. The session should fail
+        // at MCP-open, not silently degrade. This is the contract the prod
+        // boot relies on — if the resolver is unset (e.g. config drift) the
+        // failure is loud, not "the agent silently lacks tools."
+        c = await buildCluster()
+        await c.deployAgent({
+            slug: 'mcp-agent-missing-resolver',
+            spec: { mcps: [{ kind: 'agent', slug: 'weekly-digest' }] },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-agent-missing-resolver/run').send({ message: 'ask' })
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('failed')
     })
 })

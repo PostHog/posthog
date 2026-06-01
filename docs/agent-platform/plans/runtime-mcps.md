@@ -164,22 +164,33 @@ Lifecycle:
 
 Split across discrete PRs so each is reviewable in isolation:
 
-1. **Schema alignment (no runner changes).** Add `id` + `secrets[]` to the
-   `external` variant, mirror into the console's hand-rolled types, update
-   `spec.test.ts`, refresh this plan. _← this PR._
-2. **`loop/mcp-clients.ts`.** Client-open helper using
+1. **Schema alignment (no runner changes).** ✅ Added `id` + `secrets[]` to
+   the `external` variant, mirrored into the console's hand-rolled types,
+   updated `spec.test.ts`, refreshed this plan.
+2. **`loop/mcp-clients.ts`.** ✅ Client-open helper using
    `@modelcontextprotocol/sdk`'s `Client` + `StreamableHTTPClientTransport`.
    Resolves auth per variant. Unit tests with `InMemoryTransport`.
-3. **Wire into `buildAgentTools`.** Add an `mcpClients` field to
-   `AgentToolDeps`, append MCP tools after the existing loop, add a
+3. **Wire into `buildAgentTools`.** ✅ Added an `mcpClients` field to
+   `AgentToolDeps`, appended MCP tools after the existing loop, added a
    `provider-safe-names-coverage.test.ts` fixture for `<id>__<name>`.
-4. **Worker lifecycle.** Open + close clients in `worker.runOne`'s
-   try/finally, thread the map through `RunSessionDeps`.
-5. **e2e harness coverage.** `mcp-tools.test.ts` spins up an in-process
+4. **Worker lifecycle.** ✅ Opens + closes clients in `worker.runOne`'s
+   try/finally, threads `mcpClients` through `RunSessionDeps`.
+5. **e2e harness coverage.** ✅ `mcp-tools.test.ts` spins up an in-process
    `McpServer`, drives an agent that calls into it.
-6. **`kind: 'agent'` variant.** Resolve the URL via the local revision store,
-   mint `posthog_internal`. Unblocks the concierge example by dropping the
-   `spec["mcps"] = []` strip in `scripts/seed.py`.
+6. **`kind: 'agent'` resolver contract.** ✅ Added `AgentMcpResolverContext`
+   (`{ teamId, sessionId }`) so the resolver can enforce team isolation.
+   Worker forwards it from the session. e2e cases prove the URL is built
+   from `ctx.teamId` and that a missing resolver fails the session loudly.
+7. **Prod resolver wiring + concierge unblock.** _Pending._ The runner now
+   has the seam; the prod entrypoint needs to construct a default
+   `AgentMcpResolver` (revision lookup + ingress URL + `posthog_internal`
+   bearer) and wire it via `WorkerDeps`. Once that lands, the concierge
+   example can drop its `spec["mcps"] = []` strip — but the strip is _also_
+   load-bearing for two other gaps (the concierge spec uses the flat
+   `{ id, endpoint, tools[], secrets[] }` shape this plan tracks as a v2
+   migration, and declares `approval_policies` per-MCP-tool which the
+   schema doesn't accept yet). All three need to land together; see the
+   "Out of scope" notes below.
 
 ## What this unblocks
 

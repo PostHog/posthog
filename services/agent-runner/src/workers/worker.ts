@@ -351,6 +351,7 @@ export class Worker {
                     secrets,
                     agentMcpResolver: this.deps.agentMcpResolver,
                     transportFactory: this.deps.mcpTransportFactory,
+                    callerContext: { teamId: session.team_id, sessionId: session.id },
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
                 })
                 openedMcpClients = opened.clients
