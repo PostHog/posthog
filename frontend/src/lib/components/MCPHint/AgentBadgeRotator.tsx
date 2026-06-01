@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 // Show PostHog Code more often to increase engagement
 const AGENTS = ['PostHog Code', 'Claude', 'Cursor', 'PostHog Code', 'Codex', 'Gemini'] as const
 
-const ROTATE_INTERVAL_MS = 2000
+const ROTATE_INTERVAL_MS = 3000
 const POSTHOG_CODE_URL = 'https://posthog.com/code'
 
 export function AgentBadgeRotator({ className }: { className?: string }): JSX.Element {
