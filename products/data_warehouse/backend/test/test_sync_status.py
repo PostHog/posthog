@@ -129,6 +129,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert warnings[0].status == str(ExternalDataSchema.Status.RUNNING)
+        assert warnings[0].source_id == str(self.source.id)
         assert "more than twice" in warnings[0].message
 
     def test_no_warning_when_running_at_exact_threshold(self) -> None:
@@ -158,6 +159,7 @@ class TestWarehouseSyncWarnings(BaseTest):
         warnings = get_warehouse_sync_warnings(self.table, now=self.now)
         assert len(warnings) == 1
         assert "paused" in warnings[0].message.lower()
+        assert warnings[0].source_id == str(self.source.id)
         # status must be consistent with the "paused" message, not the raw schema status (Completed).
         assert warnings[0].status == ExternalDataSchema.Status.PAUSED
 
