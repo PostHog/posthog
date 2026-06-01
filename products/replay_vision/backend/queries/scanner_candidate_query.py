@@ -30,6 +30,9 @@ SAMPLE_RATE_PRECISION = 10_000
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
+# Excludes attacker-supplied over-length session_ids that would later wedge wire-payload validation.
+_MAX_SESSION_ID_LENGTH = 128
+
 
 @dataclass(frozen=True)
 class CandidateSession:
@@ -102,6 +105,11 @@ class ScannerCandidateQuery:
                 op=ast.CompareOperationOp.LtEq,
                 left=ast.Field(chain=["sessions", "end_time"]),
                 right=ast.Constant(value=dt.datetime.now(dt.UTC) - SETTLE_INTERVAL),
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="length", args=[ast.Field(chain=["sessions", "session_id"])]),
+                right=ast.Constant(value=_MAX_SESSION_ID_LENGTH),
             ),
         ]
 

@@ -449,6 +449,16 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert results == []
 
     @pytest.mark.django_db
+    def test_excludes_overlong_session_ids(self, team) -> None:
+        # Attacker-supplied session_ids over the 128-char cap would otherwise wedge wire-payload validation.
+        self._produce(team.id, "x" * 129, _NOW - dt.timedelta(hours=2), _NOW - dt.timedelta(minutes=40))
+        self._produce(team.id, "ok", _NOW - dt.timedelta(hours=2), _NOW - dt.timedelta(minutes=40))
+
+        results = self._run(team=team, last_swept_at=_NOW - dt.timedelta(hours=2))
+
+        assert [r.session_id for r in results] == ["ok"]
+
+    @pytest.mark.django_db
     def test_excludes_recordings_past_retention(self, team) -> None:
         self._produce(
             team.id,
