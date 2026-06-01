@@ -32,10 +32,11 @@ describe('infiniteListLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
-                    const limit = Number(req.url.searchParams.get('limit'))
-                    const offset = Number(req.url.searchParams.get('offset'))
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    const search = searchParams.get('search')
+                    const limit = Number(searchParams.get('limit'))
+                    const offset = Number(searchParams.get('offset'))
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -49,13 +50,14 @@ describe('infiniteListLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/property_definitions': (req) => {
-                    const search = req.url.searchParams.get('search')
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    const search = searchParams.get('search')
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('filter_by_event_names')) {
-                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
+                    if (searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = searchParams.get('filter_by_event_names') === 'true'
                         results = results.filter(
                             (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
                         )

@@ -48,21 +48,21 @@ describe('funnelPropertyCorrelationLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:id': (req) => [
+                '/api/environments/:id': async ({ request }) => [
                     200,
                     {
                         ...MOCK_DEFAULT_TEAM,
                         correlation_config: {
                             ...correlationConfig,
-                            excluded_person_property_names: (req.body as any)?.correlation_config
+                            excluded_person_property_names: ((await request.json()) as any)?.correlation_config
                                 ?.excluded_person_property_names,
                         },
                     },
                 ],
             },
             post: {
-                '/api/environments/:team_id/insights/funnel/correlation': (req) => {
-                    const data = req.body as any
+                '/api/environments/:team_id/insights/funnel/correlation': async ({ request }) => {
+                    const data = (await request.json()) as any
                     const excludePropertyFromProjectNames = data?.funnel_correlation_exclude_names || []
                     const includePropertyNames = data?.funnel_correlation_names || []
                     return [

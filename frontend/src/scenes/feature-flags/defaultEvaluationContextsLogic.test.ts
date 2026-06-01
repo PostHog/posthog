@@ -23,8 +23,8 @@ describe('defaultEvaluationContextsLogic', () => {
                 '/api/environments/:team_id/default_evaluation_contexts/': () => [200, mockResponse],
             },
             post: {
-                '/api/environments/:team_id/default_evaluation_contexts/': async (req) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/default_evaluation_contexts/': async ({ request }) => {
+                    const body = await request.json()
                     const contextName = body.context_name
                     const newContext = {
                         id: Math.floor(Math.random() * 10000),
@@ -39,8 +39,8 @@ describe('defaultEvaluationContextsLogic', () => {
                 },
             },
             delete: {
-                '/api/environments/:team_id/default_evaluation_contexts/': (req) => {
-                    const contextName = req.url.searchParams.get('context_name')
+                '/api/environments/:team_id/default_evaluation_contexts/': ({ request }) => {
+                    const contextName = new URL(request.url).searchParams.get('context_name')
                     mockResponse.default_evaluation_contexts = mockResponse.default_evaluation_contexts.filter(
                         (c) => c.name !== contextName
                     )
@@ -48,8 +48,8 @@ describe('defaultEvaluationContextsLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/': async (req) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/': async ({ request }) => {
+                    const body = await request.json()
                     return [200, { ...body }]
                 },
             },

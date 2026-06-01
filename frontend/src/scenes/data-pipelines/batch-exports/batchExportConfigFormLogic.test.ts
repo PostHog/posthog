@@ -106,14 +106,14 @@ describe('batchExportConfigFormLogic', () => {
                 '/api/environments/:team_id/batch_exports/test': { steps: [] },
             },
             post: {
-                '/api/environments/:team_id/batch_exports/': async (req) => {
-                    lastPostBody = await req.json()
+                '/api/environments/:team_id/batch_exports/': async ({ request }) => {
+                    lastPostBody = await request.json()
                     return [200, { ...MOCK_S3_BATCH_EXPORT, id: 'new-export-id' }]
                 },
             },
             patch: {
-                '/api/environments/:team_id/batch_exports/test-s3-id/': async (req) => {
-                    lastPatchBody = await req.json()
+                '/api/environments/:team_id/batch_exports/test-s3-id/': async ({ request }) => {
+                    lastPatchBody = await request.json()
                     return [200, MOCK_S3_BATCH_EXPORT]
                 },
             },

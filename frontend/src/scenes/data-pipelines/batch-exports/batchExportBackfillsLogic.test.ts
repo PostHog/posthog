@@ -160,9 +160,11 @@ describe('batchExportBackfillsLogic', () => {
 
     describe('backfillCreated - estimate polling', () => {
         beforeEach(async () => {
-            // Init kea logics with real timers, then switch to fake timers for polling
+            // Init kea logics with real timers, then switch to fake timers for polling.
+            // Don't fake the microtask/immediate queues MSW v2 uses to drain response streams,
+            // otherwise advancing the poll timers spins those queues and exhausts the heap.
             await setupLogic()
-            jest.useFakeTimers()
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate', 'clearImmediate'] })
         })
 
         afterEach(async () => {

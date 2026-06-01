@@ -56,14 +56,14 @@ describe('subscriptionsLogic', () => {
             get: {
                 '/api/environments/:team_id/insights/1': fixtureInsightResponse(1),
                 '/api/environments/:team_id/insights/2': fixtureInsightResponse(2),
-                '/api/environments/:team_id/insights': (req) => {
-                    const insightShortId = req.url.searchParams.get('short_id')
+                '/api/environments/:team_id/insights': ({ request }) => {
+                    const insightShortId = new URL(request.url).searchParams.get('short_id')
                     const res = insightShortId ? [fixtureInsightResponse(parseInt(insightShortId, 10))] : []
                     return [200, { results: res }]
                 },
 
-                '/api/environments/:team_id/subscriptions': (req) => {
-                    const insightId = req.url.searchParams.get('insight')
+                '/api/environments/:team_id/subscriptions': ({ request }) => {
+                    const insightId = new URL(request.url).searchParams.get('insight')
                     let results: SubscriptionType[] = []
 
                     if (insightId === Insight2) {

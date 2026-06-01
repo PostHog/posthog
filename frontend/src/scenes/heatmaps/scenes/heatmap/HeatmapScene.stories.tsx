@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse } from 'msw'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -38,8 +39,8 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_gen/': generatingSaved,
-                '/api/environments/:team_id/heatmap_screenshots/:id/content/': (_req, res, ctx) =>
-                    res(ctx.status(202), ctx.json(generatingSaved)),
+                '/api/environments/:team_id/heatmap_screenshots/:id/content/': () =>
+                    HttpResponse.json(generatingSaved, { status: 202 }),
             },
         }),
     ],
@@ -86,28 +87,24 @@ export const IframeExample: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/saved/hm_iframe/': (_req, res, ctx) =>
-                    res(ctx.status(200), ctx.json(makeIframeSaved())),
-                '/api/heatmap/': (_req, res, ctx) =>
-                    res(
-                        ctx.status(200),
-                        ctx.json({
-                            results: [
-                                { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 355, count: 85 },
-                                { pointer_relative_x: 0.7, pointer_target_fixed: false, pointer_y: 24, count: 32 },
-                                { pointer_relative_x: 0.77, pointer_target_fixed: false, pointer_y: 24, count: 28 },
-                                { pointer_relative_x: 0.84, pointer_target_fixed: false, pointer_y: 24, count: 15 },
-                                { pointer_relative_x: 0.91, pointer_target_fixed: false, pointer_y: 24, count: 12 },
-                                { pointer_relative_x: 0.1, pointer_target_fixed: false, pointer_y: 24, count: 18 },
-                                { pointer_relative_x: 0.17, pointer_target_fixed: false, pointer_y: 395, count: 22 },
-                                { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 395, count: 19 },
-                                { pointer_relative_x: 0.83, pointer_target_fixed: false, pointer_y: 395, count: 14 },
-                            ],
-                            count: 9,
-                            next: null,
-                            previous: null,
-                        })
-                    ),
+                '/api/environments/:team_id/saved/hm_iframe/': () => HttpResponse.json(makeIframeSaved()),
+                '/api/heatmap/': () =>
+                    HttpResponse.json({
+                        results: [
+                            { pointer_relative_x: 0.4, pointer_target_fixed: false, pointer_y: 355, count: 85 },
+                            { pointer_relative_x: 0.7, pointer_target_fixed: false, pointer_y: 24, count: 32 },
+                            { pointer_relative_x: 0.77, pointer_target_fixed: false, pointer_y: 24, count: 28 },
+                            { pointer_relative_x: 0.84, pointer_target_fixed: false, pointer_y: 24, count: 15 },
+                            { pointer_relative_x: 0.91, pointer_target_fixed: false, pointer_y: 24, count: 12 },
+                            { pointer_relative_x: 0.1, pointer_target_fixed: false, pointer_y: 24, count: 18 },
+                            { pointer_relative_x: 0.17, pointer_target_fixed: false, pointer_y: 395, count: 22 },
+                            { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 395, count: 19 },
+                            { pointer_relative_x: 0.83, pointer_target_fixed: false, pointer_y: 395, count: 14 },
+                        ],
+                        count: 9,
+                        next: null,
+                        previous: null,
+                    }),
             },
         }),
     ],

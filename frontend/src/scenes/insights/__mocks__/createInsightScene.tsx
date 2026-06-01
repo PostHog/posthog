@@ -1,6 +1,7 @@
 import { StoryFn } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
+import { HttpResponse } from 'msw'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
@@ -57,9 +58,8 @@ export function createInsightStory(
 
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({
+                '/api/environments/:team_id/insights/': () =>
+                    HttpResponse.json({
                         count: 1,
                         results: [
                             {
@@ -70,13 +70,11 @@ export function createInsightStory(
                             },
                         ],
                     }),
-                ],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (req, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({
-                        cache_key: req.params.query,
+                '/api/environments/:team_id/query/:kind/': ({ params }) =>
+                    HttpResponse.json({
+                        cache_key: params.query,
                         calculation_trigger: null,
                         error: '',
                         hasMore: false,
@@ -87,7 +85,6 @@ export function createInsightStory(
                         columns: (insight as any).columns,
                         types: (insight as any).types,
                     }),
-                ],
             },
         })
 

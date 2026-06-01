@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { expectLogic } from 'kea-test-utils'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,8 +24,8 @@ describe('personalAPIKeysLogic', () => {
                 '/api/projects/': { results: [], count: 0, next: null, previous: null },
             },
             post: {
-                '/api/personal_api_keys/': async (req) => {
-                    capturedCreatePayload = await req.json()
+                '/api/personal_api_keys/': async ({ request }) => {
+                    capturedCreatePayload = await request.json()
                     return [
                         200,
                         {
@@ -60,6 +62,8 @@ describe('personalAPIKeysLogic', () => {
 
         await logic.asyncActions.submitEditingKey()
 
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'insight:write'])
         expect(capturedCreatePayload.scopes).not.toContain('llm_gateway:read')
@@ -79,6 +83,8 @@ describe('personalAPIKeysLogic', () => {
 
         await logic.asyncActions.submitEditingKey()
 
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'llm_gateway:read'])
     })
@@ -94,6 +100,8 @@ describe('personalAPIKeysLogic', () => {
         })
 
         await logic.asyncActions.submitEditingKey()
+
+        await expectLogic(logic).toFinishAllListeners()
 
         expect(capturedCreatePayload).not.toBeNull()
         expect(capturedCreatePayload.scopes).toEqual(['*'])

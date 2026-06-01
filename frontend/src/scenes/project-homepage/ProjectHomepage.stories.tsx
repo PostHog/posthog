@@ -41,8 +41,8 @@ const insightMocks = dashboard.tiles.reduce((acc: Record<string, any>, tile: any
 }, {})
 
 // Add the generic insight fetching endpoint that requires from_dashboard param
-const insightFetchMock = (req: any): [number, any] => {
-    const insightId = req.params.id
+const insightFetchMock = ({ params }: any): [number, any] => {
+    const insightId = params.id
 
     // Don't require from_dashboard in storybook to simplify things
     // Find the insight in the dashboard tiles

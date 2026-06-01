@@ -798,8 +798,8 @@ describe('TaxonomicFilter', () => {
         // verify that promotion moves it to position 0.
         useMocks({
             get: {
-                '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
                     const allProps = [
                         { ...mockEventPropertyDefinition, id: 'url-other', name: '$initial_referring_url' },
                         { ...mockEventPropertyDefinition, id: 'url-other-2', name: 'signup_url' },
@@ -1332,9 +1332,9 @@ describe('TaxonomicFilter', () => {
             // to the DOM in CI. Production latency exceeds this comfortably.
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': async (req) => {
+                    '/api/projects/:team/event_definitions': async (info) => {
                         await new Promise((resolve) => setTimeout(resolve, 100))
-                        return mockGetEventDefinitions(req)
+                        return mockGetEventDefinitions(info)
                     },
                     '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                     '/api/projects/:team/actions': { results: [mockActionDefinition] },

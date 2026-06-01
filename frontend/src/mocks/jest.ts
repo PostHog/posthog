@@ -12,8 +12,8 @@ window.confirm = jest.fn()
 beforeAll(() => {
     useAvailableFeatures([])
     mswServer.listen({
-        onUnhandledRequest(req) {
-            const { hostname } = new URL(req.url)
+        onUnhandledRequest(request) {
+            const { hostname } = new URL(request.url)
             // Silence external requests entirely
             if (
                 hostname === 'posthog.com' ||
@@ -24,7 +24,7 @@ beforeAll(() => {
                 return
             }
             // Single-line warning instead of verbose multi-line stack trace
-            console.warn(`[MSW] Unhandled ${req.method} ${req.url}`)
+            console.warn(`[MSW] Unhandled ${request.method} ${request.url}`)
         },
     })
 })

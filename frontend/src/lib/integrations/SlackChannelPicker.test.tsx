@@ -59,9 +59,10 @@ describe('SlackChannelPicker', () => {
         channelIdLookups = []
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': (req: any) => {
-                    const search = req.url.searchParams.get('search')
-                    const channelId = req.url.searchParams.get('channel_id')
+                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    const search = searchParams.get('search')
+                    const channelId = searchParams.get('channel_id')
                     if (channelId) {
                         channelIdLookups.push(channelId)
                         const match =

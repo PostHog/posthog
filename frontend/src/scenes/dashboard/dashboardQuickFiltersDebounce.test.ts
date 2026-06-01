@@ -78,11 +78,9 @@ function setupDashboard(quickFilterIds: string[] | null): () => {
                     previous: null,
                     results: [dashboard],
                 },
-                '/api/environments/:team_id/insights/:id/': (req) => {
-                    const id =
-                        typeof req.params['id'] === 'string'
-                            ? parseInt(req.params['id'])
-                            : parseInt(req.params['id'][0])
+                '/api/environments/:team_id/insights/:id/': ({ params }) => {
+                    const rawId = params['id'] as string | string[]
+                    const id = typeof rawId === 'string' ? parseInt(rawId) : parseInt(rawId[0])
                     if (id === 101) {
                         return [200, insight1]
                     }
@@ -143,7 +141,9 @@ describe('dashboard quick filters debounce', () => {
         it('debounces and sets tiles as queued', async () => {
             const { logic, sectionLogic } = getLogics()
 
-            jest.useFakeTimers()
+            // Don't fake the microtask/immediate queues MSW v2 uses to drain response streams,
+            // otherwise advancing the debounce timer spins those queues and exhausts the heap.
+            jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'setImmediate', 'clearImmediate'] })
 
             sectionLogic.actions.setQuickFilterValue('filter-1', '$environment', mockOption)
 

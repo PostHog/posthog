@@ -60,7 +60,7 @@ const meta: Meta<StoryArgs> = {
             ].reduce(
                 (acc, url) =>
                     Object.assign(acc, {
-                        [url]: (req: any) => {
+                        [url]: async ({ request }: { request: Request }) => {
                             return [
                                 200,
                                 {
@@ -68,7 +68,7 @@ const meta: Meta<StoryArgs> = {
                                     enabled: true,
                                     access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                     password_required: passwordRequired,
-                                    ...req.body,
+                                    ...((await request.json()) as Record<string, any>),
                                 },
                             ]
                         },

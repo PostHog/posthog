@@ -267,14 +267,14 @@ export const mockSlackChannels: SlackChannelType[] = [
     },
 ]
 
-export const mockGetEventDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
-    const search = req.url.searchParams.get('search') ?? ''
+export const mockGetEventDefinitions = ({ request }: { request: Request }): [number, Record<string, any>] => {
+    const search = new URL(request.url).searchParams.get('search') ?? ''
     const results = search ? mockEventDefinitions.filter((e) => e.name.includes(search)) : mockEventDefinitions
     return [200, { results, count: results.length }]
 }
 
-export const mockGetPropertyDefinitions = (req: { url: URL }): [number, Record<string, any>] => {
-    const search = req.url.searchParams.get('search') ?? ''
+export const mockGetPropertyDefinitions = ({ request }: { request: Request }): [number, Record<string, any>] => {
+    const search = new URL(request.url).searchParams.get('search') ?? ''
     const results = search
         ? mockEventPropertyDefinitions.filter((p) => p.name.includes(search))
         : mockEventPropertyDefinitions

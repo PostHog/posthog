@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,10 +18,10 @@ describe('featureFlagConfirmationSettingsLogic', () => {
         lastCapturedPayload = null
         useMocks({
             patch: {
-                '/api/environments/:id': async (req, res, ctx) => {
-                    lastCapturedPayload = await req.json()
+                '/api/environments/:id': async ({ request }) => {
+                    lastCapturedPayload = await request.json()
                     const updatedTeam = { ...MOCK_DEFAULT_TEAM, ...lastCapturedPayload }
-                    return res(ctx.json(updatedTeam))
+                    return HttpResponse.json(updatedTeam)
                 },
             },
         })

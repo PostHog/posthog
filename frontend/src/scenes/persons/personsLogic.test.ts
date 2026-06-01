@@ -21,11 +21,12 @@ const scenes: any = { [Scene.Person]: blankScene }
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
-    const mockPersonsApiHandler: MockSignature = (req) => {
-        if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+    const mockPersonsApiHandler: MockSignature = ({ request }) => {
+        const searchParams = new URL(request.url).searchParams
+        if (['+', 'abc', 'xyz'].includes(searchParams.get('distinct_id') ?? '')) {
             return [200, { results: ['person from api'] }]
         }
-        if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+        if (['test@test.com'].includes(searchParams.get('distinct_id') ?? '')) {
             return [
                 200,
                 {

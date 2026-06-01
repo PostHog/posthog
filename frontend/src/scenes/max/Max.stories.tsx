@@ -13,6 +13,7 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -46,7 +47,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(chatResponseChunk),
             },
             get: {
                 '/api/organizations/@current/': () => [
@@ -155,7 +156,9 @@ export const EmptyThreadLoading: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                },
             },
         })
 
@@ -190,7 +193,7 @@ export const GenerationFailureThread: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(generationFailureChunk),
             },
         })
 
@@ -226,7 +229,7 @@ export const ThreadWithFailedGeneration: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(failureChunk),
             },
         })
 
@@ -256,9 +259,9 @@ export const ThreadWithRateLimit: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Retry-After header is present so we should be showing its value in the UI
-                    res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
+                // Retry-After header is present so we should be showing its value in the UI
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(chatResponseChunk, { status: 429, headers: { 'Retry-After': '3899' } }),
             },
         })
 
@@ -288,9 +291,9 @@ export const ThreadWithRateLimitNoRetryAfter: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Testing rate limit error when the Retry-After header is MISSING
-                    res(ctx.text(chatResponseChunk), ctx.status(429)),
+                // Testing rate limit error when the Retry-After header is MISSING
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(chatResponseChunk, { status: 429 }),
             },
         })
 
@@ -320,13 +323,13 @@ export const ThreadWithBillingLimitExceeded: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Testing billing limit exceeded error (402 Payment Required)
-                    res(
-                        ctx.status(402),
-                        ctx.json({
+                // Testing billing limit exceeded error (402 Payment Required)
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.json(
+                        {
                             detail: 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.',
-                        })
+                        },
+                        { status: 402 }
                     ),
             },
         })
@@ -357,7 +360,7 @@ export const ThreadWithQuickReplies: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(formChunk),
             },
         })
 
@@ -387,7 +390,9 @@ export const ThreadWithConversationLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                },
             },
         })
 
@@ -487,7 +492,9 @@ export const ThreadWithInProgressConversation: Story = {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/in_progress/': async () => {
+                    await delay('infinite')
+                },
             },
         })
 
@@ -573,7 +580,9 @@ export const ChatHistoryLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                },
             },
         })
 
@@ -684,8 +693,10 @@ export const ThreadScrollsToBottomOnNewMessages: Story = {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
             },
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(ctx.delay(100), ctx.text(longResponseChunk)),
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay(100)
+                    return HttpResponse.text(longResponseChunk)
+                },
             },
         })
 
@@ -723,8 +734,7 @@ export const ChatWithUIContext: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(ctx.text(chatResponseWithEventContext)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(chatResponseWithEventContext),
             },
             get: {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
@@ -840,21 +850,19 @@ export const PlanningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a comprehensive analysis plan',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(planningMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive analysis plan',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(planningMessage)}`,
+                        ])
                     ),
             },
         })
@@ -900,18 +908,16 @@ export const ReasoningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(reasoningMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(reasoningMessage)}`,
+                        ])
                     ),
             },
         })
@@ -1032,34 +1038,34 @@ export const TaskExecutionComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: 'in_progress' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(taskExecutionMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion1)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion2)}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[0])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[1])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[2])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[3])}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: 'in_progress' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[0])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[1])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[2])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[3])}`,
+                        ])
                     ),
             },
             get: {
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/in_progress/': async () => {
+                    await delay('infinite')
+                },
             },
         })
 
@@ -1163,27 +1169,25 @@ export const TaskExecutionWithFailure: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Execute analysis with some failures',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(taskExecutionMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion1)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion2)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion3)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Execute analysis with some failures',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion3)}`,
+                        ])
                     ),
             },
         })
@@ -1224,7 +1228,7 @@ export const MultiVisualizationInThread: Story = {
                         hogql: 'SELECT count() FROM events',
                     },
                 ],
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => {
+                '/api/environments/:team_id/conversations/': () => {
                     const humanMsg = {
                         type: AssistantMessageType.Human,
                         content: 'Analyze our product metrics comprehensively',
@@ -1278,20 +1282,18 @@ export const MultiVisualizationInThread: Story = {
 - Apply dashboard rollout strategy to future features`,
                     }
 
-                    return res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMsg,
-                                    content: 'Analyze our product metrics comprehensively',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiVizMessage)}`,
-                            ])
-                        )
+                    return HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMsg,
+                                content: 'Analyze our product metrics comprehensively',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiVizMessage)}`,
+                        ])
                     )
                 },
             },
@@ -1323,7 +1325,7 @@ export const ThreadWithSQLQueryOverflow: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+                '/api/environments/:team_id/conversations/': () => HttpResponse.text(sqlQueryResponseChunk),
             },
         })
 
@@ -1423,24 +1425,22 @@ export const SearchSessionRecordingsEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
@@ -1527,23 +1527,21 @@ export const SearchSessionRecordingsWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me recordings where users are on Microsoft Edge with Linux',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me recordings where users are on Microsoft Edge with Linux',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
@@ -1571,8 +1569,8 @@ export const SearchSessionRecordingsWithResults: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const version = req.url.searchParams.get('version')
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const version = new URL(request.url).searchParams.get('version')
                     return [
                         200,
                         {
@@ -1629,23 +1627,21 @@ export const SearchErrorTrackingIssuesEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me active payment errors from the last week',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me active payment errors from the last week',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
@@ -1754,24 +1750,22 @@ export const SearchErrorTrackingIssuesWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Show me all payment-related errors from the last month, sorted by occurrences',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me all payment-related errors from the last month, sorted by occurrences',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
@@ -1855,23 +1849,21 @@ export const DangerousOperationPendingApproval: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Update my Sales Analytics dashboard with new metrics',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: approval',
-                                `data: ${JSON.stringify(pendingApproval)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Update my Sales Analytics dashboard with new metrics',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
                     ),
             },
             get: {
@@ -2045,23 +2037,21 @@ The following services will need to be notified:
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Run the database migration',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: approval',
-                                `data: ${JSON.stringify(pendingApproval)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Run the database migration',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
                     ),
             },
             get: {
@@ -2171,21 +2161,19 @@ export const ThreadWithMultiQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me get started with PostHog',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me get started with PostHog',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2265,21 +2253,19 @@ export const ThreadWithMultiFieldQuestion: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up an A/B test',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2345,21 +2331,19 @@ export const ThreadWithSingleQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'What pricing plan should I choose?',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(singleQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'What pricing plan should I choose?',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(singleQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2495,22 +2479,20 @@ export const ThreadWithMultiQuestionFormLongContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(longContentFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(longContentFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2593,21 +2575,19 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me prioritize my analytics work',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(formMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me prioritize my analytics work',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(formMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2679,21 +2659,19 @@ export const NotebookArtifactMarkdownOnly: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a retention analysis notebook',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a retention analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2768,21 +2746,19 @@ export const NotebookArtifactWithVisualizations: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a dashboard analysis notebook with charts',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a dashboard analysis notebook with charts',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2878,21 +2854,19 @@ export const NotebookArtifactMixedContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a comprehensive product analysis notebook',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive product analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
@@ -2972,21 +2946,19 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me an analysis with loading and error states',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me an analysis with loading and error states',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
@@ -3230,21 +3202,19 @@ export const ThreadWithMixedFieldTypeForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up analytics for my team',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up analytics for my team',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -3326,21 +3296,19 @@ export const ThreadWithTextAndNumberForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'I want to set up event tracking for my project',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'I want to set up event tracking for my project',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
@@ -3404,21 +3372,19 @@ export const ThreadWithSliderForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up an A/B test experiment',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    HttpResponse.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test experiment',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })

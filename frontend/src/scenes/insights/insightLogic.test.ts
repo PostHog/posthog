@@ -144,16 +144,17 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/quick_filters/': {
                     results: [],
                 },
-                '/api/environments/:team_id/insights/trend/': async (req) => {
-                    const clientQueryId = req.url.searchParams.get('client_query_id')
+                '/api/environments/:team_id/insights/trend/': async ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    const clientQueryId = searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
                     }
 
-                    if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
+                    if (JSON.parse(searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
-                    if (req.url.searchParams.get('date_from') === '-180d') {
+                    if (searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
                         return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
@@ -170,8 +171,9 @@ describe('insightLogic', () => {
                 '/api/environments/:team_id/insights/42': partialInsight42,
                 '/api/environments/:team_id/insights/43/': partialInsight43,
                 '/api/environments/:team_id/insights/44/': partialInsight44,
-                '/api/environments/:team_id/insights/': (req) => {
-                    if (req.url.searchParams.get('saved')) {
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    if (searchParams.get('saved')) {
                         return [
                             200,
                             {
@@ -189,7 +191,7 @@ describe('insightLogic', () => {
                             },
                         ]
                     }
-                    const shortId = req.url.searchParams.get('short_id') || ''
+                    const shortId = searchParams.get('short_id') || ''
                     if (shortId === '500') {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -201,7 +203,7 @@ describe('insightLogic', () => {
                                     result: parseInt(shortId) === 42 ? ['result from api'] : null,
                                     id: parseInt(shortId),
                                     short_id: shortId.toString(),
-                                    filters: JSON.parse(req.url.searchParams.get('filters') || 'false') || API_FILTERS,
+                                    filters: JSON.parse(searchParams.get('filters') || 'false') || API_FILTERS,
                                     name: 'original name',
                                     dashboards: [1, 2, 3],
                                 },
@@ -247,25 +249,25 @@ describe('insightLogic', () => {
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 '/api/environments/:team_id/insights/viewed': [201],
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { ...(req.body as any), id: 12, short_id: Insight12 },
+                    { ...((await request.json()) as any), id: 12, short_id: Insight12 },
                 ],
                 '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as any
                     const response = patchResponseFor(
                         payload,
-                        req.params['id'] as string,
-                        JSON.parse(req.url.searchParams.get('filters') || 'false')
+                        params['id'] as string,
+                        JSON.parse(new URL(request.url).searchParams.get('filters') || 'false')
                     )
                     return [200, response]
                 },
-                '/api/projects/:team/insights/:id': async (req) => {
-                    const payload = await req.json()
-                    return [200, { ...payload, id: req.params['id'] }]
+                '/api/projects/:team/insights/:id': async ({ request, params }) => {
+                    const payload = (await request.json()) as any
+                    return [200, { ...payload, id: params['id'] }]
                 },
             },
         })
@@ -1102,8 +1104,8 @@ describe('insightLogic', () => {
         it('syncs favorited to savedInsight on metadata save', async () => {
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/insights/:id': async (req) => {
-                        const payload = await req.json()
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        const payload = (await request.json()) as any
                         return [
                             200,
                             {

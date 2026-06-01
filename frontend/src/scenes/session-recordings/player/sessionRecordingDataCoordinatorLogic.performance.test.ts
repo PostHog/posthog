@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 import { join } from 'path'
 
 import { uuid } from 'lib/utils'
@@ -41,11 +42,12 @@ describe('sessionRecordingDataCoordinatorLogic performance', () => {
                 },
             ],
             getMocks: {
-                '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        const key = req.url.searchParams.get('blob_key')
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    const searchParams = new URL(request.url).searchParams
+                    if (searchParams.get('source') === 'blob_v2') {
+                        const key = searchParams.get('blob_key')
                         const contents = key === '0' ? keyZero : keyOne
-                        return res(ctx.text(contents))
+                        return HttpResponse.text(contents)
                     }
 
                     return [

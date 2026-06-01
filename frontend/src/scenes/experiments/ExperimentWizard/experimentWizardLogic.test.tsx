@@ -650,8 +650,8 @@ describe('experimentWizardLogic', () => {
             useMocks({
                 ...apiMocks,
                 post: {
-                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async (req: any) => {
-                        capturedPayload = await req.json()
+                    [`/api/projects/${MOCK_TEAM_ID}/experiments/`]: async ({ request }) => {
+                        capturedPayload = await request.json()
                         return [
                             200,
                             {

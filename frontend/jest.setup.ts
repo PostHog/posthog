@@ -1,13 +1,9 @@
 import 'jest-canvas-mock'
-import 'whatwg-fetch'
 
 import { configure } from '@testing-library/react'
-import { TextDecoder, TextEncoder } from 'util'
 
-// Jest/JSDom don't know about TextEncoder but the browsers we support do
-// https://github.com/jsdom/jsdom/issues/2524
-global.TextDecoder = TextDecoder as any
-global.TextEncoder = TextEncoder as any
+// fetch / Request / Response / TextEncoder and friends are polyfilled in jest.polyfills.js,
+// which runs first in setupFiles so MSW v2's interceptors see spec-compliant primitives.
 
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(

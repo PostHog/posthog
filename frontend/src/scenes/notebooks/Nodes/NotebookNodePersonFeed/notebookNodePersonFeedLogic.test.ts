@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { delay } from 'msw'
 
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 
@@ -139,18 +140,27 @@ describe('notebookNodePersonFeedLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadSessionsTimelineSuccess'])
     }
 
+    // The summaries loader merges each response into the current summaries map
+    // (`{ ...values.summaries, ...response }`). When the bulk action fires several
+    // requests at once they must resolve in distinct turns, otherwise the concurrent
+    // reads all see the same stale map and overwrite each other. Stagger responses
+    // by a per-request counter to keep those merges serialized.
+    let summaryRequestCount = 0
+
     beforeEach(() => {
+        summaryRequestCount = 0
         initKeaTests()
         useMocks({
             post: {
                 [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                     results: mockSessionsWithRecording,
                 },
-                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async (
-                    req: any
-                ) => {
-                    const { session_ids } = await req.json()
+                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async ({
+                    request,
+                }) => {
+                    const { session_ids } = (await request.json()) as any
                     const sessionId = session_ids[0]
+                    await delay((summaryRequestCount++ + 1) * 10)
                     if (failingSessionIds.includes(sessionId)) {
                         return [500, { detail: 'Server error' }]
                     }
