@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "args_schema": {
+            "description": "Overrides args_schema. Omit to keep prior value."
+        },
+        "compiled_js": {
+            "description": "Updated bundle output. Required when `source` or `edits` are supplied.",
+            "type": "string"
+        },
+        "description": {
+            "description": "Overrides the prior description. Omit to keep the prior value.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "edits": {
+            "description": "Structured edits against the current source.",
+            "items": {
+                "description": "Structured edit applied to source.",
+                "properties": {
+                    "new": {
+                        "description": "Replacement text.",
+                        "type": "string"
+                    },
+                    "old": {
+                        "description": "Text to locate (must match exactly once).",
+                        "type": "string"
+                    }
+                },
+                "required": ["old", "new"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "requires_secrets": {
+            "description": "Overrides requires_secrets. Omit to keep prior value.",
+            "items": {
+                "maxLength": 128,
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "returns_schema": {
+            "description": "Overrides returns_schema. Omit to keep prior value."
+        },
+        "source": {
+            "description": "Full new TypeScript source. Mutually exclusive with `edits`.",
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

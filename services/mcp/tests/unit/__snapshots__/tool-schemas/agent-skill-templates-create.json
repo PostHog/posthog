@@ -1,0 +1,58 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Initial-create payload — produces v1.",
+    "properties": {
+        "allowed_tools": {
+            "description": "Optional list of tool ids the skill is meant to reach for."
+        },
+        "body": {
+            "default": "",
+            "description": "Initial SKILL.md markdown.",
+            "type": "string"
+        },
+        "description": {
+            "default": "",
+            "description": "One-line description shown in the list view + system-prompt skill index.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "files": {
+            "description": "Optional companion files at creation time.",
+            "items": {
+                "properties": {
+                    "content": {
+                        "description": "File body. Plain text or markdown — companion files are not interpreted by the runner.",
+                        "type": "string"
+                    },
+                    "content_type": {
+                        "default": "text/plain",
+                        "description": "MIME type hint. Read-only at runtime; aids the registry UI's file viewer.",
+                        "maxLength": 128,
+                        "type": "string"
+                    },
+                    "id": {
+                        "type": "string"
+                    },
+                    "path": {
+                        "description": "Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.",
+                        "maxLength": 512,
+                        "type": "string"
+                    }
+                },
+                "required": ["path", "content"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "metadata": {
+            "description": "Free-form, agentskills.io-compatible bag (license, compatibility, …)."
+        },
+        "name": {
+            "description": "Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.",
+            "maxLength": 128,
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}
