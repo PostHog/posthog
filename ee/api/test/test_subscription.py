@@ -128,6 +128,27 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
 
+    def test_cannot_create_subscription_without_insight_or_dashboard(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "No content source",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "Either dashboard or insight is required" in str(response.json())
+
+    def test_can_update_subscription_without_resending_relation(self):
+        sub_id = self._create_subscription().json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["title"], "Updated title")
+
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)

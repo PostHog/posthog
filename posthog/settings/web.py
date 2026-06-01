@@ -517,6 +517,7 @@ SPECTACULAR_SETTINGS = {
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
         "NotificationDestinationTypeEnum": ["slack", "webhook"],
         "TaskRunArtifactTypeEnum": [
