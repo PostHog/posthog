@@ -1,8 +1,4 @@
-use std::io::Write;
-
-use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::Utc;
-use lz4::EncoderBuilder;
 use property_defs_rs::types::{
     detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
 };
@@ -639,65 +635,4 @@ fn test_plain_event_properties_still_emitted() {
     );
     assert!(event_property_keys.contains(&"page"));
     assert!(event_property_keys.contains(&"referrer"));
-}
-
-#[test]
-fn test_phb64_lz4_encoded_properties_are_decoded() {
-    let props = json!({
-        "page": "/home",
-        "count": 42,
-        "$set": {
-            "email": "test@example.com"
-        }
-    });
-    let event = Event {
-        team_id: 1,
-        project_id: 1,
-        event: "$pageview".to_string(),
-        properties: Some(format!("phb64_{}", lz4_base64(&props.to_string()))),
-    };
-
-    let updates = event.into_updates(1000);
-
-    let event_property_keys: Vec<&str> = updates
-        .iter()
-        .filter_map(|u| match u {
-            Update::EventProperty(ep) => Some(ep.property.as_str()),
-            _ => None,
-        })
-        .collect();
-    let prop_def_names: Vec<&str> = updates
-        .iter()
-        .filter_map(|u| match u {
-            Update::Property(pd) => Some(pd.name.as_str()),
-            _ => None,
-        })
-        .collect();
-
-    assert!(event_property_keys.contains(&"page"));
-    assert!(event_property_keys.contains(&"count"));
-    assert!(prop_def_names.contains(&"email"));
-}
-
-#[test]
-fn test_invalid_phb64_properties_only_emit_event_definition() {
-    let event = Event {
-        team_id: 1,
-        project_id: 1,
-        event: "$pageview".to_string(),
-        properties: Some("phb64_not-valid-base64".to_string()),
-    };
-
-    let updates = event.into_updates(1000);
-
-    assert_eq!(updates.len(), 1, "expected only event update: {updates:?}");
-    assert!(matches!(updates[0], Update::Event(_)));
-}
-
-fn lz4_base64(value: &str) -> String {
-    let mut encoder = EncoderBuilder::new().build(Vec::new()).unwrap();
-    encoder.write_all(value.as_bytes()).unwrap();
-    let (compressed, result) = encoder.finish();
-    result.unwrap();
-    BASE64_STANDARD.encode(compressed)
 }

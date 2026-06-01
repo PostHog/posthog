@@ -1,8 +1,11 @@
 use std::{
+    borrow::Cow,
     fmt,
+    io::Read,
     sync::{Arc, Weak},
 };
 
+use lz4::Decoder;
 use rdkafka::{
     consumer::{CommitMode, Consumer, ConsumerGroupMetadata, StreamConsumer},
     error::KafkaError,
@@ -10,8 +13,12 @@ use rdkafka::{
 };
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+use tracing::warn;
 
 use crate::config::{ConsumerConfig, KafkaConfig};
+
+const LZ4_FRAME_MAGIC: &[u8; 4] = &[0x04, 0x22, 0x4d, 0x18];
+const MAX_DECOMPRESSED_KAFKA_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct SingleTopicConsumer {
@@ -144,7 +151,7 @@ impl SingleTopicConsumer {
             return Err(RecvErr::Empty);
         };
 
-        let payload = match serde_json::from_slice(payload) {
+        let payload = match deserialize_json_payload(payload) {
             Ok(p) => p,
             Err(e) => {
                 // We auto-store poison pills, panicking on failure
@@ -195,6 +202,49 @@ impl SingleTopicConsumer {
     }
 }
 
+fn deserialize_json_payload<T>(payload: &[u8]) -> Result<T, serde_json::Error>
+where
+    T: DeserializeOwned,
+{
+    let payload = maybe_decompress_lz4_payload(payload);
+    serde_json::from_slice(&payload)
+}
+
+fn maybe_decompress_lz4_payload(payload: &[u8]) -> Cow<'_, [u8]> {
+    if !payload.starts_with(LZ4_FRAME_MAGIC) {
+        return Cow::Borrowed(payload);
+    }
+
+    match decompress_lz4_payload(payload, MAX_DECOMPRESSED_KAFKA_PAYLOAD_BYTES) {
+        Ok(decompressed) => Cow::Owned(decompressed),
+        Err(error) => {
+            warn!("Failed to decompress LZ4 Kafka payload: {error}");
+            Cow::Borrowed(payload)
+        }
+    }
+}
+
+fn decompress_lz4_payload(payload: &[u8], limit: usize) -> Result<Vec<u8>, std::io::Error> {
+    let decoder = Decoder::new(payload)?;
+    let mut decompressed = Vec::new();
+    decoder
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut decompressed)?;
+
+    if decompressed.len() > limit {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "decompressed payload exceeded limit ({} > {} bytes)",
+                decompressed.len(),
+                limit
+            ),
+        ));
+    }
+
+    Ok(decompressed)
+}
+
 pub struct Offset {
     handle: Weak<Inner>,
     pub(crate) topic: String,
@@ -231,5 +281,58 @@ impl fmt::Debug for Offset {
             "{{ partition: {}, offset: {} }}",
             self.partition, self.offset
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use lz4::EncoderBuilder;
+    use serde_json::{json, Value};
+
+    use super::{decompress_lz4_payload, deserialize_json_payload};
+
+    #[test]
+    fn deserializes_plain_json_payload() {
+        let payload = br#"{"event":"$pageview","team_id":1}"#;
+
+        let parsed: Value = deserialize_json_payload(payload).unwrap();
+
+        assert_eq!(parsed["event"], "$pageview");
+        assert_eq!(parsed["team_id"], 1);
+    }
+
+    #[test]
+    fn deserializes_lz4_json_payload() {
+        let original = br#"{"event":"$pageview","team_id":1}"#;
+        let payload = lz4_payload(original);
+
+        let parsed: Value = deserialize_json_payload(&payload).unwrap();
+
+        assert_eq!(parsed["event"], "$pageview");
+        assert_eq!(parsed["team_id"], 1);
+    }
+
+    #[test]
+    fn invalid_lz4_payload_falls_back_to_json_error() {
+        let payload = [0x04, 0x22, 0x4d, 0x18, b'n', b'o', b'p', b'e'];
+
+        assert!(deserialize_json_payload::<Value>(&payload).is_err());
+    }
+
+    #[test]
+    fn oversized_lz4_payload_is_rejected() {
+        let payload = lz4_payload(&json!({"large": "x".repeat(256)}).to_string().into_bytes());
+
+        assert!(decompress_lz4_payload(&payload, 16).is_err());
+    }
+
+    fn lz4_payload(value: &[u8]) -> Vec<u8> {
+        let mut encoder = EncoderBuilder::new().build(Vec::new()).unwrap();
+        encoder.write_all(value).unwrap();
+        let (compressed, result) = encoder.finish();
+        result.unwrap();
+        compressed
     }
 }

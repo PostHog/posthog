@@ -31,8 +31,6 @@ personhog-proto = { path = "../personhog-proto" }
 tonic = { workspace = true }
 thiserror.workspace = true
 regex.workspace = true
-base64 = { workspace = true }
-lz4 = { workspace = true }
 
 [dev-dependencies]
 tokio-stream = { version = "0.1", features = ["net"] }
