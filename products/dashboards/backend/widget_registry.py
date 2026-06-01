@@ -25,11 +25,20 @@ from products.dashboards.backend.widgets.error_tracking_list import (
     run_error_tracking_list_widget,
     validate_error_tracking_list_config,
 )
+from products.dashboards.backend.widgets.session_replay_list import (
+    run_session_replay_list_widget,
+    validate_session_replay_list_config,
+)
 
 # Canonical widget types. Must match WIDGET_REGISTRY keys.
-EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list"})
+EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list", "session_replay_list"})
 
-DashboardWidgetType = Literal["error_tracking_list"]
+DashboardWidgetType = Literal["error_tracking_list", "session_replay_list"]
+DashboardWidgetTypeInput = Literal["error_tracking_list", "error_tracking", "session_replay_list"]
+
+WIDGET_TYPE_ALIASES: dict[str, str] = {
+    "error_tracking": "error_tracking_list",
+}
 
 
 class WidgetRegistryEntry(TypedDict):
@@ -46,6 +55,12 @@ WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
         "query_fn": run_error_tracking_list_widget,
         "required_scopes": ["error_tracking:read"],
         "required_product_access": "error_tracking",
+    },
+    "session_replay_list": {
+        "validate_config": validate_session_replay_list_config,
+        "query_fn": run_session_replay_list_widget,
+        "required_scopes": ["session_recording:read"],
+        "required_product_access": "session_recording",
     },
 }
 

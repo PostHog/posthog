@@ -2,7 +2,8 @@ import { urls } from 'scenes/urls'
 
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
-import { errorTrackingWidgetConfigSchema } from './configSchemas'
+import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
+import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from './configSchemas'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -26,6 +27,7 @@ export const DEFAULT_DASHBOARD_WIDGET_HEADER_META = {
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
+    session_replay: 'Session replay',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -65,6 +67,31 @@ export const DASHBOARD_WIDGET_CATALOG = {
         productAccess: 'error_tracking',
         titleHref: urls.errorTracking(),
     },
+    session_replay_list: {
+        groupId: 'session_replay',
+        label: 'Recent recordings',
+        description: 'Recent session recordings you can open in the replay player.',
+        headerTitle: 'Recent recordings',
+        defaultConfig: sessionReplayWidgetConfigSchema.parse({
+            dateRange: { date_from: '-7d' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        productAccess: 'session_recording',
+        headerLayout: 'dashboard_tile' satisfies DashboardWidgetHeaderLayout,
+        headerMeta: {
+            showWidgetType: true,
+            showDateRange: true,
+        } satisfies DashboardWidgetHeaderMeta,
+        titleHref: urls.replay(),
+        availability: {
+            requirement: 'session_replay_enabled',
+            unavailableTitle: 'Session replay is not enabled',
+            unavailableReason:
+                'Turn on session recordings for this project to watch recent replays from your dashboard.',
+            setupActionLabel: 'Enable session replay',
+            docsHref: 'https://posthog.com/docs/session-replay',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
@@ -72,6 +99,7 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
     error_tracking_list: ErrorTrackingWidgetPreview,
+    session_replay_list: SessionReplayWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {

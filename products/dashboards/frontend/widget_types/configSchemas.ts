@@ -81,3 +81,15 @@ export const errorTrackingWidgetFormSchema = z.object({
     dateFrom: widgetDateFromSchema,
     filterTestAccounts: z.boolean(),
 })
+
+export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
+    limit: widgetLimitFieldSchema.default(10),
+    orderBy: z
+        .enum(['start_time', 'activity_score', 'recording_duration', 'duration', 'click_count', 'console_error_count'])
+        .default('start_time'),
+    orderDirection: widgetOrderDirectionSchema,
+    dateRange: widgetDateRangeSchema,
+})
+
+export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>
+

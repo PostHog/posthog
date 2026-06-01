@@ -66,6 +66,90 @@ export const errorTrackingSampleIssues = [
     },
 ]
 
+export const sessionReplaySampleRecordings = [
+    {
+        id: 'overview-recording-1',
+        viewed: false,
+        viewers: [],
+        recording_duration: 248,
+        start_time: '2026-05-26T08:00:00.000Z',
+        end_time: '2026-05-26T08:04:08.000Z',
+        distinct_id: 'user-1',
+        click_count: 12,
+        keypress_count: 34,
+        person: {
+            id: 1,
+            name: 'Alex Chen',
+            distinct_ids: ['user-1'],
+            properties: {
+                $geoip_country_code: 'US',
+                $browser: 'Chrome',
+                $device_type: 'Desktop',
+                $os: 'Mac OS X',
+            },
+            created_at: '2026-05-01T10:00:00.000Z',
+            is_identified: true,
+        },
+        activity_score: 76,
+        snapshot_source: 'web' as const,
+        start_url: 'https://app.example.test/dashboard',
+    },
+    {
+        id: 'overview-recording-2',
+        viewed: false,
+        viewers: [],
+        recording_duration: 132,
+        start_time: '2026-05-25T12:00:00.000Z',
+        end_time: '2026-05-25T12:02:12.000Z',
+        distinct_id: 'user-2',
+        click_count: 4,
+        keypress_count: 9,
+        person: {
+            id: 2,
+            name: 'Sam Rivera',
+            distinct_ids: ['user-2'],
+            properties: {
+                $geoip_country_code: 'AU',
+                $browser: 'Chrome',
+                $device_type: 'Desktop',
+                $os: 'Mac OS X',
+            },
+            created_at: '2026-05-01T10:00:00.000Z',
+            is_identified: true,
+        },
+        activity_score: 48,
+        snapshot_source: 'web' as const,
+        start_url: 'https://app.example.test/settings',
+    },
+    {
+        id: 'overview-recording-3',
+        viewed: false,
+        viewers: [],
+        recording_duration: 89,
+        start_time: '2026-05-24T15:00:00.000Z',
+        end_time: '2026-05-24T15:01:29.000Z',
+        distinct_id: 'user-3',
+        click_count: 2,
+        keypress_count: 5,
+        person: {
+            id: 3,
+            name: 'Jordan Lee',
+            distinct_ids: ['user-3'],
+            properties: {
+                $geoip_country_code: 'GB',
+                $browser: 'Firefox',
+                $device_type: 'Desktop',
+                $os: 'Windows',
+            },
+            created_at: '2026-05-01T10:00:00.000Z',
+            is_identified: true,
+        },
+        activity_score: 31,
+        snapshot_source: 'web' as const,
+        start_url: 'https://app.example.test/onboarding',
+    },
+]
+
 /** New widget types: add a case here. See products/dashboards/CONTRIBUTING.md. */
 export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey): WidgetOverviewDemoState {
     const catalogEntry = DASHBOARD_WIDGET_CATALOG[catalogKey]
@@ -82,6 +166,19 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 loading: false,
                 result: {
                     results: errorTrackingSampleIssues,
+                    hasMore: true,
+                    limit: 10,
+                },
+            }
+        case 'session_replay_list':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig, orderBy: 'start_time' },
+                loading: false,
+                result: {
+                    results: sessionReplaySampleRecordings,
                     hasMore: true,
                     limit: 10,
                 },
