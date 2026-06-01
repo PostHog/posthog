@@ -77,11 +77,11 @@ PostHog AI users do **not** pick a sandbox environment. The mode dropdown stays 
 
 Three implementation choices for selecting the constrained profile:
 
-1. **Implicit profile keyed on `origin_product`.** The cloud-agent provisioner reads `task.origin_product == "posthog_ai"` and applies the 1 GB / 0.5 vCPU / `trusted`-network preset. No new field, no user-visible knob. **Recommended.**
+1. **Implicit profile keyed on `origin_product`.** The cloud-agent provisioner reads `task.origin_product == "posthog_ai"` and applies the 1 GB / 0.5 vCPU / `trusted`-network preset. No new field, no user-visible knob. **Recommended.** This requires **adding a new value** to the existing products/tasks `Task.OriginProduct` enum (today it holds `USER_CREATED`, `ERROR_TRACKING`, `SLACK`, `SIGNAL_REPORT`, `AUTOMATION` — there is no `POSTHOG_AI` value yet). The new `Task.OriginProduct.POSTHOG_AI` is the one schema addition this option needs; everything downstream keys on it.
 2. **A reserved `SandboxEnvironment` row per region** (named e.g. `"posthog-ai-default"`) that the `POST /sandbox/` handler always references for PostHog AI Runs via `state.sandbox_environment_id`. No model change; uses existing fields. Slightly less elegant than (1) — the row is invisible-from-UI which feels surprising.
 3. **A new `Task.sandbox_profile` enum field** with values like `default | posthog_ai`. Cleanest in terms of explicit intent but adds a Django migration for what is effectively a derived value.
 
-Bias toward (1). It puts the routing decision in one place (the provisioner) and keeps the Django schema slim. `origin_product` already exists per the cloud spec § 2.3.
+Bias toward (1). It puts the routing decision in one place (the provisioner) and keeps the Django schema slim. The `origin_product` field already exists on products/tasks `Task` per the cloud spec § 2.3 — only the new `Task.OriginProduct.POSTHOG_AI` enum value has to be added.
 
 If we want to keep the door open for users to tune sandboxes themselves down the road (e.g., an enterprise wanting more RAM for very large MCP responses), option (3) becomes more attractive — but that's not on the roadmap.
 
@@ -115,15 +115,15 @@ If the cloud-agent provisioner doesn't have per-`origin_product` idle policy tod
 
 ## 7. Task model touchpoints summary
 
-What `02_CORE.md` § 2 already covers and what this spec adds:
+What `02_CORE.md` § 2 already covers and what this spec adds. These fields are set **in-process** by the message-routing handler when it calls products/tasks `Task.create_and_run(...)` (`products/tasks/backend/models.py:279`) — they are Python arguments to the model call, not fields in an HTTP request body. PostHog AI does not POST to its own REST API.
 
-| Field on `Task`                                | Set by                 | Value for PostHog AI                                                      |
-| ---------------------------------------------- | ---------------------- | ------------------------------------------------------------------------- |
-| `origin_product` (existing — cloud spec § 2.3) | Adapter at Task-create | `"posthog_ai"` — **drives the constrained sandbox profile** per § 4 above |
-| `repository`                                   | Adapter at Task-create | `null` — no repo (`04_PROMPTS.md` § 2.3)                                  |
-| `github_integration`                           | Adapter at Task-create | `null`                                                                    |
-| `internal`                                     | Adapter at Task-create | `false`                                                                   |
-| `signal_report`                                | Adapter at Task-create | `null` (PostHog AI is user-initiated, never signal-report-triggered)      |
+| Field on `Task`                                | Set by                                         | Value for PostHog AI                                                                       |
+| ---------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `origin_product` (existing — cloud spec § 2.3) | Handler at Task-create (`Task.create_and_run`) | `Task.OriginProduct.POSTHOG_AI` — **drives the constrained sandbox profile** per § 4 above |
+| `repository`                                   | Handler at Task-create (`Task.create_and_run`) | `None` — no repo (`04_PROMPTS.md` § 2.3)                                                   |
+| `github_integration`                           | Handler at Task-create (`Task.create_and_run`) | `None`                                                                                     |
+| `internal`                                     | Handler at Task-create (`Task.create_and_run`) | `False`                                                                                    |
+| `signal_report`                                | Handler at Task-create (`Task.create_and_run`) | `None` (PostHog AI is user-initiated, never signal-report-triggered)                       |
 
 What needs to land in the cloud-agent provisioner (not in Django):
 
@@ -143,13 +143,13 @@ The cloud-agent spec has no native pre-warming. First-message latency is dominat
 
 When the user focuses the chat input and types the first non-whitespace character, the frontend issues `POST /api/.../conversations/{id}/prewarm/`. The handler:
 
-1. Creates a Task if the conversation doesn't yet have one (`Conversation.sandbox_task IS NULL`) — the same path as first-message Task creation in § 5.1, minus the `pending_user_message`.
-2. Calls `POST /api/projects/{tid}/tasks/{taskId}/run/` with `mode: "interactive"`, **no** `pending_user_message`, **no** `state.attached_context`, and the standard systemPrompt. The agent-server boots, opens the ACP session, emits `_posthog/run_started`, and idles waiting for `POST /command/` `user_message`.
-3. The new Run is the latest on the Task, so `Conversation.current_sandbox_run` (derived — see `02_CORE.md` § 2.2) automatically resolves to it. No conversation-row update needed.
+1. Creates a Task in-process if the conversation doesn't yet have one (`Conversation.task IS NULL`) — the same path as first-message Task creation in § 5.1, minus the `pending_user_message`.
+2. Calls products/tasks **in-process** to start a Run with `mode="interactive"`, **no** `pending_user_message`, **no** `state.attached_context`, and the standard systemPrompt — `Task.create_and_run(...)` (`products/tasks/backend/models.py:279`) for the first warm, or `task.create_run(...)` (`products/tasks/backend/models.py:230`) for a re-warm on an existing Task. No HTTP-to-self. The agent-server boots, opens the ACP session, emits `_posthog/run_started`, and idles waiting for a `user_message` command.
+3. The new Run is the latest on the Task, so `Conversation.current_run` (derived — `task.runs` latest by `created_at`, see `02_CORE.md` § 2.2) automatically resolves to it. No conversation-row update needed.
 
-When the user submits the message, the `POST /sandbox/` handler reads `conversation.current_sandbox_run.status`, finds it `in_progress`, and routes via the in-progress branch of § 6.1 — `POST /command/` to the existing sandbox. First-token latency drops from ~5–8 s (cold boot + session init) to roughly model invocation time.
+When the user submits the message, the `POST /sandbox/` handler reads `conversation.current_run.status`, finds it `in_progress`, and routes via the in-progress branch of § 6.1 — an in-process `signal_task_followup_message(run.workflow_id, ...)` Temporal signal (`products/tasks/backend/temporal/client.py:314`) to the existing sandbox. First-token latency drops from ~5–8 s (cold boot + session init) to roughly model invocation time.
 
-**Cancellation.** If the input goes empty for >5 s OR the user navigates away from the chat surface, the frontend issues `DELETE /api/.../conversations/{id}/prewarm/`. The handler sends `POST /command/` `cancel` and lets the Run transition to terminal. The conversation can prewarm again on the next typing session — a new Run, fresh `created_at`.
+**Cancellation.** If the input goes empty for >5 s OR the user navigates away from the chat surface, the frontend issues `DELETE /api/.../conversations/{id}/prewarm/`. The handler issues a `cancel` command on the Run (the existing products/tasks `POST /runs/{id}/command/` `cancel`, `products/tasks/backend/api.py:2249`) and lets the Run transition to terminal. The conversation can prewarm again on the next typing session — a new Run, fresh `created_at`.
 
 **Idle self-cancel inside the sandbox.** A warmed Run that never receives a `user_message` should self-terminate after a short interval (60 s recommendation). Today's idle timer (`05_SANDBOX.md` § 6) fires on `_posthog/turn_complete` with no follow-up — a warmed Run never reaches `turn_complete`, so the existing timer never fires. We need a separate "never-started" timer dimension. See open question 9 below.
 
@@ -184,10 +184,10 @@ Triggers: spot-VM preemption, OOM, idle timeout, host crash, agent process exit.
 **What survives**:
 
 - The S3 NDJSON log up to the last `SessionLogWriter` flush (per cloud spec § 10.10, the flush debounce is 500 ms / max 5 s / 50-entry threshold — so worst-case ~500 ms of frames are lost).
-- `Conversation.sandbox_task` (the Task is independent of any single Run).
-- `Conversation.current_sandbox_run` still resolves to the now-terminal Run because it's still the latest by `created_at` until a successor is created.
+- `Conversation.task` (the Task is independent of any single Run).
+- `Conversation.current_run` (derived — `task.runs` latest by `created_at`) still resolves to the now-terminal Run because it's still the latest until a successor is created.
 
-**Recovery path**: the user's next message triggers § 6.2's terminal-then-resume branch. The `POST /sandbox/` handler creates a new Run with `state.resume_from_run_id = previous_run_id` and kicks off the new sandbox. `current_sandbox_run` automatically resolves to the new Run via the Task's reverse relation — no conversation-row update. The agent-server's session-init code (`agent-server.ts:1515-1527`) reads the predecessor's S3 log via `resumeFromLog`, replays conversation history into the model's context, then handles the new user message. From the user's perspective there's a brief "starting…" indicator (the existing `CloudInitializingView` surface) and then the conversation continues.
+**Recovery path**: the user's next message triggers § 6.2's terminal-then-resume branch. The `POST /sandbox/` handler calls products/tasks in-process — `task.create_run(mode="interactive", extra_state={resume_from_run_id, ...})` (`products/tasks/backend/models.py:230`) followed by `execute_task_processing_workflow(...)` — and kicks off the new sandbox. `current_run` automatically resolves to the new Run via the Task's reverse relation — no conversation-row update. The agent-server's session-init code (`agent-server.ts:1515-1527`) reads the predecessor's S3 log via `resumeFromLog`, replays conversation history into the model's context, then handles the new user message. From the user's perspective there's a brief "starting…" indicator (the existing `CloudInitializingView` surface) and then the conversation continues.
 
 **Recovery is automatic.** The frontend doesn't need any new behavior — § 6.2 already specifies it.
 
@@ -197,7 +197,7 @@ If a Run's NDJSON log in S3 is missing or unreadable, `resumeFromLog` reads noth
 
 **What we can do**:
 
-- **Frontend conversation-message mirror**: if PostHog continues to mirror messages Django-side (today's `ConversationMessage` table or equivalent — open question 11 below), the frontend's thread view still renders prior turns. The user can re-orient even though the agent's memory is gone.
+- **No Django-side message mirror on the sandbox path.** Sandbox history lives in S3 and is read via the existing products/tasks logs endpoints (`02_CORE.md` § 4.6); `Conversation.messages_json` is no longer written for sandbox conversations (open question 11 below). So if the S3 log is lost there is no Django-side thread copy to fall back to — the frontend renders whatever the products/tasks `logs/` / `session_logs/` endpoints can still return.
 - **No automatic agent-memory recovery**. Reconstituting agent context from a non-S3 source isn't in the cloud-agent today and isn't worth building unless S3 loss becomes common.
 
 **Mitigation is at the storage layer**, not the application layer — cross-region replication on the log bucket, retention policy reviews, backup posture. Out of scope for this spec; flag to infra.
@@ -208,18 +208,18 @@ This is the only failure mode without automatic recovery.
 
 Tab close, network glitch, navigation away. The sandbox keeps running; logs keep accumulating in S3. The browser's `EventSource` against `/api/projects/{tid}/tasks/.../stream/` closes; Django wasn't holding the SSE in the first place, so no server-side teardown work is needed (see § 9 of `02_CORE.md`).
 
-**Recovery path**: the user reopens the conversation. The bootstrap in `02_CORE.md` § 4.2 walks the full Task → Runs chain, fetches every `session_logs/`, concatenates, plus opens fresh SSE if the current Run is non-terminal. Already specified, already automatic.
+**Recovery path**: the user reopens the conversation. The bootstrap in `02_CORE.md` § 4.2 fetches the existing products/tasks `logs/` endpoint (`products/tasks/backend/api.py:2173` — it already concatenates the entire resume chain from S3, no custom multi-run walker needed), plus opens fresh SSE against the existing products/tasks `stream/` endpoint if the current Run is non-terminal. Already specified, already automatic.
 
 ### 9.4 Long-conversation case study
 
 A conversation that's been alive for a week, picked up and dropped repeatedly, accumulating (say) 8 Runs across idle timeouts overnight, two preemptions, and one OOM:
 
-| Conversation row state          | Value                                                                                                                               |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `sandbox_task`                  | Single Task created on the first message — same across all 8 Runs                                                                   |
-| `current_sandbox_run` (derived) | Resolves to the 8th Run (`in_progress` if the user is active, `cancelled` if last idle-timed-out) — it's the latest by `created_at` |
-| `Task.runs`                     | All 8 Runs, ordered by `created_at`                                                                                                 |
-| S3 NDJSON logs                  | 8 files, one per Run; the bootstrap reads all and concatenates per § 4.2                                                            |
+| Conversation row state  | Value                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`                  | Single Task created on the first message — same across all 8 Runs                                                                      |
+| `current_run` (derived) | Resolves to the 8th Run (`in_progress` if the user is active, `cancelled` if last idle-timed-out) — `task.runs` latest by `created_at` |
+| `task.runs`             | All 8 Runs, ordered by `created_at`                                                                                                    |
+| S3 NDJSON logs          | 8 files, one per Run; the products/tasks `logs/` endpoint concatenates the resume chain per § 4.2                                      |
 
 Each Run after the first carries `state.resume_from_run_id` linking to its predecessor — the chain is reconstructable from either `created_at` ordering or the resume-from pointer (both agree in healthy operation).
 
@@ -242,15 +242,15 @@ If a single conversation accumulates dozens of Runs and the bootstrap fetch beco
 7. **Cost projection.** With constrained sizing, what's the per-sandbox-hour cost? Compare to the LLM cost per chat — if compute is < 10% of LLM cost, further tightening doesn't matter for the unit economics. _Owner: finance + AI._
 8. **Prewarm latency telemetry.** Once § 8 ships, measure: median time from `POST /prewarm/` to `_posthog/run_started`. If this exceeds the median typing time (i.e., users submit before the sandbox is ready), the prewarm signal needs to fire earlier or we need a different acceleration story. _Owner: AI._
 9. **Never-started idle timer for warmed Runs.** § 8.1 needs an idle-cancel that fires when a Run reaches `in_progress` but no `user_message` arrives within ~60 s. Today's idle timer fires on `_posthog/turn_complete`, which a warmed Run never reaches. New dimension in the provisioner, or a per-Run `state.warm_only_timeout_seconds` override. _Owner: infra._
-10. **Agent-server handles empty initial message.** Confirm `agent-server.ts:1077-1297` doesn't error when all four initial-message sources are empty (per § 8.4). If it does, propose `state.await_user_message: true`. _Owner: AI + agent-server._
-11. ~~**Conversation-message mirror Django-side.**~~ **Resolved**: sandbox-runtime conversations do **not** mirror messages Django-side. History lives in S3 ACP logs and is retrieved via the new `/log/` endpoint (`02_CORE.md` § 4.6) or the SSE bootstrap snapshot (`02_CORE.md` § 4.2). The detail endpoint's `messages` field is empty for sandbox conversations and populated only for LangGraph (`02_CORE.md` § 4.7). This leaves § 9.2 (S3 log loss) as a storage-layer concern — durability handled by S3 replication, not by application-layer mirroring.
+10. **Agent-server handles empty initial message.** Confirm `agent-server.ts:1077-1297` doesn't error when all four initial-message sources are empty (per § 8.3). If it does, propose `state.await_user_message: true`. _Owner: AI + agent-server._
+11. ~~**Conversation-message mirror Django-side.**~~ **Resolved**: sandbox-runtime conversations do **not** mirror messages Django-side — `Conversation.messages_json` is no longer written on the sandbox path. History lives in S3 ACP logs and is retrieved via the existing products/tasks `logs/` endpoint (`products/tasks/backend/api.py:2173`, exposed in `02_CORE.md` § 4.6) or the SSE bootstrap snapshot (`02_CORE.md` § 4.2). The detail endpoint's `messages` field is empty for sandbox conversations and populated only for LangGraph (`02_CORE.md` § 4.7). This leaves § 9.2 (S3 log loss) as a storage-layer concern — durability handled by S3 replication, not by application-layer mirroring.
 12. **S3 log retention / backup.** What's the durability story for the NDJSON logs? Single-bucket, no replication, or replicated cross-region? Affects § 9.2 likelihood. _Owner: infra._
 
 ---
 
 ## 11. Cross-references
 
-- `02_CORE.md` § 2 — Task linkage on the `Conversation` row (single FK; `current_sandbox_run` derived).
+- `02_CORE.md` § 2 — Task linkage on the `Conversation` row (single `task` FK; `current_run` derived from `task.runs` latest by `created_at`).
 - `02_CORE.md` § 4.2 — multi-Run bootstrap that consumes the chain documented in § 9.
 - `02_CORE.md` § 5.3 — terminal-then-resume lifecycle that ties § 9.1 together.
 - `04_PROMPTS.md` § 2.3 — no-repository posture (related Task-field disposition).
