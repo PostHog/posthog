@@ -14,7 +14,6 @@ use crate::config::Config;
 use crate::dispatcher::Dispatcher;
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
-use crate::worker_registry::WorkerRegistry;
 
 /// The main consumer loop: reads from Kafka, routes messages by distinct_id
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
@@ -22,7 +21,6 @@ use crate::worker_registry::WorkerRegistry;
 pub struct IngestionConsumer {
     consumer: StreamConsumer,
     dispatcher: Arc<Dispatcher>,
-    registry: Arc<WorkerRegistry>,
     transport: Arc<HttpTransport>,
     worker_urls: Vec<String>,
     batch_size: usize,
@@ -36,7 +34,6 @@ impl IngestionConsumer {
     pub fn from_parts(
         consumer: StreamConsumer,
         dispatcher: Arc<Dispatcher>,
-        registry: Arc<WorkerRegistry>,
         transport: Arc<HttpTransport>,
         worker_urls: Vec<String>,
         batch_size: usize,
@@ -46,7 +43,6 @@ impl IngestionConsumer {
         Self {
             consumer,
             dispatcher,
-            registry,
             transport,
             worker_urls,
             batch_size,
@@ -58,7 +54,6 @@ impl IngestionConsumer {
     pub fn new(
         config: &Config,
         dispatcher: Arc<Dispatcher>,
-        registry: Arc<WorkerRegistry>,
         transport: Arc<HttpTransport>,
         handle: Handle,
     ) -> anyhow::Result<Self> {
@@ -82,7 +77,6 @@ impl IngestionConsumer {
         Ok(Self {
             consumer,
             dispatcher,
-            registry,
             transport,
             worker_urls,
             batch_size: config.consumer_batch_size,
@@ -165,7 +159,6 @@ impl IngestionConsumer {
         let mut handles = Vec::with_capacity(sub_batches.len());
         for sub_batch in sub_batches {
             let transport = Arc::clone(&self.transport);
-            let registry = Arc::clone(&self.registry);
             let dispatcher = Arc::clone(&self.dispatcher);
             let url = self.worker_urls[sub_batch.worker_idx].clone();
             let bid = batch_id.clone();
@@ -177,7 +170,7 @@ impl IngestionConsumer {
                 let is_error = result.is_err();
 
                 dispatcher.on_sub_batch_resolved(worker_idx, &routing_keys);
-                registry.record_outcome(worker_idx, is_error);
+                dispatcher.record_send_outcome(worker_idx, is_error);
 
                 result
             }));

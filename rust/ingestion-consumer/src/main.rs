@@ -136,9 +136,8 @@ async fn async_main(config: Config) -> Result<()> {
         config.ingestion_worker_concurrent_batches,
     ));
 
-    let consumer =
-        IngestionConsumer::new(&config, dispatcher, registry, transport, consumer_handle)
-            .context("Failed to create Kafka consumer")?;
+    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
+        .context("Failed to create Kafka consumer")?;
 
     tokio::spawn(async move {
         consumer.process().await;

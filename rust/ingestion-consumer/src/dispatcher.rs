@@ -271,6 +271,12 @@ impl Dispatcher {
 
         gauge!("ingestion_consumer_dispatcher_pins_total").set(table.pins.len() as f64);
     }
+
+    /// Record the outcome of a send attempt for passive health tracking.
+    /// Delegates to the underlying WorkerRegistry.
+    pub fn record_send_outcome(&self, worker_idx: usize, is_error: bool) {
+        self.registry.record_outcome(worker_idx, is_error);
+    }
 }
 
 /// Extract the routing key from a message's `token` and `distinct_id` headers.

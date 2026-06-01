@@ -254,7 +254,6 @@ impl Harness {
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
             dispatcher,
-            Arc::clone(&registry),
             transport,
             worker_urls,
             50,
@@ -393,15 +392,13 @@ async fn failing_worker_triggers_rerouting() {
     }
     harness.wait_for(12, Duration::from_secs(10)).await;
 
-    // Batch-2 messages (seq 4–7) must be on the live worker and in order.
+    // Batch-2 messages (seq 4–7) must all be on the live worker and in order.
     let live_seqs = harness.workers[live_idx].seqs_for("user-1");
-    assert!(
-        live_seqs.contains(&4) && live_seqs.contains(&7),
-        "batch-2 messages missing from live worker: {live_seqs:?}"
-    );
-    assert!(
-        live_seqs.windows(2).all(|w| w[0] < w[1]),
-        "user-1 messages on live worker are out of order: {live_seqs:?}"
+    let batch2_seqs: Vec<usize> = live_seqs.iter().copied().filter(|&s| s >= 4).collect();
+    assert_eq!(
+        batch2_seqs,
+        vec![4, 5, 6, 7],
+        "batch-2 messages for user-1 missing or out-of-order on live worker: {live_seqs:?}"
     );
 
     harness.stop().await;
