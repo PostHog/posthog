@@ -6660,6 +6660,7 @@ dependencies = [
  "http-body-util",
  "metrics",
  "pin-project",
+ "rstest",
  "sqlx",
  "tokio",
  "tonic 0.12.3",

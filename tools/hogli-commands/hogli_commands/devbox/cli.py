@@ -31,7 +31,6 @@ from .coder import (
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
     REGIONS,
-    WORKSPACE_REGION_PARAMETER,
     _diagnose_unreachable_coder,
     _fail,
     coder_authenticated,
@@ -267,22 +266,13 @@ def _workspace_status_color(status: str) -> str:
     return WORKSPACE_STATUS_COLORS.get(status, "white")
 
 
-def _pinned_region_param(workspace: dict[str, Any]) -> dict[str, str]:
-    """Pin `workspace_region` to the workspace's current value for `coder update`.
+def _sync_workspace_parameters(name: str) -> None:
+    """Push local config (git identity, dotfiles) to workspace parameters before start.
 
-    Coder re-prompts for any parameter whose template-declared option set has
-    changed since the workspace was created (see coder.com docs on rich
-    parameters). The recent addition of `eu-central-1` did exactly that, so
-    every update path now forwards the current value to suppress the picker.
-    Boxes predating region metadata default to us-east-1 — the only region
-    that existed before the metadata item was added.
+    `workspace_region` is intentionally not forwarded: it is immutable, so Coder
+    carries it forward on its own and rejects any explicit value on `coder
+    update` (see the comment on `WORKSPACE_REGION_PARAMETER`).
     """
-    region = get_workspace_region(workspace) or DEFAULT_REGION
-    return {WORKSPACE_REGION_PARAMETER: region}
-
-
-def _sync_workspace_parameters(name: str, workspace: dict[str, Any]) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start."""
     config = load_config()
     params: dict[str, str] = {}
 
@@ -296,10 +286,8 @@ def _sync_workspace_parameters(name: str, workspace: dict[str, Any]) -> None:
     if dotfiles_uri:
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
 
-    if not params:
-        return
-    params.update(_pinned_region_param(workspace))
-    update_workspace_parameters(name, params)
+    if params:
+        update_workspace_parameters(name, params)
 
 
 def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: bool) -> None:
@@ -315,7 +303,7 @@ def _start_existing_workspace(name: str, workspace: dict[str, Any], *, verbose: 
         click.echo("Wait for the current operation to complete.")
         return
 
-    _sync_workspace_parameters(name, workspace)
+    _sync_workspace_parameters(name)
 
     if status == "stopped":
         click.echo(f"Starting devbox '{name}'...")
@@ -1332,7 +1320,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         click.echo(f"Devbox '{name}' is already up to date.")
         return
     config = load_config()
-    params: dict[str, str] = _pinned_region_param(ws)
+    params: dict[str, str] = {}
     if dotfiles_uri := config.get("dotfiles_uri"):
         params[DOTFILES_URI_PARAMETER] = dotfiles_uri
     click.echo(f"Updating '{name}' to the latest template...")

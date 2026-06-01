@@ -17,12 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.slack_thread import (
-    SlackThreadContext,
-    SlackThreadHandler,
-    ack_emoji_for,
-    stale_ack_emojis_for,
-)
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
@@ -1050,8 +1045,8 @@ def create_posthog_code_task_for_repo_activity(
     )
     slack = SlackIntegration(integration)
 
-    # Refuse before the ack reaction or the permalink fetch: a denied mention
-    # should not first ack-react and then refuse a second later.
+    # Refuse before the :seedling: reaction or the permalink fetch: a denied
+    # mention should not first ack-react and then refuse a second later.
     if _block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -1064,10 +1059,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        # Deterministic per ts so activity retries (maximum_attempts=3) land on
-        # the same emoji and `_safe_react`'s `already_reacted` short-circuit
-        # keeps the ack idempotent.
-        _safe_react(slack.client, channel, user_message_ts, ack_emoji_for(user_message_ts))
+        _safe_react(slack.client, channel, user_message_ts, "seedling")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1536,7 +1528,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in stale_ack_emojis_for(user_message_ts):
+    for stale_emoji in ("eyes", "seedling"):
         try:
             slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
         except Exception:
