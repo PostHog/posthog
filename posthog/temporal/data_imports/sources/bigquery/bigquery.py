@@ -157,9 +157,9 @@ def bigquery_storage_read_client(
     channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
     tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
     transport = BigQueryReadGrpcTransport(channel=tracked_channel)
-    client = bigquery_storage.BigQueryReadClient(transport=transport)
 
     try:
+        client = bigquery_storage.BigQueryReadClient(transport=transport)
         yield client
     finally:
         # We own the channel (built above), so we must close it — otherwise each

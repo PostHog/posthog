@@ -183,6 +183,16 @@ class _TrackedStreamWrapper(Iterator[Any]):
         except Exception:
             pass
 
+    def close(self) -> None:
+        # A consumer that stops early (explicit close, cancellation, generator
+        # teardown) never drives __next__ to its terminal StopIteration/error,
+        # so record the partial stream here before tearing the iterator down.
+        # The _recorded guard keeps this idempotent if __next__ already fired.
+        self._record(code=None, exception=None)
+        inner_close = getattr(self._iter, "close", None)
+        if inner_close is not None:
+            inner_close()
+
     def __getattr__(self, name: str) -> Any:
         # Delegate Call-surface methods (cancel, trailing_metadata, …) the SDK
         # may reach for on the response object to the wrapped iterator.

@@ -220,6 +220,64 @@ def test_stream_wrapper_delegates_unknown_attributes():
     assert wrapper.cancel() is sentinel
 
 
+def test_stream_close_records_partial_stream_when_consumer_stops_early():
+    messages = [_FakeMessage(10), _FakeMessage(20), _FakeMessage(30)]
+    interceptor = TrackedUnaryStreamClientInterceptor(HOST)
+
+    with (
+        patch.object(transport, "record_stream") as record,
+        patch.object(transport, "is_capture_armed", return_value=False),
+    ):
+        wrapper = interceptor.intercept_unary_stream(lambda d, r: iter(messages), _call_details(), _FakeMessage(0))
+        it = iter(wrapper)
+        next(it)  # consume one message, then bail out early
+        wrapper.close()
+
+    assert record.call_count == 1
+    kwargs = record.call_args.kwargs
+    assert kwargs["code"] is None
+    assert kwargs["exception"] is None
+    assert kwargs["message_count"] == 1
+    assert kwargs["response_bytes"] == 10
+
+
+def test_stream_close_after_completion_does_not_double_record():
+    messages = [_FakeMessage(10)]
+    interceptor = TrackedUnaryStreamClientInterceptor(HOST)
+
+    with (
+        patch.object(transport, "record_stream") as record,
+        patch.object(transport, "is_capture_armed", return_value=False),
+    ):
+        wrapper = interceptor.intercept_unary_stream(lambda d, r: iter(messages), _call_details(), _FakeMessage(0))
+        list(wrapper)  # drains to StopIteration → records once
+        wrapper.close()  # idempotent: guarded by _recorded
+
+    assert record.call_count == 1
+    assert record.call_args.kwargs["code"] == grpc.StatusCode.OK
+
+
+def test_stream_close_delegates_to_inner_iterator():
+    closed = []
+
+    class _ClosableCall:
+        def __iter__(self):
+            return iter([])
+
+        def close(self):
+            closed.append(True)
+
+    interceptor = TrackedUnaryStreamClientInterceptor(HOST)
+    with (
+        patch.object(transport, "record_stream"),
+        patch.object(transport, "is_capture_armed", return_value=False),
+    ):
+        wrapper = interceptor.intercept_unary_stream(lambda d, r: _ClosableCall(), _call_details(), _FakeMessage(0))
+        wrapper.close()
+
+    assert closed == [True]
+
+
 # ---------------------------------------------------------------------------
 # Factories
 # ---------------------------------------------------------------------------
