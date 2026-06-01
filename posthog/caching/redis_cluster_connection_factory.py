@@ -80,3 +80,21 @@ def prewarm_query_cache_cluster() -> None:
         caches[QUERY_CACHE_ALIAS].get("__prewarm__")
     except Exception:
         logger.warning("prewarm_query_cache_cluster_failure", exc_info=True)
+
+
+def prewarm_query_cache_cluster_in_background() -> threading.Thread:
+    """Run prewarm_query_cache_cluster() on a daemon thread.
+
+    Callers on an event loop (the ASGI post-fork hook) must not run the blocking
+    cluster discovery inline. prewarm_query_cache_cluster swallows and logs its
+    own failures, so the thread cannot raise into the interpreter; daemon=True
+    keeps a still-running warmup from delaying shutdown. Start this only after
+    fork — never at module import on a server that forks workers.
+    """
+    thread = threading.Thread(
+        target=prewarm_query_cache_cluster,
+        name="prewarm-query-cache-cluster",
+        daemon=True,
+    )
+    thread.start()
+    return thread
