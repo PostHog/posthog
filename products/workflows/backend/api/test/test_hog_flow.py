@@ -850,6 +850,106 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_hog_flow_data_warehouse_table_trigger_valid(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        trigger = response.json()["trigger"]
+        assert trigger["type"] == "data-warehouse-table"
+        assert trigger["table_name"] == "postgres.table_1"
+        # Filters should be compiled to bytecode with the data-warehouse-table source
+        assert trigger["filters"]["source"] == "data-warehouse-table"
+        assert "bytecode" in trigger["filters"]
+
+    def test_hog_flow_data_warehouse_table_trigger_without_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__table_name",
+            "code": "invalid_input",
+            "detail": "A data warehouse table name is required for this trigger.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_data_warehouse_table_trigger_draft_allows_missing_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "draft",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_data_warehouse_table_trigger_filters_not_dict(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": "not a dict",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters",
+            "code": "invalid_input",
+            "detail": "Filters must be a dictionary.",
+            "type": "validation_error",
+        }
+
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})

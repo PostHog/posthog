@@ -179,6 +179,31 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # Schedule triggers have no extra validation - the schedule definition
                 # lives on a separate HogFlowSchedule row keyed by hog_flow_id.
                 pass
+            elif data.get("config", {}).get("type") == "data-warehouse-table":
+                # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
+                # per synced row, filtering only against the row payload. The dot-notated table_name
+                # must match the format produced by the Python CDPProducer so producer gating and
+                # trigger config use identical strings.
+                config = data.get("config", {})
+                table_name = config.get("table_name")
+                if not is_draft and (not table_name or not isinstance(table_name, str)):
+                    raise serializers.ValidationError(
+                        {"table_name": "A data warehouse table name is required for this trigger."}
+                    )
+
+                # Compile the row-property filters to bytecode so the executor can evaluate them.
+                # We force the data-warehouse-table source so only row properties are considered.
+                filters = config.get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters["source"] = "data-warehouse-table"
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             else:
                 if not is_draft:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
