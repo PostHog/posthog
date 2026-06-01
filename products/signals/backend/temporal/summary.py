@@ -86,6 +86,7 @@ class ReportDecision:
     summary: str
     choice: ActionabilityChoice
     explanation: str
+    priority: str | None = None
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -253,6 +254,7 @@ class SignalReportSummaryWorkflow:
                     summary=agentic_result.summary,
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
+                    priority=agentic_result.priority,
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
                 log.info(
@@ -294,6 +296,8 @@ class SignalReportSummaryWorkflow:
                 )
                 # No loop, human input is required
                 return False
+            if decision.priority is None:
+                raise ValueError("Immediately actionable signal report completed without a priority judgment")
             # 6. Mark ready and check if new signals arrived during the run
             has_new_signals: bool = await workflow.execute_activity(
                 mark_report_ready_activity,
@@ -696,9 +700,6 @@ async def dispatch_inbox_slack_notifications_activity(
         report_id=input.report_id,
         team_id=input.team_id,
         source_products=input.source_products,
-        wait_for_judgments=True,
-        wait_timeout_seconds=90,
-        wait_interval_seconds=3,
     )
 
 

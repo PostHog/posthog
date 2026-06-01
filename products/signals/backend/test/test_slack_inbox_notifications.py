@@ -408,50 +408,6 @@ def test_dispatch_skips_reports_with_non_actionable_judgment(
 
 
 @pytest.mark.django_db
-def test_dispatch_waits_for_judgments_before_sending(org_and_team: tuple[Organization, Team]) -> None:
-    org, team = org_and_team
-    user = _make_reviewer_user(org, "reviewer-wait@example.com", "wait-bot")
-    integration = _make_slack_integration(team, user)
-    SignalUserAutonomyConfig.objects.create(
-        user=user,
-        slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
-    )
-    report = _make_ready_report(team, actionability=None, priority=None, suggested_logins=["wait-bot"])
-
-    def persist_judgments(_seconds: float) -> None:
-        SignalReportArtefact.objects.create(
-            team=team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-            content=json.dumps({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE}),
-        )
-        SignalReportArtefact.objects.create(
-            team=team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-            content=json.dumps({"priority": AutonomyPriority.P1}),
-        )
-
-    fake_client = MagicMock()
-    with (
-        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
-        patch("products.signals.backend.slack_inbox_notifications.time.sleep", side_effect=persist_judgments),
-    ):
-        slack_cls.return_value.client = fake_client
-        sent = dispatch_inbox_item_notifications(
-            str(report.id),
-            team.id,
-            wait_for_judgments=True,
-            wait_timeout_seconds=1,
-            wait_interval_seconds=0.1,
-        )
-
-    assert sent == 1
-    assert fake_client.chat_postMessage.call_count == 1
-
-
-@pytest.mark.django_db
 def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")

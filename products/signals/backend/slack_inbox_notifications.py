@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -188,27 +187,6 @@ def _load_report_notification_readiness(
         return None, _NotificationReadiness(can_notify=False, pending_judgments=False, reason="report_not_found")
 
     return report, _notification_readiness(report)
-
-
-def _wait_for_notification_readiness(
-    report_id: str,
-    team_id: int,
-    *,
-    timeout_seconds: float,
-    interval_seconds: float,
-) -> tuple[SignalReport | None, _NotificationReadiness]:
-    deadline = time.monotonic() + timeout_seconds
-
-    while True:
-        report, readiness = _load_report_notification_readiness(report_id, team_id)
-        if not readiness.pending_judgments:
-            return report, readiness
-
-        remaining_seconds = deadline - time.monotonic()
-        if remaining_seconds <= 0:
-            return report, readiness
-
-        time.sleep(min(interval_seconds, remaining_seconds))
 
 
 @dataclass(frozen=True)
@@ -428,27 +406,14 @@ def dispatch_inbox_item_notifications(
     report_id: str,
     team_id: int,
     source_products: list[str] | None = None,
-    *,
-    wait_for_judgments: bool = False,
-    wait_timeout_seconds: float = 0,
-    wait_interval_seconds: float = 2,
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
 
-    Best-effort: per-target Slack errors are logged but do not raise. We only raise
-    while required judgments are still pending so the temporal summary workflow can
-    wait/retry instead of dropping the notification.
+    Best-effort: per-target Slack errors are logged but do not raise. Missing
+    judgments are an invariant violation: callers must run this only after the
+    report's actionability and priority judgments are persisted.
     """
-    if wait_for_judgments:
-        report, readiness = _wait_for_notification_readiness(
-            report_id,
-            team_id,
-            timeout_seconds=wait_timeout_seconds,
-            interval_seconds=wait_interval_seconds,
-        )
-    else:
-        report, readiness = _load_report_notification_readiness(report_id, team_id)
-
+    report, readiness = _load_report_notification_readiness(report_id, team_id)
     if report is None:
         return 0
 
