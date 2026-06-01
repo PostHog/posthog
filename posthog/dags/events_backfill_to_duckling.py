@@ -64,7 +64,7 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -126,6 +126,27 @@ def _get_cluster() -> ClickhouseCluster:
     return get_cluster()
 
 
+def _log_duckgres_connect_retry(retry_state: RetryCallState) -> None:
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    logger.warning(
+        "duckling_duckgres_connect_retry",
+        attempt=retry_state.attempt_number,
+        error=str(exc) if exc else None,
+        error_type=type(exc).__name__ if exc else None,
+    )
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    # ConnectionTimeout and other transient connection failures (server still
+    # starting up, reset peer) all surface as OperationalError. A bounded retry
+    # keeps a cold duckgres or a network blip from failing the whole backfill;
+    # genuinely-down duckgres still reraises after the attempts are exhausted.
+    retry=retry_if_exception_type(psycopg.OperationalError),
+    before_sleep=_log_duckgres_connect_retry,
+    reraise=True,
+)
 def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
@@ -135,6 +156,10 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
 
     Cross-account S3 credentials are configured server-side via IRSA on the
     duckling, so the DAG no longer calls `configure_cross_account_connection`.
+
+    Transient connection failures are retried (see decorator) — duckgres can be
+    momentarily unreachable during cold start or a network blip, and a single
+    `connect_timeout` expiry should not abort the backfill.
     """
     if catalog.team_id is None:
         raise ValueError(

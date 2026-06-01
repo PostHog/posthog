@@ -20,6 +20,7 @@ from posthog.dags.events_backfill_to_duckling import (
     ICEBERG_PERSONS_TABLE_DDL,
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
+    _connect_duckgres,
     _get_cluster,
     _set_iceberg_table_partitioning,
     _set_table_partitioning,
@@ -708,6 +709,55 @@ class TestGetClusterRetry:
             _get_cluster()
 
         assert mock_get_cluster.call_count == 3
+
+
+class TestConnectDuckgresRetry:
+    def _catalog(self):
+        catalog = MagicMock()
+        catalog.team_id = 2
+        catalog.organization_id = "org-123"
+        return catalog
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo", return_value="postgresql://x")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_retries_on_connection_timeout_then_succeeds(self, mock_connect, _mock_conninfo, _mock_sleep):
+        mock_conn = MagicMock()
+        mock_connect.side_effect = [
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            mock_conn,
+        ]
+
+        result = _connect_duckgres(self._catalog())
+
+        assert result is mock_conn
+        assert mock_connect.call_count == 3
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo", return_value="postgresql://x")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_raises_non_operational_error_immediately(self, mock_connect, _mock_conninfo, _mock_sleep):
+        # A non-connection error (e.g. bad config) is not transient — fail fast.
+        mock_connect.side_effect = ValueError("bad config")
+
+        with pytest.raises(ValueError, match="bad config"):
+            _connect_duckgres(self._catalog())
+
+        assert mock_connect.call_count == 1
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling.make_duckgres_conninfo", return_value="postgresql://x")
+    @patch("posthog.dags.events_backfill_to_duckling.psycopg.connect")
+    def test_reraises_after_max_retries_exhausted(self, mock_connect, _mock_conninfo, _mock_sleep):
+        # Persistently-unreachable duckgres reraises the original error after
+        # the bounded attempts — a retry does not mask a real outage.
+        mock_connect.side_effect = psycopg.errors.ConnectionTimeout("connection timeout expired")
+
+        with pytest.raises(psycopg.errors.ConnectionTimeout):
+            _connect_duckgres(self._catalog())
+
+        assert mock_connect.call_count == 3
 
 
 class TestDuckLakeAddDataFilesPartitioning:
