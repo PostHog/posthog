@@ -62,12 +62,17 @@ services:
             - -c
             - |
                 (
-                    until printf 's3.bucket.create -name capture\ns3.bucket.create -name posthog\n' \
-                            | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1; do
+                    while true; do
+                        OUT=$$(printf 's3.bucket.create -name capture\ns3.bucket.create -name posthog\ns3.bucket.list\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
+                        if echo "$$OUT" | grep -q capture \
+                                && echo "$$OUT" | grep -q posthog; then
+                            touch /tmp/objectstorage-ready
+                            echo "Objectstorage SeaweedFS ready with required buckets"
+                            break
+                        fi
                         sleep 1
                     done
-                    touch /tmp/objectstorage-ready
-                    echo "Objectstorage SeaweedFS ready with required buckets"
                 ) &
                 exec /usr/bin/weed "$$@"
             - --

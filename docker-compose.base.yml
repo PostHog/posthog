@@ -242,17 +242,25 @@ services:
         entrypoint:
             - /bin/sh
             - -c
-            # Background a one-shot create-buckets loop and exec weed as PID 1 so SIGTERM
-            # reaches it directly. `s3.bucket.create` is idempotent — retry the whole
-            # heredoc until the master answers; no list-then-create dance needed.
+            # Background a create-and-verify loop and exec weed as PID 1 so SIGTERM
+            # reaches it directly. `weed shell` exits 0 as long as the master is
+            # reachable, even if individual `s3.bucket.create` commands fail (e.g. while
+            # the filer is still coming up), so we run create+list in one session and
+            # only touch the sentinel once `s3.bucket.list` reports every required bucket.
             - |
                 (
-                    until printf 's3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
-                            | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1; do
+                    while true; do
+                        OUT=$$(printf 's3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\ns3.bucket.list\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 2>&1 || true)
+                        if echo "$$OUT" | grep -q posthog \
+                                && echo "$$OUT" | grep -q ducklake-dev \
+                                && echo "$$OUT" | grep -q ai-blobs; then
+                            touch /tmp/objectstorage-ready
+                            echo "Objectstorage SeaweedFS ready with required buckets"
+                            break
+                        fi
                         sleep 1
                     done
-                    touch /tmp/objectstorage-ready
-                    echo "Objectstorage SeaweedFS ready with required buckets"
                 ) &
                 exec /usr/bin/weed "$$@"
             - --
