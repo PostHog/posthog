@@ -43,7 +43,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
@@ -58,7 +58,6 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_partitions,
     list_child_partitions,
 )
-from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -876,7 +875,10 @@ def _build_query(
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
-    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause: sql.Composable = (
+        sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
+    )
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1690,8 +1692,7 @@ def postgres_source(
                         if incremental_field:
                             retained_set.add(incremental_field)
                         retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
-                        # Mirror build_select_clause's fallback: when nothing remains after projection
-                        # the SQL emits `SELECT *`, so the Arrow schema must stay full-table to match.
+                        # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
                         if not retained_columns:
                             retained_columns = None
 
@@ -1859,7 +1860,9 @@ def postgres_source(
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
                 try:
-                    with connection.cursor() as setup_cursor:
+                    # Use psycopg.Cursor directly to bypass cursor_factory (which may be
+                    # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
+                    with psycopg.Cursor(connection) as setup_cursor:
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)

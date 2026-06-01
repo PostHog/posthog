@@ -14,7 +14,7 @@ const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WeeklyDigestResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/web_analytics/weekly_digest/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/web_analytics/weekly_digest/`,
             query: {
                 compare: params.compare,
                 days: params.days,

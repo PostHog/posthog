@@ -534,6 +534,40 @@ function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], corner
     }
 }
 
+/** Clips subsequent drawing to the union of the given rounded rects — used to mask the bar
+ *  layer to the funnel pill so a stack's outer corners round even when the edge segment is too
+ *  thin to round on its own. Caller owns save/restore. */
+export function clipToRoundedRects(ctx: CanvasRenderingContext2D, rects: BarRect[], cornerRadius: number): void {
+    const renderableRects = rects.filter((r) => r.width > 0 && r.height > 0)
+    if (renderableRects.length === 0) {
+        return
+    }
+    ctx.beginPath()
+    for (const r of renderableRects) {
+        traceRoundedBarPath(ctx, r.x, r.y, r.width, r.height, cornerRadius, r.corners)
+    }
+    ctx.clip()
+}
+
+/** Paints each track rect as a single solid colour — the neutral "remainder of the whole"
+ *  backdrop for funnel-style stacked bars (one track per band behind the stack), as opposed
+ *  to {@link drawBarTracks}'s per-series tinted+hatched treatment for grouped layouts. */
+export function drawSolidBarTracks(
+    ctx: CanvasRenderingContext2D,
+    tracks: BarRect[],
+    color: string,
+    cornerRadius: number
+): void {
+    const renderableTracks = tracks.filter((t) => t.width > 0 && t.height > 0)
+    if (renderableTracks.length === 0) {
+        return
+    }
+    ctx.save()
+    ctx.fillStyle = color
+    fillTrackRects(ctx, renderableTracks, cornerRadius)
+    ctx.restore()
+}
+
 /** Paints each track rect as a tinted base under hatched stripes. Takes laid-out rects
  *  from `computeBarTrackRect`, mirroring `drawBars`. */
 export function drawBarTracks(

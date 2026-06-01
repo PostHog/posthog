@@ -56,6 +56,11 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
 ]
 
+export function isTransientPgError(err: unknown): boolean {
+    const message = (err as Error | undefined)?.message
+    return !!message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((m) => message.includes(m))
+}
+
 export enum PostgresUse {
     COMMON_READ, // Read replica on the common tables, uses need to account for possible replication delay
     COMMON_WRITE, // Main PG master with common tables, we need to move as many queries away from it as possible

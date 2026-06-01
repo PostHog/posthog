@@ -44,6 +44,8 @@ export interface AgentPromptButtonProps {
     size?: ButtonSize
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
+    /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
+    onRun?: (params: { actionKey: string; agentKey: string }) => void
     'data-attr'?: string
 }
 
@@ -136,6 +138,7 @@ export function AgentPromptButton({
     storageKey,
     size = 'sm',
     defaultOpen = false,
+    onRun,
     'data-attr': dataAttr,
 }: AgentPromptButtonProps): JSX.Element | null {
     const resolvedStorageKey =
@@ -166,6 +169,7 @@ export function AgentPromptButton({
     const runCombo = (actionKey: string, agentKey: string): void => {
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
         const prompt = action.buildPrompt()
+        onRun?.({ actionKey, agentKey })
         if (agentKey === CLIPBOARD_KEY) {
             void copyToClipboard(prompt, `${action.label.toLowerCase()} prompt`)
             return
