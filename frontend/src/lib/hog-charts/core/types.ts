@@ -232,6 +232,9 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
+    /** Fix the value-axis domain (no data-derived range, no `d3.nice()`) so independent charts
+     *  sharing a logical scale stay comparable. Takes precedence over `barLayout: 'percent'`. */
+    valueDomain?: [number, number]
 }
 
 export interface BarChartConfig extends ChartConfig {
