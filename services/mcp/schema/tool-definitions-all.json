@@ -253,7 +253,6 @@
         "summary": "Create an agent application",
         "title": "Create an agent application",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -268,7 +267,6 @@
         "summary": "Archive an agent application",
         "title": "Archive an agent application",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -283,7 +281,6 @@
         "summary": "Clear one secret",
         "title": "Clear one secret",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -298,7 +295,6 @@
         "summary": "Check whether one secret is set",
         "title": "Check whether one secret is set",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -313,7 +309,6 @@
         "summary": "List the names of secrets currently set",
         "title": "List the names of secrets currently set",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -328,7 +323,6 @@
         "summary": "List agent applications",
         "title": "List agent applications",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -343,7 +337,6 @@
         "summary": "Update an agent application",
         "title": "Update an agent application",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -358,7 +351,6 @@
         "summary": "Invoke a draft revision via the Django preview-proxy",
         "title": "Invoke a draft revision via the Django preview-proxy",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -373,7 +365,6 @@
         "summary": "Get an agent application",
         "title": "Get an agent application",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -388,7 +379,6 @@
         "summary": "Archive a revision",
         "title": "Archive a revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -403,7 +393,6 @@
         "summary": "Pull every file in a revision's bundle",
         "title": "Pull every file in a revision's bundle",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -418,7 +407,6 @@
         "summary": "Push a full bundle to a draft revision",
         "title": "Push a full bundle to a draft revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
@@ -433,7 +421,6 @@
         "summary": "Clone bundle from another revision",
         "title": "Clone bundle from another revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -448,7 +435,6 @@
         "summary": "Create a draft revision",
         "title": "Create a draft revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -463,7 +449,6 @@
         "summary": "Delete one file",
         "title": "Delete one file",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -478,7 +463,6 @@
         "summary": "Read one file",
         "title": "Read one file",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -493,7 +477,6 @@
         "summary": "Write one file",
         "title": "Write one file",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -508,7 +491,6 @@
         "summary": "Freeze a draft revision",
         "title": "Freeze a draft revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -523,7 +505,6 @@
         "summary": "List revisions of an application",
         "title": "List revisions of an application",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -538,7 +519,6 @@
         "summary": "List files in a revision's bundle",
         "title": "List files in a revision's bundle",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -553,7 +533,6 @@
         "summary": "Branch a new draft from an existing revision",
         "title": "Branch a new draft from an existing revision",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -568,7 +547,6 @@
         "summary": "Update a revision's spec",
         "title": "Update a revision's spec",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -583,7 +561,6 @@
         "summary": "Promote a revision to live",
         "title": "Promote a revision to live",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -598,7 +575,6 @@
         "summary": "Get a revision",
         "title": "Get a revision",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -613,7 +589,6 @@
         "summary": "Preview the assembled system prompt for a revision",
         "title": "Preview the assembled system prompt for a revision",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -628,7 +603,6 @@
         "summary": "Validate a revision's bundle + spec",
         "title": "Validate a revision's bundle + spec",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -643,7 +617,6 @@
         "summary": "List sessions for an agent",
         "title": "List sessions for an agent",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -658,7 +631,6 @@
         "summary": "Get one session",
         "title": "Get one session",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -673,7 +645,6 @@
         "summary": "Replace the application's env block",
         "title": "Replace the application's env block",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -688,7 +659,6 @@
         "summary": "Create a custom tool template (v1)",
         "title": "Create a custom tool template (v1)",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -703,7 +673,6 @@
         "summary": "List custom tool templates",
         "title": "List custom tool templates",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -718,7 +687,6 @@
         "summary": "Archive a custom tool template",
         "title": "Archive a custom tool template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -733,7 +701,6 @@
         "summary": "Duplicate a custom tool template",
         "title": "Duplicate a custom tool template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -748,7 +715,6 @@
         "summary": "Publish a new custom tool template version",
         "title": "Publish a new custom tool template version",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -763,7 +729,6 @@
         "summary": "Retrieve a custom tool template",
         "title": "Retrieve a custom tool template",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -778,7 +743,6 @@
         "summary": "Frozen agents pinning this custom tool template",
         "title": "Frozen agents pinning this custom tool template",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -793,7 +757,6 @@
         "summary": "Custom tool template version history",
         "title": "Custom tool template version history",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -824,7 +787,6 @@
         "summary": "List native tools the runner knows",
         "title": "List native tools the runner knows",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -839,7 +801,6 @@
         "summary": "Create a skill template (v1)",
         "title": "Create a skill template (v1)",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -854,7 +815,6 @@
         "summary": "List skill templates",
         "title": "List skill templates",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -869,7 +829,6 @@
         "summary": "Archive a skill template",
         "title": "Archive a skill template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -884,7 +843,6 @@
         "summary": "Duplicate a skill template",
         "title": "Duplicate a skill template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -899,7 +857,6 @@
         "summary": "Add a companion file to a skill template",
         "title": "Add a companion file to a skill template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -914,7 +871,6 @@
         "summary": "Remove a companion file from a skill template",
         "title": "Remove a companion file from a skill template",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -929,7 +885,6 @@
         "summary": "Rename a companion file",
         "title": "Rename a companion file",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -944,7 +899,6 @@
         "summary": "Publish a new skill template version",
         "title": "Publish a new skill template version",
         "required_scopes": ["agent_application:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -959,7 +913,6 @@
         "summary": "Retrieve a skill template",
         "title": "Retrieve a skill template",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -974,7 +927,6 @@
         "summary": "Frozen agents pinning this skill template",
         "title": "Frozen agents pinning this skill template",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -989,7 +941,6 @@
         "summary": "Skill template version history",
         "title": "Skill template version history",
         "required_scopes": ["agent_application:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
