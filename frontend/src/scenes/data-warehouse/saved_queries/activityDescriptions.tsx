@@ -64,7 +64,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'created') {
         return {
-            description: <SentenceList listParts={[<>created view {viewName}</>]} prefix={user} />,
+            description: <SentenceList listParts={[<>created {viewName}</>]} prefix={user} />,
         }
     }
 
@@ -135,7 +135,7 @@ export function dataWarehouseSavedQueryActivityDescriber(
 
     if (logItem.activity === 'deleted') {
         return {
-            description: <SentenceList listParts={[<>deleted view {viewName}</>]} prefix={user} />,
+            description: <SentenceList listParts={[<>deleted {viewName}</>]} prefix={user} />,
         }
     }
 
