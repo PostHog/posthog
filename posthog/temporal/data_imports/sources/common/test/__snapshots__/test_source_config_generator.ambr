@@ -182,6 +182,7 @@
           ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
           ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
           ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+          ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
           ExternalDataSourceType.WRIKE: WrikeSourceConfig,
           ExternalDataSourceType.XERO: XeroSourceConfig,
           ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,
