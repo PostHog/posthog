@@ -1080,6 +1080,7 @@ class TestCommitStatusChecks:
             snapshots=[{"identifier": "snap", "content_hash": "new_h"}],
             baseline_hashes={"snap": "old_h"},
         )
+        logic.finish_processing(run.id)
 
         logic.approve_run(
             run_id=run.id,

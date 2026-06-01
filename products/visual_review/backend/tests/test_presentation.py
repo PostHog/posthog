@@ -11,7 +11,7 @@ from rest_framework import status
 
 from products.visual_review.backend import logic
 from products.visual_review.backend.facade import api
-from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
+from products.visual_review.backend.facade.contracts import AutoApproveResult, CreateRunInput, SnapshotManifestItem
 from products.visual_review.backend.facade.enums import RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
@@ -226,9 +226,12 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
     def test_approve_all_forwards_commit_to_github(self):
         run_id = self._create_run_with_changed_snapshot()
 
+        # approve_all fetches the baseline from GitHub, so mock it and just assert the
+        # view forwards commit_to_github — otherwise approve_all silently commits.
+        fake_result = AutoApproveResult(run=api.get_run(run_id, team_id=self.team.id), baseline_content="")
         with patch(
             "products.visual_review.backend.facade.api.approve_all",
-            wraps=api.approve_all,
+            return_value=fake_result,
         ) as spy:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/approve/",
@@ -238,7 +241,6 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         spy.assert_called_once()
-        # The view must forward the flag — otherwise approve_all silently commits.
         self.assertFalse(spy.call_args.kwargs["commit_to_github"])
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
