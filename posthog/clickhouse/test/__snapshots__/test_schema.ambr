@@ -6368,6 +6368,20 @@
   
   '''
 # ---
+# name: test_create_table_query[web_bot_definition]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_bot_definition (
+      id UInt64,
+      parent_id UInt64,
+      regexp String,
+      keys Array(String),
+      values Array(String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/340a2590-968d-49bb-bb5a-19fb87a45a51_noshard/posthog.web_bot_definition', '{replica}-{shard}')
+  ORDER BY id
+  
+  '''
+# ---
 # name: test_create_table_query[web_overview_preaggregated]
   '''
   
@@ -9808,6 +9822,20 @@
   ORDER BY (team_id, job_id, time_window_start, path)
   TTL toDateTime(expires_at)
   SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[web_bot_definition]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS web_bot_definition (
+      id UInt64,
+      parent_id UInt64,
+      regexp String,
+      keys Array(String),
+      values Array(String)
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/340a2590-968d-49bb-bb5a-19fb87a45a51_noshard/posthog.web_bot_definition', '{replica}-{shard}')
+  ORDER BY id
   
   '''
 # ---
