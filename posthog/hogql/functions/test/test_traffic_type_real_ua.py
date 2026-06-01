@@ -66,8 +66,19 @@ class TestBotClassificationRealUA:
 
     def test_all_bot_definitions_have_matching_ua_fixture(self):
         # Patterns that are substrings of other patterns can't have standalone UA fixtures
-        # because multiMatchAnyIndex may match the shorter pattern first
-        KNOWN_SUBSTRING_PATTERNS: set[str] = set()
+        # because multiMatchAnyIndex may match the shorter pattern first.
+        # These are production-validated patterns whose UAs always also contain a
+        # higher-priority pattern's text (audited via _find_matching_pattern at fixture time).
+        KNOWN_SUBSTRING_PATTERNS: set[str] = {
+            "Facebot",  # UA contains "facebookexternalhit"
+            "SiteCheck-sitecrawl",  # UA contains "Siteimprove"
+            "W3C-checklink",  # UA contains "libwww-perl"
+            "adidxbot",  # UA contains "bingbot" (adidxbot identifies itself with the Bing bot doc URL)
+            "google-adwords",  # lowercase variant; UA matched by "Google-Adwords"
+            "pinterest.com/bot",  # UA contains "Pinterest"
+            "special_archiver",  # UA contains "Archive-It"
+            "zhanzhang.toutiao.com",  # UA contains "Bytespider"
+        }
 
         all_bot_uas = []
         for category, ua_list in BOT_USER_AGENTS.items():
