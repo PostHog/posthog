@@ -27,15 +27,16 @@ jobs:
                   owner: PostHog
                   repositories: posthog-private
 
-            # blob:none skips historical blobs (avoids a full-history clone); the full
-            # commit graph keeps pushes connected. Lazy blob fetches need origin auth,
-            # so persist-credentials stays default-on.
+            # blob:none avoids a full-history clone; full commit graph keeps pushes connected.
+            # persist-credentials:false so checkout's default-token auth header doesn't shadow
+            # the app token we push with (posthog is public, so lazy blob fetches still work).
             - name: Checkout posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
                   fetch-tags: true
+                  persist-credentials: false
 
             # 1:1 mirror: replays posthog's existing signed commits — no new commit, so
             # signing enforcement on posthog-private is unaffected.
@@ -43,6 +44,6 @@ jobs:
               env:
                   PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/posthog/posthog-private.git"
+                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
                   git push private "HEAD:refs/heads/master" --force
                   git push private "refs/tags/*:refs/tags/*" --force

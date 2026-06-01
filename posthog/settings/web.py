@@ -237,7 +237,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/|/id-jag/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -514,6 +514,7 @@ SPECTACULAR_SETTINGS = {
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
         "TaskExecutionModeEnum": ["interactive", "background"],
         "HogFunctionTemplatingEnum": ["hog", "liquid"],
+        "HogFlowEdgeTypeEnum": ["continue", "branch"],
         "SourceMatchEnum": ["none", "auto", "mapped"],
         "NotificationDestinationTypeEnum": ["slack", "webhook"],
         "TaskRunArtifactTypeEnum": [
@@ -761,6 +762,10 @@ OAUTH2_PROVIDER = {
         "email": "Access to user's email address",
         "introspection": "Access to introspect tokens",
         "*": "Full access to all scopes",
+        # Strict-excludes INTERNAL_API_SCOPE_OBJECTS (e.g. `signal_scout_internal`) so they
+        # can never be granted via the OAuth consent flow. The Signals scout harness token
+        # is minted by direct DB insert (posthog/temporal/oauth.py) and never hits /authorize,
+        # so it does not need to appear here.
         **get_scope_descriptions(),
     },
     # Block dangerous URI schemes that could be used for attacks
@@ -795,6 +800,10 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
+ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
+ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10

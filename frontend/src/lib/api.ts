@@ -3048,6 +3048,9 @@ const api = {
             const params = names && names.length > 0 ? toParams({ names }, true) : ''
             return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
         },
+        async byName({ name }: { name: string }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().withAction('by_name').withQueryString(toParams({ name })).get()
+        },
         async getMetrics({
             eventDefinitionId,
         }: {

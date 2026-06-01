@@ -3,7 +3,6 @@ import z from 'zod'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
-import toolDefinitionsV2Json from '../../schema/tool-definitions-v2.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
 
 export const ToolDefinitionSchema = z
@@ -14,7 +13,6 @@ export const ToolDefinitionSchema = z
         summary: z.string(),
         title: z.string(),
         required_scopes: z.array(z.string()),
-        new_mcp: z.boolean().optional(),
         requires_ai_consent: z.boolean().optional(),
         /** PostHog feature flag key that gates this tool. */
         feature_flag: z.string().optional(),
@@ -50,8 +48,7 @@ export type ToolDefinitions = Record<string, ToolDefinition>
 
 const toolDefinitionsSchema = z.record(z.string(), ToolDefinitionSchema)
 
-let _toolDefinitionsV1: ToolDefinitions | undefined = undefined
-let _toolDefinitionsV2: ToolDefinitions | undefined = undefined
+let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 
 function getGeneratedToolDefinitions(): ToolDefinitions {
@@ -61,26 +58,16 @@ function getGeneratedToolDefinitions(): ToolDefinitions {
     return _generatedToolDefinitions
 }
 
-export function getToolDefinitions(version?: number): ToolDefinitions {
+export function getToolDefinitions(): ToolDefinitions {
     const generated = getGeneratedToolDefinitions()
-
-    if (version === 2) {
-        if (!_toolDefinitionsV2) {
-            const base = toolDefinitionsSchema.parse(toolDefinitionsJson)
-            const new_tools = toolDefinitionsSchema.parse(toolDefinitionsV2Json)
-            _toolDefinitionsV2 = { ...new_tools, ...base }
-        }
-        return { ..._toolDefinitionsV2, ...generated }
+    if (!_toolDefinitions) {
+        _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
     }
-
-    if (!_toolDefinitionsV1) {
-        _toolDefinitionsV1 = toolDefinitionsSchema.parse(toolDefinitionsJson)
-    }
-    return { ..._toolDefinitionsV1, ...generated }
+    return { ..._toolDefinitions, ...generated }
 }
 
-export function getToolDefinition(toolName: string, version?: number): ToolDefinition {
-    const toolDefinitions = getToolDefinitions(version)
+export function getToolDefinition(toolName: string): ToolDefinition {
+    const toolDefinitions = getToolDefinitions()
 
     const definition = toolDefinitions[toolName]
 
@@ -94,7 +81,6 @@ export function getToolDefinition(toolName: string, version?: number): ToolDefin
 export interface ToolFilterOptions {
     features?: string[] | undefined
     tools?: string[] | undefined
-    version?: number | undefined
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
     aiConsentGiven?: boolean | undefined
@@ -112,8 +98,8 @@ export interface ToolFilterOptions {
  * Collect all distinct feature flag keys referenced by tool definitions.
  * Used at init time to batch-evaluate flags before filtering tools.
  */
-export function getRequiredFeatureFlags(version?: number): string[] {
-    const toolDefinitions = getToolDefinitions(version)
+export function getRequiredFeatureFlags(): string[] {
+    const toolDefinitions = getToolDefinitions()
     const flags = new Set<string>()
     for (const definition of Object.values(toolDefinitions)) {
         if (definition.feature_flag) {
@@ -153,15 +139,10 @@ export function toolPassesFlagGate(definition: ToolDefinition, featureFlags: Eva
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, tools, version, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
-    const toolDefinitions = getToolDefinitions(version)
+    const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams } = options || {}
+    const toolDefinitions = getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
-
-    // Filter out tools that are not supported in new MCP
-    if (version === 2) {
-        entries = entries.filter(([_, definition]) => definition.new_mcp !== false)
-    }
 
     // Filter by features and/or tools allowlist (OR union).
     // When both are provided, a tool is included if it matches a feature category OR is in the tools list.
