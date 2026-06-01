@@ -14,8 +14,10 @@ test.describe('Annotations', () => {
     })
 
     test('Annotations loaded', async ({ page }) => {
-        // Check that the annotations page loaded with key elements visible
-        await expect(page.getByRole('heading', { name: 'Annotations' })).toBeVisible()
+        // Check that the annotations page loaded with key elements visible.
+        // Scope to the scene title — a bare 'Annotations' heading match also hits the
+        // empty-state "Welcome to Annotations!" h2 (substring match) and trips strict mode.
+        await expect(page.getByTestId('scene-name').getByRole('heading', { name: 'Annotations' })).toBeVisible()
         await expect(page.getByRole('button', { name: 'New annotation' })).toBeVisible()
         await expect(page.locator('[data-attr="annotations-content"]')).toBeVisible()
     })
