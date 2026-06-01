@@ -23,6 +23,7 @@ export class ConditionalBranchHandler implements ActionHandler {
         if (action.type === 'wait_until_condition' && invocation.state?.currentAction?.eventMatched === true) {
             invocation.state.currentAction.eventMatched = false
             invocation.state.currentAction.eventMatchedEvent = undefined
+            invocation.state.currentAction.eventMatchedEventUuid = undefined
             return {
                 nextAction: findNextAction(invocation.hogFlow, action.id, 0),
                 result: { eventMatched: true },

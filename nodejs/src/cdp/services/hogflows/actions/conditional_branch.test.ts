@@ -205,6 +205,8 @@ describe('action.conditional_branch', () => {
 
         it('advances to the matched branch and clears eventMatched', async () => {
             waitInvocation.state.currentAction!.eventMatched = true
+            waitInvocation.state.currentAction!.eventMatchedEvent = 'subscription created'
+            waitInvocation.state.currentAction!.eventMatchedEventUuid = 'evt-uuid'
 
             const result = await handler.execute({
                 invocation: waitInvocation,
@@ -214,7 +216,10 @@ describe('action.conditional_branch', () => {
 
             expect(result.nextAction).toEqual(findActionById(waitInvocation.hogFlow, 'matched_target'))
             expect(result.result).toEqual({ eventMatched: true })
+            // All wake markers are cleared so a later timeout fire isn't misread as an event wake.
             expect(waitInvocation.state.currentAction!.eventMatched).toBe(false)
+            expect(waitInvocation.state.currentAction!.eventMatchedEvent).toBeUndefined()
+            expect(waitInvocation.state.currentAction!.eventMatchedEventUuid).toBeUndefined()
         })
 
         it('falls through to condition evaluation when eventMatched is not set', async () => {
