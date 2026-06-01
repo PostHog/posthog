@@ -96,14 +96,16 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
 
 # Event/property names are externally writable (anyone capturing events controls them), and a warning's
-# message embeds the name + suggestion verbatim into agent context — so strip control characters/newlines
-# and cap length to stop a crafted taxonomy name from injecting instructions into the agent.
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+# message embeds the name + suggestion verbatim into agent context. Strip control characters/newlines AND
+# angle brackets — the latter stops a crafted name (e.g. containing `</taxonomy_warnings>`) from closing
+# the wrapper early and breaking out of the delimited block — and cap length. This can't stop plain-text
+# influence (no escaping can), but it keeps the names contained as data inside the labeled block.
+_UNSAFE_WARNING_CHARS = re.compile(r"[\x00-\x1f\x7f<>]")
 _MAX_WARNING_CHARS = 300
 
 
 def _sanitize_warning_line(message: str) -> str:
-    cleaned = re.sub(r"\s+", " ", _CONTROL_CHARS.sub(" ", message)).strip()
+    cleaned = re.sub(r"\s+", " ", _UNSAFE_WARNING_CHARS.sub(" ", message)).strip()
     return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
 
 
