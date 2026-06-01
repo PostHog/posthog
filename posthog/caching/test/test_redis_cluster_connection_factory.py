@@ -2,18 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
-from prometheus_client import REGISTRY
-
 from posthog.caching.redis_cluster_connection_factory import (
     QUERY_CACHE_ALIAS,
     RedisClusterConnectionFactory,
     prewarm_query_cache_cluster,
     prewarm_query_cache_cluster_in_background,
 )
-
-
-def _discovery_count() -> float:
-    return REGISTRY.get_sample_value("posthog_redis_cluster_discovery_duration_seconds_count") or 0.0
 
 
 class TestRedisClusterConnectionFactory(TestCase):
@@ -43,17 +37,6 @@ class TestRedisClusterConnectionFactory(TestCase):
         factory.connect("redis://node-a:6379")
 
         assert from_url.call_count == 2
-
-    @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
-    def test_discovery_metric_records_only_on_construction(self, from_url: MagicMock) -> None:
-        factory = self._factory()
-        from_url.return_value = MagicMock()
-
-        before = _discovery_count()
-        factory.connect("redis://counter-test:6379")
-        factory.connect("redis://counter-test:6379")
-
-        assert _discovery_count() == before + 1
 
 
 class TestPrewarmQueryCacheCluster(TestCase):

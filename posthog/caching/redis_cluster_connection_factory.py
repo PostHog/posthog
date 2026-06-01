@@ -1,37 +1,17 @@
 import threading
-from collections.abc import Callable
-from functools import wraps
-from typing import ParamSpec
 
 from django.conf import settings
 from django.core.cache import caches
 
 import structlog
 from django_redis.pool import ConnectionFactory
-from prometheus_client import Histogram
+from opentelemetry import trace
 from redis.cluster import RedisCluster
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 QUERY_CACHE_ALIAS = "query_cache"
-
-REDIS_CLUSTER_DISCOVERY_DURATION = Histogram(
-    "posthog_redis_cluster_discovery_duration_seconds",
-    "Wall-clock time spent constructing a RedisCluster client, including COMMAND + CLUSTER SLOTS topology discovery. "
-    "Its _count series is the number of constructions, each of which triggers a discovery.",
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
-)
-
-P = ParamSpec("P")
-
-
-def instrument_cluster_discovery(fn: Callable[P, RedisCluster]) -> Callable[P, RedisCluster]:
-    @wraps(fn)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> RedisCluster:
-        with REDIS_CLUSTER_DISCOVERY_DURATION.time():
-            return fn(*args, **kwargs)
-
-    return wrapper
 
 
 class RedisClusterConnectionFactory(ConnectionFactory):
@@ -42,6 +22,11 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     Redis(connection_pool=pool) pattern. RedisCluster inherits from Redis and
     implements the same command interface, so django_redis's DefaultClient
     (compression, serialization) works unchanged.
+
+    Constructing a RedisCluster issues COMMAND + CLUSTER SLOTS topology
+    discovery. We wrap that construction in a "redis_cluster.discovery" span so
+    its place in a trace is visible: nested under a request span means discovery
+    is on a user's critical path; a parentless span means it ran during warmup.
     """
 
     def __init__(self, *args, **kwargs):
@@ -53,11 +38,11 @@ class RedisClusterConnectionFactory(ConnectionFactory):
         if url not in self._cluster_clients:
             with self._lock:
                 if url not in self._cluster_clients:
-                    self._cluster_clients[url] = self._create_cluster_client(url)
+                    self._cluster_clients[url] = self._discover_cluster(url)
         return self._cluster_clients[url]
 
-    @instrument_cluster_discovery
-    def _create_cluster_client(self, url: str) -> RedisCluster:
+    @tracer.start_as_current_span("redis_cluster.discovery")
+    def _discover_cluster(self, url: str) -> RedisCluster:
         return RedisCluster.from_url(url)
 
     def disconnect(self, connection) -> None:
