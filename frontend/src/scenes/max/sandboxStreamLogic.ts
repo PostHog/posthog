@@ -20,9 +20,9 @@ export const MAX_SSE_RECONNECT_ATTEMPTS = 5
 export const SSE_RECONNECT_BASE_DELAY_MS = 2_000
 export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
 
-const TERMINAL_RUN_STATUSES: ReadonlySet<SandboxRunStatus> = new Set(['completed', 'failed', 'cancelled'])
+const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['completed', 'failed', 'cancelled'])
 
-function isTerminalRunStatus(status: SandboxRunStatus | null | undefined): boolean {
+function isTerminalRunStatus(status: string | null | undefined): boolean {
     return status != null && TERMINAL_RUN_STATUSES.has(status)
 }
 
@@ -344,7 +344,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 return
             }
 
-            let run: { status?: SandboxRunStatus }
+            let run: { status?: string }
             try {
                 run = await api.tasks.runs.get(taskId, runId)
             } catch (error) {
@@ -439,7 +439,7 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             cache.disposables.dispose('event-source')
 
             // § 4.3 step 1: refetch the run to detect terminal state.
-            let run: { status?: SandboxRunStatus }
+            let run: { status?: string }
             try {
                 run = await api.tasks.runs.get(activeRun.taskId, activeRun.runId)
             } catch (error) {
