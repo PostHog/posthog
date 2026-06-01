@@ -564,7 +564,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
