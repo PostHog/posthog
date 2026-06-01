@@ -3411,14 +3411,15 @@ class TestOIDCInactiveKeysSetting(SimpleTestCase):
         overrides = {var: value for var, value in env_vars.items() if value is not None}
 
         web_settings = importlib.import_module("posthog.settings.web")
-        with patch.dict(os.environ, overrides, clear=False):
-            for var, value in env_vars.items():
-                if value is None:
-                    os.environ.pop(var, None)
-            try:
+        try:
+            with patch.dict(os.environ, overrides, clear=False):
+                for var, value in env_vars.items():
+                    if value is None:
+                        os.environ.pop(var, None)
                 importlib.reload(web_settings)
                 self.assertEqual(web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE, expected)
                 self.assertNotIn("", web_settings.OIDC_RSA_PRIVATE_KEYS_INACTIVE)
-            finally:
-                # Restore module attributes to the real environment.
-                importlib.reload(web_settings)
+        finally:
+            # Restore module attributes to the real environment (patch.dict has already
+            # restored os.environ by this point, so this reload sees the original vars).
+            importlib.reload(web_settings)
