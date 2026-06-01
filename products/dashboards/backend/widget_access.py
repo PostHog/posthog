@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from typing import cast
+
 from rest_framework import exceptions
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.rbac.user_access_control import UserAccessControl
+from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
+from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_catalog import get_widget_product_access_denied_message
@@ -46,15 +49,15 @@ def get_widget_product_access_error(
     registry_entry: WidgetRegistryEntry,
     user_access_control: UserAccessControl,
     *,
-    required_level: str = "viewer",
+    required_level: AccessControlLevel = "viewer",
 ) -> str | None:
     required_product_access = registry_entry.get("required_product_access")
     if not required_product_access:
         return None
 
     if not user_access_control.check_access_level_for_resource(
-        required_product_access,
-        required_level,  # type: ignore[arg-type]
+        cast(APIScopeObject, required_product_access),
+        required_level,
     ):
         return get_widget_product_access_denied_message(required_product_access)
     return None

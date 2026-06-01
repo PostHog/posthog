@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import json
 import uuid
+import builtins
 from collections.abc import AsyncGenerator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
@@ -576,7 +577,7 @@ class WidgetCatalogEntrySerializer(serializers.Serializer):
     widget_type = serializers.CharField(help_text="Stable widget type identifier used in API requests.")
     group_id = serializers.CharField(help_text="Product area key for grouping related widget variants.")
     group_label = serializers.CharField(help_text="Human-readable product area label.")
-    label = serializers.CharField(help_text="Widget variant label within the product area.")
+    label = serializers.CharField(help_text="Widget variant label within the product area.")  # type: ignore[assignment]
     description = serializers.CharField(help_text="Short description of what the widget shows.")
     config_schema_hints = serializers.JSONField(
         help_text="JSON schema hints for config fields (types, choices, bounds). Not a strict validator.",
@@ -1200,6 +1201,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError("Tile is not a widget tile.")
 
         widget_name = source_tile.widget.name
+        duplicate_name: str | None
         if append_copy_suffix and widget_name:
             duplicate_name = f"{widget_name} (Copy)"
         else:
@@ -2693,7 +2695,7 @@ class DashboardsViewSet(
 
         serializer = AddDashboardWidgetsBatchRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        widget_payloads = cast(list[dict[str, Any]], serializer.validated_data["widgets"])
+        widget_payloads = cast(builtins.list[dict[str, Any]], serializer.validated_data["widgets"])
 
         user = cast(User, request.user)
         user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2728,11 +2730,11 @@ class DashboardsViewSet(
         dashboard: Dashboard,
         user: User,
         user_access_control: UserAccessControl,
-        payloads: list[dict[str, Any]],
-    ) -> list[DashboardTile]:
+        payloads: builtins.list[dict[str, Any]],
+    ) -> builtins.list[DashboardTile]:
         existing_sm_layouts = collect_dashboard_sm_layouts_for_dashboard(dashboard)
-        pending_sm_layouts: list[dict[str, Any]] = []
-        created_tiles: list[DashboardTile] = []
+        pending_sm_layouts: builtins.list[dict[str, Any]] = []
+        created_tiles: builtins.list[DashboardTile] = []
 
         for payload in payloads:
             tile = self._create_widget_tile_from_payload(
@@ -2757,8 +2759,8 @@ class DashboardsViewSet(
         user: User,
         user_access_control: UserAccessControl,
         payload: dict[str, Any],
-        existing_sm_layouts: list[dict[str, Any]] | None = None,
-        pending_sm_layouts: list[dict[str, Any]] | None = None,
+        existing_sm_layouts: builtins.list[dict[str, Any]] | None = None,
+        pending_sm_layouts: builtins.list[dict[str, Any]] | None = None,
     ) -> DashboardTile:
         widget_type = payload["widget_type"]
         config = payload["config"]
