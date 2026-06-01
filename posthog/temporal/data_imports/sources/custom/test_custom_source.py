@@ -156,6 +156,20 @@ class TestValidateManifestUrls(SimpleTestCase):
         assert not ok
         assert "users" in (err or "")
 
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (host != "127.0.0.1", None if host != "127.0.0.1" else "blocked"),
+    )
+    def test_rejects_whitespace_prefixed_internal_path(self, _mock):
+        # A leading space makes the raw `startswith` check miss the absolute URL, but urljoin
+        # strips it and the sync reaches 127.0.0.1 — the validator must resolve it the same way.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = " https://127.0.0.1/leak"
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "users" in (err or "")
+
     @parameterized.expand(
         [
             ("http_public", "http://api.example.com"),
@@ -552,6 +566,22 @@ class TestManifestRequestHosts(SimpleTestCase):
                 ],
             }
         )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    @parameterized.expand(
+        [
+            ("leading_space", " https://attacker.example.net/data"),
+            ("leading_tab", "\thttps://attacker.example.net/data"),
+            ("leading_newline", "\nhttps://attacker.example.net/data"),
+            ("leading_nul", "\x00https://attacker.example.net/data"),
+            ("leading_space_uppercase", " HTTPS://attacker.example.net/data"),
+        ]
+    )
+    def test_whitespace_prefixed_absolute_path_adds_host(self, _name, path):
+        # urljoin strips leading whitespace/control chars before parsing the scheme, so the
+        # sync requests attacker.example.net while a raw `startswith` check sees no new host —
+        # the retarget guard must resolve the path the same way the engine does.
+        manifest = self._manifest("https://api.example.com", [path])
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
 
     def test_url_param_not_referenced_in_path_is_ignored(self):

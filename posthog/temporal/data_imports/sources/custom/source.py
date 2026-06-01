@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from posthog.temporal.data_imports.sources.common.rest_source.utils import resolve_request_url
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from posthog.temporal.data_imports.util import NonRetryableException
@@ -160,23 +161,30 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     if not ok:
         return False, f"Invalid base_url: {err}"
 
+    base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
-        path = resource.get("endpoint", {}).get("path", "")
-        if path.lower().startswith(("http://", "https://")):
-            ok, err = _check_url(path, team_id)
-            if not ok:
-                return False, f"Resource {resource['name']!r}: {err}"
+        # Resolve exactly as the engine will (so a whitespace/case-disguised absolute path
+        # is caught), then only re-vet resources that resolve to a *different* host than
+        # base_url — `_is_host_safe` does a DNS lookup, so don't re-resolve base per resource.
+        resolved = _endpoint_request_url(base_url, resource.get("endpoint"))
+        if resolved is None or _url_hostname(resolved) == base_host:
+            continue
+        ok, err = _check_url(resolved, team_id)
+        if not ok:
+            return False, f"Resource {resource['name']!r}: {err}"
 
     return True, None
 
 
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
-    parsed = urlparse(url)
-    if not parsed.hostname:
+    # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
+    # validator can't be fooled into vetting a different host than the request reaches.
+    hostname = _url_hostname(url)
+    if not hostname:
         return False, f"URL {url!r} is missing a hostname"
-    if is_cloud() and parsed.scheme != "https":
+    if is_cloud() and urlparse(url).scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"
-    return _is_host_safe(parsed.hostname, team_id)
+    return _is_host_safe(hostname, team_id)
 
 
 class _LeaveMissing(dict):
@@ -186,26 +194,24 @@ class _LeaveMissing(dict):
         return "{" + key + "}"
 
 
-def _endpoint_request_urls(endpoint: Any) -> list[str]:
-    """Absolute URLs an endpoint may send a request — and the credential — to.
+def _endpoint_request_url(base_url: str, endpoint: Any) -> str | None:
+    """The URL an endpoint will send a request — and the credential — to.
 
-    The REST engine binds scalar ``params`` into the path before deciding whether
-    it's absolute (``_bind_path_params`` runs ``path.format(**params)``, then
-    ``RESTClient._join_url`` treats an ``http(s)://`` result as absolute). We
-    resolve the path the same way and report it if it comes out absolute — so a
-    template like ``"{target}"`` (``params={"target": "https://attacker/"}``) or
-    ``"{scheme}://attacker/"`` (``params={"scheme": "https"}``) is caught even
-    though neither the literal path nor any single param value is itself a URL.
-    Otherwise the retarget guard would miss it and ship the preserved credential
-    to a new host on the next sync. (SSRF to internal hosts is separately caught
-    at request time by the transport-layer guard, which vets the live peer IP;
-    this is only about detecting a *new destination* for the re-entry check.)
+    The REST engine binds scalar ``params`` into the path (``_bind_path_params`` runs
+    ``path.format(**params)``) and then resolves it against ``base_url`` via
+    ``resolve_request_url``. We do exactly the same here, so a template like ``"{target}"``
+    (``params={"target": "https://attacker/"}``) or ``"{scheme}://attacker/"``
+    (``params={"scheme": "https"}``) — and any whitespace/case/encoding-disguised absolute
+    URL — resolves to the same destination the runtime would request. Returns ``None`` for a
+    non-dict endpoint or a missing/non-string path. (SSRF to internal hosts is separately
+    caught at request time by the transport-layer guard; this is about detecting a *new
+    destination* for the credential re-entry check.)
     """
     if not isinstance(endpoint, dict):
-        return []
+        return None
     path = endpoint.get("path")
     if not isinstance(path, str):
-        return []
+        return None
 
     params = endpoint.get("params")
     bindable = (
@@ -219,10 +225,7 @@ def _endpoint_request_urls(endpoint: Any) -> list[str]:
         # Malformed / positional format string — it's re-vetted at request time anyway.
         resolved = path
 
-    # Case-insensitive: urljoin treats `HTTPS://host` as absolute (schemes are
-    # case-insensitive per RFC 3986), so a mixed-case scheme must count as a new
-    # request host here too — otherwise the retarget guard misses it.
-    return [resolved] if resolved.lower().startswith(("http://", "https://")) else []
+    return resolve_request_url(base_url, resolved)
 
 
 def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
@@ -243,20 +246,24 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     if not isinstance(manifest, dict):
         return frozenset()
 
-    urls: list[Any] = []
     client = manifest.get("client")
-    if isinstance(client, dict):
-        urls.append(client.get("base_url"))
+    base_url = client.get("base_url") if isinstance(client, dict) else None
+    # Resolve resource paths against base_url the same way the engine does. With no usable
+    # base_url an absolute resource path still has a host; a relative one is left hostless
+    # (its destination is unknown) — the manifest is rejected elsewhere for the missing base.
+    base_for_resolve = base_url if isinstance(base_url, str) else ""
+
+    urls: list[str] = [base_url] if isinstance(base_url, str) else []
     resources = manifest.get("resources")
     if isinstance(resources, list):
         for resource in resources:
             endpoint = resource.get("endpoint") if isinstance(resource, dict) else None
-            # Relative paths inherit base_url's host; absolute paths and absolute
-            # URLs bound into path placeholders introduce a new request host.
-            urls.extend(_endpoint_request_urls(endpoint))
+            resolved = _endpoint_request_url(base_for_resolve, endpoint)
+            if resolved is not None:
+                urls.append(resolved)
 
     # `_url_hostname` returns an already-lowercased host.
-    hosts = {host for url in urls if isinstance(url, str) and (host := _url_hostname(url))}
+    hosts = {host for url in urls if (host := _url_hostname(url))}
     return frozenset(hosts)
 
 
@@ -411,11 +418,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
-            url = (
-                path
-                if path.lower().startswith(("http://", "https://"))
-                else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
-            )
+            # Resolve via the shared helper so the probe hits the same host the sync will.
+            url = resolve_request_url(base_url, path)
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
