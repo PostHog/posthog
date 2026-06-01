@@ -21,6 +21,8 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
@@ -234,6 +236,13 @@ export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): Ext
     return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
 }
 
+export function clampFrequencyForSchema(
+    requested: DataWarehouseSyncInterval,
+    schema: ExternalDataSourceSchema
+): DataWarehouseSyncInterval {
+    return clampSyncFrequency(requested, schema.sync_type)
+}
+
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
     const succeeded = total - failed
     const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
@@ -278,6 +287,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
         setShowEnabledSchemasOnly: (showEnabledSchemasOnly: boolean) => ({ showEnabledSchemasOnly }),
         setSchemaNameFilter: (schemaNameFilter: string) => ({ schemaNameFilter }),
+        setStatusFilter: (status: string | null) => ({ status }),
+        setSyncMethodFilter: (syncMethod: string | null) => ({ syncMethod }),
+        setFrequencyFilter: (frequency: DataWarehouseSyncInterval | null) => ({ frequency }),
         syncNow: true,
         setSyncingNow: (syncing: boolean) => ({ syncing }),
         refreshSchemas: true,
@@ -423,6 +435,26 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 setSchemaNameFilter: (_, { schemaNameFilter }) => schemaNameFilter,
             },
         ],
+        // null = no filter applied (show all). For sync method, the sentinel 'none' matches
+        // schemas with no sync method set up yet.
+        statusFilter: [
+            null as string | null,
+            {
+                setStatusFilter: (_, { status }) => status,
+            },
+        ],
+        syncMethodFilter: [
+            null as string | null,
+            {
+                setSyncMethodFilter: (_, { syncMethod }) => syncMethod,
+            },
+        ],
+        frequencyFilter: [
+            null as DataWarehouseSyncInterval | null,
+            {
+                setFrequencyFilter: (_, { frequency }) => frequency,
+            },
+        ],
         syncingNow: [
             false as boolean,
             {
@@ -473,8 +505,22 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             },
         ],
         filteredSchemas: [
-            (s) => [s.source, s.showEnabledSchemasOnly, s.schemaNameFilter],
-            (source, showEnabledSchemasOnly, schemaNameFilter): ExternalDataSourceSchema[] => {
+            (s) => [
+                s.source,
+                s.showEnabledSchemasOnly,
+                s.schemaNameFilter,
+                s.statusFilter,
+                s.syncMethodFilter,
+                s.frequencyFilter,
+            ],
+            (
+                source,
+                showEnabledSchemasOnly,
+                schemaNameFilter,
+                statusFilter,
+                syncMethodFilter,
+                frequencyFilter
+            ): ExternalDataSourceSchema[] => {
                 if (!source?.schemas) {
                     return []
                 }
@@ -486,7 +532,48 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     const filter = schemaNameFilter.toLowerCase()
                     schemas = schemas.filter((schema) => (schema.label ?? schema.name).toLowerCase().includes(filter))
                 }
+                if (statusFilter) {
+                    schemas = schemas.filter((schema) => schema.status === statusFilter)
+                }
+                if (syncMethodFilter) {
+                    schemas = schemas.filter((schema) =>
+                        syncMethodFilter === 'none' ? !schema.sync_type : schema.sync_type === syncMethodFilter
+                    )
+                }
+                if (frequencyFilter) {
+                    schemas = schemas.filter((schema) => schema.sync_frequency === frequencyFilter)
+                }
                 return schemas
+            },
+        ],
+        // Distinct values present across the source's schemas, for populating the filter dropdowns.
+        schemaFilterOptions: [
+            (s) => [s.source],
+            (
+                source
+            ): {
+                statuses: string[]
+                syncMethods: (Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none')[]
+                frequencies: DataWarehouseSyncInterval[]
+            } => {
+                const schemas = source?.schemas ?? []
+                const statuses = new Set<string>()
+                const syncMethods = new Set<Exclude<ExternalDataSourceSchema['sync_type'], null> | 'none'>()
+                const frequencies = new Set<DataWarehouseSyncInterval>()
+                for (const schema of schemas) {
+                    if (schema.status) {
+                        statuses.add(schema.status)
+                    }
+                    syncMethods.add(schema.sync_type ?? 'none')
+                    if (schema.sync_frequency) {
+                        frequencies.add(schema.sync_frequency)
+                    }
+                }
+                return {
+                    statuses: Array.from(statuses),
+                    syncMethods: Array.from(syncMethods),
+                    frequencies: Array.from(frequencies),
+                }
             },
         ],
     }),
@@ -883,8 +970,18 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
             },
             bulkSetFrequency: ({ schemas, frequency }) => {
-                schemas.forEach((schema) => actions.updateSchema({ ...schema, sync_frequency: frequency }))
-                lemonToast.success(`Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`)
+                // Non-CDC schemas can't sync faster than every 5 minutes — clamp so a bulk edit
+                // never pushes them below their allowed floor.
+                let clamped = 0
+                schemas.forEach((schema) => {
+                    const effective = clampFrequencyForSchema(frequency, schema)
+                    if (effective !== frequency) {
+                        clamped++
+                    }
+                    actions.updateSchema({ ...schema, sync_frequency: effective })
+                })
+                const base = `Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`
+                lemonToast.success(clamped > 0 ? `${base} (${clamped} kept at their 5 min minimum)` : base)
             },
             bulkSyncNow: async ({ schemas }) => {
                 // Only schemas that are enabled with a sync method can sync.

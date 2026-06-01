@@ -2,6 +2,7 @@ import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 import type { ExternalDataSourceSchema } from '~/types'
 
 import {
+    clampFrequencyForSchema,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
@@ -203,6 +204,21 @@ describe('schemasEligibleForSync', () => {
 
     it('returns an empty list when nothing is eligible', () => {
         expect(schemasEligibleForSync([makeSchema({ sync_type: null, should_sync: true })])).toEqual([])
+    })
+})
+
+describe('clampFrequencyForSchema', () => {
+    it('floors non-CDC schemas at 5 minutes', () => {
+        const incremental = makeSchema({ sync_type: 'incremental' })
+        expect(clampFrequencyForSchema('1min', incremental)).toBe('5min')
+        expect(clampFrequencyForSchema('5min', incremental)).toBe('5min')
+        expect(clampFrequencyForSchema('1hour', incremental)).toBe('1hour')
+    })
+
+    it('lets CDC schemas go down to 1 minute', () => {
+        const cdc = makeSchema({ sync_type: 'cdc' })
+        expect(clampFrequencyForSchema('1min', cdc)).toBe('1min')
+        expect(clampFrequencyForSchema('6hour', cdc)).toBe('6hour')
     })
 })
 

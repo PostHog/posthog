@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonDialog,
     LemonInput,
+    LemonSelect,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -35,12 +36,21 @@ import {
     useSourceEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
-import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
+import {
+    SYNC_FREQUENCY_ORDER,
+    StatusTagSetting,
+    SyncFrequencyLabelMap,
+    SyncTypeLabelMap,
+    allowedSyncFrequencies,
+} from 'products/data_warehouse/frontend/utils'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
+
+const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
+    frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
 
 export interface SchemasTabProps {
     id: string
@@ -75,12 +85,19 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         filteredSchemas,
         showEnabledSchemasOnly,
         schemaNameFilter,
+        statusFilter,
+        syncMethodFilter,
+        frequencyFilter,
+        schemaFilterOptions,
         syncingNow,
         refreshingSchemas,
     } = useValues(sourceSettingsLogic)
     const {
         setShowEnabledSchemasOnly,
         setSchemaNameFilter,
+        setStatusFilter,
+        setSyncMethodFilter,
+        setFrequencyFilter,
         syncNow,
         refreshSchemas,
         updateSchema,
@@ -111,6 +128,42 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                         size="small"
                         value={schemaNameFilter}
                         onChange={setSchemaNameFilter}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All statuses"
+                        value={statusFilter}
+                        onChange={setStatusFilter}
+                        options={[
+                            { value: null, label: 'All statuses' },
+                            ...schemaFilterOptions.statuses.map((status) => ({ value: status, label: status })),
+                        ]}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All sync methods"
+                        value={syncMethodFilter}
+                        onChange={setSyncMethodFilter}
+                        options={[
+                            { value: null, label: 'All sync methods' },
+                            ...schemaFilterOptions.syncMethods.map((method) => ({
+                                value: method === 'none' ? 'none' : method,
+                                label: method === 'none' ? 'Not set up' : SyncTypeLabelMap[method],
+                            })),
+                        ]}
+                    />
+                    <LemonSelect
+                        size="small"
+                        placeholder="All frequencies"
+                        value={frequencyFilter}
+                        onChange={setFrequencyFilter}
+                        options={[
+                            { value: null, label: 'All frequencies' },
+                            ...schemaFilterOptions.frequencies.map((frequency) => ({
+                                value: frequency,
+                                label: SyncFrequencyLabelMap[frequency],
+                            })),
+                        ]}
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
@@ -144,7 +197,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                       : undefined
                             }
                         >
-                            Sync now
+                            Sync all enabled schemas
                         </LemonButton>
                     </SourceEditorAction>
                     <SourceEditorAction source={source}>
@@ -258,6 +311,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Schema',
                     key: 'name',
+                    sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
                         const name = schema.label ?? schema.name
                         return (
@@ -281,6 +335,7 @@ function ManagedSchemaTable({
                 {
                     title: 'Status',
                     key: 'status',
+                    sorter: (a, b) => (a.status ?? '').localeCompare(b.status ?? ''),
                     render: (_, schema) => {
                         if (!schema.status) {
                             return <span className="text-muted">—</span>
@@ -324,11 +379,14 @@ function ManagedSchemaTable({
                 {
                     title: 'Frequency',
                     key: 'sync_frequency',
+                    sorter: (a, b) => frequencyRank(a.sync_frequency) - frequencyRank(b.sync_frequency),
                     render: (_, schema) => (schema.sync_frequency ? SyncFrequencyLabelMap[schema.sync_frequency] : '—'),
                 },
                 {
                     title: 'Last synced',
                     key: 'last_synced_at',
+                    sorter: (a, b) =>
+                        new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
                     render: (_, schema) =>
                         schema.last_synced_at ? (
                             <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
@@ -340,6 +398,7 @@ function ManagedSchemaTable({
                     title: 'Rows synced',
                     key: 'rows_synced',
                     align: 'right',
+                    sorter: (a, b) => (a.table?.row_count ?? 0) - (b.table?.row_count ?? 0),
                     render: (_, schema) => {
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
@@ -508,6 +567,11 @@ function SchemaBulkActions({
     const selected = [...schemas]
     const count = selected.length
 
+    // Only offer frequencies every selected schema supports. Non-CDC schemas floor at 5min, so a
+    // mixed selection falls back to the non-CDC set (which CDC also supports).
+    const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
+    const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+
     const onDisable = (): void => {
         const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
         if (!hasDataLossType) {
@@ -533,7 +597,7 @@ function SchemaBulkActions({
                 Disable
             </LemonButton>
             <LemonMenu
-                items={(Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]).map((interval) => ({
+                items={frequencyOptions.map((interval) => ({
                     label: SyncFrequencyLabelMap[interval],
                     onClick: () => run(() => bulkSetFrequency(selected, interval)),
                 }))}

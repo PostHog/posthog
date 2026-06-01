@@ -114,6 +114,10 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         instance.save(update_fields=["status"])
 
 
+# Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
+CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -458,6 +462,17 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         source = instance.source
 
         if sync_frequency:
+            # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers
+            # (not just the UI) can't drop a non-CDC schema below the allowed floor.
+            if (
+                sync_frequency in CDC_ONLY_SYNC_FREQUENCIES
+                and (sync_type or instance.sync_type) != ExternalDataSchema.SyncType.CDC
+            ):
+                raise ValidationError(
+                    "A 1-minute sync frequency is only available for CDC schemas. "
+                    "The fastest frequency for other sync types is 5 minutes."
+                )
+
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
             if sync_frequency_interval != instance.sync_frequency_interval:
