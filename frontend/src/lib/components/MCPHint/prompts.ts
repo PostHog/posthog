@@ -35,16 +35,16 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
         toast: `"Create a feature flag called \`new-checkout\` rolled out to 20% of users"`,
         examples: [
             '"Create a feature flag for the new pricing page"',
-            '"Roll out \`checkout-v2\` to 25% of EU users"',
-            '"Schedule \`pricing-flag\` to enable Friday at noon"',
+            '"Roll out `checkout-v2` to 25% of EU users"',
+            '"Schedule `pricing-flag` to enable Friday at noon"',
         ],
     },
     'feature_flags.update': {
         toast: `"Bump rollout for \`new-checkout\` to 50%"`,
         examples: [
-            '"Bump rollout for \`new-checkout\` to 50%"',
-            '"Disable \`beta-banner\` flag"',
-            '"Add eu-only condition to \`pricing-flag\`"',
+            '"Bump rollout for `new-checkout` to 50%"',
+            '"Disable `beta-banner` flag"',
+            '"Add eu-only condition to `pricing-flag`"',
         ],
     },
     'experiments.create': {
@@ -58,9 +58,9 @@ export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'experiments.launch': {
         toast: `"Launch experiment pricing-test"`,
         examples: [
-            '"Launch experiment \`pricing-test\`"',
-            '"Archive the old \`signup-cta\` experiment"',
-            '"Check the results of \`checkout-flow-v2\`"',
+            '"Launch experiment `pricing-test`"',
+            '"Archive the old `signup-cta` experiment"',
+            '"Check the results of `checkout-flow-v2`"',
         ],
     },
     'dashboards.create': {
@@ -422,8 +422,11 @@ function backtick(s: string): string {
 }
 
 function buildSqlExamplesFromEvents(topEvents: string[]): string[] {
-    // Filter out PostHog-internal events (lead with `$`) so we surface the user's own product events.
-    const owned = topEvents.filter((name) => name && !name.startsWith('$')).slice(0, 3)
+    // Filter out PostHog-internal events (lead with `$`) so we surface the user's own product events,
+    // also be conservative to avoid surface events that look like SQL injection vectors.
+    const owned = topEvents
+        .filter((name) => name && !name.startsWith('$') && /^[A-Za-z0-9_.:-]{1,80}$/.test(name))
+        .slice(0, 3)
     if (owned.length === 0) {
         return []
     }
