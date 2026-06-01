@@ -395,22 +395,6 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
         },
     })
 
-const SurveysResponsesCountRetrieveSchema = z.object({})
-
-const surveysResponsesCountRetrieve = (): ToolBase<typeof SurveysResponsesCountRetrieveSchema, unknown> => ({
-    name: 'surveys-responses-count-retrieve',
-    schema: SurveysResponsesCountRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof SurveysResponsesCountRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/responses_count/`,
-        })
-        return result
-    },
-})
-
 const SurveysResponsesListSchema = SurveysResponsesListParams.omit({ project_id: true }).extend(
     SurveysResponsesListQueryParams.shape
 )
@@ -475,7 +459,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-update': surveyUpdate,
     'surveys-get-all': surveysGetAll,
     'surveys-global-stats': surveysGlobalStats,
-    'surveys-responses-count-retrieve': surveysResponsesCountRetrieve,
     'surveys-responses-list': surveysResponsesList,
     'surveys-summarize-responses-create': surveysSummarizeResponsesCreate,
 }

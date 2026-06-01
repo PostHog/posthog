@@ -7,7 +7,7 @@ per-question answers, and event-level metadata (device, geoip, etc).
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from posthog.hogql import ast
@@ -108,7 +108,7 @@ def fetch_response_rows(
         # uniqueSurveySubmissionsFilter requires bounded dates — fall back to
         # the survey lifetime when the caller didn't supply explicit bounds.
         "start_date": ast.Constant(value=since or survey.start_date or survey.created_at),
-        "end_date": ast.Constant(value=until or survey.end_date or datetime.now()),
+        "end_date": ast.Constant(value=until or survey.end_date or datetime.now(UTC)),
     }
 
     # Dynamically add one column per question using the HogQL getSurveyResponse helper —

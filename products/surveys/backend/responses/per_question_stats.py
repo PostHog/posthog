@@ -1,7 +1,7 @@
 """Per-question response aggregation for the survey-stats endpoint."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import cast
 
 from posthog.hogql import ast
@@ -47,7 +47,7 @@ def fetch_per_question_stats(
 
     survey_id = str(survey.id)
     start_date = since or survey.start_date or survey.created_at
-    end_date = until or survey.end_date or datetime.now()
+    end_date = until or survey.end_date or datetime.now(UTC)
 
     results: list[PerQuestionStats] = []
     for q in questions:

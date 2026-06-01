@@ -273,9 +273,8 @@ tools:
             and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use
             `archived` to filter archived state. Combine with pagination via `limit`/`offset`.
 
-            Companion tools to avoid the recon-loop pattern: - For response volume per survey: surveys-responses-count -
-            For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single
-            survey) or surveys-global-stats (project-wide)
+            Companion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list -
+            For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)
         ui_app: survey-list
     surveys-global-stats:
         operation: surveys_global_stats_retrieve
@@ -299,19 +298,11 @@ tools:
         enabled: false
     surveys-responses-count-retrieve:
         operation: surveys_responses_count_retrieve
-        enabled: true
-        scopes:
-            - survey:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get response counts for surveys (batched, all-surveys-at-once).
-        description: >
-            Batched response counts keyed by survey ID. Use this before surveys-responses-list when you want to quickly
-            identify which surveys actually have data — avoids the pattern of paginating surveys-get-all to find
-            non-empty surveys. Pass `survey_ids` (comma-separated) to scope to specific surveys, or omit to get counts
-            for all surveys in the project. Set `exclude_archived=true` to skip archived responses.
+        # Disabled: this endpoint returns counts for every survey in the project without
+        # filtering by per-survey object-level access control, so an agent scoped to a
+        # subset of surveys could read counts for surveys it can't otherwise access.
+        # Re-enable once the endpoint filters its survey set through user_access_control.
+        enabled: false
     surveys-responses-list:
         operation: surveys_responses_list
         enabled: true
