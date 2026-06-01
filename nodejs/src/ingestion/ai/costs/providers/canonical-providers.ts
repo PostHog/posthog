@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-29 11:03:56 UTC
+// Generated at: 2026-06-01 11:57:12 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,6 +20,7 @@ export type CanonicalProvider =
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
+    | 'anthropic-claude-on-aws'
     | 'arcee-ai'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
@@ -38,7 +39,6 @@ export type CanonicalProvider =
     | 'cloudflare-fp8'
     | 'cohere'
     | 'crucible'
-    | 'crucible-fast'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -47,8 +47,9 @@ export type CanonicalProvider =
     | 'deepinfra-turbo'
     | 'deepseek'
     | 'dekallm-bf16'
+    | 'dekallm-fp4'
     | 'dekallm-fp8'
-    | 'featherless'
+    | 'digitalocean'
     | 'fireworks'
     | 'friendli'
     | 'gmicloud-bf16'

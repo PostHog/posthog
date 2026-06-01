@@ -11,6 +11,7 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
+    getPublicBaseUrl,
     MCP_SERVER_NAME,
     MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
@@ -27,10 +28,11 @@ import {
     buildMCPAnalyticsGroups,
     buildMCPContextProperties,
     initMcpAnalytics,
+    MCP_ANALYTICS_VERSION,
     McpAnalyticsInitResult,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
-import { evaluateFeatureFlags, type FlagGroups, isFeatureFlagEnabled } from '@/lib/posthog/flags'
+import { type EvaluatedFlags, evaluateFeatureFlags, type FlagGroups } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { formatPrompt, type McpMode, sanitizeHeaderValue } from '@/lib/utils'
@@ -67,7 +69,6 @@ export type RequestProperties = {
     features?: string[]
     tools?: string[]
     region?: string
-    version?: number
     organizationId?: string
     projectId?: string
     clientUserAgent?: string
@@ -91,10 +92,7 @@ export type RequestProperties = {
 }
 
 export class MCP extends McpAgent<Env> {
-    server = new McpServer(
-        { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
-        { instructions: instructionsFormatter.buildV1Instructions() }
-    )
+    server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { instructions: '' })
 
     initialState: State = {
         projectId: undefined,
@@ -121,7 +119,6 @@ export class MCP extends McpAgent<Env> {
     private mcpClientVersion: string | undefined
     private mcpProtocolVersion: string | undefined
     private mcpMode: McpMode | undefined
-    private mcpVersion: number | undefined
 
     get requestProperties(): RequestProperties {
         return this.props as RequestProperties
@@ -254,6 +251,7 @@ export class MCP extends McpAgent<Env> {
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
+                publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.requestProperties.clientUserAgent,
                 mcpClientName: this.mcpClientName,
                 mcpClientVersion: this.mcpClientVersion,
@@ -410,7 +408,7 @@ export class MCP extends McpAgent<Env> {
                         ? { mcp_conversation_id: this.requestProperties.mcpConversationId }
                         : {}),
                     ...(this.mcpMode ? { mcp_mode: this.mcpMode } : {}),
-                    ...(this.mcpVersion !== undefined ? { mcp_version: this.mcpVersion } : {}),
+                    mcp_version: MCP_ANALYTICS_VERSION,
                     ...contextProperties,
                     ...previousContextProperties,
                     ...properties,
@@ -564,15 +562,7 @@ export class MCP extends McpAgent<Env> {
     }
 
     async init(): Promise<void> {
-        const {
-            features,
-            tools,
-            version: clientVersion,
-            organizationId,
-            projectId,
-            readOnly,
-            mode,
-        } = this.requestProperties
+        const { features, tools, organizationId, projectId, readOnly, mode } = this.requestProperties
 
         // Resolve MCP client info before any code reads it — most importantly
         // the `useSingleExec` decision below. During init() this resolves from
@@ -580,10 +570,6 @@ export class MCP extends McpAgent<Env> {
         // worker entry point); the DO-storage fallback inside
         // `resolveClientInfo` is only reachable post-init.
         await this.resolveClientInfo()
-
-        // User-level flags resolve in parallel with cache seeding. Tool flags are
-        // deferred until orgId is known so org-group rollouts evaluate correctly.
-        const flagPromise = this.resolveVersionFlag()
 
         // Seed cache with header-provided IDs before any fetches
         if (organizationId) {
@@ -616,10 +602,9 @@ export class MCP extends McpAgent<Env> {
         // rollouts evaluate against the same entities — see `buildMCPAnalyticsGroups`.
         const flagAnalyticsContext = await this.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
-        const toolFlagsPromise = this.resolveToolFeatureFlags(clientVersion, flagGroups)
+        const toolFlagsPromise = this.resolveToolFeatureFlags(flagGroups)
 
-        const [flagVersion, toolFeatureFlags, _apiKey] = await Promise.all([
-            flagPromise,
+        const [toolFeatureFlags, _apiKey] = await Promise.all([
             toolFlagsPromise,
             // Trigger OAuth introspection so the OAuth client name is cached before the useSingleExec decision below
             context.stateManager.getApiKey(),
@@ -635,12 +620,7 @@ export class MCP extends McpAgent<Env> {
             vendorClient: this.requestProperties.mcpVendorClient,
         })
 
-        const { useSingleExec, version } = this.resolveModeAndVersion({
-            mode,
-            clientProfile,
-            flagVersion,
-            clientVersion,
-        })
+        const { useSingleExec } = this.resolveMode({ mode, clientProfile })
 
         // Fetch group types and metadata in parallel (cache is now seeded)
         const resolvedProjectId = projectId || (await this.cache.get('projectId'))
@@ -671,7 +651,6 @@ export class MCP extends McpAgent<Env> {
         const allTools = await getToolsFromContext(context, {
             features,
             tools,
-            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
@@ -686,12 +665,12 @@ export class MCP extends McpAgent<Env> {
 
         const toolInfos = allTools.map((t) => ({
             name: t.name,
-            category: getToolDefinition(t.name, version).category,
+            category: getToolDefinition(t.name).category,
         }))
         const queryToolInfos: QueryToolInfo[] = allTools
             .filter((t) => t.name.startsWith('query-'))
             .map((t) => {
-                const def = getToolDefinition(t.name, version)
+                const def = getToolDefinition(t.name)
                 return {
                     name: t.name,
                     title: def.title,
@@ -718,13 +697,9 @@ export class MCP extends McpAgent<Env> {
         // empty `instructions`, everything inlined in the `command` description.
         let instructions = ''
         if (supportsInstructions) {
-            if (useSingleExec) {
-                instructions = instructionsFormatter.buildExecInstructions(instructionsContext)
-            } else if (version === 2) {
-                instructions = instructionsFormatter.buildV2Instructions(instructionsContext)
-            } else {
-                instructions = instructionsFormatter.buildV1Instructions(metadata)
-            }
+            instructions = useSingleExec
+                ? instructionsFormatter.buildExecInstructions(instructionsContext)
+                : instructionsFormatter.buildToolsInstructions(instructionsContext)
         }
 
         this.server = new McpServer({ name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION }, { instructions })
@@ -736,17 +711,15 @@ export class MCP extends McpAgent<Env> {
             registerUiAppResources(this.server, context),
         ])
 
-        // execute-sql is v2-only. Swap its description with the rich SQL prompt
-        // (visible via `info execute-sql` in single-exec, and as the tool's own
-        // description otherwise). It folds in the HogQL/SQL intro, guidelines,
-        // discovery workflow, and the truncation guidance that the base JSON
-        // description carried — and it triggers the `querying-posthog-data`
-        // skill more reliably than the shorter default.
-        if (version === 2) {
-            const sqlTool = allTools.find((t) => t.name === 'execute-sql')
-            if (sqlTool) {
-                sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
-            }
+        // Swap execute-sql's description with the rich SQL prompt (visible via
+        // `info execute-sql` in single-exec, and as the tool's own description
+        // otherwise). It folds in the HogQL/SQL intro, guidelines, discovery
+        // workflow, and the truncation guidance that the base JSON description
+        // carried — and it triggers the `querying-posthog-data` skill more
+        // reliably than the shorter default.
+        const sqlTool = allTools.find((t) => t.name === 'execute-sql')
+        if (sqlTool) {
+            sqlTool.description = formatPrompt(EXECUTE_SQL_PROMPT, { guidelines: guidelines.trim() })
         }
 
         // In single-exec mode, register one "posthog" tool that wraps all tools
@@ -803,9 +776,6 @@ export class MCP extends McpAgent<Env> {
             getRegion: async () => (await this.cache.get('region')) ?? this.requestProperties.region,
             getAnalyticsContext: async () => this.getAnalyticsContextSafe(await this.getContext()),
             getClientUserAgent: async () => this.requestProperties.clientUserAgent,
-            // Server-resolved version (may differ from the client-reported one because of
-            // the `mcp-version-2` feature flag), so observability events line up with ours.
-            getMcpVersion: async () => version,
             getOAuthClientName: async () => (await this.cache.get('clientName')) || undefined,
             getReadOnly: async () => readOnly,
             getTransport: async () => this.requestProperties.transport,
@@ -878,10 +848,9 @@ export class MCP extends McpAgent<Env> {
     }
 
     /**
-     * Decide single-exec mode and the protocol version for this connection,
-     * stashing both on the instance so `trackEvent` and observability identity
-     * provider can emit `mcp_mode` / `mcp_version` on every downstream event
-     * without re-deriving them.
+     * Decide single-exec mode for this connection, stashing it on the instance
+     * so `trackEvent` and the observability identity provider can emit `mcp_mode`
+     * on every downstream event without re-deriving it.
      *
      * Single-exec is restricted to coding agents — Cursor and other clients
      * that render `structuredContent` in their UI need the full per-tool roster,
@@ -893,43 +862,26 @@ export class MCP extends McpAgent<Env> {
      * `x-posthog-mcp-mode` or query param `mode`) wins over the client-profile
      * heuristic.
      */
-    private resolveModeAndVersion(args: {
-        mode: McpMode | undefined
-        clientProfile: MCPClientProfile
-        flagVersion: number | undefined
-        clientVersion: number | undefined
-    }): { useSingleExec: boolean; version: number } {
-        const { mode, clientProfile, flagVersion, clientVersion } = args
+    private resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+        useSingleExec: boolean
+    } {
+        const { mode, clientProfile } = args
         const useSingleExec =
             mode === 'cli' ||
             (mode !== 'tools' &&
                 (clientProfile.isCodingAgent() ||
                     clientProfile.isPostHogCodeConsumer() ||
                     clientProfile.isVibeCodingClient()))
-        const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
 
         this.mcpMode = useSingleExec ? 'cli' : 'tools'
-        this.mcpVersion = version
 
-        return { useSingleExec, version }
+        return { useSingleExec }
     }
 
-    private async resolveVersionFlag(): Promise<number | undefined> {
-        try {
-            const distinctId = await this.getDistinctId()
-            return (await isFeatureFlagEnabled('mcp-version-2', distinctId)) ? 2 : undefined
-        } catch {
-            return undefined
-        }
-    }
-
-    private async resolveToolFeatureFlags(
-        version?: number,
-        groups?: FlagGroups
-    ): Promise<Record<string, boolean> | undefined> {
+    private async resolveToolFeatureFlags(groups?: FlagGroups): Promise<EvaluatedFlags | undefined> {
         try {
             const { getRequiredFeatureFlags } = await import('@/tools/toolDefinitions')
-            const flagKeys = getRequiredFeatureFlags(version)
+            const flagKeys = getRequiredFeatureFlags()
             if (flagKeys.length === 0) {
                 return undefined
             }

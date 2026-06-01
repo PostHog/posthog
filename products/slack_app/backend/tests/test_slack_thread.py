@@ -5,13 +5,10 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from products.slack_app.backend.slack_thread import (
-    RANDOM_ACK_EMOJIS,
     UPSTREAM_PROVIDER_FAILURE_MESSAGE,
     SlackThreadContext,
     SlackThreadHandler,
     _format_task_error,
-    ack_emoji_for,
-    stale_ack_emojis_for,
 )
 
 
@@ -87,7 +84,7 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_clears_stale_ack_emojis(self, mock_get_client):
+    def test_update_reaction_removes_seedling_and_eyes(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -100,37 +97,11 @@ class TestSlackThreadHandler(TestCase):
         handler = SlackThreadHandler(context)
         handler.update_reaction("hedgehog")
 
-        removed_names = [call.kwargs["name"] for call in mock_client.reactions_remove.call_args_list]
-        # Only the candidate ack reactions for this specific ts are removed (not the whole pool),
-        # so cleanup stays cheap regardless of pool size.
-        assert removed_names == list(stale_ack_emojis_for("1234.5678"))
+        remove_calls = mock_client.reactions_remove.call_args_list
+        assert len(remove_calls) == 2
+        assert remove_calls[0].kwargs["name"] == "seedling"
+        assert remove_calls[1].kwargs["name"] == "eyes"
         mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
-
-    def test_ack_emoji_for_is_deterministic_per_ts(self):
-        # Same ts must always pick the same emoji — activity retries depend on this for
-        # `_safe_react`'s `already_reacted` short-circuit to keep the ack idempotent.
-        assert ack_emoji_for("1700000001.000100") == ack_emoji_for("1700000001.000100")
-        assert ack_emoji_for("1700000001.000100") in RANDOM_ACK_EMOJIS
-        # Different ts values should reach across the pool (sanity check, not a uniformity claim).
-        reached = {ack_emoji_for(f"1700000000.{i:06d}") for i in range(500)}
-        assert len(reached) >= len(RANDOM_ACK_EMOJIS) // 2
-
-    def test_stale_ack_emojis_for_includes_legacy_seedling_and_eyes(self):
-        # `seedling` was the fixed pre-pool ack; tasks ack'd before this code shipped
-        # must still be cleanable. `eyes` is the follow-up ack.
-        stale = stale_ack_emojis_for("1234.5678")
-        assert "eyes" in stale
-        assert "seedling" in stale
-        assert ack_emoji_for("1234.5678") in stale
-
-    def test_stale_ack_emojis_for_dedupes_when_pick_is_seedling(self):
-        # `seedling` is both in the pool and the legacy ack — when the deterministic
-        # pick coincidentally lands on it, the tuple should not contain a duplicate.
-        seedling_ts = "1700000000.000005"
-        assert ack_emoji_for(seedling_ts) == "seedling", "fixture ts no longer maps to seedling"
-        stale = stale_ack_emojis_for(seedling_ts)
-        assert stale == ("eyes", "seedling")
-        assert stale.count("seedling") == 1
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):

@@ -1130,7 +1130,11 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     )
 
     return dagster.RunRequest(
-        run_key=str(next_request.pk),
+        # Include attempt_count so retries / re-approvals of the same request get a
+        # distinct run_key. Dagster dedupes by run_key, so a bare pk would make every
+        # relaunch after the first a silent no-op. attempt_count is bumped exactly once
+        # per APPROVED → IN_PROGRESS transition (see _mark_in_progress).
+        run_key=f"{next_request.pk}:{next_request.attempt_count}",
         job_name=job.name,
         run_config={
             "ops": {

@@ -191,7 +191,11 @@ jobs:
                   # to the script — see test_optimize_test_durations.py.
                   uv run .github/scripts/optimize_test_durations.py .test_durations \
                       --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
-                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
+                  # Also drop junit_artifacts — ghcommit-action defaults file_pattern
+                  # to "." and chokes on leftover download dirs ("read junit_artifacts/:
+                  # is a directory"). The commit steps below also pin file_pattern as a
+                  # belt-and-braces guard.
+                  rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations /tmp/dagster_durations
 
             - name: Check for changes
               id: check-changes
@@ -213,6 +217,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
@@ -257,6 +262,7 @@ jobs:
                   commit_message: 'chore(ci): update backend and dagster test timings'
                   repo: ${{ github.repository }}
                   branch: chore/update-test-timings
+                  file_pattern: .test_durations
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 

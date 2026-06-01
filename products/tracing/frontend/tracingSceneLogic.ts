@@ -43,13 +43,14 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'aggregationLoading',
                 'spanTree',
                 'spanTreeLoading',
+                'visibleRowDateRange',
             ],
             tracingFiltersLogic({ tabId: p.tabId }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
             tracingDataLogic({ tabId: p.tabId }),
-            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree'],
+            ['runQuery', 'fetchNextPage', 'loadTraceSpans', 'fetchAggregation', 'fetchSpanTree', 'setVisibleRowRange'],
             tracingFiltersLogic({ tabId: p.tabId }),
             [
                 'setDateRange',
