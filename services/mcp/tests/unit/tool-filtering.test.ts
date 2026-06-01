@@ -24,6 +24,17 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .filter(([_, def]: [string, ToolDefinition]) => def.always_available === true)
         .map(([name]) => name)
 
+describe('Notebook tool definitions', () => {
+    it('does not advertise executable cell tags in static markdown guidance', () => {
+        const description = getToolDefinitions()['notebooks-create-from-markdown']?.description ?? ''
+
+        expect(description).toContain('Create a notebook from agent-friendly markdown')
+        expect(description).not.toContain('<hogql')
+        expect(description).not.toContain('<ducksql')
+        expect(description).not.toContain('<python')
+    })
+})
+
 describe('Tool Filtering - Features', () => {
     const featureTests = [
         {

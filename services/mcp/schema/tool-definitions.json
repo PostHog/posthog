@@ -340,7 +340,7 @@
         }
     },
     "notebooks-create-from-markdown": {
-        "description": "Create a notebook from agent-friendly markdown. Use this instead of notebooks-create when writing a new multi-node analysis. Content supports normal markdown plus <query title=\"...\">{...query JSON...}</query> blocks for old-style query nodes. For SQL analysis, prefer <query> blocks containing HogQLQuery or InsightVizNode query JSON; do not use <hogql>, <ducksql>, or <python> blocks unless the notebook-python feature flag is enabled and the user specifically needs executable notebook cells. Use execute-sql or query-run first when you need to inspect live values before deciding which nodes to create.",
+        "description": "Create a notebook from agent-friendly markdown. Use this instead of notebooks-create when writing a new multi-node analysis. Content supports normal markdown plus <query title=\"...\">{...query JSON...}</query> blocks for old-style query nodes. For SQL analysis, prefer <query> blocks containing HogQLQuery or InsightVizNode query JSON. Use execute-sql or query-run first when you need to inspect live values before deciding which nodes to create.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create a notebook from markdown with query nodes.",

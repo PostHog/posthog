@@ -9,6 +9,7 @@ from posthog.schema import HumanMessage, MaxNotebookContext, MaxUIContext
 from products.notebooks.backend.models import Notebook
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.notebook.prompts import ROOT_NOTEBOOKS_CONTEXT_PROMPT
 from ee.hogai.tools.edit_notebook import (
     EDIT_NOTEBOOK_PROMPT,
     EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS,
@@ -136,6 +137,17 @@ def test_replace_text_schema_and_prompt_teach_query_edit_fast_path():
     assert "heading" in schema["properties"]["anchor"]["description"]
     assert "small SQL edits" in EDIT_NOTEBOOK_PROMPT
     assert "small SQL edits" in EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+
+
+def test_notebook_prompts_do_not_advertise_executable_cell_tags_without_feature_flag():
+    for prompt in (ROOT_NOTEBOOKS_CONTEXT_PROMPT, EDIT_NOTEBOOK_PROMPT):
+        assert "<hogql" not in prompt
+        assert "<ducksql" not in prompt
+        assert "<python" not in prompt
+
+    assert "<hogql" in EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+    assert "<ducksql" in EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+    assert "<python" in EDIT_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
 
 
 def test_build_edit_plan_inserts_analysis_cells_from_markdown():

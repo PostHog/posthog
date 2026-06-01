@@ -7,7 +7,11 @@ from langchain_core.runnables import RunnableConfig
 from products.notebooks.backend.models import Notebook
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
+from ee.hogai.tools.create_notebook.tool import (
+    CREATE_NOTEBOOK_PROMPT,
+    CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS,
+    CreateNotebookTool,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 from ee.models.assistant import Conversation
 
@@ -39,6 +43,14 @@ class TestCreateNotebookTool(BaseTest):
         assert "Cannot provide both" in result
         assert "Use exactly one" in result
         assert artifact is None
+
+    def test_base_prompt_does_not_advertise_executable_analysis_cell_tags(self):
+        assert "<hogql" not in CREATE_NOTEBOOK_PROMPT
+        assert "<ducksql" not in CREATE_NOTEBOOK_PROMPT
+        assert "<python" not in CREATE_NOTEBOOK_PROMPT
+        assert "<hogql" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+        assert "<ducksql" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
+        assert "<python" in CREATE_NOTEBOOK_PROMPT_WITH_EXECUTABLE_ANALYSIS_BLOCKS
 
     def test_returns_error_when_neither_content_nor_draft_content_provided(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
