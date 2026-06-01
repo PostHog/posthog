@@ -21876,9 +21876,10 @@ class AccountsQuery(BaseModel):
     metrics: list[str] | None = Field(
         default=None,
         description=(
-            "Aggregation expressions evaluated against the filtered account set. When"
-            " set, the runner skips the regular row fetch and returns one value per"
-            " metric in `metricsResults`."
+            "Aggregation expressions evaluated against the filtered account set; one"
+            " value per metric is returned in `metricsResults`. When `metrics` is set"
+            " without a `select`, the runner skips the regular row fetch and returns"
+            " only the aggregated values."
         ),
     )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

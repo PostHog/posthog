@@ -2281,7 +2281,7 @@ export type AccountsRoleAssignmentFilter = integer | 'unassigned'
 export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     kind: NodeKind.AccountsQuery
     select?: HogQLExpression[]
-    /** Aggregation expressions evaluated against the filtered account set. When set, the runner skips the regular row fetch and returns one value per metric in `metricsResults`. */
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
