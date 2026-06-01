@@ -12,8 +12,6 @@ use crate::producer::Producer;
 use crate::seen_cache::SeenCache;
 use crate::types::{IngestableEvent, PropertyType, TupleKey};
 
-/// Per-worker reduction settings. Events and groups run with these disabled
-/// (`Default`); only the merger applies the top-K cap and the seen cache.
 #[derive(Clone, Copy, Default)]
 pub struct ReductionConfig {
     pub max_values_per_key: usize,
@@ -43,9 +41,6 @@ pub async fn worker_loop<E, P, F>(
     let _guard = handle.process_scope();
 
     let mut aggregator = Aggregator::new();
-    // Emit-once dedup, merger only (capacity 0 = disabled). Bounded by capacity,
-    // not cardinality; a forgotten or evicted tuple is re-emitted and the
-    // AggregatingMergeTree absorbs the duplicate.
     let seen_cache = (reduction.seen_cache_capacity > 0)
         .then(|| SeenCache::new(reduction.seen_cache_capacity, worker));
     // One Offset handle per partition: the latest message we've consumed.
@@ -136,9 +131,6 @@ pub(crate) async fn flush<P: Producer>(
         snapshot = cap_top_k(snapshot, max_values_per_key, worker);
     }
 
-    // Emit-once: drop tuples already in the seen cache, keep and remember the
-    // rest. The kept set is exactly what we insert, so a produce failure can
-    // forget those entries and re-emit them on the next flush.
     let to_emit: Vec<(TupleKey, u64)> = match seen_cache {
         Some(cache) => snapshot
             .into_iter()
