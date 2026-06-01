@@ -15,8 +15,8 @@ export function isNonFailureStatus(
         if (typeof entry === 'string') {
             const match = WILDCARD_PATTERN.exec(entry)
             if (match) {
-                const decade = parseInt(match[1], 10) * 100
-                if (status >= decade && status < decade + 100) {
+                const rangeStart = parseInt(match[1], 10) * 100
+                if (status >= rangeStart && status < rangeStart + 100) {
                     return true
                 }
             }
