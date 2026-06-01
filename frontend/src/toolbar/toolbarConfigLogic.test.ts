@@ -357,6 +357,18 @@ describe('toolbar toolbarConfigLogic', () => {
             captureExceptionSpy.mockRestore()
         })
 
+        // Mock only the reachability HEAD check; every other request succeeds so we
+        // isolate exception reporting to the check itself (other failing fetches would
+        // capture their own exceptions and pollute the assertion).
+        function mockReachabilityCheck(checkOutcome: () => Promise<any>): void {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    return checkOutcome()
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+        }
+
         async function mountUntrustedHostAndCheck(): Promise<void> {
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
@@ -364,27 +376,25 @@ describe('toolbar toolbarConfigLogic', () => {
         }
 
         it('does not report an exception for an http_error reachability failure', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+            mockReachabilityCheck(() => Promise.resolve({ ok: false, status: 404 }))
             await mountUntrustedHostAndCheck()
             expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('does not report an exception for a network_or_cors reachability failure', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            mockReachabilityCheck(() => Promise.reject(new TypeError('Failed to fetch')))
             await mountUntrustedHostAndCheck()
             expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('does not report an exception for a timeout reachability failure', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() =>
-                Promise.reject(new DOMException('The operation timed out', 'AbortError'))
-            )
+            mockReachabilityCheck(() => Promise.reject(new DOMException('The operation timed out', 'AbortError')))
             await mountUntrustedHostAndCheck()
             expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
 
         it('reports an exception for a genuinely unexpected reachability failure', async () => {
-            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('something weird')))
+            mockReachabilityCheck(() => Promise.reject(new Error('something weird')))
             await mountUntrustedHostAndCheck()
             expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
             expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({
