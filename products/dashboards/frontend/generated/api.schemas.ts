@@ -121,6 +121,42 @@ export interface PaginatedDashboardTemplateListApi {
     results: DashboardTemplateApi[]
 }
 
+export interface PatchedDashboardTemplateApi {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown
+    variables?: unknown
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasicApi
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id?: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
 export interface CopyDashboardTemplateApi {
     /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
     source_template_id: string
@@ -305,28 +341,6 @@ export interface DashboardCollaboratorApi {
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
-}
-
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -725,7 +739,7 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -5172,7 +5186,7 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string | null
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -7404,6 +7418,25 @@ export interface ButtonTileApi {
     team: number
 }
 
+export interface NestedApi {
+    readonly id: string
+    /** @maxLength 64 */
+    widget_type: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    description?: string
+    config?: unknown
+    last_modified_at?: string
+    /** @nullable */
+    created_by?: number | null
+    /** @nullable */
+    last_modified_by?: number | null
+    team: number
+}
+
 export interface DashboardTileApi {
     id?: number
     insight: InsightApi
@@ -7420,6 +7453,12 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
+    readonly widget: NestedApi
+}
+
+export interface DeleteTileRequestApi {
+    /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+    tile_id: number
 }
 
 /**
@@ -7719,6 +7758,17 @@ export type DashboardsCreateTextTileCreateFormat =
     (typeof DashboardsCreateTextTileCreateFormat)[keyof typeof DashboardsCreateTextTileCreateFormat]
 
 export const DashboardsCreateTextTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat
+}
+
+export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
+
+export const DashboardsDeleteTileFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

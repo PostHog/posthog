@@ -3746,7 +3746,8 @@
                 "marketing_list_data_sources",
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
-                "marketing_suggest_utm_mappings"
+                "marketing_suggest_utm_mappings",
+                "summarize_replay_vision_summaries"
             ],
             "type": "string"
         },
@@ -18661,7 +18662,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
@@ -19041,6 +19042,13 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
+                "excluded_variants": {
+                    "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "feature_flag_variants": {
                     "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
@@ -19998,7 +20006,8 @@
                 "ClickHouse",
                 "Plain",
                 "Resend",
-                "PgAnalyze"
+                "PgAnalyze",
+                "Custom"
             ],
             "type": "string"
         },
@@ -21914,7 +21923,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "endPosition": {
@@ -22021,7 +22030,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "debug": {
@@ -22166,7 +22175,7 @@
             "additionalProperties": false,
             "properties": {
                 "connectionId": {
-                    "description": "Optional direct external data source id for running against a specific source",
+                    "description": "Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here.",
                     "type": "string"
                 },
                 "explain": {
@@ -22282,7 +22291,7 @@
                     "type": "boolean"
                 },
                 "parserMode": {
-                    "description": "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
                     "enum": [
                         "cpp_only",
                         "cpp_with_rust_shadow",
@@ -24623,6 +24632,84 @@
                     "type": "array"
                 }
             },
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["firing", "broken"],
+                    "type": "string"
+                },
+                "alert_id": {
+                    "type": "string"
+                },
+                "alert_name": {
+                    "type": "string"
+                },
+                "consecutive_failures": {
+                    "type": "number"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "result_count": {
+                    "type": ["number", "null"]
+                },
+                "threshold_count": {
+                    "type": "number"
+                },
+                "threshold_operator": {
+                    "enum": ["above", "below"],
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "window_minutes": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "alert_id",
+                "alert_name",
+                "action",
+                "threshold_count",
+                "threshold_operator",
+                "window_minutes",
+                "result_count",
+                "consecutive_failures",
+                "filters",
+                "url"
+            ],
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "logs",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "alert_state_change",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "LogsOrderBy": {
@@ -38261,6 +38348,12 @@
                 },
                 {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/SignalsScoutSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
         },
@@ -38296,7 +38389,9 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "pganalyze"
+                "pganalyze",
+                "signals_scout",
+                "logs"
             ],
             "type": "string"
         },
@@ -38311,9 +38406,118 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "cross_source_issue",
+                "alert_state_change"
             ],
             "type": "string"
+        },
+        "SignalsScoutEvidenceEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "entity_id": {
+                    "description": "Optional entity id within that product, e.g. an issue id or session id.",
+                    "type": "string"
+                },
+                "source_product": {
+                    "description": "The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary of the evidence the scout used.",
+                    "type": "string"
+                }
+            },
+            "required": ["source_product", "summary"],
+            "type": "object"
+        },
+        "SignalsScoutSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "type": "number"
+                },
+                "dedupe_keys": {
+                    "description": "Free-form short keys the harness can use for cross-run dedupe.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "evidence": {
+                    "items": {
+                        "$ref": "#/definitions/SignalsScoutEvidenceEntry"
+                    },
+                    "type": "array"
+                },
+                "finding_id": {
+                    "type": "string"
+                },
+                "hypothesis": {
+                    "type": "string"
+                },
+                "mcp_trace_id": {
+                    "description": "Trace id from the LLM analytics span for the scout run, when available.",
+                    "type": "string"
+                },
+                "scout_run_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "skill_version": {
+                    "type": "number"
+                },
+                "time_range": {
+                    "additionalProperties": false,
+                    "description": "Optional time window the finding refers to.",
+                    "properties": {
+                        "date_from": {
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                }
+            },
+            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "type": "object"
+        },
+        "SignalsScoutSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalsScoutSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "signals_scout",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "cross_source_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SimilarIssue": {
             "additionalProperties": false,
@@ -41509,6 +41713,15 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
