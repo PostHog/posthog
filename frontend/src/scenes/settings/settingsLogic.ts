@@ -639,8 +639,15 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
     }),
-    actionToUrl(() => ({
+    actionToUrl(({ props }) => ({
+        // Skip the URL update in the full settings scene — settingsSceneLogic already pushes
+        // the canonical URL with the section path + setting hash. Without this guard, both
+        // subscriptions fire on selectSetting and produce two history entries per click.
+        // Embedded usages (replay, logs) keep the `selectedSetting` hash for deep-linking.
         selectSetting: ({ setting }) => {
+            if (props.logicKey === 'settingsScene') {
+                return
+            }
             return [
                 router.values.location.pathname,
                 router.values.searchParams,

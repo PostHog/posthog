@@ -97,7 +97,7 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: always()
+        if: ${{ !cancelled() }}
         steps:
             - name: Check outcomes
               run: |
@@ -106,7 +106,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
                     echo "LLM Gateway tests failed."
                     exit 1
                   fi
