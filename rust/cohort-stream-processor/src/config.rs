@@ -16,17 +16,9 @@ const POOL_NAME: &str = "posthog_cohort";
 
 /// Which teams the realtime-cohort filter catalog is scoped to, parsed from
 /// `REALTIME_COHORT_TEAM_ALLOWLIST`.
-///
-/// Mirrors the `TeamIdCollection` idiom in `rust/feature-flags/src/config.rs` (and the shuffler's own
-/// copy): `""` / `all` / `*` → no gate; `none` → gate everything; a comma-separated list with
-/// optional `a:b` ranges → only those teams. The code default is `2` (the parity baseline's gate,
-/// `REALTIME_COHORT_CALCULATION_TEAMS`) so prod is scoped correctly without chart wiring;
-/// `bin/start-rust-service` overrides it to `all` for local dev.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TeamAllowlist {
-    /// No gate — every team with a realtime cohort is in scope.
     All,
-    /// Only these teams are in scope (an empty set drops every cohort).
     Only(HashSet<i32>),
 }
 
