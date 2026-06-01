@@ -367,7 +367,7 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
 
     return [
         config.commentMarker,
-        '### 👥 Auto-assigned reviewers',
+        '### 👀 Auto-assigned reviewers',
         '',
         `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
         '',
