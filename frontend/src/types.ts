@@ -798,11 +798,7 @@ export interface TeamType extends TeamBasicType {
 }
 
 export interface WorkflowsConfig {
-    /**
-     * When enabled, messaging engagement activity (sends, opens, clicks, bounces, etc.)
-     * is captured as standard PostHog events ($messaging_email_*) in addition to app_metrics2.
-     */
-    capture_engagement_events: boolean
+    capture_messaging_engagement_events: boolean
 }
 
 export interface ProductIntentType {

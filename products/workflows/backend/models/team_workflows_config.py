@@ -12,8 +12,8 @@ class TeamWorkflowsConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
 
     # Opt-in toggle for emitting messaging engagement activity (sends, opens, clicks, bounces, etc.)
-    # as standard PostHog events alongside the existing app_metrics2 records.
-    capture_engagement_events = models.BooleanField(default=False)
+    # as standard PostHog events alongside the existing workflow metrics.
+    capture_messaging_engagement_events = models.BooleanField(default=False)
 
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)

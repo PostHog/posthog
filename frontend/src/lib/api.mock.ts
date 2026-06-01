@@ -206,7 +206,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         payment_event: {},
     } as CustomerAnalyticsConfig,
     workflows_config: {
-        capture_engagement_events: false,
+        capture_messaging_engagement_events: false,
     },
     base_currency: CurrencyCode.USD,
     default_evaluation_contexts_enabled: false,

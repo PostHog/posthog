@@ -353,18 +353,18 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
 
 class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    capture_engagement_events = serializers.BooleanField(
+    capture_messaging_engagement_events = serializers.BooleanField(
         required=False,
         help_text=(
             "When enabled, messaging engagement activity (email sends, opens, clicks, bounces, "
             "spam reports, unsubscribes) is captured as standard PostHog events ($messaging_email_*) "
-            "in addition to the existing app_metrics2 records."
+            "alongside the existing workflow metrics."
         ),
     )
 
     class Meta:
         model = TeamWorkflowsConfig
-        fields = ["capture_engagement_events"]
+        fields = ["capture_messaging_engagement_events"]
 
 
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
