@@ -23,6 +23,19 @@ from products.tasks.backend.services.sandbox import AgentServerResult, Execution
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError, SandboxProvisionError
 
 
+def _agent_server_launch_command(mock_execute: Any) -> str:
+    """Return the agent-server launch command among the execute calls.
+
+    start_agent_server writes the BASH_ENV script (one execute call) before
+    launching the server, so the launch is no longer the first execute call.
+    """
+    for call in mock_execute.call_args_list:
+        command = call.args[0]
+        if "./node_modules/.bin/agent-server" in command:
+            return command
+    raise AssertionError("agent-server launch command not found among execute calls")
+
+
 def _mock_token_response(status_code: int = 200, token: str | None = "test-token"):
     resp = MagicMock()
     resp.status_code = status_code
@@ -289,10 +302,7 @@ class TestModalSandboxAgentServer:
 
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
 
         with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup:
@@ -304,8 +314,7 @@ class TestModalSandboxAgentServer:
             )
 
         mock_setup.assert_not_called()
-        start_call = mock_sandbox.execute.call_args_list[0]
-        command = start_call[0][0]
+        command = _agent_server_launch_command(mock_sandbox.execute)
         import shlex
 
         assert f"--port {AGENT_SERVER_PORT}" in command
@@ -319,10 +328,7 @@ class TestModalSandboxAgentServer:
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_provided(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
 
         with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
@@ -338,7 +344,7 @@ class TestModalSandboxAgentServer:
             "/tmp/workspace",
             ["example.com"],
         )
-        command = mock_sandbox.execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--createPr true" in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "env -0 > /tmp/agent-env" in command
@@ -347,10 +353,7 @@ class TestModalSandboxAgentServer:
 
     def test_start_agent_server_wraps_with_agentsh_when_domains_empty(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
 
         with patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh:
@@ -363,7 +366,7 @@ class TestModalSandboxAgentServer:
             )
 
         mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
-        command = mock_sandbox.execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--allowedDomains" not in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
         assert "env -0 > /tmp/agent-env" in command
@@ -377,10 +380,7 @@ class TestModalSandboxAgentServer:
     )
     def test_start_agent_server_passes_create_pr_flag(self, mock_sandbox: Any, create_pr: bool, expected_flag: str):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
 
         with patch.object(mock_sandbox, "_setup_agentsh"):
@@ -392,15 +392,12 @@ class TestModalSandboxAgentServer:
                 create_pr=create_pr,
             )
 
-        command = mock_sandbox.execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_sandbox.execute)
         assert expected_flag in command
 
     def test_start_agent_server_includes_runtime_environment_variables(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
         )
 
         mock_sandbox.start_agent_server(
@@ -415,7 +412,7 @@ class TestModalSandboxAgentServer:
             event_ingest_token="ingest-token",
         )
 
-        command = mock_sandbox.execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_sandbox.execute)
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
@@ -649,7 +646,7 @@ class TestModalSandboxCommandEscaping:
                     with patch.object(sandbox, "_wait_for_health_check", return_value=True):
                         sandbox.start_agent_server(repository, task_id, run_id, mode)
 
-                command = mock_execute.call_args_list[0][0][0]
+                command = _agent_server_launch_command(mock_execute)
 
                 org, repo = repository.lower().split("/")
                 repo_path = f"/tmp/workspace/repos/{org}/{repo}"
