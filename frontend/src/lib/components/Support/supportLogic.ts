@@ -52,10 +52,22 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
-function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
+// Returns the public, externally-resolvable replay URL for the current session, or null if unavailable.
+export function getPublicSessionReplayUrl(): string | null {
+    return posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 }) || null
+}
+
+// `useInternalGolink` rewrites the public /replay/ URL into the staff-only http://go/session/ golink.
+// Only enable it for contexts consumed by PostHog staff (e.g. Zendesk tickets) — external users
+// cannot resolve the golink.
+function getSessionReplayLink(useInternalGolink = false): string {
+    const publicUrl = getPublicSessionReplayUrl()
+    if (!publicUrl) {
+        return ''
+    }
+    const replayUrl = useInternalGolink
+        ? publicUrl.replace(window.location.origin + '/replay/', 'http://go/session/')
+        : publicUrl
     return `\nSession: ${replayUrl}`
 }
 
@@ -680,7 +692,7 @@ export const supportLogic = kea<supportLogicType>([
                             `\nKind: ${kind}` +
                             `\nTarget area: ${target_area}` +
                             `\nReport event: http://go/ticketByUUID/${zendesk_ticket_uuid}` +
-                            getSessionReplayLink() +
+                            getSessionReplayLink(true) +
                             getErrorTrackingLink(exception_event?.uuid) +
                             getCurrentLocationLink() +
                             getDjangoAdminLink(
