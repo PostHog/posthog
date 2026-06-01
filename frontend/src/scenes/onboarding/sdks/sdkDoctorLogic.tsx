@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -154,6 +155,11 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
             null as SdkHealthReportResponse | null,
             {
                 loadReport: async (options?: { forceRefresh?: boolean }): Promise<SdkHealthReportResponse | null> => {
+                    // Skip while the team is still loading — firing against /projects/null/ 404s and
+                    // would leave the scene stuck in an error state with no automatic retry.
+                    if (!values.currentTeamId) {
+                        return null
+                    }
                     try {
                         const base = `api/projects/${values.currentTeamId}/sdk_doctor/report/`
                         const endpoint = options?.forceRefresh === true ? `${base}?force_refresh=true` : base
@@ -247,6 +253,18 @@ export const sdkDoctorLogic = kea<sdkDoctorLogicType>([
             lemonToast.success('SDK Doctor snoozed for 30 days')
         },
     }),
+
+    subscriptions(({ actions, values }) => ({
+        // If the team was still loading when the scene mounted (currentTeamId null), afterMount's
+        // loadReport bailed early — retry once the team id arrives. `oldTeamId === null` targets that
+        // real null→id transition specifically, so a fresh mount with the team already present never
+        // double-loads.
+        currentTeamId: (currentTeamId, oldTeamId) => {
+            if (currentTeamId && oldTeamId === null && values.isCloudOrDev) {
+                actions.loadReport()
+            }
+        },
+    })),
 
     afterMount(({ actions, values }) => {
         if (!values.isCloudOrDev) {
