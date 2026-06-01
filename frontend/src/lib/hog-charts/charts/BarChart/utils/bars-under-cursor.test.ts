@@ -1,6 +1,6 @@
 import type { BarRect } from '../../../core/canvas-renderer'
 import { computeStackData, createBarScales } from '../../../core/scales'
-import type { Series } from '../../../core/types'
+import { DEFAULT_Y_AXIS_ID, type Series } from '../../../core/types'
 import { dimensions } from '../../../testing/jsdom'
 import {
     barContainsPoint,
@@ -111,8 +111,8 @@ describe('computeStackEdges', () => {
             [series('value', [100, 55]), series('filler', [0, 45])],
             2
         )
-        expect(bottomKeyAtIndex.get('left')).toEqual(['value', 'value'])
-        expect(topKeyAtIndex.get('left')).toEqual(['value', 'filler'])
+        expect(bottomKeyAtIndex.get(DEFAULT_Y_AXIS_ID)).toEqual(['value', 'value'])
+        expect(topKeyAtIndex.get(DEFAULT_Y_AXIS_ID)).toEqual(['value', 'filler'])
     })
 
     it('skips excluded series and treats zero/non-finite as absent', () => {
@@ -122,8 +122,8 @@ describe('computeStackEdges', () => {
             visibility: { excluded: true },
         }
         const { topKeyAtIndex, bottomKeyAtIndex } = computeStackEdges([excluded, series('a', [0]), series('b', [7])], 1)
-        expect(bottomKeyAtIndex.get('left')).toEqual(['b'])
-        expect(topKeyAtIndex.get('left')).toEqual(['b'])
+        expect(bottomKeyAtIndex.get(DEFAULT_Y_AXIS_ID)).toEqual(['b'])
+        expect(topKeyAtIndex.get(DEFAULT_Y_AXIS_ID)).toEqual(['b'])
     })
 
     it('keys edges by yAxisId', () => {
