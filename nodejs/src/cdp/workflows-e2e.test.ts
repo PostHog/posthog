@@ -30,7 +30,10 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '../../src/worker/ingestion/persons/repositories/person-repository'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/fixtures'
@@ -66,6 +69,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let globals: HogFunctionInvocationGlobals
+    let mockPersonRepo: jest.Mocked<PersonReadRepository>
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
 
@@ -115,7 +119,14 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             ],
         })
 
-        deps = createCdpConsumerDeps(hub, kafkaProducer)
+        mockPersonRepo = {
+            fetchPerson: jest.fn().mockResolvedValue(undefined),
+            fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
+            fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
+            fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
+        }
+
+        deps = { ...createCdpConsumerDeps(hub, kafkaProducer), personRepository: mockPersonRepo }
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
@@ -816,18 +827,21 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     describe('person data survives v2 round-trip', () => {
         beforeEach(async () => {
-            const personRepository = new PostgresPersonRepository(hub.postgres)
-            await personRepository.createPerson(
-                DateTime.utc(),
-                { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
-                { distinctId: 'test-distinct-id' }
-            )
+            const person: InternalPersonWithDistinctId = {
+                id: '1',
+                uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                team_id: team.id,
+                properties: { email: 'test@example.com', name: 'Test User', plan: 'enterprise' },
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                created_at: DateTime.utc(),
+                version: 1,
+                is_identified: true,
+                is_user_id: null,
+                last_seen_at: null,
+                distinct_id: 'test-distinct-id',
+            }
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([person])
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-workflows-e2e-person',
@@ -896,18 +910,24 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         let hogFlow: HogFlow
 
         beforeEach(async () => {
-            const personRepository = new PostgresPersonRepository(hub.postgres)
-            await personRepository.createPerson(
-                DateTime.utc(),
-                { email: 'batch@example.com', plan: 'enterprise' },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                personUuid,
-                { distinctId: personDistinctId }
-            )
+            const person = {
+                id: '2',
+                uuid: personUuid,
+                team_id: team.id,
+                properties: { email: 'batch@example.com', plan: 'enterprise' },
+                properties_last_updated_at: {},
+                properties_last_operation: null,
+                created_at: DateTime.utc(),
+                version: 1,
+                is_identified: true,
+                is_user_id: null,
+                last_seen_at: null,
+            }
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([{ ...person, distinct_id: personDistinctId }])
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([person])
+            mockPersonRepo.fetchDistinctIdsForPersons.mockResolvedValue({
+                [person.id]: [personDistinctId],
+            })
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-workflows-e2e-batch-distinct-id',
@@ -995,7 +1015,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 ],
             })
 
-            const distinctIdSpy = jest.spyOn(hub.personRepository, 'fetchDistinctIdsForPersons')
+            mockPersonRepo.fetchDistinctIdsForPersons.mockClear()
 
             await triggerWorkflow(createGlobals({ distinct_id: personDistinctId }))
 
@@ -1003,7 +1023,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 expect(mockFetch).toHaveBeenCalled()
             }, 5000)
 
-            expect(distinctIdSpy).not.toHaveBeenCalled()
+            expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
         })
     })
 })
