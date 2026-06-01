@@ -1,4 +1,4 @@
-import { CompatMessage } from '../../types'
+import { CompatMessage } from '../../../types'
 import { DispatchEngine, NO_MATCH } from '../ast/rule'
 import { SlotCoercer } from '../runtime/coercion'
 import { Scope } from '../scope'

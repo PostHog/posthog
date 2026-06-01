@@ -1,4 +1,4 @@
-import { CompatMessage } from '../../../types'
+import { CompatMessage } from '../../../../types'
 import { Scope } from '../../scope'
 import { LiteralExpr } from '../expr'
 import { Pattern } from '../predicate'

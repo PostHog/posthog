@@ -1,6 +1,7 @@
-import { CompatMessage } from '../../../types'
+import { CompatMessage } from '../../../../types'
 import { Scope } from '../../scope'
 import { Pattern } from '../predicate'
+import { Rule } from './base'
 import { DispatchEngine } from './dispatch'
 import { EmitRule } from './emit'
 
@@ -16,12 +17,12 @@ function engineReturning(message: CompatMessage | null): DispatchEngine {
 describe('EmitRule', () => {
     it('produces a single message from the emit spec', () => {
         const message: CompatMessage = { role: 'user', content: 'hi' }
-        const rule = new EmitRule(new Pattern({}), [], {})
+        const rule: Rule = new EmitRule(new Pattern({}), [], {})
         expect(rule.produce(scope, engineReturning(message), false, 0)).toEqual([message])
     })
 
     it('produces nothing when the coercer drops an empty message', () => {
-        const rule = new EmitRule(new Pattern({}), [], {})
+        const rule: Rule = new EmitRule(new Pattern({}), [], {})
         expect(rule.produce(scope, engineReturning(null), true, 0)).toEqual([])
     })
 })

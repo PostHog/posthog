@@ -1,4 +1,4 @@
-import { CompatMessage } from '../../../types'
+import { CompatMessage } from '../../../../types'
 import { Scope } from '../../scope'
 import { FollowupSpec } from '../../spec/emitSpec'
 import { LiteralExpr } from '../expr'
