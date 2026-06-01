@@ -8,6 +8,7 @@ import {
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { getPostHogClient } from '@/lib/posthog'
+import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -134,7 +135,7 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: ctx.props?.version,
+            mcp_version: MCP_ANALYTICS_VERSION,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })
@@ -344,6 +345,13 @@ const handleRequest = async (
     // the same `requestProperties.mcpConversationId` slot.
     const mcpConversationId = sanitizeHeaderValue(request.headers.get('mcp-conversation-id') || undefined)
 
+    // Anthropic-set per-request identifier for the inner upstream client (e.g.
+    // `ClaudeCode`, `ClaudeAI`, `Cowork`). Distinct from `mcpClientName` (the
+    // MCP `initialize` body's `clientInfo.name`) because Claude pools MCP
+    // transports — the same `mcpSessionId` can carry requests from multiple
+    // upstream products, and only this header tracks the live one.
+    const mcpVendorClient = sanitizeHeaderValue(request.headers.get('x-anthropic-client') || undefined)
+
     Object.assign(ctx.props, {
         apiToken: token,
         userHash: hash(token),
@@ -357,6 +365,7 @@ const handleRequest = async (
         mcpClientName: clientInfo.clientName,
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
+        mcpVendorClient,
         requestStartTime: Date.now(),
     })
 

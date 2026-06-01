@@ -6,6 +6,7 @@ from temporalio import activity
 
 from posthog.models.exported_asset import ExportedAsset
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
 
 # `mouse_tail=False` for cleaner LLM input.
@@ -18,6 +19,7 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 
 
 @activity.defn
+@track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
     existing = (

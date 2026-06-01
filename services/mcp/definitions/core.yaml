@@ -23,24 +23,6 @@ tools:
     add-product-intent-partial-update:
         operation: organizations_projects_add_product_intent_partial_update
         enabled: false
-    annotations-create:
-        operation: annotations_create
-        enabled: false
-    annotations-destroy:
-        operation: annotations_destroy
-        enabled: false
-    annotations-list:
-        operation: annotations_list
-        enabled: false
-    annotations-partial-update:
-        operation: annotations_partial_update
-        enabled: false
-    annotations-retrieve:
-        operation: annotations_retrieve
-        enabled: false
-    annotations-update:
-        operation: annotations_update
-        enabled: false
     change-organization-create:
         operation: organizations_projects_change_organization_create
         enabled: false
@@ -56,137 +38,8 @@ tools:
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
-    cohorts-activity-retrieve:
-        operation: cohorts_activity_retrieve
-        enabled: false
-    cohorts-add-persons-to-static-cohort-partial-update:
-        operation: cohorts_add_persons_to_static_cohort_partial_update
-        enabled: false
-    cohorts-all-activity-retrieve:
-        operation: cohorts_all_activity_retrieve
-        enabled: false
-    cohorts-calculation-history-retrieve:
-        operation: cohorts_calculation_history_retrieve
-        enabled: false
-    cohorts-create:
-        operation: cohorts_create
-        enabled: false
-    cohorts-destroy:
-        operation: cohorts_destroy
-        enabled: false
-    cohorts-list:
-        operation: cohorts_list
-        enabled: false
-    cohorts-partial-update:
-        operation: cohorts_partial_update
-        enabled: false
-    cohorts-persons-retrieve:
-        operation: cohorts_persons_retrieve
-        enabled: false
-    cohorts-remove-person-from-static-cohort-partial-update:
-        operation: cohorts_remove_person_from_static_cohort_partial_update
-        enabled: false
-    cohorts-retrieve:
-        operation: cohorts_retrieve
-        enabled: false
-    cohorts-update:
-        operation: cohorts_update
-        enabled: false
-    comments-complete-create:
-        operation: comments_complete_create
-        enabled: false
-    comments-count-retrieve:
-        operation: comments_count_retrieve
-        enabled: false
-    comments-create:
-        operation: comments_create
-        enabled: false
-    comments-destroy:
-        operation: comments_destroy
-        enabled: false
-    comments-list:
-        operation: comments_list
-        enabled: false
-    comments-partial-update:
-        operation: comments_partial_update
-        enabled: false
-    comments-reopen-create:
-        operation: comments_reopen_create
-        enabled: false
-    comments-retrieve:
-        operation: comments_retrieve
-        enabled: false
-    comments-thread-retrieve:
-        operation: comments_thread_retrieve
-        enabled: false
-    comments-update:
-        operation: comments_update
-        enabled: false
     complete-product-onboarding-partial-update:
         operation: organizations_projects_complete_product_onboarding_partial_update
-        enabled: false
-    dashboard-templates-copy-between-projects-create:
-        operation: dashboard_templates_copy_between_projects_create
-        enabled: false
-    dashboard-templates-create:
-        operation: dashboard_templates_create
-        enabled: false
-    dashboard-templates-destroy:
-        operation: dashboard_templates_destroy
-        enabled: false
-    dashboard-templates-json-schema-retrieve:
-        operation: dashboard_templates_json_schema_retrieve
-        enabled: false
-    dashboard-templates-list:
-        operation: dashboard_templates_list
-        enabled: false
-    dashboard-templates-partial-update:
-        operation: dashboard_templates_partial_update
-        enabled: false
-    dashboard-templates-retrieve:
-        operation: dashboard_templates_retrieve
-        enabled: false
-    dashboard-templates-update:
-        operation: dashboard_templates_update
-        enabled: false
-    dashboards-analyze-refresh-result-create:
-        operation: dashboards_analyze_refresh_result_create
-        enabled: false
-    dashboards-bulk-update-tags-create:
-        operation: dashboards_bulk_update_tags_create
-        enabled: false
-    dashboards-copy-tile-create:
-        operation: dashboards_copy_tile_create
-        enabled: false
-    dashboards-create:
-        operation: dashboards_create
-        enabled: false
-    dashboards-create-from-template-json-create:
-        operation: dashboards_create_from_template_json_create
-        enabled: false
-    dashboards-create-unlisted-dashboard-create:
-        operation: dashboards_create_unlisted_dashboard_create
-        enabled: false
-    dashboards-destroy:
-        operation: dashboards_destroy
-        enabled: false
-    dashboards-list:
-        operation: dashboards_list
-        enabled: false
-    dashboards-move-tile-partial-update:
-        operation: dashboards_move_tile_partial_update
-        enabled: false
-    dashboards-partial-update:
-        operation: dashboards_partial_update
-        enabled: false
-    dashboards-reorder-tiles-create:
-        operation: dashboards_reorder_tiles_create
-        enabled: false
-    dashboards-retrieve:
-        operation: dashboards_retrieve
-        enabled: false
-    dashboards-run-insights-retrieve:
-        operation: dashboards_run_insights_retrieve
         enabled: false
     dashboards-sharing-list:
         operation: dashboards_sharing_list
@@ -199,15 +52,6 @@ tools:
         enabled: false
     dashboards-sharing-refresh-create:
         operation: dashboards_sharing_refresh_create
-        enabled: false
-    dashboards-snapshot-create:
-        operation: dashboards_snapshot_create
-        enabled: false
-    dashboards-stream-tiles-retrieve:
-        operation: dashboards_stream_tiles_retrieve
-        enabled: false
-    dashboards-update:
-        operation: dashboards_update
         enabled: false
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
@@ -238,45 +82,6 @@ tools:
         enabled: false
     domains-verify-create:
         operation: domains_verify_create
-        enabled: false
-    event-definitions-bulk-update-tags-create:
-        operation: event_definitions_bulk_update_tags_create
-        enabled: false
-    event-definitions-by-name-retrieve:
-        operation: event_definitions_by_name_retrieve
-        enabled: false
-    event-definitions-create:
-        operation: event_definitions_create
-        enabled: false
-    event-definitions-destroy:
-        operation: event_definitions_destroy
-        enabled: false
-    event-definitions-golang-retrieve:
-        operation: event_definitions_golang_retrieve
-        enabled: false
-    event-definitions-list:
-        operation: event_definitions_list
-        enabled: false
-    event-definitions-metrics-retrieve:
-        operation: event_definitions_metrics_retrieve
-        enabled: false
-    event-definitions-partial-update:
-        operation: event_definitions_partial_update
-        enabled: false
-    event-definitions-primary-properties-retrieve:
-        operation: event_definitions_primary_properties_retrieve
-        enabled: false
-    event-definitions-python-retrieve:
-        operation: event_definitions_python_retrieve
-        enabled: false
-    event-definitions-retrieve:
-        operation: event_definitions_retrieve
-        enabled: false
-    event-definitions-typescript-retrieve:
-        operation: event_definitions_typescript_retrieve
-        enabled: false
-    event-definitions-update:
-        operation: event_definitions_update
         enabled: false
     exports-content-retrieve:
         operation: exports_content_retrieve
@@ -335,33 +140,6 @@ tools:
     generate-conversations-public-token-create:
         operation: organizations_projects_generate_conversations_public_token_create
         enabled: false
-    groups-activity-retrieve:
-        operation: groups_activity_retrieve
-        enabled: false
-    groups-create:
-        operation: groups_create
-        enabled: false
-    groups-delete-property-create:
-        operation: groups_delete_property_create
-        enabled: false
-    groups-find-retrieve:
-        operation: groups_find_retrieve
-        enabled: false
-    groups-list:
-        operation: groups_list
-        enabled: false
-    groups-property-definitions-retrieve:
-        operation: groups_property_definitions_retrieve
-        enabled: false
-    groups-property-values-retrieve:
-        operation: groups_property_values_retrieve
-        enabled: false
-    groups-related-retrieve:
-        operation: groups_related_retrieve
-        enabled: false
-    groups-update-property-create:
-        operation: groups_update_property_create
-        enabled: false
     insights-sharing-list:
         operation: insights_sharing_list
         enabled: false
@@ -391,33 +169,6 @@ tools:
         enabled: false
     is-generating-demo-data-retrieve:
         operation: organizations_projects_is_generating_demo_data_retrieve
-        enabled: false
-    legal-documents-create:
-        operation: legal_documents_create
-        enabled: false
-    legal-documents-download-retrieve:
-        operation: legal_documents_download_retrieve
-        enabled: false
-    legal-documents-list:
-        operation: legal_documents_list
-        enabled: false
-    legal-documents-retrieve:
-        operation: legal_documents_retrieve
-        enabled: false
-    members-destroy:
-        operation: members_destroy
-        enabled: false
-    members-list:
-        operation: members_list
-        enabled: false
-    members-partial-update:
-        operation: members_partial_update
-        enabled: false
-    members-scoped-api-keys-retrieve:
-        operation: members_scoped_api_keys_retrieve
-        enabled: false
-    members-update:
-        operation: members_update
         enabled: false
     notebooks-sharing-list:
         operation: notebooks_sharing_list
@@ -547,24 +298,6 @@ tools:
         enabled: false
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
-        enabled: false
-    roles-create:
-        operation: roles_create
-        enabled: false
-    roles-destroy:
-        operation: roles_destroy
-        enabled: false
-    roles-list:
-        operation: roles_list
-        enabled: false
-    roles-partial-update:
-        operation: roles_partial_update
-        enabled: false
-    roles-retrieve:
-        operation: roles_retrieve
-        enabled: false
-    roles-update:
-        operation: roles_update
         enabled: false
     rotate-secret-token-partial-update:
         operation: organizations_projects_rotate_secret_token_partial_update

@@ -8,7 +8,6 @@ from temporalio.exceptions import ApplicationError
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerLlmResponse, IndexerOutput, IndexerScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput, ScorerScanner, ScoreScale
 from products.replay_vision.backend.temporal.scanners.summarizer import (
@@ -19,7 +18,7 @@ from products.replay_vision.backend.temporal.scanners.summarizer import (
 from products.replay_vision.backend.temporal.types import AnyScannerOutput, ScannerSnapshot
 
 AnyScanner = Annotated[
-    ClassifierScanner | IndexerScanner | MonitorScanner | ScorerScanner | SummarizerScanner,
+    ClassifierScanner | MonitorScanner | ScorerScanner | SummarizerScanner,
     Field(discriminator="scanner_type"),
 ]
 _SCANNER_ADAPTER: TypeAdapter[AnyScanner] = TypeAdapter(AnyScanner)
@@ -73,9 +72,6 @@ __all__ = [
     "BaseScannerOutput",
     "ClassifierScanner",
     "ClassifierOutput",
-    "IndexerScanner",
-    "IndexerLlmResponse",
-    "IndexerOutput",
     "MonitorScanner",
     "MonitorLlmResponse",
     "MonitorOutput",

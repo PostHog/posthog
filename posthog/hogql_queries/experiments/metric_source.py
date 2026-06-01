@@ -13,6 +13,8 @@ from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+
 
 @dataclass
 class MetricSourceInfo:
@@ -73,6 +75,8 @@ class MetricSourceInfo:
         """
         if isinstance(source, ExperimentDataWarehouseNode):
             # Datawarehouse sources always use their own join key, ignore entity_key parameter
+            # `data_warehouse_join_key` is the user-supplied HogQL parsed below.
+            tag_contains_user_hogql()
             return cls(
                 kind="datawarehouse",
                 table_name=source.table_name,
