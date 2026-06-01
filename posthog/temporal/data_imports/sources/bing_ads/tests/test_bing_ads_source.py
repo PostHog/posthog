@@ -287,20 +287,19 @@ class TestBingAdsSource:
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
 
-    def test_aadsts650052_message_wins_over_invalid_client(self):
-        """AADSTS650052 typically arrives inside an "invalid_client" envelope. The downstream
-        consumer (handle_non_retryable in external_data_job.py) picks the first matching entry,
-        so AADSTS650052 must come before invalid_client in the dict — otherwise users see the
-        generic "reconnect your integration" message instead of the service-principal guidance."""
+    def test_aadsts650052_message_wins_over_generic_auth_wrappers(self):
+        # The real error string contains "OAuthTokenRequestException", "invalid_client", AND "AADSTS650052"
+        # as substrings. handle_non_retryable in external_data_job.py picks the first matching dict entry,
+        # so AADSTS650052 must come before BOTH generic wrappers — otherwise the user sees the
+        # "reconnect your integration" toast instead of the service-principal guidance, and reconnecting
+        # cannot fix it (only an org admin granting tenant consent can).
         non_retryable_errors = self.source.get_non_retryable_errors()
         keys = list(non_retryable_errors.keys())
 
-        # Both keys must be present and AADSTS650052 must come first.
-        assert "AADSTS650052" in keys
-        assert "invalid_client" in keys
-        assert keys.index("AADSTS650052") < keys.index("invalid_client")
+        aadsts_index = keys.index("AADSTS650052")
+        assert aadsts_index < keys.index("OAuthTokenRequestException")
+        assert aadsts_index < keys.index("invalid_client")
 
-        # The first matching friendly message is the service-principal one.
         error_message = (
             "Failed to fetch customer ID: OAuthTokenRequestException: invalid_client AADSTS650052: "
             "The app is trying to access a service that your organization lacks a service principal for."

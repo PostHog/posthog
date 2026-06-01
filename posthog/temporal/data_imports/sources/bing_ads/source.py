@@ -46,7 +46,9 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
         # Specific Azure AD error code surfaced when the tenant lacks a service principal for the
         # Microsoft Advertising API application. Reconnecting won't help — the org admin has to consent
         # on behalf of the tenant — so the generic "reconnect your integration" message is misleading.
-        # Matched before "invalid_client" because handle_non_retryable picks the first matching entry.
+        # Must be matched first: the SDK wraps this as `OAuthTokenRequestException: invalid_client AADSTS650052: …`,
+        # so both "OAuthTokenRequestException" and "invalid_client" are substrings of the same message —
+        # handle_non_retryable picks the first matching dict entry, so AADSTS650052 has to come before both.
         service_principal_friendly = (
             "Your Microsoft tenant has not consented to PostHog's Bing Ads connector "
             "(error AADSTS650052: missing service principal for the Microsoft Advertising API). "
@@ -54,11 +56,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "then reconnect your Bing Ads integration."
         )
         return {
+            "AADSTS650052": service_principal_friendly,
             # OAuth grant rejection by Microsoft (the bingads SDK raises OAuthTokenRequestException
             # whose str() format is "<error_code> <error_description>").
             "OAuthTokenRequestException": auth_friendly,
             "invalid_grant": auth_friendly,
-            "AADSTS650052": service_principal_friendly,
             "invalid_client": auth_friendly,
             "unauthorized_client": auth_friendly,
             # Bing Ads service-level auth error codes surfaced via suds.WebFault details.
