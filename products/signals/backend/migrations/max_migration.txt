@@ -1,1 +1,1 @@
-0024_signalprojectprofile
+0025_signalteamconfig_default_slack_notification_channel

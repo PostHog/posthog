@@ -466,7 +466,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions", "cdp"])
+@extend_schema(tags=["hog_functions"], extensions={"x-product": "cdp"})
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
