@@ -1445,7 +1445,9 @@ def write_partition_to_iceberg(
 
     try:
         conn.execute(
-            psql.SQL("INSERT INTO {}.posthog.{} BY NAME SELECT * FROM read_parquet({})").format(
+            psql.SQL(
+                "INSERT INTO {}.posthog.{} BY NAME SELECT * FROM read_parquet({}, hive_partitioning=false)"
+            ).format(
                 psql.Identifier(ICEBERG_ALIAS),
                 psql.Identifier(table),
                 psql.Literal(s3_path),
