@@ -490,7 +490,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
-    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+    def validate(self, attrs: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
         """Validate the destination configuration based on workflow inputs.
 
         Ensure that the submitted destination configuration passes the following checks:
@@ -501,7 +501,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         Raises:
             A `serializers.ValidationError` if any of these checks fail.
         """
-        export_type, config = data["type"], data["config"]
+        export_type, config = attrs["type"], attrs["config"]
         request = self.context.get("request")
         is_patch = request is not None and request.method == "PATCH"
 
@@ -548,7 +548,19 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
                 config[destination_field.name] = config_value
 
-        return data
+        return attrs
+
+    def validate_type(self, _type: str) -> str:
+        # do not allow changing the destination type if the instance already exists
+        instance = getattr(self.parent, "instance", None)
+        if instance is not None:
+            assert isinstance(instance, BatchExport)
+            if instance.destination.type != _type:
+                raise serializers.ValidationError(
+                    f"Cannot change destination type from '{instance.destination.type}' to '{_type}'. "
+                    "Delete this batch export and create a new one with the new destination type."
+                )
+        return _type
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
@@ -701,12 +713,12 @@ def is_local_dev_or_test() -> bool:
 
 def resolve_and_validate_host(host: str) -> None:
     """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and is_local_dev_or_test():
+    if host == "localhost" or is_local_dev_or_test():
         return
 
     # Host may already be an IP literal
     try:
-        if is_ip_internal(host) and not is_local_dev_or_test():
+        if is_ip_internal(host):
             raise ValueError("Host resolved to internal IP")
         return
     except ValueError:
@@ -723,7 +735,7 @@ def resolve_and_validate_host(host: str) -> None:
     resolved_ips = {str(r[4][0]) for r in results}
 
     for ip in resolved_ips:
-        if is_ip_internal(ip) and not is_local_dev_or_test():
+        if is_ip_internal(ip):
             raise ValueError("Host resolved to internal IP")
 
 
@@ -931,11 +943,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
         else:
             existing_config = {}
 
-        if instance is not None and destination_type != instance.destination.type:
-            raise serializers.ValidationError(
-                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
-                "Delete this batch export and create a new one with the new destination type."
-            )
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
