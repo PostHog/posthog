@@ -13,6 +13,11 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
+        # Heavy test matrices (django, turbo-tests) skip drafts; ready_for_review
+        # re-triggers them when a PR leaves draft. To force them on a draft, add the
+        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
+        # start without needing a new push. Cheap checks still run on drafts.
+        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 
 concurrency:
@@ -373,6 +378,8 @@ jobs:
         needs: [changes, turbo-discover, detect-snapshot-mode]
         if: >-
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.turbo-discover.result == 'success' &&
             needs.turbo-discover.outputs.matrix != '[]' &&
             needs.turbo-discover.outputs.matrix != ''
@@ -656,8 +663,11 @@ jobs:
                   # CHANGED_FILES is space-separated (dorny list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
+                  # Drop products whose product.yaml was deleted in this PR (e.g. the
+                  # product moved out of products/) — there are no owners left to validate.
+                  names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
-                    echo "No product.yaml files in diff after filtering"
+                    echo "No existing product.yaml files in diff after filtering"
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners $names
@@ -1521,6 +1531,8 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         if: |
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
