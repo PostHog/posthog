@@ -188,25 +188,38 @@ class TestPickTopContributor:
     def test_returns_none_for_invalid_input(self):
         assert _pick_top_contributor(None) is None
         assert _pick_top_contributor({"results": []}) is None
-        assert _pick_top_contributor({"results": [{"data": [1]}]}) is None  # single point
+        assert _pick_top_contributor({"results": [{"data": [1, 2]}]}) is None  # too few weeks
 
-    def test_picks_largest_delta(self):
+    def test_picks_largest_baseline_delta_dropping_partial_week(self):
+        # Each series is 5 completed weeks + a trailing partial week (dropped), like detection.
         result = {
             "results": [
-                {"breakdown_value": "Chrome", "data": [100, 110]},  # delta=10
-                {"breakdown_value": "Safari", "data": [50, 5]},  # delta=45
-                {"breakdown_value": "Firefox", "data": [80, 75]},  # delta=5
+                {"breakdown_value": "Chrome", "data": [100, 100, 100, 100, 110, 5]},  # 110 vs median 100 -> 10
+                {"breakdown_value": "Safari", "data": [50, 50, 50, 50, 5, 2]},  # 5 vs median 50 -> 45
+                {"breakdown_value": "Firefox", "data": [80, 80, 80, 80, 75, 3]},  # 75 vs median 80 -> 5
             ]
         }
         contributor = _pick_top_contributor(result)
         assert contributor is not None
-        value, current, prior = contributor
+        value, current, baseline_median = contributor
         assert value == "Safari"
         assert current == 5
-        assert prior == 50
+        assert baseline_median == 50
+
+    def test_skips_synthetic_buckets(self):
+        # The null bucket has the biggest delta but must be ignored in favour of the real segment.
+        result = {
+            "results": [
+                {"breakdown_value": "$$_posthog_breakdown_null_$$", "data": [200, 200, 200, 200, 10, 1]},
+                {"breakdown_value": "Safari", "data": [50, 50, 50, 50, 20, 2]},  # 20 vs median 50 -> 30
+            ]
+        }
+        contributor = _pick_top_contributor(result)
+        assert contributor is not None
+        assert contributor[0] == "Safari"
 
     def test_falls_back_to_label_when_no_breakdown_value(self):
-        result = {"results": [{"label": "fallback", "data": [10, 100]}]}
+        result = {"results": [{"label": "fallback", "data": [10, 10, 10, 10, 100, 5]}]}
         contributor = _pick_top_contributor(result)
         assert contributor is not None
         assert contributor[0] == "fallback"
@@ -309,6 +322,26 @@ class TestEnrichOneFallsBackOnLLMError:
         assert result.attribution_breakdown is None
         assert result.impact == 10.0
         assert result.robust_z == 4.0
+
+
+class TestEnrichOneFallsBackOnEmptyNarrative:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock)
+    @patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock)
+    async def test_uses_fallback_when_llm_returns_empty(self, mock_generate, mock_attribute):
+        mock_attribute.return_value = None
+        mock_generate.return_value = ""  # empty LLM response (e.g. no model configured locally)
+        finding = _finding(impact=10.0, robust_z=4.0, label="$pageview")
+
+        result = await _enrich_one(
+            team=MagicMock(id=1),
+            user=MagicMock(),
+            finding=finding,
+            enrichment_semaphore=asyncio.Semaphore(1),
+            attribution_semaphore=asyncio.Semaphore(1),
+        )
+
+        assert result.narrative == _fallback_narrative(finding)
 
 
 class TestPureStagesHaveNoLLM:

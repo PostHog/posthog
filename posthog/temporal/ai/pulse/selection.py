@@ -14,7 +14,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
 
 if TYPE_CHECKING:
-    from posthog.models import Insight, Team
+    from posthog.models import Team
+
+    from products.product_analytics.backend.models.insight import Insight
 
 RECENT_DAYS = 30
 MIN_VIEWERS_FOR_RECENT_INSIGHT = 3
@@ -50,7 +52,7 @@ def _insight_to_candidate(insight: Insight, source: str) -> CandidateMetric | No
     return CandidateMetric(
         descriptor=MetricDescriptor(
             source=source,
-            source_id=insight.id,
+            source_id=str(insight.id),
             label=insight.name or insight.derived_name or f"Insight {insight.short_id}",
             query=query,
             url=f"/insights/{insight.short_id}",
@@ -60,10 +62,10 @@ def _insight_to_candidate(insight: Insight, source: str) -> CandidateMetric | No
 
 def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateMetric]:
     """Pick Trends insights on the team's most-pinned/visible dashboards."""
-    # Lazy import: importing these at module level triggers an app-init circular import,
-    # because the pulse package is eagerly preloaded via posthog.api before posthog.models
-    # has finished populating Dashboard/Insight. They resolve fine at activity-call time.
-    from posthog.models import Dashboard, DashboardTile
+    # Lazy import: importing product models at module level triggers an app-init circular import
+    # (the pulse package is eagerly preloaded via posthog.api). They resolve fine at activity-call time.
+    from products.dashboards.backend.models.dashboard import Dashboard
+    from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
     dashboards = (
         Dashboard.objects.filter(team=team, deleted=False)
@@ -76,21 +78,22 @@ def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateM
         .order_by("dashboard_id", "id")
     )
     candidates: list[CandidateMetric] = []
-    seen_insight_ids: set[int] = set()
+    seen_insight_ids: set[str] = set()
     for tile in tiles:
         insight = tile.insight
-        if insight is None or insight.id in seen_insight_ids:
+        if insight is None or str(insight.id) in seen_insight_ids:
             continue
-        seen_insight_ids.add(insight.id)
+        seen_insight_ids.add(str(insight.id))
         candidate = _insight_to_candidate(insight, source="dashboard_tile")
         if candidate:
             candidates.append(candidate)
     return candidates
 
 
-def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_ids: set[int]) -> list[CandidateMetric]:
+def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_ids: set[str]) -> list[CandidateMetric]:
     """Pick Trends insights recently viewed by multiple team members."""
-    from posthog.models import Insight, InsightViewed  # lazy: avoid app-init circular import
+    # lazy: avoid app-init circular import
+    from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
     since = datetime.now(UTC) - timedelta(days=RECENT_DAYS)
     viewed = (
@@ -100,7 +103,7 @@ def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_id
         .filter(viewer_count__gte=MIN_VIEWERS_FOR_RECENT_INSIGHT)
         .order_by("-viewer_count")
     )
-    insight_ids = [v["insight_id"] for v in viewed if v["insight_id"] not in existing_ids]
+    insight_ids = [v["insight_id"] for v in viewed if str(v["insight_id"]) not in existing_ids]
     insights = Insight.objects.filter(id__in=insight_ids, deleted=False)
 
     candidates: list[CandidateMetric] = []
@@ -129,7 +132,7 @@ def _select_top_event_candidates(team: Team, limit: int) -> list[CandidateMetric
         CandidateMetric(
             descriptor=MetricDescriptor(
                 source="top_event",
-                source_id=event.id,
+                source_id=str(event.id),
                 label=event.name,
                 query=_build_event_volume_query(event.name),
             )
@@ -144,7 +147,7 @@ def _select_sync(team_id: int, max_candidates: int) -> list[CandidateMetric]:
 
     team = Team.objects.get(id=team_id)
     candidates = _select_dashboard_tile_candidates(team, TOP_DASHBOARD_LIMIT)
-    seen_ids = {c.descriptor.source_id for c in candidates if isinstance(c.descriptor.source_id, int)}
+    seen_ids = {str(c.descriptor.source_id) for c in candidates if c.descriptor.source_id is not None}
     candidates.extend(_select_recent_viewed_insight_candidates(team, max_candidates // 2, seen_ids))
     candidates.extend(_select_top_event_candidates(team, TOP_EVENT_LIMIT))
     return candidates[:max_candidates]

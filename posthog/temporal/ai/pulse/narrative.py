@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import statistics
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai.pulse.detection import MAX_BASELINE_WEEKS, MIN_BASELINE_WEEKS
 from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
 
 from ee.hogai.llm import MaxChatOpenAI
@@ -28,6 +30,11 @@ ATTRIBUTION_PROPERTY_CANDIDATES = [
     "$geoip_country_name",
     "$referring_domain",
 ]
+
+# Breakdown placeholders that don't name a real segment — never a meaningful attribution or
+# a worthwhile replay lookup. A property that's mostly unset makes its null bucket the biggest
+# mover, so skipping these keeps attribution on a real segment.
+SYNTHETIC_BREAKDOWN_VALUES = {"Other", "unknown", "", BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_NULL_STRING_LABEL}
 
 ENRICHMENT_CONCURRENCY = 5
 ATTRIBUTION_CONCURRENCY = 5
@@ -74,14 +81,20 @@ Rules:
 
 def _build_breakdown_query(base_query: dict, breakdown_property: str) -> dict:
     query = json.loads(json.dumps(base_query))  # deep copy
-    query["dateRange"] = {"date_from": "-14d", "date_to": None}
+    # Match the detection window so attribution compares the same completed-week-vs-baseline.
+    query["dateRange"] = {"date_from": "-42d", "date_to": None}
     query["interval"] = "week"
     query["breakdownFilter"] = {"breakdown": breakdown_property, "breakdown_type": "event"}
     return query
 
 
 def _pick_top_contributor(result: Any) -> tuple[str, float, float] | None:
-    """Find the breakdown value with the largest week-over-week delta."""
+    """Find the breakdown value that contributed most to the change.
+
+    Mirrors detection: drop the in-progress (partial) week, compare the last completed week to the
+    median of the prior completed weeks, and skip synthetic ("Other"/"no value") buckets — otherwise
+    a mostly-unset property makes its null bucket the biggest mover.
+    """
     if not isinstance(result, dict):
         return None
     series = result.get("results") or []
@@ -90,18 +103,22 @@ def _pick_top_contributor(result: Any) -> tuple[str, float, float] | None:
     for s in series:
         if not isinstance(s, dict):
             continue
-        data = s.get("data") or []
-        if len(data) < 2:
+        value = str(s.get("breakdown_value") or s.get("label") or "unknown")
+        if value in SYNTHETIC_BREAKDOWN_VALUES:
             continue
-        try:
-            current = float(data[-1])
-            prior = float(data[-2])
-        except (TypeError, ValueError):
+        data = [float(v) for v in (s.get("data") or []) if isinstance(v, int | float) and not isinstance(v, bool)]
+        if len(data) < MIN_BASELINE_WEEKS + 2:
             continue
-        delta = abs(current - prior)
+        completed = data[:-1]  # drop the partial current week
+        current = completed[-1]
+        baseline = completed[:-1][-MAX_BASELINE_WEEKS:]
+        if len(baseline) < MIN_BASELINE_WEEKS:
+            continue
+        baseline_median = statistics.median(baseline)
+        delta = abs(current - baseline_median)
         if delta > best_delta:
             best_delta = delta
-            best = (str(s.get("breakdown_value") or s.get("label") or "unknown"), current, prior)
+            best = (value, current, baseline_median)
     return best
 
 
@@ -187,8 +204,6 @@ def _fallback_narrative(finding: Finding) -> str:
 
 
 REPLAY_EVIDENCE_LIMIT = 3
-# Breakdown placeholders that don't name a real segment — never worth a replay lookup.
-SYNTHETIC_BREAKDOWN_VALUES = {"Other", "unknown", "", BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_NULL_STRING_LABEL}
 
 
 def _finding_event(finding: Finding) -> str | None:
@@ -286,6 +301,8 @@ async def _enrich_one(
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
             session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
             narrative = await _generate_narrative(team, user, finding, attribution)
+            if not narrative:  # empty LLM response (e.g. no model configured) — keep a useful line
+                narrative = _fallback_narrative(finding)
         except Exception as exc:
             logger.exception(
                 "pulse_enrich_finding_failed",
