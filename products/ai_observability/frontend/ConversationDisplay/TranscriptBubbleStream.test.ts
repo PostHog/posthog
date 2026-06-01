@@ -136,9 +136,9 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
     it('groups a single scaffold-only user message into a one-pill group', () => {
         const items = buildStreamItems([userText('<system_reminder>foo</system_reminder>')])
         expect(items).toHaveLength(1)
-        expect(items[0].kind).toBe('scaffold-group')
-        if (items[0].kind === 'scaffold-group') {
-            expect(items[0].tagNames).toEqual(['system_reminder'])
+        expect(items[0].kind).toBe('internal-group')
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].labels).toEqual(['system_reminder'])
             expect(items[0].messages).toHaveLength(1)
         }
     })
@@ -153,10 +153,10 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
             userText('what changed?'),
             assistant('looking into it...'),
         ])
-        expect(items.map((i) => i.kind)).toEqual(['scaffold-group', 'bubble', 'bubble'])
-        if (items[0].kind === 'scaffold-group') {
+        expect(items.map((i) => i.kind)).toEqual(['internal-group', 'bubble', 'bubble'])
+        if (items[0].kind === 'internal-group') {
             expect(items[0].messages).toHaveLength(4)
-            expect(items[0].tagNames).toEqual(['system_reminder', 'system_reminder', 'voice_mode', 'attached_context'])
+            expect(items[0].labels).toEqual(['system_reminder', 'system_reminder', 'voice_mode', 'attached_context'])
         }
         if (items[1].kind === 'bubble') {
             expect(items[1].text).toBe('what changed?')
@@ -172,7 +172,7 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
             userText('<voice_mode>off</voice_mode>'),
             assistant('reply'),
         ])
-        expect(items.map((i) => i.kind)).toEqual(['scaffold-group', 'bubble', 'scaffold-group', 'bubble'])
+        expect(items.map((i) => i.kind)).toEqual(['internal-group', 'bubble', 'internal-group', 'bubble'])
     })
 
     it('does not classify an assistant-role wrapper as scaffold (models can emit `<system_reminder>` in output)', () => {
@@ -211,9 +211,185 @@ describe('buildStreamItems — scaffold detection + grouping', () => {
             userText('<system_reminder>x</system_reminder>'),
             assistant('reply'),
         ])
-        expect(items.map((i) => i.kind)).toEqual(['bubble', 'scaffold-group', 'bubble'])
-        if (items[1].kind === 'scaffold-group') {
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
             expect(items[1].messages).toHaveLength(1)
+        }
+    })
+})
+
+describe('buildStreamItems — internal messages (thinking, tool_result) collapse into the same pill', () => {
+    const userText = (text: string): CompatMessage => ({ role: 'user', content: text })
+    const assistant = (text: string): CompatMessage => ({ role: 'assistant', content: text })
+    const thinking = (text: string): CompatMessage => ({ role: 'assistant (thinking)', content: text })
+    const toolResult = (text: string): CompatMessage =>
+        ({
+            role: 'assistant (tool result)',
+            content: text,
+            tool_call_id: 'toolu_1',
+        }) as unknown as CompatMessage
+
+    it('hides an assistant (thinking) bubble inside an internal-group pill', () => {
+        const items = buildStreamItems([userText('What is 2+2?'), thinking('Let me work through this'), assistant('4')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['thinking'])
+        }
+    })
+
+    it('hides an assistant (tool result) bubble inside an internal-group pill', () => {
+        const items = buildStreamItems([
+            userText('Look up the order'),
+            toolResult('<row id="42">paid</row>'),
+            assistant('Your order is paid.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['tool_result'])
+        }
+    })
+
+    it('collapses a thinking + tool_result run into a single pill', () => {
+        const items = buildStreamItems([
+            userText('Build me a funnel for trial conversions.'),
+            thinking('First I need to look up the schema.'),
+            toolResult('events: $pageview, signup_completed, trial_started, ...'),
+            thinking('Now I can compose the funnel.'),
+            toolResult('insight created: id=aqc0'),
+            assistant("Here's your funnel: ..."),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].messages).toHaveLength(4)
+            expect(items[1].labels).toEqual(['thinking', 'tool_result', 'thinking', 'tool_result'])
+        }
+    })
+
+    it('produces separate pills when a real assistant reply interrupts the internal run', () => {
+        const items = buildStreamItems([
+            userText('Question one'),
+            thinking('first round of reasoning'),
+            toolResult('first tool result'),
+            assistant('Intermediate answer.'),
+            thinking('second round of reasoning'),
+            toolResult('second tool result'),
+            assistant('Final answer.'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble', 'internal-group', 'bubble'])
+    })
+
+    it('coalesces a scaffold + thinking + tool_result run into a single pill', () => {
+        const items = buildStreamItems([
+            userText('<system_reminder>be concise</system_reminder>'),
+            thinking('let me think'),
+            toolResult('lookup result'),
+            assistant('done'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['internal-group', 'bubble'])
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].labels).toEqual(['system_reminder', 'thinking', 'tool_result'])
+        }
+    })
+
+    it('hides a user-role message whose content is only Anthropic typed tool_result parts', () => {
+        const userToolResultBlob: CompatMessage = {
+            role: 'user',
+            content: [
+                { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
+                { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
+            ] as unknown as CompatMessage['content'],
+        }
+        const items = buildStreamItems([userText('Look up two orders'), userToolResultBlob, assistant('Done.')])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['tool_result'])
+        }
+    })
+
+    it('hides a custom `{type:"function", tool_name, content}` user-role tool result', () => {
+        // No nested `function` object — distinguishes from a tool CALL.
+        const userFunctionResult: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'function',
+                    tool_name: 'fetch_account_context',
+                    content: '<current_account_data>...</current_account_data>',
+                },
+            ] as unknown as CompatMessage['content'],
+        }
+        const items = buildStreamItems([
+            userText('What is this account?'),
+            userFunctionResult,
+            assistant('Summary: ...'),
+        ])
+        expect(items.map((i) => i.kind)).toEqual(['bubble', 'internal-group', 'bubble'])
+        if (items[1].kind === 'internal-group') {
+            expect(items[1].labels).toEqual(['tool_result'])
+        }
+    })
+
+    it('does NOT hide a user-role message that mixes a tool_result part with real user text', () => {
+        const mixed: CompatMessage = {
+            role: 'user',
+            content: [
+                { type: 'tool_result', tool_use_id: 't1', content: 'data' },
+                { type: 'text', text: 'please summarize the above' },
+            ] as unknown as CompatMessage['content'],
+        }
+        const items = buildStreamItems([mixed])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
+
+    it('does NOT classify an assistant-role message whose text mentions "thinking" as internal', () => {
+        // Only the synthetic `assistant (thinking)` role triggers hiding — not the substring.
+        const items = buildStreamItems([{ role: 'assistant', content: 'I was thinking we should ...' }])
+        expect(items.map((i) => i.kind)).toEqual(['bubble'])
+    })
+
+    it('preserves the role of the first hidden message on the group (alignment is label-based; role kept for analytics)', () => {
+        const items = buildStreamItems([thinking('first reasoning step')])
+        expect(items).toHaveLength(1)
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].role).toBe('assistant (thinking)')
+        }
+    })
+
+    it('groups Anthropic typed tool_result parts under the `tool_result` label (renders agent-side)', () => {
+        const userToolResultBlob: CompatMessage = {
+            role: 'user',
+            content: [
+                { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
+                { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
+            ] as unknown as CompatMessage['content'],
+        }
+        const items = buildStreamItems([userToolResultBlob])
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].labels.every((l) => l === 'tool_result')).toBe(true)
+        }
+    })
+
+    it('groups custom function-shape user-role tool_result under the `tool_result` label', () => {
+        const userFunctionResult: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'function',
+                    tool_name: 'fetch_account_context',
+                    content: '<current_account_data>...</current_account_data>',
+                },
+            ] as unknown as CompatMessage['content'],
+        }
+        const items = buildStreamItems([userFunctionResult])
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].labels).toEqual(['tool_result'])
+        }
+    })
+
+    it('groups scaffold tags under their tag-name label (renders user-side)', () => {
+        const items = buildStreamItems([{ role: 'user', content: '<system_reminder>foo</system_reminder>' }])
+        if (items[0].kind === 'internal-group') {
+            expect(items[0].labels).toEqual(['system_reminder'])
         }
     })
 })
