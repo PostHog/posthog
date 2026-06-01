@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1192_id_jag_organization_domain_fields"),
+        ("posthog", "1193_oauthaccesstoken_label_oauthapplication_scopes"),
     ]
 
     operations = [
