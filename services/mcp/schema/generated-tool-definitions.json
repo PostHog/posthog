@@ -2199,7 +2199,7 @@
             "readOnlyHint": false
         }
     },
-    "feature-flags-bulk-keys-create": {
+    "feature-flags-bulk-keys-retrieve": {
         "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
         "category": "Feature flags",
         "feature": "flags",

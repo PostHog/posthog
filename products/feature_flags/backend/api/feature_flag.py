@@ -2897,6 +2897,7 @@ class FeatureFlagViewSet(
         )
 
     @extend_schema(
+        operation_id="feature_flags_bulk_keys_retrieve",
         request=BulkKeysRequestSerializer,
         responses={
             200: OpenApiResponse(response=BulkKeysResponseSerializer),
