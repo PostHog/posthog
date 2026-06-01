@@ -16,17 +16,14 @@ from posthog.batch_exports import http as batch_exports
 from posthog.batch_exports.api import file_download
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
-import products.logs.backend.api as logs
 import products.tasks.backend.api as tasks
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
 import products.web_analytics.backend.api as web_analytics_api
-import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-import products.mcp_store.backend.presentation.views as mcp_store
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
@@ -60,7 +57,7 @@ from products.business_knowledge.backend.routes import register_routes as regist
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.conversations.backend.routes import register_routes as register_conversations_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
-from products.data_modeling.backend.api import DAGViewSet, EdgeViewSet, NodeViewSet
+from products.data_modeling.backend.routes import register_routes as register_data_modeling_routes
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -99,13 +96,13 @@ from products.feature_flags.backend.api import feature_flag, flag_value, organiz
 from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
 from products.links.backend.routes import register_routes as register_links_routes
 from products.live_debugger.backend.routes import register_routes as register_live_debugger_routes
+from products.logs.backend.routes import register_routes as register_logs_routes
 from products.marketing_analytics.backend.routes import register_routes as register_marketing_analytics_routes
-from products.messaging.backend.api.message_categories import MessageCategoryViewSet
-from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
-from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
+from products.mcp_store.backend.routes import register_routes as register_mcp_store_routes
+from products.messaging.backend.routes import register_routes as register_messaging_routes
 from products.metrics.backend.routes import register_routes as register_metrics_routes
 from products.notebooks.backend.api.notebook import NotebookViewSet
-from products.notifications.backend.presentation.views import NotificationsViewSet
+from products.notifications.backend.routes import register_routes as register_notifications_routes
 from products.posthog_ai.backend.routes import register_routes as register_posthog_ai_routes
 from products.product_tours.backend.routes import register_routes as register_product_tours_routes
 from products.replay_vision.backend.api import (
@@ -114,6 +111,7 @@ from products.replay_vision.backend.api import (
     SessionReplayObservationViewSet,
     VisionQuotaViewSet,
 )
+from products.revenue_analytics.backend.routes import register_routes as register_revenue_analytics_routes
 from products.signals.backend.views import SignalViewSet
 from products.surveys.backend.routes import register_routes as register_survey_routes
 from products.tracing.backend.routes import register_routes as register_tracing_routes
@@ -136,7 +134,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
 from products.wizard.backend.routes import register_routes as register_wizard_routes
-from products.workflows.backend.api import hog_flow, hog_flow_template
+from products.workflows.backend.routes import register_routes as register_workflows_routes
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -212,6 +210,7 @@ router = DefaultRouterPlusPlus()
 # Shared router handles, addressable by name, that products nest onto from their own
 # `register_routes(routers)`. See posthog/api/routing.py:RouterRegistry.
 routers = RouterRegistry()
+routers.set_root(router)
 
 # Legacy endpoints shared (to be removed eventually)
 router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboards")  # Should be completely unused now
@@ -228,13 +227,15 @@ router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 # pointer instead of a silent 404.
 if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
     router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
-router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+# mcp_store registers a root-level route plus dual project/environment routes, so it
+# runs here once the projects + environments parents exist.
+register_mcp_store_routes(routers)
 
 
 def register_legacy_dual_route_team_nested_viewset(
@@ -668,31 +669,9 @@ register_legacy_dual_route_team_nested_viewset(
     "project_managed_viewsets",
     ["team_id"],
 )
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_dags",
-    DAGViewSet,
-    "project_data_modeling_dags",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_nodes",
-    NodeViewSet,
-    "project_data_modeling_nodes",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_edges",
-    EdgeViewSet,
-    "project_data_modeling_edges",
-    ["team_id"],
-)
+register_data_modeling_routes(routers)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"notifications",
-    NotificationsViewSet,
-    "project_notifications",
-    ["team_id"],
-)
+register_notifications_routes(routers)
 
 # Organizations nested endpoints
 organizations_router = routers.add(
@@ -1253,19 +1232,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_flows",
-    hog_flow.HogFlowViewSet,
-    "environment_hog_flows",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_flow_templates",
-    hog_flow_template.HogFlowTemplateViewSet,
-    "environment_hog_flow_templates",
-    ["team_id"],
-)
+register_workflows_routes(routers)
 
 register_links_routes(routers)
 
@@ -1363,51 +1330,13 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_templates",
-    MessageTemplatesViewSet,
-    "project_messaging_templates",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_categories",
-    MessageCategoryViewSet,
-    "project_messaging_categories",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"messaging_preferences",
-    MessagePreferencesViewSet,
-    "project_messaging_preferences",
-    ["team_id"],
-)
+register_messaging_routes(routers)
 
 # Logs endpoints
-register_legacy_dual_route_team_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/sampling_rules", logs.LogsSamplingRuleViewSet, "environment_logs_sampling_rules", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/views",
-    logs.LogsViewViewSet,
-    "project_logs_views",
-    ["team_id"],
-)
+register_logs_routes(routers)
 
 # Metrics endpoints
 register_metrics_routes(routers)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"logs/explainLogWithAI",
-    logs.LogExplainViewSet,
-    "project_logs_explain_with_ai",
-    ["team_id"],
-)
 
 register_endpoints_routes(routers)
 
@@ -1475,19 +1404,7 @@ register_legacy_dual_route_team_nested_viewset(
 
 register_marketing_analytics_routes(routers)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"revenue_analytics/taxonomy",
-    revenue_analytics.RevenueAnalyticsTaxonomyViewSet,
-    "project_revenue_analytics_taxonomy",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"revenue_analytics/joins",
-    revenue_analytics.RevenueAnalyticsJoinViewSet,
-    "project_revenue_analytics_joins",
-    ["team_id"],
-)
+register_revenue_analytics_routes(routers)
 
 projects_router.register(
     r"flag_value",
@@ -1712,17 +1629,3 @@ register_legacy_dual_route_team_nested_viewset(
 )
 
 register_posthog_ai_routes(routers)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_servers",
-    mcp_store.MCPServerViewSet,
-    "project_mcp_servers",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_server_installations",
-    mcp_store.MCPServerInstallationViewSet,
-    "project_mcp_server_installations",
-    ["team_id"],
-)

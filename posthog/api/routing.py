@@ -63,6 +63,7 @@ class RouterRegistry:
 
     def __init__(self) -> None:
         self._named: dict[str, NestedRegistryItem] = {}
+        self._root: Optional[DefaultRouterPlusPlus] = None
 
     def add(self, name: str, item: NestedRegistryItem) -> NestedRegistryItem:
         if name in self._named:
@@ -87,6 +88,17 @@ class RouterRegistry:
     @property
     def organizations(self) -> NestedRegistryItem:
         return self.get("organizations")
+
+    def set_root(self, router: "DefaultRouterPlusPlus") -> "DefaultRouterPlusPlus":
+        self._root = router
+        return router
+
+    @property
+    def root(self) -> "DefaultRouterPlusPlus":
+        """The top-level (non-nested) router, for endpoints registered at /api/ root."""
+        if self._root is None:
+            raise KeyError("Root router not registered — call routers.set_root(router) first")
+        return self._root
 
     def register_legacy_dual_route(
         self,
