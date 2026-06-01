@@ -201,7 +201,7 @@ def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
     )
 
 
-def _compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
+def _compact_tile_layouts(tiles: list[DashboardTile]) -> set[int]:
     """Vertically compact tile layouts in place, mirroring the dashboard grid's default
     react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
     independently: tiles keep their x/w/h and are pulled up to the lowest free row.
