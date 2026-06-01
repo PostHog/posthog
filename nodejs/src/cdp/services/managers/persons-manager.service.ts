@@ -131,9 +131,12 @@ export class PersonsManagerService {
 
         const distinctIdLookups = await Promise.all(
             [...intIdsByTeam].map(async ([teamId, intIds]) => {
-                const map = await this.personRepository.fetchDistinctIdsForPersons(teamId, intIds, {
-                    limitPerPerson: 1,
-                })
+                const map = await this.personRepository.fetchDistinctIdsForPersons(
+                    teamId,
+                    intIds,
+                    { limitPerPerson: 1 },
+                    'cdp/hogflow-person-enrichment'
+                )
                 return { teamId, map }
             })
         )

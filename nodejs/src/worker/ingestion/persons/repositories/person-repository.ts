@@ -86,6 +86,11 @@ export interface PersonRepository {
         callerTag?: string
     ): Promise<InternalPerson[]>
 
+    /**
+     * Fetch up to ``limitPerPerson`` distinct_ids for each given int person_id (single team).
+     * Returns a record keyed by int person_id as a string (matching InternalPerson.id).
+     * Persons with no distinct_ids will be absent from the result.
+     */
     fetchDistinctIdsForPersons(
         teamId: TeamId,
         personIntIds: string[],
