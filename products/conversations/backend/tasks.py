@@ -433,7 +433,7 @@ EMAIL_OUTBOX_MAX_AGE = timedelta(days=5)  # give up past this (comfortably > a F
 EMAIL_OUTBOX_FLUSH_BATCH_SIZE = 100
 
 
-def _set_comment_delivery_status(team_id: int, comment_id: str, status_value: str, item_context: dict | None) -> None:
+def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: str, item_context: dict | None) -> None:
     """Denormalize delivery status onto the comment's item_context so the agent UI can
     show a sending/failed badge. Uses a queryset update to avoid re-firing Comment signals.
     """
