@@ -213,6 +213,31 @@ message, session_id? })` tool, sessions exposed as MCP
       refuses non-live invokes without it. Draft's own
       `spec.auth.mode` is unchanged — this is a layer above it.
 
+- [ ] **Bundle manifest schema — what's allowed in a bundle.** Today
+      the janitor accepts any `{path → text}` record on its write
+      paths, so dev-only files (`spec.json`, `README.md`,
+      `scripts/seed.py`) end up in live bundles — confirmed in the
+      shipped concierge fixture. Want a single source of truth for
+      "what counts as a bundle file." Working model: **allowed iff
+      referenced by spec** — `spec.entrypoint` + each
+      `spec.skills[i].path` + each custom-tool `spec.tools[i].path` +
+      `/compiled.js` + `/schema.json`. Anything not in the
+      spec-derived set → reject at write time with a structured 422
+      that lists the rejections. Path-shape allowlist (my first
+      sketch) doesn't work — `entrypoint` and `tool.path` are
+      `z.string()` (author-defined), so the contract has to be
+      "referenced", not "matches a regex". Coupled work: drop
+      `tests/*.json` from the runtime bundle entirely (the seed
+      script currently uploads them but `validate-spec.ts` doesn't
+      read them — they're harness-side fixtures, not runtime); a
+      one-off `scrub_bundle_paths` management command to clean live
+      offenders before the hard fail lands; mirror the same check
+      client-side in the console file-explorer so the UX matches.
+      Validation primitive likely belongs in
+      `services/agent-shared/src/spec/` next to `AgentSpecSchema` so
+      the runner + janitor + console + future authoring tools all
+      agree.
+
 - [ ] **Persistent agent memory** — see
       [`agent-memory.md`](agent-memory.md). Cross-session KV store
       keyed by `(agent, scope, key)` with `agent` / `user:<id>` /
