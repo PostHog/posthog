@@ -167,7 +167,7 @@ def _emit_endpoint_failure_signal(
 
     Fails silently — signal emission must never mask the underlying error.
     """
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     try:
         error_class = type(exc).__name__
