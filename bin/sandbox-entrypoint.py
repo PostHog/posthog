@@ -681,6 +681,7 @@ def _port_open(host: str, port: int) -> bool:
 def _clickhouse_ready() -> bool:
     """True once ClickHouse answers a trivial query over HTTP."""
     try:
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- URL is a hardcoded constant, no user-controlled value
         with urllib.request.urlopen("http://clickhouse:8123/", data=b"SELECT 1", timeout=3) as resp:
             return resp.read().strip() == b"1"
     except OSError:

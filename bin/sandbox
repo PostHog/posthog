@@ -2160,6 +2160,7 @@ def _open_in_editor(path: Path) -> None:
     if not editor:
         info(f"No $VISUAL/$EDITOR set and no nano/vi found. Edit it directly: {path}")
         return
+    # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args -- local dev CLI launching the developer's own $VISUAL/$EDITOR on a local file
     subprocess.run([*shlex.split(editor), str(path)], check=False)
 
 
