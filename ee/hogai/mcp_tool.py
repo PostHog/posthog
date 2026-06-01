@@ -74,7 +74,9 @@ class MCPToolRegistry:
 
     def get(self, name: str, team: Team, user: User) -> MCPTool[Any] | None:
         """Get an MCP tool instance by name, constructed with team/user."""
-        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
+        from ee.hogai.tools import load_all_tools  # noqa: PLC0415 - ensure tools are registered
+
+        load_all_tools()
 
         registration = self._tools.get(name)
         if registration:
@@ -83,7 +85,9 @@ class MCPToolRegistry:
 
     def get_scopes(self, name: str) -> list[str]:
         """Get the required scopes for a registered MCP tool."""
-        import ee.hogai.tools  # noqa: F401 - ensure tools are registered
+        from ee.hogai.tools import load_all_tools  # noqa: PLC0415 - ensure tools are registered
+
+        load_all_tools()
 
         registration = self._tools.get(name)
         if registration:
