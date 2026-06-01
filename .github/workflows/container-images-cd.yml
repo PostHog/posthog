@@ -293,7 +293,7 @@ jobs:
             - name: Check for changes that affect signals scout temporal worker
               id: check_changes_signals_scout_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/signals/backend/|^products/tasks/backend/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/signals/backend/|^products/signals/skills/|^products/ai_observability/backend/|^products/tasks/backend/|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
