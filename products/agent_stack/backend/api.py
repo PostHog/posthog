@@ -854,6 +854,17 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 "revision_id": drf_serializers.UUIDField(),
                                 "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
                                 "external_key": drf_serializers.CharField(allow_null=True),
+                                "trigger_metadata": drf_serializers.DictField(
+                                    allow_null=True,
+                                    required=False,
+                                    help_text=(
+                                        "Trigger-specific metadata stamped at session creation. Shape varies "
+                                        "by trigger kind; cron firings carry "
+                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
+                                        "Render this on session-detail so the operator can tell at a glance "
+                                        "that a session was fired by which cron / when."
+                                    ),
+                                ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
                                 "turns": drf_serializers.IntegerField(
                                     help_text="Count of messages in the conversation — the full transcript ships on the detail endpoint.",
@@ -940,6 +951,17 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "revision_id": drf_serializers.UUIDField(),
                     "team_id": drf_serializers.IntegerField(),
                     "external_key": drf_serializers.CharField(allow_null=True),
+                    "trigger_metadata": drf_serializers.DictField(
+                        allow_null=True,
+                        required=False,
+                        help_text=(
+                            "Trigger-specific metadata stamped at session creation. Shape varies "
+                            "by trigger kind; cron firings carry "
+                            "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
+                            "Render this on session-detail so the operator can tell at a glance "
+                            "that a session was fired by which cron / when."
+                        ),
+                    ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
                     "principal": _AGENT_SESSION_PRINCIPAL,
                     "conversation": drf_serializers.ListField(
@@ -1591,6 +1613,70 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(report)
 
     @extend_schema(
+        request=inline_serializer(
+            name="AgentRevisionCronFireRequest",
+            fields={
+                "cron_name": drf_serializers.CharField(
+                    help_text="`name` of the cron trigger in `spec.triggers[]` to fire.",
+                ),
+                "request_id": drf_serializers.CharField(
+                    required=False,
+                    allow_null=True,
+                    help_text=(
+                        "Stable client-supplied id so repeated clicks of the same UI 'Fire now' "
+                        "button resolve to the same session id rather than firing twice. The "
+                        "janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit "
+                        "to fire unconditionally — every call generates a fresh UUID."
+                    ),
+                ),
+            },
+        ),
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentRevisionCronFireResponse",
+                fields={
+                    "ok": drf_serializers.BooleanField(),
+                    "session_id": drf_serializers.UUIDField(
+                        help_text="ID of the session the cron firing created (or returned, on dedupe).",
+                    ),
+                    "fired_at": drf_serializers.CharField(
+                        help_text="ISO-8601 timestamp the firing was attributed to.",
+                    ),
+                    "idempotency_key": drf_serializers.CharField(
+                        help_text=(
+                            "Composed dedupe key — `cron-manual:<rev>:<name>:<request_id>`. "
+                            "Returned so the UI can correlate."
+                        ),
+                    ),
+                    "request_id": drf_serializers.CharField(
+                        help_text="The request id the firing used (echoed back, or freshly minted).",
+                    ),
+                },
+            ),
+            description="Cron job was fired (or deduped to an existing session).",
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="cron/fire")
+    def cron_fire(self, request: Request, **kwargs) -> Response:
+        """Fire one cron job out-of-band — the same execution path the
+        scheduler walks, but on demand. Authoring UX: the user iterates on
+        a cron prompt by clicking 'Fire now' rather than waiting for the
+        next scheduled firing. Without this, 'did my prompt do the right
+        thing?' is unanswerable until the cron actually fires.
+
+        Idempotent via `request_id`: repeat clicks with the same id resolve
+        to the same session id rather than firing N times. See
+        `docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+        """
+        revision: AgentRevision = self.get_object()
+        cron_name = request.data.get("cron_name")
+        if not isinstance(cron_name, str) or not cron_name:
+            raise ValidationError({"cron_name": "required"})
+        request_id_raw = request.data.get("request_id")
+        request_id = request_id_raw if isinstance(request_id_raw, str) and request_id_raw else None
+        return Response(self._call(_janitor().cron_fire, str(revision.id), cron_name=cron_name, request_id=request_id))
+
+    @extend_schema(
         operation_id="agent_applications_revisions_system_prompt",
         request=None,
         responses=OpenApiResponse(
@@ -2238,6 +2324,17 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                 "team_id": drf_serializers.IntegerField(),
                                 "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
                                 "external_key": drf_serializers.CharField(allow_null=True),
+                                "trigger_metadata": drf_serializers.DictField(
+                                    allow_null=True,
+                                    required=False,
+                                    help_text=(
+                                        "Trigger-specific metadata stamped at session creation. Shape varies "
+                                        "by trigger kind; cron firings carry "
+                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
+                                        "Render this on session-detail so the operator can tell at a glance "
+                                        "that a session was fired by which cron / when."
+                                    ),
+                                ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
                                 "turns": drf_serializers.IntegerField(
                                     help_text="Messages in the conversation so far.",

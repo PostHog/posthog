@@ -4199,6 +4199,12 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
     export interface AgentSessionSummary {
       usage_total: AgentSessionUsageTotal;
       principal: AgentSessionPrincipal | null;
@@ -4208,6 +4214,11 @@ export namespace Schemas {
       state: AgentSessionStateEnum;
       /** @nullable */
       external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentSessionSummaryTriggerMetadata;
       /** Count of messages in the conversation — the full transcript ships on the detail endpoint. */
       turns: number;
       /**
@@ -4225,6 +4236,12 @@ export namespace Schemas {
       /** Total matching sessions before pagination. */
       count: number;
     }
+
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentApplicationSessionsRetrieveResponseTriggerMetadata = { [key: string]: unknown } | null;
 
     export type AgentConversationUserMessageRole = typeof AgentConversationUserMessageRole[keyof typeof AgentConversationUserMessageRole];
 
@@ -4311,6 +4328,11 @@ export namespace Schemas {
       team_id: number;
       /** @nullable */
       external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentApplicationSessionsRetrieveResponseTriggerMetadata;
       state: AgentSessionStateEnum;
       /** Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied. */
       conversation: AgentConversationMessage[];
@@ -4363,6 +4385,12 @@ export namespace Schemas {
       User: 'user',
     } as const;
 
+    /**
+     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * @nullable
+     */
+    export type AgentFleetLiveSessionSummaryTriggerMetadata = { [key: string]: unknown } | null;
+
     export interface AgentFleetLiveSessionSummary {
       usage_total: AgentSessionUsageTotal;
       principal: AgentSessionPrincipal | null;
@@ -4373,6 +4401,11 @@ export namespace Schemas {
       state: AgentSessionStateEnum;
       /** @nullable */
       external_key: string | null;
+      /**
+         * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+         * @nullable
+         */
+      trigger_metadata?: AgentFleetLiveSessionSummaryTriggerMetadata;
       /** Messages in the conversation so far. */
       turns: number;
       /**
@@ -4677,6 +4710,28 @@ export namespace Schemas {
       readonly created_by: number | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface AgentRevisionCronFireRequest {
+      /** `name` of the cron trigger in `spec.triggers[]` to fire. */
+      cron_name: string;
+      /**
+         * Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID.
+         * @nullable
+         */
+      request_id?: string | null;
+    }
+
+    export interface AgentRevisionCronFireResponse {
+      ok: boolean;
+      /** ID of the session the cron firing created (or returned, on dedupe). */
+      session_id: string;
+      /** ISO-8601 timestamp the firing was attributed to. */
+      fired_at: string;
+      /** Composed dedupe key — `cron-manual:<rev>:<name>:<request_id>`. Returned so the UI can correlate. */
+      idempotency_key: string;
+      /** The request id the firing used (echoed back, or freshly minted). */
+      request_id: string;
     }
 
     export interface AgentRevisionSystemPromptResponse {

@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "file_path": {
+            "pattern": "^.+?$",
+            "type": "string"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["file_path", "name"],
+    "type": "object"
+}

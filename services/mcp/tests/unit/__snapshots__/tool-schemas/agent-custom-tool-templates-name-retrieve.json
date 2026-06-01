@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "version": {
+            "description": "Fetch a specific version.",
+            "type": "number"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

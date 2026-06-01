@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "pinned_version": {
+            "description": "Filter to a specific pinned version.",
+            "type": "number"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

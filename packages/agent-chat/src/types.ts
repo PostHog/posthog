@@ -139,7 +139,16 @@ export type SessionTrigger =
           /** Display name of the user who pinged the bot. */
           invokedBy: string
       }
-    | { kind: 'cron'; schedule: string; timezone?: string; firedAt: string }
+    | {
+          kind: 'cron'
+          /** `name` from `spec.triggers[].config.name` — the per-job handle the author gave this cron. */
+          cronName: string
+          schedule: string
+          timezone?: string
+          firedAt: string
+          /** True when fired via `POST /revisions/:id/cron/fire` rather than the scheduler. */
+          manual?: boolean
+      }
     | { kind: 'webhook'; path: string; source?: string }
 
 /* ──────────────────────────────────────────────────────────────────────────

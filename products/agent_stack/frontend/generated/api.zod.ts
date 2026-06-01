@@ -811,6 +811,27 @@ export const AgentApplicationsRevisionsCloneFromCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Fire one cron job out-of-band — the same execution path the
+scheduler walks, but on demand. Authoring UX: the user iterates on
+a cron prompt by clicking 'Fire now' rather than waiting for the
+next scheduled firing. Without this, 'did my prompt do the right
+thing?' is unanswerable until the cron actually fires.
+
+Idempotent via `request_id`: repeat clicks with the same id resolve
+to the same session id rather than firing N times. See
+`docs/agent-platform/plans/cron-trigger-scheduler.md` §9.
+ */
+export const AgentApplicationsRevisionsCronFireCreateBody = /* @__PURE__ */ zod.object({
+    cron_name: zod.string().describe('`name` of the cron trigger in `spec.triggers[]` to fire.'),
+    request_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "Stable client-supplied id so repeated clicks of the same UI 'Fire now' button resolve to the same session id rather than firing twice. The janitor keys dedupe off `cron-manual:<rev>:<name>:<request_id>`. Omit to fire unconditionally — every call generates a fresh UUID."
+        ),
+})
+
+/**
  * Write one file by `?path=...`. Draft-only (janitor enforces).
  */
 export const AgentApplicationsRevisionsFileUpdateBody = /* @__PURE__ */ zod

@@ -100,6 +100,20 @@ class JanitorClient:
     def validate(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/validate")
 
+    def cron_fire(self, revision_id: str, *, cron_name: str, request_id: str | None = None) -> dict:
+        """Manually fire one cron job, bypassing the scheduler's window logic.
+
+        Same execution path a scheduled firing walks — authoring surface so
+        the user can iterate on a cron prompt without waiting for the next
+        real firing. `request_id` makes repeat clicks idempotent (the
+        janitor uses `cron-manual:<rev>:<name>:<request_id>` as the dedupe
+        key); pass a stable id per logical click. Plan §9 "Manual fire."
+        """
+        body: dict[str, str] = {"cron_name": cron_name}
+        if request_id is not None:
+            body["request_id"] = request_id
+        return self._call("POST", f"/revisions/{revision_id}/cron/fire", json=body)
+
     def get_system_prompt(self, revision_id: str) -> dict:
         """Return the fully-assembled system prompt for a revision.
 

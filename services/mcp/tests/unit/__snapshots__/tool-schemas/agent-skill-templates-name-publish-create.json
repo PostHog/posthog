@@ -1,0 +1,56 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "allowed_tools": {
+            "description": "Overrides allowed_tools. Omit to keep the prior value."
+        },
+        "body": {
+            "description": "Full new body. Mutually exclusive with `edits`.",
+            "type": "string"
+        },
+        "description": {
+            "description": "Overrides the prior description. Omit to keep the prior value.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "edits": {
+            "description": "Structured edits. Each `old` must match exactly once in the current body / file.",
+            "items": {
+                "description": "A single find/replace edit applied to body or a file's content.",
+                "properties": {
+                    "file_path": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Apply this edit to a companion file instead of the body. Null/omitted = body edit."
+                    },
+                    "new": {
+                        "description": "Replacement text.",
+                        "type": "string"
+                    },
+                    "old": {
+                        "description": "Text to locate (must match exactly once).",
+                        "type": "string"
+                    }
+                },
+                "required": ["old", "new"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "metadata": {
+            "description": "Overrides metadata. Omit to keep the prior value."
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}

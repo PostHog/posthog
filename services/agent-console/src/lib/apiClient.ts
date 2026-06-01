@@ -261,6 +261,43 @@ function summaryToChatSession(
         },
         started_at: s.created_at,
         ended_at: isTerminalState(s.state) ? s.updated_at : undefined,
+        trigger: triggerMetadataToSessionTrigger(s.trigger_metadata),
+    }
+}
+
+/**
+ * Map the raw `trigger_metadata` JSONB the janitor stamps at enqueue time
+ * onto the typed `SessionTrigger` the playback / detail panes consume.
+ * Unknown shapes return undefined; the consumer renders a neutral fallback.
+ * Cron is the only kind we surface a typed shape for today — chat / webhook
+ * triggers don't yet stamp metadata, so this only fires when the row was
+ * fired by the scheduler or the manual-fire endpoint.
+ */
+function triggerMetadataToSessionTrigger(metadata: Record<string, unknown> | null | undefined): ChatSession['trigger'] {
+    if (!metadata || typeof metadata !== 'object') {
+        return undefined
+    }
+    const kind = (metadata as { kind?: unknown }).kind
+    if (kind !== 'cron') {
+        return undefined
+    }
+    const m = metadata as {
+        cron_name?: unknown
+        schedule?: unknown
+        fired_at?: unknown
+        manual?: unknown
+        timezone?: unknown
+    }
+    if (typeof m.cron_name !== 'string' || typeof m.schedule !== 'string' || typeof m.fired_at !== 'string') {
+        return undefined
+    }
+    return {
+        kind: 'cron',
+        cronName: m.cron_name,
+        schedule: m.schedule,
+        firedAt: m.fired_at,
+        timezone: typeof m.timezone === 'string' ? m.timezone : undefined,
+        manual: m.manual === true,
     }
 }
 
@@ -301,6 +338,7 @@ function detailToChatSession(
         },
         started_at: raw.created_at,
         ended_at: isTerminalState(raw.state) ? raw.updated_at : undefined,
+        trigger: triggerMetadataToSessionTrigger(raw.trigger_metadata),
     }
 }
 

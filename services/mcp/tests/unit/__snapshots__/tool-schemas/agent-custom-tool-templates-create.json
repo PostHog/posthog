@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "args_schema": {
+            "description": "TypeBox / JSON Schema for tool args."
+        },
+        "compiled_js": {
+            "default": "",
+            "description": "Bundler output. The publisher (UI or MCP) computes this client-side.",
+            "type": "string"
+        },
+        "description": {
+            "default": "",
+            "description": "One-line description.",
+            "maxLength": 4096,
+            "type": "string"
+        },
+        "name": {
+            "description": "Slug-shaped name unique per team.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "requires_secrets": {
+            "description": "Names of secrets the tool reads via `ctx.secret(...)`.",
+            "items": {
+                "maxLength": 128,
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "returns_schema": {
+            "description": "Optional TypeBox / JSON Schema for the return value."
+        },
+        "source": {
+            "default": "",
+            "description": "TypeScript source.",
+            "type": "string"
+        }
+    },
+    "required": ["name"],
+    "type": "object"
+}
