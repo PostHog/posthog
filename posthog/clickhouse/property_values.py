@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `property_value` String,
     `property_count` UInt64
 ) ENGINE = {engine}
+SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
 """
 
 PROPERTY_VALUES_TABLE_BASE_SQL = """
