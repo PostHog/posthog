@@ -568,4 +568,96 @@ describe('CymbalClient', () => {
             expect(await client.healthCheck()).toBe(false)
         })
     })
+
+    describe('poison pill isolation', () => {
+        const createTimeoutError = () => {
+            const error = new Error('The operation was aborted due to timeout')
+            error.name = 'TimeoutError'
+            return error
+        }
+
+        it('fans out to individual events on timeout and drops the poison pill', async () => {
+            const client = createClient()
+            const requests = [
+                createRequest({ uuid: 'good-1' }),
+                createRequest({ uuid: 'good-2' }),
+                createRequest({ uuid: 'poison' }),
+                createRequest({ uuid: 'good-3' }),
+            ]
+
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                const parsed = parseJSON(opts.body) as CymbalRequest[]
+                const hasPoison = parsed.some((r: CymbalRequest) => r.uuid === 'poison')
+                if (hasPoison) {
+                    return Promise.reject(createTimeoutError())
+                }
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                })
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            expect(results).toHaveLength(4)
+            expect(results[0]).toMatchObject({ uuid: 'good-1' })
+            expect(results[1]).toMatchObject({ uuid: 'good-2' })
+            expect(results[2]).toBeNull() // poison pill dropped
+            expect(results[3]).toMatchObject({ uuid: 'good-3' })
+        })
+
+        it('throws 5xx errors during fan-out to let retry wrapper handle them', async () => {
+            const client = createClient()
+            const requests = [createRequest({ uuid: 'a' }), createRequest({ uuid: 'b' })]
+
+            let callCount = 0
+            mockFetch.mockImplementation(() => {
+                callCount++
+                if (callCount === 1) {
+                    // First call: batch times out, triggers fan-out
+                    return Promise.reject(createTimeoutError())
+                }
+                // During fan-out: first individual event hits a 5xx
+                return Promise.resolve({ status: 500, json: () => Promise.resolve({}) })
+            })
+
+            await expect(client.processExceptions(toItems(requests))).rejects.toThrow('Cymbal returned 500')
+        })
+
+        it('preserves 1:1 ordering with poison pill at various positions', async () => {
+            const client = createClient()
+            const inputs = ['a', 'b', 'POISON', 'c', 'd']
+            const requests = inputs.map((id) => createRequest({ uuid: id }))
+
+            mockFetch.mockImplementation((_url: string, opts: { body: string }) => {
+                const parsed = parseJSON(opts.body) as CymbalRequest[]
+                if (parsed.some((r: CymbalRequest) => r.uuid === 'POISON')) {
+                    return Promise.reject(createTimeoutError())
+                }
+                return Promise.resolve({
+                    status: 200,
+                    json: () => Promise.resolve(parsed.map((r: CymbalRequest) => createResponse({ uuid: r.uuid }))),
+                })
+            })
+
+            const results = await client.processExceptions(toItems(requests))
+
+            expect(results).toHaveLength(5)
+            for (let i = 0; i < inputs.length; i++) {
+                if (inputs[i] === 'POISON') {
+                    expect(results[i]).toBeNull()
+                } else {
+                    expect(results[i]).toMatchObject({ uuid: inputs[i] })
+                }
+            }
+        })
+
+        it('does not fan out single-event batches', async () => {
+            const client = createClient()
+            mockFetch.mockRejectedValue(createTimeoutError())
+
+            // Single event timeout throws normally — no fan-out possible
+            await expect(client.processExceptions(toItems([createRequest()]))).rejects.toThrow()
+        })
+    })
 })

@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { VariantTag } from 'scenes/experiments/ExperimentView/components'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 
 import {

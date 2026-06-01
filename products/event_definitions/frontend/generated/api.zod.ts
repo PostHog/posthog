@@ -23,7 +23,7 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsCreateBodyPrimaryPropertyMax)
@@ -50,7 +50,7 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsUpdateBodyPrimaryPropertyMax)
@@ -77,7 +77,7 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('* `allow` - Allow\n* `reject` - Reject'),
+        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsPartialUpdateBodyPrimaryPropertyMax)
@@ -92,6 +92,14 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -110,9 +118,9 @@ export const EventDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.obje
         .describe('List of object IDs to update tags on.'),
     action: zod
         .enum(['add', 'remove', 'set'])
-        .describe('* `add` - add\n* `remove` - remove\n* `set` - set')
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
         .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set"
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
     tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
 })

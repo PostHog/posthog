@@ -5,14 +5,16 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Insight, SharingConfiguration
+from posthog.models import SharingConfiguration
 
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
     extract_inline_query_nodes,
     extract_referenced_insight_short_ids,
+    filter_notebook_content_for_sharing,
     iter_prosemirror_nodes,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:
@@ -207,6 +209,98 @@ class TestExtractInlineQueryNodes(APIBaseTest):
         )
 
 
+class TestFilterNotebookContentForSharing(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("none", None, None),
+            ("not_a_dict", "not a doc", "not a doc"),
+            (
+                "builtin_nodes_pass_through",
+                _doc(
+                    {"type": "paragraph", "content": [{"type": "text", "text": "hello"}]},
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "h"}]},
+                ),
+                _doc(
+                    {"type": "paragraph", "content": [{"type": "text", "text": "hello"}]},
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "h"}]},
+                ),
+            ),
+            (
+                "allow_listed_widgets_keep_attrs",
+                _doc(
+                    {"type": "ph-image", "attrs": {"src": "x"}},
+                    {"type": "ph-latex", "attrs": {"content": "E=mc^2"}},
+                    {"type": "ph-embed", "attrs": {"src": "https://example.com"}},
+                    _saved_insight_query_node("abc123"),
+                ),
+                _doc(
+                    {"type": "ph-image", "attrs": {"src": "x"}},
+                    {"type": "ph-latex", "attrs": {"content": "E=mc^2"}},
+                    {"type": "ph-embed", "attrs": {"src": "https://example.com"}},
+                    _saved_insight_query_node("abc123"),
+                ),
+            ),
+            (
+                "unsupported_widget_attrs_stripped",
+                _doc(
+                    {"type": "ph-python", "attrs": {"code": "SECRET"}},
+                    {"type": "ph-duck-sql", "attrs": {"code": "SELECT *", "duckExecution": {"tableData": [[1]]}}},
+                    {"type": "ph-recording", "attrs": {"id": "rec-1"}},
+                    {"type": "ph-feature-flag", "attrs": {"id": 42}},
+                    {"type": "ph-llm-trace", "attrs": {"id": "trace-1"}},
+                ),
+                _doc(
+                    {"type": "ph-python"},
+                    {"type": "ph-duck-sql"},
+                    {"type": "ph-recording"},
+                    {"type": "ph-feature-flag"},
+                    {"type": "ph-llm-trace"},
+                ),
+            ),
+            (
+                "unsupported_widget_child_content_dropped",
+                _doc(
+                    {
+                        "type": "ph-zendesk-tickets",
+                        "attrs": {"query": "customer:acme"},
+                        "content": [{"type": "text", "text": "leaked"}],
+                    },
+                ),
+                _doc({"type": "ph-zendesk-tickets"}),
+            ),
+            (
+                "nested_unsupported_widget_stripped",
+                _doc(
+                    {
+                        "type": "blockquote",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "keep"}]},
+                            {"type": "ph-python", "attrs": {"code": "SECRET"}},
+                        ],
+                    }
+                ),
+                _doc(
+                    {
+                        "type": "blockquote",
+                        "content": [
+                            {"type": "paragraph", "content": [{"type": "text", "text": "keep"}]},
+                            {"type": "ph-python"},
+                        ],
+                    }
+                ),
+            ),
+        ]
+    )
+    def test_filter(self, _name: str, content: Any, expected: Any) -> None:
+        self.assertEqual(filter_notebook_content_for_sharing(content), expected)
+
+    def test_filter_does_not_mutate_input(self) -> None:
+        original = _doc({"type": "ph-python", "attrs": {"code": "SECRET"}})
+        snapshot = {"type": "doc", "content": [{"type": "ph-python", "attrs": {"code": "SECRET"}}]}
+        filter_notebook_content_for_sharing(original)
+        self.assertEqual(original, snapshot)
+
+
 class TestNotebookSharingConfiguration(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -252,14 +346,21 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         response = self.client.get(self._sharing_url(short_id="nope"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_shared_notebook_renders_with_inlined_content(self) -> None:
-        # Mix supported (paragraph), saved-insight, and an unsupported node type. The frontend
-        # falls back to a placeholder for the latter — the backend still inlines whatever was saved
-        # so we don't lose data round-tripping through sharing.
+    def test_shared_notebook_strips_unsupported_node_attrs(self) -> None:
         self.notebook.content = _doc(
             {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]},
-            {"type": "ph-recording", "attrs": {"id": "some-recording"}},
+            {"type": "ph-image", "attrs": {"src": "https://example.com/x.png"}},
+            {"type": "ph-python", "attrs": {"code": "SECRET = 'sk-...'"}},
+            {
+                "type": "ph-duck-sql",
+                "attrs": {
+                    "code": "SELECT email, mrr FROM stripe.customers",
+                    "duckExecution": {"tableData": [["alice@acme.com", 12000]]},
+                },
+            },
+            {"type": "ph-recording", "attrs": {"id": "01893f8c-some-recording"}},
         )
+        self.notebook.text_content = "hi SECRET = 'sk-...' SELECT email, mrr FROM stripe.customers"
         self.notebook.save()
         self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
         config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
@@ -273,6 +374,22 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         self.assertIn("notebook", body)
         self.assertEqual(body["notebook"]["short_id"], self.notebook.short_id)
         self.assertEqual(body["notebook"]["title"], "My notebook")
+
+        nodes = body["notebook"]["content"]["content"]
+        self.assertEqual(nodes[0], {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]})
+        self.assertEqual(nodes[1], {"type": "ph-image", "attrs": {"src": "https://example.com/x.png"}})
+        self.assertEqual(nodes[2], {"type": "ph-python"})
+        self.assertEqual(nodes[3], {"type": "ph-duck-sql"})
+        self.assertEqual(nodes[4], {"type": "ph-recording"})
+
+        # Defense in depth: catch any future field we forget to scrub.
+        raw = response.content.decode()
+        self.assertNotIn("SECRET", raw)
+        self.assertNotIn("sk-...", raw)
+        self.assertNotIn("stripe.customers", raw)
+        self.assertNotIn("alice@acme.com", raw)
+        self.assertNotIn("01893f8c-some-recording", raw)
+        self.assertIsNone(body["notebook"]["text_content"])
 
     def test_deleted_notebook_404s_on_shared_endpoint(self) -> None:
         self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
@@ -403,10 +520,16 @@ class TestNotebookSharingGrantsInsightAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         body = response.json()
         self.assertIn("inline_query_results", body)
-        # Even on an empty events table the runner returns a response shape; key presence is
-        # the contract we're locking in here.
         self.assertIn("inline-node-1", body["inline_query_results"])
-        self.assertIsInstance(body["inline_query_results"]["inline-node-1"], dict)
+        inline_result = body["inline_query_results"]["inline-node-1"]
+        self.assertIsInstance(inline_result, dict)
+        # Must be a real query response, not a CacheMissResponse — otherwise the frontend
+        # renders an empty `<Query cachedResults={...} inSharedMode />`, throws, and the
+        # SharedNodeErrorBoundary swaps in the "unsupported node" placeholder. This is the
+        # bug that made inline insights appear broken on the first shared-notebook view and
+        # "fix themselves" after a few reloads (once the async cache finished warming).
+        self.assertIn("results", inline_result)
+        self.assertFalse(inline_result.get("error"))
 
     def test_shared_notebook_payload_inlines_referenced_insights(self) -> None:
         """The shared notebook payload pre-serializes every referenced saved insight so the

@@ -598,8 +598,389 @@ def test_load_property_removal_request_rejects_empty_properties():
     config = DataDeletionRequestConfig(request_id=str(request.pk))
     context = build_op_context()
 
-    with pytest.raises(Exception, match="no properties specified"):
+    with pytest.raises(Exception, match="no properties or person_properties specified"):
         load_property_removal_request(context, config)
+
+
+def _insert_events_with_person_properties(events: list[tuple], client: Client) -> None:
+    """Insert events with (team_id, event, uuid, timestamp, person_properties_json)."""
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, timestamp, person_properties) VALUES",
+        events,
+    )
+
+
+def _get_person_properties(team_id: int, event_name: str, client: Client) -> list[dict]:
+    result = client.execute(
+        "SELECT person_properties FROM events WHERE team_id = %(team_id)s AND event = %(event)s",
+        {"team_id": team_id, "event": event_name},
+    )
+    return [json.loads(row[0]) if row[0] else {} for row in result]
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal(cluster: ClickhouseCluster):
+    """Keys in person_properties are removed; the event itself is preserved."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_to_drop = json.dumps({"email": "user@example.com", "keep": "yes"})
+    no_target_person_props = json.dumps({"keep": "yes", "other": "value"})
+
+    target_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_to_drop) for i in range(10)
+    ]
+    events_without_target = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), no_target_person_props) for i in range(5)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, target_events + events_without_target)).result()
+
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events still exist (properties removed, not deleted)
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 15
+
+    # Target key removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pprops in all_person_props:
+        assert "email" not in pprops, f"email should be removed, got {pprops}"
+    # Non-target key preserved on the events that had it
+    events_with_keep = [p for p in all_person_props if "keep" in p]
+    assert len(events_with_keep) == 15, "keep key should survive on all events"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_full_job_both_properties_and_person_properties(cluster: ClickhouseCluster):
+    """When both properties and person_properties are specified, both columns are cleaned."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    props = json.dumps({"$ip": "1.2.3.4", "keep": "yes"})
+    person_props = json.dumps({"email": "user@example.com", "keep_person": "yes"})
+
+    events: list[tuple] = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), props, person_props) for i in range(8)
+    ]
+
+    cluster.any_host(
+        lambda client: client.execute(
+            "INSERT INTO writable_events (team_id, event, uuid, timestamp, properties, person_properties) VALUES",
+            events,
+        )
+    ).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["$ip"],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Events preserved
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 8
+
+    # $ip removed from properties
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    for p in all_props:
+        assert "$ip" not in p, f"$ip should be removed, got {p}"
+        assert "keep" in p, f"keep should survive, got {p}"
+
+    # email removed from person_properties
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pp in all_person_props:
+        assert "email" not in pp, f"email should be removed, got {pp}"
+        assert "keep_person" in pp, f"keep_person should survive, got {pp}"
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_load_property_removal_request_loads_person_properties_only():
+    """load_property_removal_request succeeds when properties=[] and person_properties is non-empty."""
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email", "phone"],
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        status=RequestStatus.APPROVED,
+    )
+
+    config = DataDeletionRequestConfig(request_id=str(request.pk))
+    result = load_property_removal_request(build_op_context(), config)
+
+    assert result.properties == []
+    assert result.person_properties == ["email", "phone"]
+    assert result.team_id == PROP_TEAM_ID
+    request.refresh_from_db()
+    assert request.status == RequestStatus.IN_PROGRESS
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal_ignores_out_of_range_events(cluster: ClickhouseCluster):
+    """Events outside the request time range must not have their person_properties modified."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_with_key = json.dumps({"email": "user@example.com", "keep": "yes"})
+
+    in_range = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(5)]
+    out_of_range = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(days=30), person_props_with_key) for _ in range(3)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, in_range + out_of_range)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    all_person_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+
+    emails_present = [p for p in all_person_props if "email" in p]
+    emails_absent = [p for p in all_person_props if "email" not in p]
+    # The 3 out-of-range events still have the email key
+    assert len(emails_present) == 3, f"expected 3 out-of-range events to still have email, got {len(emails_present)}"
+    # The 5 in-range events have had email removed
+    assert len(emails_absent) == 5, f"expected 5 in-range events with email removed, got {len(emails_absent)}"
+
+
+@pytest.mark.django_db
+def test_full_job_person_property_removal_ignores_other_event_names(cluster: ClickhouseCluster):
+    """Events with a different event name than requested must not have their person_properties modified."""
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    person_props_with_key = json.dumps({"email": "user@example.com", "keep": "yes"})
+
+    pageview_events = [
+        (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(5)
+    ]
+    identify_events = [
+        (PROP_TEAM_ID, "$identify", uuid4(), now - timedelta(hours=i), person_props_with_key) for i in range(4)
+    ]
+
+    cluster.any_host(partial(_insert_events_with_person_properties, pageview_events + identify_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=[],
+        person_properties=["email"],
+        start_time=start_time,
+        end_time=end_time,
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    pageview_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+    for pprops in pageview_props:
+        assert "email" not in pprops, f"$pageview should have email removed: {pprops}"
+
+    identify_props = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$identify")).result()
+    for pprops in identify_props:
+        assert "email" in pprops, f"$identify email should be untouched: {pprops}"
+
+
+def _add_person_property_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
+    """Add materialized columns sourced from person_properties for testing.
+
+    Comment uses ``column_materializer::person_properties::<prop_name>`` so
+    ``_get_affected_mat_columns(..., table_column="person_properties")`` picks them up.
+    """
+    from django.conf import settings
+
+    db = settings.CLICKHOUSE_DATABASE
+    for col_name, prop_name, col_type in col_defs:
+        comment = f"column_materializer::person_properties::{prop_name}"
+        client.execute(
+            f"ALTER TABLE {db}.sharded_events "
+            f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+            f"DEFAULT JSONExtractRaw(person_properties, '{prop_name}')"
+        )
+        client.execute(f"ALTER TABLE {db}.events ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} COMMENT '{comment}'")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "col_defs, person_properties_to_delete, expected_empty_cols",
+    [
+        pytest.param(
+            [("mat_pp_email", "email", "String")],
+            ["email"],
+            ["mat_pp_email"],
+            id="single_person_property",
+        ),
+        pytest.param(
+            [
+                ("mat_pp_phone", "phone", "String"),
+                ("mat_pp_city", "city", "Nullable(String)"),
+            ],
+            ["phone", "city"],
+            ["mat_pp_phone", "mat_pp_city"],
+            id="multiple_person_properties_mixed_nullable",
+        ),
+    ],
+)
+def test_full_job_person_property_removal_clears_mat_columns(
+    cluster: ClickhouseCluster,
+    col_defs: list[tuple[str, str, str]],
+    person_properties_to_delete: list[str],
+    expected_empty_cols: list[str],
+):
+    """Materialized columns sourced from person_properties are zeroed when those keys are deleted."""
+    cluster.any_host(partial(_add_person_property_mat_columns, col_defs)).result()
+
+    try:
+        now = datetime.now()
+        start_time = now - timedelta(days=7)
+        end_time = now + timedelta(minutes=1)
+
+        target_person_props = {prop: "secret" for _, prop, _ in col_defs}
+        target_person_props["keep"] = "yes"
+        pp_with_target = json.dumps(target_person_props)
+        pp_without_target = json.dumps({"keep": "yes", "other": "value"})
+
+        target_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), pp_with_target) for i in range(20)
+        ]
+        control_events = [
+            (PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i), pp_without_target) for i in range(10)
+        ]
+
+        cluster.any_host(partial(_insert_events_with_person_properties, target_events + control_events)).result()
+
+        # Precondition: mat columns have values populated from person_properties
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            assert any(v and "secret" in v for v in mat_values), (
+                f"expected 'secret' in {col_name} before deletion, got {set(mat_values)}"
+            )
+
+        request = DataDeletionRequest.objects.create(
+            team_id=PROP_TEAM_ID,
+            request_type=RequestType.PROPERTY_REMOVAL,
+            events=["$pageview"],
+            properties=[],
+            person_properties=person_properties_to_delete,
+            start_time=start_time,
+            end_time=end_time,
+            status=RequestStatus.APPROVED,
+        )
+
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config={
+                "ops": {
+                    "load_property_removal_request": {
+                        "config": {"request_id": str(request.pk)},
+                    },
+                },
+            },
+            resources={"cluster": cluster},
+        )
+        assert result.success
+
+        # Events still exist — only person_properties mutated
+        assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 30
+
+        # Target keys removed from person_properties JSON
+        all_pp = cluster.any_host(partial(_get_person_properties, PROP_TEAM_ID, "$pageview")).result()
+        for pp in all_pp:
+            for prop in person_properties_to_delete:
+                assert prop not in pp, f"{prop} should be removed from person_properties, got {pp}"
+            assert "keep" in pp, f"keep should be preserved, got {pp}"
+
+        # Materialized columns zeroed out
+        for col_name in expected_empty_cols:
+            mat_values = cluster.any_host(partial(_get_mat_column_values, PROP_TEAM_ID, "$pageview", col_name)).result()
+            non_empty = [v for v in mat_values if v and v not in ("", None)]
+            assert not non_empty, f"{col_name} should be empty after deletion, got non-empty: {set(non_empty)}"
+
+        request.refresh_from_db()
+        assert request.status == RequestStatus.COMPLETED
+    finally:
+        cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
 
 
 @pytest.mark.django_db
@@ -721,6 +1102,61 @@ def test_full_job_property_removal_single_property(cluster: ClickhouseCluster):
     assert request.status == RequestStatus.COMPLETED
 
 
+@pytest.mark.django_db
+def test_full_job_property_removal_applies_hogql_predicate(cluster: ClickhouseCluster):
+    """A property removal scoped by hogql_predicate must clean only matching events."""
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-prop-hogql")
+    team = Team.objects.create(organization=org, name="test-team-prop-hogql")
+
+    now = datetime.now()
+    start_time = now - timedelta(days=7)
+    end_time = now + timedelta(minutes=1)
+
+    chrome_props = json.dumps({"secret": "value", "$browser": "Chrome"})
+    firefox_props = json.dumps({"secret": "value", "$browser": "Firefox"})
+    chrome_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), chrome_props) for i in range(10)]
+    firefox_events = [(team.id, "$pageview", uuid4(), now - timedelta(hours=i), firefox_props) for i in range(5)]
+
+    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=["$pageview"],
+        properties=["secret"],
+        start_time=start_time,
+        end_time=end_time,
+        hogql_predicate="properties.$browser = 'Chrome'",
+        status=RequestStatus.APPROVED,
+    )
+
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={
+            "ops": {
+                "load_property_removal_request": {
+                    "config": {"request_id": str(request.pk)},
+                },
+            },
+        },
+        resources={"cluster": cluster},
+    )
+    assert result.success
+
+    # Chrome events: secret cleaned, $browser preserved
+    all_props = cluster.any_host(partial(_get_properties, team.id, "$pageview")).result()
+    chrome = [p for p in all_props if p.get("$browser") == "Chrome"]
+    firefox = [p for p in all_props if p.get("$browser") == "Firefox"]
+    assert len(chrome) == 10, f"expected 10 Chrome rows, got {len(chrome)}"
+    assert len(firefox) == 5, f"expected 5 Firefox rows untouched, got {len(firefox)}"
+    for props in chrome:
+        assert "secret" not in props, f"Chrome event still has secret: {props}"
+    for props in firefox:
+        assert props.get("secret") == "value", f"Firefox event must keep secret: {props}"
+
+
 def _assert_subfield_removed(props: dict, path: str) -> None:
     """Assert a dotted subfield path was removed from props."""
     parts = path.split(".")
@@ -822,7 +1258,12 @@ def test_full_job_property_removal_subfield_only(
 
 
 def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:
-    """Add DEFAULT materialized columns to events tables for testing.
+    """Add materialized columns to events tables for testing.
+
+    Mirrors production: ``sharded_events`` gets the column with the ``DEFAULT``
+    expression but no comment, ``events`` (distributed) gets just the type plus
+    the ``column_materializer::`` comment. See ``materialize()`` in
+    ee/clickhouse/materialized_columns/columns.py.
 
     Each entry is (col_name, prop_name, col_type).
     """
@@ -831,14 +1272,12 @@ def _add_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Clien
     db = settings.CLICKHOUSE_DATABASE
     for col_name, prop_name, col_type in col_defs:
         comment = f"column_materializer::properties::{prop_name}"
-        for table in ("sharded_events", "events"):
-            kw = f"COMMENT '{comment}'" if table == "events" else ""
-            client.execute(
-                f"ALTER TABLE {db}.{table} "
-                f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
-                f"DEFAULT JSONExtractRaw(properties, '{prop_name}') "
-                f"{kw}"
-            )
+        client.execute(
+            f"ALTER TABLE {db}.sharded_events "
+            f"ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} "
+            f"DEFAULT JSONExtractRaw(properties, '{prop_name}')"
+        )
+        client.execute(f"ALTER TABLE {db}.events ADD COLUMN IF NOT EXISTS `{col_name}` {col_type} COMMENT '{comment}'")
 
 
 def _drop_default_mat_columns(col_defs: list[tuple[str, str, str]], client: Client) -> None:

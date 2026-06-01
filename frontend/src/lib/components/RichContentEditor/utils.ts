@@ -77,8 +77,11 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
             }
         },
         pasteContent: (position: number, text: string) => {
-            editor?.chain().focus().setTextSelection(position).run()
-            editor?.view.pasteText(text)
+            if (editor.isDestroyed) {
+                return
+            }
+            editor.chain().focus().setTextSelection(position).run()
+            editor.view.pasteText(text)
         },
         findNode: (position: number) => findNode(editor, position),
         findNodePositionByAttrs: (attrs: Record<string, any>) => findNodePositionByAttrs(editor, attrs),
@@ -91,6 +94,9 @@ export function createEditor(editor: TTEditor): RichContentEditorType {
         },
         scrollToPosition(position) {
             queueMicrotask(() => {
+                if (editor.isDestroyed) {
+                    return
+                }
                 const { node } = editor.view.domAtPos(position)
                 const element =
                     node.nodeType === Node.TEXT_NODE

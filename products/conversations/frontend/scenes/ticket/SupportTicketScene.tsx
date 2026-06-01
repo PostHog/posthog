@@ -232,6 +232,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                               }
                                     }
                                     withIcon
+                                    withComposeTicketButton
                                 />
                                 <div className="my-3 border-t" />
                             </>
@@ -265,13 +266,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 </div>
                             )}
                             {ticket?.channel_source === 'slack' &&
-                                ticket?.slack_team_id &&
                                 ticket?.slack_channel_id &&
                                 ticket?.slack_thread_ts && (
                                     <div className="flex justify-between items-center">
                                         <span className="text-muted-alt">Slack thread</span>
                                         <Link
-                                            to={`https://app.slack.com/client/${ticket.slack_team_id}/${ticket.slack_channel_id}/thread/${ticket.slack_channel_id}-${ticket.slack_thread_ts.replace('.', '')}`}
+                                            to={`https://app.slack.com/archives/${ticket.slack_channel_id}/p${ticket.slack_thread_ts.replace('.', '')}`}
                                             target="_blank"
                                             className="text-xs"
                                         >

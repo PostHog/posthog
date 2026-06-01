@@ -108,10 +108,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     type === 'screenshot' && !screenshotUrl ? 'Screenshot is not ready' : undefined
                                 }
                             >
-                                Export{' '}
-                                <LemonTag type="warning" className="ml-2">
-                                    BETA
-                                </LemonTag>
+                                Export
                             </LemonButton>
                         </>
                     }

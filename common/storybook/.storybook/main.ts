@@ -12,7 +12,6 @@ const config: StorybookConfig = {
         '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
         '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../common/mosaic/storybook/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [
@@ -62,6 +61,8 @@ const config: StorybookConfig = {
     build: {
         test: {
             disableSourcemaps: !!process.env.CI,
+            // esbuild minifier: the default swc one rejects `extractComments` and breaks prod builds
+            esbuildMinify: true,
         },
     },
 

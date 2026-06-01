@@ -39,7 +39,7 @@ from posthog.models import InviteExpiredException, Organization, OrganizationDom
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
-from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle
+from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
@@ -409,7 +409,7 @@ class SignupResendInviteViewset(generics.GenericAPIView):
 
     serializer_class = SignupResendInviteSerializer
     permission_classes = (permissions.AllowAny,)
-    throttle_classes = [] if settings.E2E_TESTING else [SignupEmailPrecheckThrottle]
+    throttle_classes = [] if settings.E2E_TESTING else [SignupResendInviteThrottle]
 
     def post(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         serializer = self.get_serializer(data=request.data)
@@ -605,6 +605,11 @@ class InviteSignupSerializer(serializers.Serializer):
                     verified=True,
                     label="Passkey",
                 )
+                # Treat the passkey as the user's 2FA factor when the org enforces 2FA. Otherwise
+                # they land behind an undismissable setup modal that only offers TOTP enrollment
+                if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
+                    user.passkeys_enabled_for_2fa = True
+                    user.save(update_fields=["passkeys_enabled_for_2fa"])
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)

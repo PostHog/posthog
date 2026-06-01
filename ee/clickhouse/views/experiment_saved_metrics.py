@@ -47,6 +47,27 @@ class ExperimentSavedMetricSerializer(
     UserAccessControlSerializerMixin, TaggedItemSerializerMixin, serializers.ModelSerializer
 ):
     created_by = UserBasicSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Name of the shared metric. Must be unique within the project (case-insensitive).",
+    )
+    description = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Short description of what the metric measures.",
+    )
+    query = serializers.JSONField(
+        help_text=(
+            "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: "
+            "'mean' (set source to an EventsNode with an event name), "
+            "'funnel' (set series to an array of EventsNode steps), "
+            "'ratio' (set numerator and denominator EventsNode entries), or "
+            "'retention' (set start_event and completion_event). "
+            "Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
+        ),
+    )
 
     class Meta:
         model = ExperimentSavedMetric
@@ -113,7 +134,7 @@ class ExperimentSavedMetricSerializer(
         return ExperimentSavedMetricService(team=self.context["get_team"](), user=request.user)
 
 
-@extend_schema(tags=["experiments"], extensions={"x-swagger-tag": "experiment_saved_metrics"})
+@extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment_saved_metric"
     queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()

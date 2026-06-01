@@ -270,6 +270,7 @@
   list([
     'appearance',
     'archived',
+    'base_language',
     'conditions',
     'created_at',
     'current_iteration',
@@ -332,7 +333,9 @@
     'button_tile',
     'dashboard',
     'insight',
+    'team',
     'text',
+    'widget',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
@@ -575,7 +578,9 @@
     'refreshing',
     'save',
     'sort_tiles_by_layout',
+    'team_id',
     'text_id',
+    'widget_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature
@@ -697,6 +702,7 @@
     '__module__',
     '__str__',
     '_meta',
+    'activity_logging_on_delete',
     'created_at',
     'experiment_id',
     'get_next_by_created_at',
@@ -724,6 +730,7 @@
     'access',
     'aggregation_group_type_index',
     'analytics_dashboards',
+    'clean',
     'conditions',
     'created_by_id',
     'deleted',
@@ -756,7 +763,6 @@
     'rollback_conditions',
     'rollout_percentage',
     'scheduled_changes_dispatcher',
-    'super_conditions',
     'surveys_internal_response_sampling_flag',
     'surveys_internal_targeting_flag',
     'surveys_linked_flag',

@@ -9,12 +9,14 @@ from unittest import mock
 from django.conf import settings
 from django.test import override_settings
 
+import pymysql
 import aioboto3
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from testcontainers.mysql import MySqlContainer
 
 from posthog.schema import HogQLQueryResponse
 
@@ -30,9 +32,8 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.models import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
-from products.data_warehouse.backend.models.external_table_definitions import external_tables
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, get_latest_run_if_exists
+from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -106,6 +107,52 @@ def _clean_sourcebatch_tables(_ensure_sourcebatch_tables):
         cur.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE")
 
 
+@pytest.fixture(scope="session")
+def mysql_container():
+    """Spin up a MySQL container once for the entire test session.
+
+    Shared across all data-imports tests so we don't pay container
+    startup more than once. Requires a reachable Docker daemon — CI has
+    one (it's what brings up the `docker-compose.dev.yml` stack), and
+    local flox envs have Docker too. If Docker is unreachable the
+    fixture errors loudly so the breakage isn't silently hidden.
+    """
+    container = MySqlContainer("mysql:9.2")
+    container.start()
+    try:
+        yield container
+    finally:
+        container.stop()
+
+
+@pytest.fixture
+def mysql_config(mysql_container):
+    return {
+        "host": mysql_container.get_container_host_ip(),
+        "port": int(mysql_container.get_exposed_port(3306)),
+        "user": mysql_container.username,
+        "password": mysql_container.password,
+        "database": mysql_container.dbname,
+        # MySQLSourceConfig names the logical database "schema" and keeps
+        # the two in lockstep — mirror that here.
+        "schema": mysql_container.dbname,
+        "using_ssl": False,
+    }
+
+
+@pytest.fixture
+def mysql_connection(mysql_config):
+    with pymysql.connect(
+        host=mysql_config["host"],
+        port=mysql_config["port"],
+        database=mysql_config["database"],
+        user=mysql_config["user"],
+        password=mysql_config["password"],
+        connect_timeout=5,
+    ) as connection:
+        yield connection
+
+
 @pytest_asyncio.fixture
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket.
@@ -168,6 +215,7 @@ async def run_external_data_job_workflow(
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,
+                debug_mode=True,  # turn off sandbox/deadlock detector
             ):
                 await activity_environment.client.execute_workflow(
                     ExternalDataJobWorkflow.run,

@@ -23,11 +23,15 @@ import {
     UserHomeSettingsPartialUpdateParams,
     UserHomeSettingsRetrieveParams,
 } from '@/generated/platform_features/api'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActivityLogListSchema = ActivityLogListQueryParams.extend({
-    page_size: ActivityLogListQueryParams.shape['page_size'].default(10).optional(),
+    page_size: z
+        .preprocess(castStringToInt, ActivityLogListQueryParams.shape['page_size'].default(10).optional())
+        .optional(),
+    page: z.preprocess(castStringToInt, ActivityLogListQueryParams.shape['page']).optional(),
 })
 
 const activityLogList = (): ToolBase<
@@ -113,6 +117,7 @@ const advancedActivityLogsList = (): ToolBase<
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
                 hogql_filter: params.hogql_filter,
+                ip_addresses: params.ip_addresses,
                 is_system: params.is_system,
                 item_ids: params.item_ids,
                 page: params.page,
@@ -120,6 +125,7 @@ const advancedActivityLogsList = (): ToolBase<
                 scopes: params.scopes,
                 search_text: params.search_text,
                 start_date: params.start_date,
+                team_ids: params.team_ids,
                 users: params.users,
                 was_impersonated: params.was_impersonated,
             },
@@ -157,7 +163,7 @@ const approvalPoliciesList = (): ToolBase<typeof ApprovalPoliciesListSchema, Sch
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedApprovalPolicyList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/approval_policies/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/approval_policies/`,
             query: {
                 limit: params.limit,
                 offset: params.offset,
@@ -176,7 +182,7 @@ const approvalPolicyGet = (): ToolBase<typeof ApprovalPolicyGetSchema, Schemas.A
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ApprovalPolicy>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/approval_policies/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/approval_policies/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -191,7 +197,7 @@ const changeRequestGet = (): ToolBase<typeof ChangeRequestGetSchema, Schemas.Cha
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ChangeRequest>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/change_requests/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_requests/${encodeURIComponent(String(params.id))}/`,
         })
         return result
     },
@@ -206,7 +212,7 @@ const changeRequestsList = (): ToolBase<typeof ChangeRequestsListSchema, Schemas
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedChangeRequestList>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/change_requests/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/change_requests/`,
             query: {
                 action_key: params.action_key,
                 limit: params.limit,

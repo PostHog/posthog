@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { IconFlag, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconFlag } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
@@ -196,7 +196,8 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
             <div className="mt-3">
                 <LemonTag type={rollout === 100 ? 'highlight' : rollout === 0 ? 'caution' : 'none'}>
                     <span className="text-sm">
-                        Rolled out to <b>{rollout}%</b> of <b>{aggregationTargetName}</b> in this set.
+                        Rolled out to <b className="tabular-nums">{rollout}%</b> of <b>{aggregationTargetName}</b> in
+                        this set.
                     </span>
                 </LemonTag>
             </div>
@@ -206,126 +207,6 @@ function ConditionSetCard({ group, index, aggregationTargetName }: ConditionSetC
                     All <b>{aggregationTargetName}</b> in this set will be in variant <b>{group.variant}</b>
                 </div>
             )}
-        </div>
-    )
-}
-
-// Minimal type for early access features as they appear on featureFlag.features
-// The actual API response shape differs from the formal EarlyAccessFeatureType
-interface EarlyAccessFeatureSummary {
-    id: string
-    flagKey: string
-}
-
-interface FeatureFlagSuperConditionsReadonlyProps {
-    id: string
-    flagKey: string
-    filters: FeatureFlagFilters
-    earlyAccessFeatures?: EarlyAccessFeatureSummary[]
-    isDisabled?: boolean
-}
-
-export function FeatureFlagSuperConditionsReadonly({
-    id,
-    flagKey,
-    filters,
-    earlyAccessFeatures,
-    isDisabled,
-}: FeatureFlagSuperConditionsReadonlyProps): JSX.Element | null {
-    const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
-        id,
-        readOnly: true,
-        isSuper: true,
-        filters,
-    })
-
-    const { filterGroups, aggregationTargetName } = useValues(releaseConditionsLogic)
-    const matchingEarlyAccessFeature = earlyAccessFeatures?.find((f) => f.flagKey === flagKey)
-
-    if (filterGroups.length === 0) {
-        return null
-    }
-
-    return (
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-                <LemonLabel className="flex items-center gap-1">
-                    Super release conditions
-                    <Tooltip title="This flag is linked to an early access feature. Super conditions are managed through the early access feature and take priority over regular release conditions.">
-                        <IconInfo className="text-muted text-base" />
-                    </Tooltip>
-                </LemonLabel>
-                {isDisabled && (
-                    <LemonTag type="muted" size="small">
-                        Flag disabled – returns false regardless of conditions
-                    </LemonTag>
-                )}
-            </div>
-
-            <div className={isDisabled ? 'opacity-60' : ''}>
-                {filterGroups.map((group, index) => (
-                    <div key={group.sort_key ?? index}>
-                        {index > 0 && (
-                            <div className="condition-set-separator my-2 py-0 text-center text-xs font-semibold text-muted">
-                                OR
-                            </div>
-                        )}
-                        <div className="border rounded p-4 bg-surface-primary">
-                            <div className="text-sm">
-                                {group.properties?.length ? (
-                                    <>
-                                        Match <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> against
-                                        value set on <LemonSnack>{'$feature_enrollment/' + flagKey}</LemonSnack>
-                                    </>
-                                ) : (
-                                    <>
-                                        Condition set will match{' '}
-                                        <b>all {aggregationTargetName(group.aggregation_group_type_index)}</b>
-                                    </>
-                                )}
-                            </div>
-
-                            {(group.properties?.length || 0) > 0 && (
-                                <>
-                                    <LemonDivider className="my-3" />
-                                    <div className="flex items-center gap-1.5 text-sm">
-                                        <LemonButton
-                                            icon={<IconSubArrowRight className="arrow-right" />}
-                                            size="small"
-                                            noPadding
-                                        />
-                                        <span>
-                                            If null, default to <b>Release conditions</b>
-                                        </span>
-                                    </div>
-                                </>
-                            )}
-
-                            <LemonDivider className="my-3" />
-
-                            <div className="flex justify-end">
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    to={
-                                        matchingEarlyAccessFeature
-                                            ? urls.earlyAccessFeature(matchingEarlyAccessFeature.id)
-                                            : undefined
-                                    }
-                                    disabledReason={
-                                        !matchingEarlyAccessFeature
-                                            ? 'The matching early access feature was not found'
-                                            : undefined
-                                    }
-                                    sideIcon={matchingEarlyAccessFeature ? <IconOpenInNew /> : undefined}
-                                >
-                                    View Early Access Feature
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-            </div>
         </div>
     )
 }

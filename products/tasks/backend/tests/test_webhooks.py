@@ -15,6 +15,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalReport, SignalReportTask
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.webhooks import find_task_run
 
@@ -97,6 +98,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["pr_url"], "https://github.com/posthog/posthog/pull/123")
         self.assertEqual(call_kwargs["properties"]["task_id"], str(self.task.id))
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
+        self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -174,8 +176,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 403)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_unknown_pr_url_returns_200(self, mock_capture, mock_get_secret):
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_unmatched_pr_without_installation_not_captured(self, mock_capture, mock_get_secret):
         mock_get_secret.return_value = self.webhook_secret
 
         payload = {
@@ -239,7 +241,7 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 405)
 
     @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
-    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
     def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture, mock_get_secret):
         # Regression: a PR opened on a repo that has no matching TaskRun must
         # not fall through to a branch-only lookup that attributes the event
@@ -263,6 +265,258 @@ class TestGitHubPRWebhook(TestCase):
         }
 
         response = self._make_webhook_request(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+
+
+class TestGitHubPRWebhookResolvesSignalReports(TestCase):
+    """Webhook resolves any SignalReport linked to the merged PR's task."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+        cls.user = User.objects.create(email="test@example.com", distinct_id="user-123")
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+        self.task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implementation of a signal report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+        )
+        self.task_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
+        )
+        self.report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Test report",
+            summary="Test summary",
+        )
+        SignalReportTask.objects.create(
+            team=self.team,
+            report=self.report,
+            task=self.task,
+            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        )
+
+    def _post_pr_webhook(self, action: str, merged: bool):
+        payload = {
+            "action": action,
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/42",
+                "merged": merged,
+            },
+        }
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            HTTP_X_HUB_SIGNATURE_256=signature,
+            HTTP_X_GITHUB_EVENT="pull_request",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "merged_pr_resolves_ready_report",
+                "closed",
+                True,
+                SignalReport.Status.READY,
+                SignalReport.Status.RESOLVED,
+            ),
+            (
+                "closed_without_merge_is_noop",
+                "closed",
+                False,
+                SignalReport.Status.READY,
+                SignalReport.Status.READY,
+            ),
+            (
+                "suppressed_report_is_skipped",
+                "closed",
+                True,
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.SUPPRESSED,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_event_transitions_linked_report(
+        self, _name, action, merged, initial_status, expected_status, _mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+        if self.report.status != initial_status:
+            self.report.status = initial_status
+            self.report.save(update_fields=["status"])
+
+        response = self._post_pr_webhook(action=action, merged=merged)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, expected_status)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_merge_on_task_without_linked_report_is_a_noop(self, _mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        SignalReportTask.objects.filter(task=self.task).delete()
+
+        response = self._post_pr_webhook(action="closed", merged=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.status, SignalReport.Status.READY)
+
+
+class TestExternalPRWebhook(TestCase):
+    """PRs with no matching TaskRun are emitted as external PR events."""
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    integration: ClassVar[Integration]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="External Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="External Team")
+        cls.integration = Integration.objects.create(
+            team=cls.team,
+            kind="github",
+            integration_id="555000",
+            config={"account": {"name": "acme"}},
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+        self.webhook_secret = "test-webhook-secret"
+
+    def _post(self, payload: dict):
+        payload_bytes = json.dumps(payload).encode("utf-8")
+        signature = generate_github_signature(payload_bytes, self.webhook_secret)
+        return self.client.post(
+            "/webhooks/github/pr/",
+            data=payload_bytes,
+            content_type="application/json",
+            headers={"x-hub-signature-256": signature, "x-github-event": "pull_request"},
+        )
+
+    def _external_payload(self, action: str, merged: bool):
+        return {
+            "action": action,
+            "installation": {"id": 555000},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "number": 7,
+                "merged": merged,
+                "user": {"login": "octocat"},
+                "title": "Internal customer change",
+                "base": {"ref": "main"},
+                "head": {"ref": "feature/x"},
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("opened", "opened", False, "pr_created"),
+            ("closed", "closed", False, "pr_closed"),
+            ("merged", "closed", True, "pr_merged"),
+        ]
+    )
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_event_attributes_to_installation_team(
+        self, _name, action, merged, expected_event, mock_capture, mock_get_secret
+    ):
+        mock_get_secret.return_value = self.webhook_secret
+
+        response = self._post(self._external_payload(action, merged))
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args[1]
+        props = call_kwargs["properties"]
+        self.assertEqual(call_kwargs["event"], expected_event)
+        self.assertEqual(call_kwargs["distinct_id"], str(self.team.uuid))
+        self.assertEqual(call_kwargs["groups"]["project"], str(self.team.uuid))
+        self.assertEqual(props["pr_source"], "external")
+        self.assertEqual(props["team_id"], self.team.id)
+        self.assertEqual(props["repository"], "acme/widgets")
+        self.assertEqual(props["pr_number"], 7)
+        self.assertEqual(props["pr_author"], "octocat")
+        self.assertEqual(props["pr_base_ref"], "main")
+        self.assertIsNone(props["task_id"])
+        self.assertIsNone(props["origin_product"])
+        self.assertIsNone(props["title"])
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_event_is_deduplicated_per_action(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = self._external_payload("closed", merged=True)
+        self.assertEqual(self._post(payload).status_code, 200)
+        self.assertEqual(self._post(payload).status_code, 200)
+
+        self.assertEqual(mock_capture.call_count, 2)
+        first_uuid = mock_capture.call_args_list[0][1]["uuid"]
+        second_uuid = mock_capture.call_args_list[1][1]["uuid"]
+        self.assertEqual(first_uuid, second_uuid)
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_without_resolvable_installation_is_dropped(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+
+        payload = self._external_payload("opened", merged=False)
+        payload["installation"]["id"] = 999999
+
+        response = self._post(payload)
+
+        self.assertEqual(response.status_code, 200)
+        mock_capture.assert_not_called()
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        other_team = Team.objects.create(organization=self.organization, name="Other External Team")
+        Integration.objects.create(
+            team=other_team, kind="github", integration_id="555000", config={"account": {"name": "acme"}}
+        )
+        expected_team = min([self.team, other_team], key=lambda t: t.id)
+
+        self.assertEqual(self._post(self._external_payload("closed", merged=True)).status_code, 200)
+        self.assertEqual(self._post(self._external_payload("closed", merged=True)).status_code, 200)
+
+        distinct_ids = {call[1]["distinct_id"] for call in mock_capture.call_args_list}
+        self.assertEqual(distinct_ids, {str(expected_team.uuid)})
+
+    @patch("products.tasks.backend.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.webhooks.posthoganalytics.capture")
+    def test_external_pr_without_installation_block_is_dropped(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        payload = self._external_payload("opened", merged=False)
+        del payload["installation"]
+
+        response = self._post(payload)
 
         self.assertEqual(response.status_code, 200)
         mock_capture.assert_not_called()

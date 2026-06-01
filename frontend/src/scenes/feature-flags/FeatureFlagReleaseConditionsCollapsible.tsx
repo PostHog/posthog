@@ -48,6 +48,7 @@ import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/T
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -69,6 +70,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -189,7 +191,7 @@ function ConditionHeader({
                 <span className="text-sm break-all">{summary}</span>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-                <span className="text-sm text-muted mr-2">
+                <span className="text-sm text-muted mr-2 tabular-nums">
                     ({rollout}%{group.variant && ` · ${group.variant}`}
                     {countSummary !== null && ` · ${countSummary}`})
                 </span>
@@ -536,9 +538,9 @@ const ConditionContent = ({
                                                 size="small"
                                                 data-attr={`condition-set-${index}-aggregation`}
                                                 value={
-                                                    group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index ??
-                                                    PERSON
+                                                    group.aggregation_group_type_index !== undefined
+                                                        ? (group.aggregation_group_type_index ?? PERSON)
+                                                        : (releaseFilters.aggregation_group_type_index ?? PERSON)
                                                 }
                                                 onChange={(value) => {
                                                     setConditionAggregation(index, value === PERSON ? null : value)
@@ -586,7 +588,7 @@ const ConditionContent = ({
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
-                                            exactMatchFeatureFlagCohortOperators={true}
+                                            {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                                         />
                                     </div>
@@ -648,18 +650,33 @@ const ConditionContent = ({
                                                     if (rolloutPct === 100) {
                                                         return (
                                                             <>
-                                                                <b>{humanFriendlyNumber(affected)}</b> of{' '}
-                                                                {humanFriendlyNumber(total)} {resolvedTargetName} match
-                                                                these filters
+                                                                <b className="tabular-nums">
+                                                                    {humanFriendlyNumber(affected)}
+                                                                </b>{' '}
+                                                                of{' '}
+                                                                <span className="tabular-nums">
+                                                                    {humanFriendlyNumber(total)}
+                                                                </span>{' '}
+                                                                {resolvedTargetName} match these filters
                                                             </>
                                                         )
                                                     }
                                                     return (
                                                         <>
-                                                            Will match ~<b>{humanFriendlyNumber(receivingFlag)}</b> of{' '}
-                                                            {humanFriendlyNumber(total)} {resolvedTargetName} (
-                                                            {rolloutPct}% of {humanFriendlyNumber(affected)} matching
-                                                            the filters)
+                                                            Will match ~
+                                                            <b className="tabular-nums">
+                                                                {humanFriendlyNumber(receivingFlag)}
+                                                            </b>{' '}
+                                                            of{' '}
+                                                            <span className="tabular-nums">
+                                                                {humanFriendlyNumber(total)}
+                                                            </span>{' '}
+                                                            {resolvedTargetName} (
+                                                            <span className="tabular-nums">{rolloutPct}%</span> of{' '}
+                                                            <span className="tabular-nums">
+                                                                {humanFriendlyNumber(affected)}
+                                                            </span>{' '}
+                                                            matching the filters)
                                                         </>
                                                     )
                                                 })()}
@@ -696,16 +713,11 @@ const ConditionContent = ({
                                             <span className="flex items-center gap-1">
                                                 <span className="font-medium text-default">Optional override</span>
                                                 <Tooltip
+                                                    docLink="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
                                                     title={
                                                         <>
                                                             Force all matching {resolvedTargetName} to receive a
-                                                            specific variant.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/testing#method-1-assign-a-user-a-specific-flag-value"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
+                                                            specific variant.
                                                         </>
                                                     }
                                                 >
@@ -920,7 +932,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         </span>
                                         <span>{summary}</span>
                                     </div>
-                                    <span className="text-muted">
+                                    <span className="text-muted tabular-nums">
                                         ({rollout}%{group.variant && ` · ${group.variant}`})
                                     </span>
                                 </div>
@@ -1005,36 +1017,58 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
     // Handler for option selection logic (shared by click and keyboard events)
     const selectMatchByOption = (value: string): void => {
-        if (isTargetingV2Enabled) {
-            // v2: Properties subsumes User / Group / User & Group; only bucketing_identifier differs
-            if (value === 'properties') {
+        const applyChange = (targetValue: string): void => {
+            if (isTargetingV2Enabled) {
+                if (targetValue === 'properties') {
+                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
+                } else if (targetValue === 'device') {
+                    setAggregationGroupTypeIndex(null)
+                    onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+                }
+                return
+            }
+            if (targetValue === 'user') {
+                setIsMixedTargeting(false)
+                setAggregationGroupTypeIndex(null)
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-            } else if (value === 'device') {
-                // Device mode forces Users-scoped conditions. setAggregationGroupTypeIndex(null)
-                // clears any group-scoped conditions and preserves person-scoped properties.
+            } else if (targetValue === 'device') {
+                setIsMixedTargeting(false)
                 setAggregationGroupTypeIndex(null)
                 onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
+            } else if (targetValue === 'group') {
+                setIsMixedTargeting(false)
+                const firstGroupType = groupTypeValues[0]
+                if (firstGroupType) {
+                    setAggregationGroupTypeIndex(firstGroupType.group_type_index)
+                }
+                onBucketingIdentifierChange?.(null)
+            } else if (targetValue === 'mixed') {
+                switchToMixedTargeting()
+                onBucketingIdentifierChange?.(null)
             }
-            return
         }
-        if (value === 'user') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DISTINCT_ID)
-        } else if (value === 'device') {
-            setIsMixedTargeting(false)
-            setAggregationGroupTypeIndex(null)
-            onBucketingIdentifierChange?.(FeatureFlagBucketingIdentifier.DEVICE_ID)
-        } else if (value === 'group') {
-            setIsMixedTargeting(false)
-            const firstGroupType = groupTypeValues[0]
-            if (firstGroupType) {
-                setAggregationGroupTypeIndex(firstGroupType.group_type_index)
-            }
-            onBucketingIdentifierChange?.(null)
-        } else if (value === 'mixed') {
-            switchToMixedTargeting()
-            onBucketingIdentifierChange?.(null)
+
+        // Only confirm when changing bucketing on an existing flag
+        const isExistingFlag = flagId !== 'new'
+        const isChangingValue = value !== currentSelected
+        if (isExistingFlag && isChangingValue) {
+            LemonDialog.open({
+                title: 'Change bucketing option?',
+                description:
+                    'Changing the bucketing option will cause users to re-evaluate the flag and may cause changes in the evaluation results. Are you sure you want to continue?',
+                primaryButton: {
+                    children: 'Continue',
+                    onClick: () => applyChange(value),
+                    size: 'small',
+                },
+                secondaryButton: {
+                    children: 'Cancel',
+                    type: 'tertiary',
+                    size: 'small',
+                },
+            })
+        } else {
+            applyChange(value)
         }
     }
 
@@ -1305,7 +1339,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                     </span>
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    <span className="text-sm text-muted mr-2">
+                                                    <span className="text-sm text-muted mr-2 tabular-nums">
                                                         ({draggedGroup.rollout_percentage ?? 100}%
                                                         {draggedGroup.variant && ` · ${draggedGroup.variant}`})
                                                     </span>

@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::Level;
 
+use crate::billing::AggregatorMode;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlexBool(pub bool);
 
@@ -58,6 +60,77 @@ impl FromStr for ServiceMode {
             _ => Err(format!(
                 "Invalid SERVICE_MODE: '{s}'. Expected 'all', 'flags', or 'definitions'"
             )),
+        }
+    }
+}
+
+/// Tri-state controller for the /flags bot filter. Classification runs iff
+/// mode != Disabled; short-circuit happens iff mode == Enforced. Default is
+/// LogOnly so the filter ships observable-but-inert, then operators flip to
+/// Enforced once dashboards confirm the per-category rejection profile is sane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BotFilterMode {
+    /// Skip the bot check entirely — no classification, no canonical-log
+    /// stamp, no metric. Use to back out of an unexpected interaction with
+    /// the rest of the pipeline.
+    Disabled,
+    /// Classify, stamp `is_bot`/`bot_category`/`bot_source` on the canonical
+    /// log, bump `flags_bot_detected_total{mode="log_only"}`, then continue
+    /// through the normal pipeline. Safe-rollout default.
+    LogOnly,
+    /// Classify, stamp the canonical log, bump
+    /// `flags_bot_detected_total{mode="enforced"}`, and return the minimal
+    /// envelope without running auth/billing/eval.
+    Enforced,
+}
+
+impl FromStr for BotFilterMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "disabled" => Ok(BotFilterMode::Disabled),
+            "log_only" | "log-only" => Ok(BotFilterMode::LogOnly),
+            "enforced" | "enforce" => Ok(BotFilterMode::Enforced),
+            _ => Err(format!(
+                "Invalid FLAGS_BOT_FILTER_MODE: '{s}'. Expected 'disabled', 'log_only', or 'enforced'"
+            )),
+        }
+    }
+}
+
+/// Tristate selector for the in-process billing aggregator. Encoded as one
+/// enum so `(authoritative=true, enabled=false)` is unrepresentable — the
+/// previous two-boolean form allowed it and `server.rs` had to panic on it.
+/// See `AggregatorMode` for what each non-`Off` variant does at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorModeConfig {
+    Off,
+    Shadow,
+    Authoritative,
+}
+
+impl FromStr for AggregatorModeConfig {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Ok(AggregatorModeConfig::Off),
+            "shadow" => Ok(AggregatorModeConfig::Shadow),
+            "authoritative" => Ok(AggregatorModeConfig::Authoritative),
+            _ => Err(format!(
+                "Invalid FLAGS_BILLING_AGGREGATOR_MODE: '{s}'. Expected 'off', 'shadow', or 'authoritative'"
+            )),
+        }
+    }
+}
+
+impl AggregatorModeConfig {
+    pub fn into_runtime(self) -> Option<AggregatorMode> {
+        match self {
+            AggregatorModeConfig::Off => None,
+            AggregatorModeConfig::Shadow => Some(AggregatorMode::Shadow),
+            AggregatorModeConfig::Authoritative => Some(AggregatorMode::Authoritative),
         }
     }
 }
@@ -201,6 +274,83 @@ impl FromStr for RateLimitingAllowList {
         }
 
         Ok(RateLimitingAllowList(team_ids))
+    }
+}
+
+/// Per-team /flags request/response body logging config.
+/// Parses JSON from FLAGS_LOG_BODIES_TEAMS environment variable, also refreshed
+/// at runtime from posthog_instancesetting (key:
+/// `constance:posthog:FLAGS_LOG_BODIES_TEAMS`).
+///
+/// Format: {"team_id": ["pattern", ...], ...}
+/// Each team must specify at least one pattern; the response's `flags` map is
+/// filtered to keys matching any pattern. To capture every flag (rare and
+/// noisy), use `["*"]` explicitly.
+/// Patterns support `*` wildcards (e.g., "my-feature", "checkout-*", "*-targeting-*").
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BodyLogTeams(pub HashMap<TeamId, Vec<String>>);
+
+// Caps on the parsed `FLAGS_LOG_BODIES_TEAMS` shape. Mirrors the pattern in
+// `MAX_FLAGS_RATE_LIMIT_OVERRIDES`: the setting is admin-gated, but a typo
+// or paste of a large blob would otherwise fan out across every pod and
+// flood Loki silently.
+
+/// Matches `MAX_FLAGS_RATE_LIMIT_OVERRIDES`; well above any realistic
+/// per-cluster opt-in count.
+pub const MAX_BODY_LOG_TEAMS: usize = 100;
+/// Realistic teams configure <10 patterns; 50 leaves headroom without
+/// inviting blob-pasting.
+pub const MAX_BODY_LOG_PATTERNS_PER_TEAM: usize = 50;
+/// Longest production flag-key is ~80 chars; 256 bytes leaves room for
+/// `*` prefixes and suffixes.
+pub const MAX_BODY_LOG_PATTERN_LEN: usize = 256;
+
+impl FromStr for BodyLogTeams {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+
+        if s.is_empty() {
+            return Ok(BodyLogTeams::default());
+        }
+
+        let parsed: HashMap<String, Vec<String>> = serde_json::from_str(s)
+            .map_err(|e| format!("Failed to parse FLAGS_LOG_BODIES_TEAMS as JSON: {e}"))?;
+
+        if parsed.len() > MAX_BODY_LOG_TEAMS {
+            return Err(format!(
+                "Too many FLAGS_LOG_BODIES_TEAMS entries: {} (max {MAX_BODY_LOG_TEAMS})",
+                parsed.len()
+            ));
+        }
+
+        let mut out = HashMap::new();
+        for (team_id_str, patterns) in parsed {
+            if patterns.is_empty() {
+                return Err(format!(
+                    "Team {team_id_str} has no patterns; specify at least one (use [\"*\"] to log every flag)"
+                ));
+            }
+            if patterns.len() > MAX_BODY_LOG_PATTERNS_PER_TEAM {
+                return Err(format!(
+                    "Too many patterns for team {team_id_str}: {} (max {MAX_BODY_LOG_PATTERNS_PER_TEAM})",
+                    patterns.len()
+                ));
+            }
+            if let Some(p) = patterns.iter().find(|p| p.len() > MAX_BODY_LOG_PATTERN_LEN) {
+                return Err(format!(
+                    "Pattern too long for team {team_id_str}: {} bytes (max {MAX_BODY_LOG_PATTERN_LEN})",
+                    p.len()
+                ));
+            }
+            let team_id = team_id_str.parse::<TeamId>().map_err(|e| {
+                format!("Invalid team ID '{team_id_str}' in FLAGS_LOG_BODIES_TEAMS: {e}")
+            })?;
+            out.insert(team_id, patterns);
+        }
+
+        Ok(BodyLogTeams(out))
     }
 }
 
@@ -533,6 +683,19 @@ pub struct Config {
     #[envconfig(from = "RATE_LIMITING_ALLOW_LIST_TEAMS", default = "")]
     pub rate_limiting_allow_list_teams: RateLimitingAllowList,
 
+    // Per-team /flags body logging. JSON: {"team_id": ["flag-key-pattern", ...], ...}
+    // Mirrors Django's FLAGS_LOG_BODIES_TEAMS dynamic setting; refreshed every ~60s
+    // from posthog_instancesetting at runtime.
+    #[envconfig(from = "FLAGS_LOG_BODIES_TEAMS", default = "")]
+    pub flags_log_bodies_teams: BodyLogTeams,
+
+    // Maximum request body bytes to include in body-log events.
+    // Bodies larger than this are truncated; truncated/original_size_bytes fields
+    // record what happened. Response side is naturally bounded by the per-flag
+    // filter when one is set.
+    #[envconfig(from = "FLAGS_LOG_BODIES_REQUEST_MAX_BYTES", default = "65536")]
+    pub flags_log_bodies_request_max_bytes: usize,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -545,6 +708,14 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: Level,
+
+    // Tri-state controller for the /flags bot filter. See [`BotFilterMode`]
+    // for the per-variant semantics. Defaults to `log_only` so the filter
+    // ships observable-but-inert; operators flip to `enforced` once the
+    // rejection profile in `flags_bot_detected_total{mode="log_only"}` looks
+    // correct, or to `disabled` to back out of an interaction entirely.
+    #[envconfig(from = "FLAGS_BOT_FILTER_MODE", default = "log_only")]
+    pub bot_filter_mode: BotFilterMode,
 
     // Rate limiting configuration for /flags endpoint (token-based)
     // Enable/disable token-based rate limiting (defaults to off to match /decide)
@@ -617,6 +788,11 @@ pub struct Config {
     #[envconfig(from = "OPTIMIZE_EXPERIENCE_CONTINUITY_LOOKUPS", default = "true")]
     pub optimize_experience_continuity_lookups: FlexBool,
 
+    // Internal request token for non-billable requests
+    // When provided via Authorization header and matches this token, the request is not billed
+    #[envconfig(from = "INTERNAL_REQUEST_TOKEN")]
+    pub internal_request_token: Option<String>,
+
     // Redis compression configuration
     // When enabled, uses zstd compression for Redis values above threshold
     // The `default_test_config()` sets this to true for test/development scenarios.
@@ -687,9 +863,13 @@ pub struct Config {
     #[envconfig(from = "SERVICE_MODE", default = "all")]
     pub service_mode: ServiceMode,
 
-    // Shadow-keyspace writer for reconciliation. Off by default.
-    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_ENABLED", default = "false")]
-    pub billing_aggregator_enabled: FlexBool,
+    // Selects the in-process billing aggregator mode. See `AggregatorModeConfig`.
+    // Defaults to `shadow` to match what's deployed in dev/prod-eu/prod-us today,
+    // so swapping the old `FLAGS_BILLING_AGGREGATOR_ENABLED=true` env var for
+    // unsetting it leaves runtime behavior unchanged. `default_test_config` keeps
+    // `Off` so tests that don't opt in don't start the aggregator.
+    #[envconfig(from = "FLAGS_BILLING_AGGREGATOR_MODE", default = "shadow")]
+    pub billing_aggregator_mode: AggregatorModeConfig,
 
     // BillingAggregator tuning knobs. `BillingAggregatorConfig::validate`
     // rejects zero values at boot — see the module docs on
@@ -895,6 +1075,8 @@ impl Config {
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
+            flags_log_bodies_teams: BodyLogTeams::default(),
+            flags_log_bodies_request_max_bytes: 65_536,
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),
@@ -902,6 +1084,9 @@ impl Config {
             object_storage_bucket: "posthog".to_string(),
             object_storage_region: "us-east-1".to_string(),
             object_storage_endpoint: "".to_string(),
+            // `Enforced` so tests exercise the bot short-circuit envelope.
+            // Tests wanting prod posture override to `LogOnly` explicitly.
+            bot_filter_mode: BotFilterMode::Enforced,
             flags_rate_limit_enabled: FlexBool(false),
             flags_bucket_capacity: 625,
             flags_bucket_replenish_rate: 10.0,
@@ -926,7 +1111,8 @@ impl Config {
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
             auth_token_cache_ttl_seconds: 300,
-            billing_aggregator_enabled: FlexBool(false),
+            internal_request_token: None,
+            billing_aggregator_mode: AggregatorModeConfig::Off,
             billing_flush_interval_ms: 10_000,
             billing_max_pending_entries: 500_000,
             billing_per_flush_batch_size: 200,
@@ -1031,6 +1217,7 @@ pub static DEFAULT_TEST_CONFIG: Lazy<Config> = Lazy::new(Config::default_test_co
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn test_default_config() {
@@ -1068,6 +1255,11 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert_eq!(config.skip_writes, FlexBool(false));
+        // Bot filter ships in LogOnly mode by default — pin the safe
+        // posture so a future env-var rename / refactor can't silently
+        // flip it back to Enforced.
+        assert_eq!(config.bot_filter_mode, BotFilterMode::LogOnly);
+        assert_eq!(config.billing_aggregator_mode, AggregatorModeConfig::Shadow);
     }
 
     #[test]
@@ -1127,6 +1319,40 @@ mod tests {
         assert_eq!(
             config.element_chain_as_string_excluded_teams,
             TeamIdCollection::None
+        );
+    }
+
+    #[rstest]
+    #[case::off("off", AggregatorModeConfig::Off)]
+    #[case::shadow("shadow", AggregatorModeConfig::Shadow)]
+    #[case::authoritative("authoritative", AggregatorModeConfig::Authoritative)]
+    #[case::trim_and_lowercase("  SHADOW  ", AggregatorModeConfig::Shadow)]
+    fn aggregator_mode_config_parses_valid_values(
+        #[case] input: &str,
+        #[case] expected: AggregatorModeConfig,
+    ) {
+        assert_eq!(input.parse::<AggregatorModeConfig>().unwrap(), expected);
+    }
+
+    #[test]
+    fn aggregator_mode_config_rejects_invalid_value() {
+        let err = "yes".parse::<AggregatorModeConfig>().unwrap_err();
+        assert!(
+            err.contains("Invalid FLAGS_BILLING_AGGREGATOR_MODE"),
+            "unexpected error message: {err}"
+        );
+    }
+
+    #[test]
+    fn aggregator_mode_config_into_runtime_maps_correctly() {
+        assert_eq!(AggregatorModeConfig::Off.into_runtime(), None);
+        assert_eq!(
+            AggregatorModeConfig::Shadow.into_runtime(),
+            Some(AggregatorMode::Shadow)
+        );
+        assert_eq!(
+            AggregatorModeConfig::Authoritative.into_runtime(),
+            Some(AggregatorMode::Authoritative)
         );
     }
 
@@ -1412,6 +1638,49 @@ mod service_mode_tests {
     fn test_service_mode_default() {
         let config = Config::default_test_config();
         assert_eq!(config.service_mode, ServiceMode::All);
+    }
+
+    #[test]
+    fn test_bot_filter_mode_from_str() {
+        // Canonical spellings.
+        assert_eq!(
+            "disabled".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::Disabled
+        );
+        assert_eq!(
+            "log_only".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::LogOnly
+        );
+        assert_eq!(
+            "enforced".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::Enforced
+        );
+        // Aliases — operators often reach for the simpler form.
+        assert_eq!(
+            "log-only".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::LogOnly
+        );
+        assert_eq!(
+            "enforce".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::Enforced
+        );
+        // Case-insensitive + whitespace-tolerant (mirrors ServiceMode).
+        assert_eq!(
+            "LOG_ONLY".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::LogOnly
+        );
+        assert_eq!(
+            "  Enforced  ".parse::<BotFilterMode>().unwrap(),
+            BotFilterMode::Enforced
+        );
+    }
+
+    #[test]
+    fn test_bot_filter_mode_invalid() {
+        assert!("".parse::<BotFilterMode>().is_err());
+        assert!("on".parse::<BotFilterMode>().is_err());
+        assert!("off".parse::<BotFilterMode>().is_err());
+        assert!("true".parse::<BotFilterMode>().is_err());
     }
 }
 

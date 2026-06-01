@@ -3,7 +3,7 @@ import uuid
 import secrets
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -13,7 +13,9 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models import Integration, Organization, Team
+from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import CodeInvite, SandboxEnvironment, SandboxSnapshot, Task, TaskRun
@@ -205,6 +207,53 @@ class TestTask(TestCase):
 
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_signal_report_falls_back_to_user_integration(self, mock_execute_workflow):
+        # Signal reports are BOT-authored. When the team has no Integration row but the task
+        # creator has a UserIntegration that grants access to the repo, we should accept it
+        # instead of raising "Team does not have a GitHub integration".
+        user = User.objects.create(email="signal-report@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        user_integration = UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="install-1",
+            config={"installation_id": "install-1"},
+            sensitive_config={"access_token": "ghs_user_install"},
+            repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
+        )
+
+        task = Task.create_and_run(
+            team=self.team,
+            title="Signal Report",
+            description="Research",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        self.assertIsNone(task.github_integration)
+        self.assertEqual(task.github_user_integration, user_integration)
+        mock_execute_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_signal_report_raises_when_no_integration_anywhere(self, mock_execute_workflow):
+        user = User.objects.create(email="signal-no-int@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Signal Report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("does not have a GitHub integration", str(cm.exception))
+        mock_execute_workflow.assert_not_called()
 
     @parameterized.expand(
         [
@@ -853,16 +902,16 @@ class TestTaskRun(TestCase):
 
         from django.core.cache import cache
 
-        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
 
         if expect_signal:
             mock_connect.assert_called_once()
         else:
             mock_connect.assert_not_called()
 
-        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
     @patch("posthog.temporal.common.client.sync_connect")
     def test_heartbeat_workflow_rate_limited_by_cache(self, mock_connect):
@@ -875,17 +924,48 @@ class TestTaskRun(TestCase):
 
         from django.core.cache import cache
 
-        cache_key = f"tasks:task_run:heartbeat:{run.id}"
+        cache_key = f"tasks:task_run:heartbeat:{run.id}:active"
         cache.delete(cache_key)
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
 
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_called_once()
+        handle.signal.assert_called_once()
+        self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
 
         mock_connect.reset_mock()
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_not_called()
 
         cache.delete(cache_key)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_ignores_idle_heartbeats(self, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"mode": "background"},
+        )
+
+        from django.core.cache import cache
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
+
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        run.heartbeat_workflow(agent_active=False)
+        mock_connect.assert_not_called()
+
+        run.heartbeat_workflow(agent_active=True)
+
+        mock_connect.assert_called_once()
+        handle.signal.assert_called_once()
+        self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
 
 class TestSandboxSnapshot(TestCase):

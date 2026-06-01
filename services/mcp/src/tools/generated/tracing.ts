@@ -2,11 +2,13 @@
 import { z } from 'zod'
 
 import {
+    TracingSpansAggregateCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansTraceCreateBody,
     TracingSpansTraceCreateParams,
+    TracingSpansTreeCreateBody,
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
@@ -22,7 +24,7 @@ const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema,
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/values/`,
             query: {
                 attribute_type: params.attribute_type,
                 key: params.key,
@@ -45,7 +47,7 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> 
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
                 attribute_type: params.attribute_type,
                 limit: params.limit,
@@ -67,13 +69,55 @@ const apmServicesList = (): ToolBase<typeof ApmServicesListSchema, unknown> => (
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/service-names/`,
             query: {
                 dateRange: params.dateRange,
                 search: params.search,
             },
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansAggregateSchema = TracingSpansAggregateCreateBody
+
+const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> => ({
+    name: 'apm-spans-aggregate',
+    schema: ApmSpansAggregateSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansAggregateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/aggregate/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        return filtered
+    },
+})
+
+const ApmSpansTreeSchema = TracingSpansTreeCreateBody
+
+const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
+    name: 'apm-spans-tree',
+    schema: ApmSpansTreeSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmSpansTreeSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/tree/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
         return filtered
     },
 })
@@ -94,7 +138,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -116,7 +160,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
-                path: `/api/environments/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/query/`,
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
@@ -128,6 +172,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
+    'apm-spans-aggregate': apmSpansAggregate,
+    'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,
 }

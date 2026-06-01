@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from django.conf import settings
 
@@ -23,6 +23,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,
     GetSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
+    StartAgentServerOutput,
     TaskProcessingContext,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
@@ -39,6 +40,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.workflow import (
+    PendingFollowup,
     ProcessTaskInput,
     ProcessTaskOutput,
     ProcessTaskWorkflow,
@@ -51,6 +53,7 @@ def _build_context(
     repository: str | None = "posthog/posthog-js",
     state: dict | None = None,
     use_modal_resume_snapshots: bool = True,
+    sandbox_event_ingest_enabled: bool = False,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -65,6 +68,7 @@ def _build_context(
         state=state or {},
         _branch="feature-branch",
         use_modal_resume_snapshots=use_modal_resume_snapshots,
+        sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
     )
 
 
@@ -274,6 +278,40 @@ class TestProcessTaskWorkflow:
 
 @pytest.mark.django_db
 class TestProcessTaskWorkflowUnit:
+    async def test_send_followup_message_can_arrive_before_context_is_loaded(self, monkeypatch):
+        logger = Mock()
+        deprecate_patch = Mock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", deprecate_patch)
+        workflow = ProcessTaskWorkflow()
+
+        await workflow.send_followup_message("first", ["artifact-1"])
+        await workflow.send_followup_message("second", ["artifact-2"])
+
+        assert workflow._pending_followups == [
+            PendingFollowup(message="first", artifact_ids=["artifact-1"]),
+            PendingFollowup(message="second", artifact_ids=["artifact-2"]),
+        ]
+        assert workflow._pending_followup is None
+        deprecate_patch.assert_called_with(process_task_workflow_module._PATCH_ID_FOLLOWUP_QUEUE)
+        logger.info.assert_any_call(
+            "send_followup_signal_received",
+            extra={
+                "run_id": None,
+                "message_length": 5,
+                "artifact_count": 1,
+            },
+        )
+        logger.info.assert_any_call(
+            "send_followup_signal_received",
+            extra={
+                "run_id": None,
+                "message_length": 6,
+                "artifact_count": 1,
+            },
+        )
+        assert logger.info.call_count == 2
+
     @pytest.mark.parametrize(
         "state, expected",
         [
@@ -355,6 +393,60 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
+
+    async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True)
+        get_task_processing_context_mock = AsyncMock(return_value=context)
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+        post_slack_update_mock = AsyncMock()
+        read_sandbox_logs_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock()
+        create_resume_snapshot_mock = AsyncMock()
+        relay_sandbox_events_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", read_sandbox_logs_mock)
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", create_resume_snapshot_mock)
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
+        )
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is True
+        relay_sandbox_events_mock.assert_not_awaited()
 
     async def test_get_sandbox_for_repository_skips_clone_and_checkout_for_private_repo_without_github_integration(
         self, monkeypatch

@@ -5,6 +5,16 @@
 //! map, and issues pipelined `HINCRBY`s to Redis. On graceful shutdown a
 //! final flush runs before the service exits.
 //!
+//! # Mode
+//!
+//! `AggregatorMode::Shadow` writes `…:shadow`-suffixed keys for offline
+//! reconciliation against the per-request synchronous HINCRBY path; both
+//! writes happen on every billable request. `AggregatorMode::Authoritative`
+//! writes the production billing keys directly and the per-request path is
+//! skipped — at this point `flags_billing_pending_records` and
+//! `flags_billing_seconds_since_successful_flush` are billing-critical
+//! signals, not just reconciliation hygiene.
+//!
 //! # Durability trade-off
 //!
 //! Aggregation defers writes until the next flush, so failure modes differ
@@ -12,7 +22,10 @@
 //!
 //! - **Redis error on a flush chunk** (normal tick): failing chunk plus
 //!   any unattempted remainder are re-queued into `pending` and retried on
-//!   the next tick. Re-queued entries are **rebucketed to the current
+//!   the next tick. Incident magnitude surfaces on
+//!   `flags_billing_flush_blocked_requests_total{error_type=…}` — *not*
+//!   `flags_billing_unflushed_requests_total`, since the records are not
+//!   terminally lost. Re-queued entries are **rebucketed to the current
 //!   bucket** so a sustained outage does not accumulate one new
 //!   `AggregationKey` per (team, request_type, library) on every
 //!   `CACHE_BUCKET_SIZE` rollover — cardinality stays bounded by the
@@ -74,15 +87,16 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
 use crate::flags::flag_analytics::{
-    current_bucket, get_team_request_library_shadow_key, get_team_request_shadow_key,
+    current_bucket, get_team_request_key, get_team_request_library_key,
+    get_team_request_library_shadow_key, get_team_request_shadow_key,
 };
 use crate::flags::flag_request::FlagRequestType;
 use crate::handler::types::Library;
 use crate::metrics::consts::{
-    FLAGS_BILLING_ENTRIES_FLUSHED, FLAGS_BILLING_FLUSH_DURATION_MS, FLAGS_BILLING_FLUSH_ERRORS,
-    FLAGS_BILLING_PENDING_ENTRIES, FLAGS_BILLING_PENDING_RECORDS, FLAGS_BILLING_RECORDS,
-    FLAGS_BILLING_RECORD_DURATION_US, FLAGS_BILLING_SECONDS_SINCE_SUCCESSFUL_FLUSH,
-    FLAGS_BILLING_UNFLUSHED_REQUESTS,
+    FLAGS_BILLING_ENTRIES_FLUSHED, FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS,
+    FLAGS_BILLING_FLUSH_DURATION_MS, FLAGS_BILLING_FLUSH_ERRORS, FLAGS_BILLING_PENDING_ENTRIES,
+    FLAGS_BILLING_PENDING_RECORDS, FLAGS_BILLING_RECORDS, FLAGS_BILLING_RECORD_DURATION_US,
+    FLAGS_BILLING_SECONDS_SINCE_SUCCESSFUL_FLUSH, FLAGS_BILLING_UNFLUSHED_REQUESTS,
 };
 
 fn record_labels_for(request_type: FlagRequestType) -> Vec<(String, String)> {
@@ -92,14 +106,15 @@ fn record_labels_for(request_type: FlagRequestType) -> Vec<(String, String)> {
     )]
 }
 
-/// Cause label for `flags_billing_unflushed_requests_total`. Kept as a
-/// closed enum so a typo can't quietly create a new label value.
+/// Cause label for `flags_billing_unflushed_requests_total`. Every variant is
+/// a terminal loss; transient retries surface on
+/// `FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS` instead. Kept as a closed enum so a
+/// typo can't quietly create a new label value.
 #[derive(Debug, Clone, Copy)]
 enum UnflushedCause {
     CapDrop,
     FlushDroppedOnError,
     ShutdownDrop,
-    RedisError,
 }
 
 impl UnflushedCause {
@@ -108,7 +123,6 @@ impl UnflushedCause {
             UnflushedCause::CapDrop => "cap_drop",
             UnflushedCause::FlushDroppedOnError => "flush_dropped_on_error",
             UnflushedCause::ShutdownDrop => "shutdown_drop",
-            UnflushedCause::RedisError => "redis_error",
         }
     }
 }
@@ -124,6 +138,85 @@ fn inc_unflushed(cause: UnflushedCause, count: u64) {
     );
 }
 
+/// Record counts blocked by a `BailOnError` flush failure. These records are
+/// requeued for the next tick — this is incident-magnitude, not terminal
+/// loss. The `error_type` value matches `classify_redis_error`, so per-type
+/// rates line up with `FLAGS_BILLING_FLUSH_ERRORS`.
+fn inc_flush_blocked(error_type: &'static str, count: u64) {
+    if count == 0 {
+        return;
+    }
+    inc(
+        FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS,
+        &[("error_type".to_string(), error_type.to_string())],
+        count,
+    );
+}
+
+/// Whether a failing chunk's HINCRBYs likely reached Redis. Drives the
+/// flusher's decision of "credit it" vs "retry it" vs "drop it" — see the
+/// branch in `flush_chunk`.
+///
+/// `Applied`: Redis received and processed the commands; the failure was on
+/// the response path (e.g. malformed reply we couldn't parse). Crediting
+/// the chunk to `entries_flushed_total` matches Redis's actual state. A
+/// retry here would double-count.
+///
+/// `Ambiguous`: timeouts and generic transport failures. The bytes may or
+/// may not have reached Redis. Today's policy is to retry (matches the
+/// pre-classification behavior, which optimizes for the much larger
+/// under-count risk from dropping). The label is mostly for visibility:
+/// once we have a reconciliation against the per-request shadow keys, this
+/// is the bucket whose retry-vs-drop default we'd revisit.
+///
+/// `NotApplied`: the call never reached Redis (e.g. configuration errors,
+/// connection refused). Retry is unambiguously safe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FlushOutcome {
+    Applied,
+    Ambiguous,
+    NotApplied,
+}
+
+impl FlushOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            FlushOutcome::Applied => "applied",
+            FlushOutcome::Ambiguous => "ambiguous",
+            FlushOutcome::NotApplied => "not_applied",
+        }
+    }
+}
+
+/// Map a Redis error to whether the call likely reached Redis. Conservative
+/// by default: anything we can't classify confidently lands in `Ambiguous`.
+fn classify_flush_outcome(err: &CustomRedisError) -> FlushOutcome {
+    // Exhaustive on purpose: same compile-error discipline as
+    // `classify_redis_error`. A new `CustomRedisError` variant must pick an
+    // outcome explicitly rather than defaulting silently.
+    match err {
+        // Redis sent us bytes back — we couldn't parse them. For
+        // pipelined HINCRBYs, the only way we get to "tried to parse a
+        // response" is if Redis applied all commands before sending it.
+        CustomRedisError::ParseError(_) => FlushOutcome::Applied,
+        // HINCRBY on a pre-existing hash can't actually return NotFound, but
+        // if it did, Redis processed the command and returned an answer.
+        CustomRedisError::NotFound => FlushOutcome::Applied,
+        // Pod can't open a connection — bytes never left.
+        CustomRedisError::InvalidConfiguration(_) => FlushOutcome::NotApplied,
+        // Timeout could fire on the write deadline (NotApplied) or the read
+        // deadline (Applied-with-lost-ack). Without protocol-level
+        // distinction we default to the safer label.
+        CustomRedisError::Timeout => FlushOutcome::Ambiguous,
+        // Transport-level failures: cluster redirects, connection resets,
+        // partial-pipeline aborts. Some are NotApplied (connection refused
+        // before any byte sent), some are Applied-with-lost-ack. Inspecting
+        // the inner kind to split them is a future refinement; today we
+        // pick the safe label.
+        CustomRedisError::Redis(_) => FlushOutcome::Ambiguous,
+    }
+}
+
 /// Key used to aggregate repeated `record()` calls in-process.
 ///
 /// `bucket` is computed from the record time, not the flush time — late-flushed
@@ -134,6 +227,39 @@ pub struct AggregationKey {
     pub request_type: FlagRequestType,
     pub library: Option<Library>,
     pub bucket: u64,
+}
+
+/// Which Redis keyspace the aggregator writes to.
+///
+/// `Shadow` writes `…:shadow`-suffixed keys that run in parallel with the
+/// authoritative per-request HINCRBY in `flag_analytics::increment_request_count`,
+/// so its counts can be reconciled before cutover. `Authoritative` writes the
+/// production billing keys directly — at that point the per-request HINCRBY is
+/// skipped (see `handler::billing::record_billing_increment`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregatorMode {
+    Shadow,
+    Authoritative,
+}
+
+impl AggregatorMode {
+    fn team_key(self, team_id: i32, request_type: FlagRequestType) -> String {
+        match self {
+            AggregatorMode::Shadow => get_team_request_shadow_key(team_id, request_type),
+            AggregatorMode::Authoritative => get_team_request_key(team_id, request_type),
+        }
+    }
+
+    fn library_key(self, team_id: i32, request_type: FlagRequestType, library: Library) -> String {
+        match self {
+            AggregatorMode::Shadow => {
+                get_team_request_library_shadow_key(team_id, request_type, library)
+            }
+            AggregatorMode::Authoritative => {
+                get_team_request_library_key(team_id, request_type, library)
+            }
+        }
+    }
 }
 
 /// Policy for handling a chunk error during a flush. The flusher's normal
@@ -209,6 +335,7 @@ pub struct BillingAggregator {
 
 struct Inner {
     config: BillingAggregatorConfig,
+    mode: AggregatorMode,
     redis: Arc<dyn RedisClient + Send + Sync>,
     pending: Mutex<HashMap<AggregationKey, u64>>,
     /// Running sum of `pending.values()`. Updated under the `pending` lock so
@@ -242,9 +369,11 @@ impl Inner {
     fn new(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        mode: AggregatorMode,
     ) -> Arc<Self> {
         Arc::new(Self {
             config,
+            mode,
             redis,
             pending: Mutex::new(HashMap::new()),
             pending_total: AtomicU64::new(0),
@@ -260,7 +389,13 @@ impl Inner {
     /// counts from an interrupted flush, and emit them as shutdown drops.
     fn record_shutdown_drops(&self) {
         let remaining_pending = self.pending_total.load(Ordering::Relaxed);
-        let in_flight = self.in_flight_uncredited.load(Ordering::Relaxed);
+        // `Acquire` pairs with the `Release` stores on the per-chunk and
+        // trailing-chunk refresh sites in `flush_once`, plus the `AcqRel`
+        // swap at the end. Without this, on weak-memory architectures
+        // (ARM64) a shutdown abort firing between a per-chunk refresh and
+        // the swap could observe a stale `in_flight` and either miscount
+        // shutdown drops or double-credit them on top of the swap path.
+        let in_flight = self.in_flight_uncredited.load(Ordering::Acquire);
         inc_unflushed(UnflushedCause::ShutdownDrop, remaining_pending + in_flight);
     }
 }
@@ -273,6 +408,7 @@ impl BillingAggregator {
     pub fn start(
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
+        mode: AggregatorMode,
     ) -> Arc<Self> {
         // Fail fast on misconfiguration. A misconfigured FLAGS_BILLING_*
         // env var would otherwise panic the flusher task silently, or silently
@@ -285,7 +421,7 @@ impl BillingAggregator {
         let max_pending_entries = config.max_pending_entries;
         let per_flush_batch_size = config.per_flush_batch_size;
 
-        let inner = Inner::new(redis, config);
+        let inner = Inner::new(redis, config, mode);
         let flusher = tokio::spawn(run_flusher(inner.clone()));
         let metrics_sampler = tokio::spawn(run_metrics_sampler(inner.clone()));
 
@@ -293,6 +429,7 @@ impl BillingAggregator {
             flush_interval_ms,
             max_pending_entries,
             per_flush_batch_size,
+            mode = ?mode,
             "BillingAggregator started"
         );
 
@@ -464,11 +601,27 @@ impl BillingAggregator {
         redis: Arc<dyn RedisClient + Send + Sync>,
         config: BillingAggregatorConfig,
     ) -> Arc<Self> {
+        Self::for_tests_with_mode(redis, config, AggregatorMode::Shadow)
+    }
+
+    #[doc(hidden)]
+    pub fn for_tests_with_mode(
+        redis: Arc<dyn RedisClient + Send + Sync>,
+        config: BillingAggregatorConfig,
+        mode: AggregatorMode,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            inner: Inner::new(redis, config),
+            inner: Inner::new(redis, config, mode),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         })
+    }
+
+    /// Read-only accessor used by `record_billing_increment` to decide whether
+    /// to skip the per-request HINCRBY (`Authoritative` mode) or run today's
+    /// dual-write coupling (`Shadow` mode).
+    pub fn mode(&self) -> AggregatorMode {
+        self.inner.mode
     }
 }
 
@@ -520,7 +673,13 @@ async fn run_flusher(inner: Arc<Inner>) {
 enum ChunkOutcome {
     Ok,
     Err,
-    ErrBail,
+    /// `error_type` is `classify_redis_error()` for the failing chunk —
+    /// threaded out so `flush_once` can label the remainder-emit on
+    /// `FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS` with the same error type as
+    /// the chunk that bailed.
+    ErrBail {
+        error_type: &'static str,
+    },
 }
 
 /// Execute one pipeline chunk and classify the result. Moves `chunk_entries`
@@ -557,11 +716,45 @@ async fn flush_chunk(
             ChunkOutcome::Ok
         }
         Err(e) => {
-            record_chunk_error(&e, chunk_counts, policy);
+            let error_type = classify_redis_error(&e);
+            let outcome = classify_flush_outcome(&e);
+            record_chunk_error(&e, error_type, outcome, chunk_counts, policy);
+            // `Applied`: Redis processed the chunk's commands; the failure
+            // was on the response path. Credit the chunk as flushed and
+            // continue — retrying would double-credit the bucket. The
+            // chunk's records are gone from `in_flight_uncredited` via the
+            // bump to `flushed_counts`, the same path a successful chunk
+            // takes.
+            if outcome == FlushOutcome::Applied {
+                *flushed_counts += chunk_counts;
+                inc(FLAGS_BILLING_ENTRIES_FLUSHED, &[], chunk_counts);
+                chunk_entries.clear();
+                // Under `BailOnError` we still need to signal an error so
+                // the caller stops attempting subsequent chunks on a
+                // possibly-degraded connection. Under `BestEffort` the
+                // return is informational; the caller treats it the same
+                // as `Ok`. The staleness epoch is not affected by this
+                // return value — it's gated on `flushed_counts ==
+                // total_counts`, which holds for an Applied-only tick and
+                // stamps by design.
+                return match policy {
+                    FlushPolicy::BailOnError => ChunkOutcome::ErrBail { error_type },
+                    FlushPolicy::BestEffort => ChunkOutcome::Err,
+                };
+            }
+            // `Ambiguous` and `NotApplied`: today's behavior — under
+            // `BailOnError` the chunk's records are requeued for the next
+            // tick; under `BestEffort` they're terminally dropped. Keeping
+            // Ambiguous on the retry path matches the pre-classification
+            // policy: the under-count risk from dropping ambiguous chunks is
+            // much larger in practice than the over-count risk from
+            // retrying them (see the `outcome` label docs in
+            // `metrics::consts`). The `outcome` label is what lets us
+            // revisit that policy once reconciliation data lands.
             match policy {
                 FlushPolicy::BailOnError => {
                     requeue.append(chunk_entries);
-                    ChunkOutcome::ErrBail
+                    ChunkOutcome::ErrBail { error_type }
                 }
                 FlushPolicy::BestEffort => {
                     chunk_entries.clear();
@@ -583,9 +776,10 @@ async fn flush_chunk(
 ///
 /// On a chunk error: `BailOnError` (normal tick) stops attempting further
 /// chunks and merges the failing chunk's entries plus the unattempted
-/// remainder back into `pending` for the next tick, bumping
-/// `flush_requeued_total`. `BestEffort` (shutdown) keeps attempting and
-/// records unrecoverable losses under
+/// remainder back into `pending` for the next tick, emitting
+/// `flush_blocked_requests_total{error_type=…}` so the incident magnitude
+/// is visible without conflating with terminal loss. `BestEffort`
+/// (shutdown) keeps attempting and records unrecoverable losses under
 /// `unflushed_requests_total{cause="flush_dropped_on_error"}` — the process
 /// is exiting, there is no next tick.
 async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
@@ -651,7 +845,6 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     let mut chunk_entries: Vec<(AggregationKey, u64)> = Vec::with_capacity(batch_size);
     let mut buffer_counts: u64 = 0;
     let mut flushed_counts: u64 = 0;
-    let mut any_error = false;
     let mut requeue: Vec<(AggregationKey, u64)> = Vec::new();
 
     let mut iter = drained.into_iter();
@@ -665,13 +858,15 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
         // into the team command without an extra clone.
         if let Some(library) = key.library {
             buffer.push(PipelineCommand::HIncrBy {
-                key: get_team_request_library_shadow_key(key.team_id, key.request_type, library),
+                key: inner
+                    .mode
+                    .library_key(key.team_id, key.request_type, library),
                 field: field.clone(),
                 count: count_i64,
             });
         }
         buffer.push(PipelineCommand::HIncrBy {
-            key: get_team_request_shadow_key(key.team_id, key.request_type),
+            key: inner.mode.team_key(key.team_id, key.request_type),
             field,
             count: count_i64,
         });
@@ -691,29 +886,47 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
             .await;
             buffer_counts = 0;
             buffer.reserve(batch_size + 1);
+            // Always refresh `in_flight_uncredited` from `flushed_counts` so
+            // an `Applied`-classified chunk (which returns `Err`/`ErrBail`
+            // but still bumps `flushed_counts`) deducts its credit from the
+            // residual. For `NotApplied`/`Ambiguous` errors `flushed_counts`
+            // is unchanged, so this is a no-op and preserves the
+            // pre-classification behavior. Without this refresh an Applied
+            // chunk would be credited twice: once on
+            // `entries_flushed_total` and again on `flush_dropped_on_error`
+            // via the residual.
+            //
+            // `saturating_sub` + `debug_assert!` defends against a
+            // refactor that double-bumps `flushed_counts` for a single
+            // chunk: in release the value clamps to 0 (under-credit, the
+            // billing-safe direction) instead of wrapping to ~u64::MAX
+            // and being credited as `shutdown_drop`. `Release` pairs with
+            // `record_shutdown_drops`'s `Acquire` load so a concurrent
+            // shutdown abort observes the latest credit.
+            debug_assert!(
+                flushed_counts <= total_counts,
+                "flushed_counts={flushed_counts} exceeded total_counts={total_counts}"
+            );
+            inner.in_flight_uncredited.store(
+                total_counts.saturating_sub(flushed_counts),
+                Ordering::Release,
+            );
             match outcome {
-                ChunkOutcome::Ok => {
-                    inner
-                        .in_flight_uncredited
-                        .store(total_counts - flushed_counts, Ordering::Relaxed);
-                }
-                ChunkOutcome::Err => {
-                    any_error = true;
-                }
-                ChunkOutcome::ErrBail => {
-                    any_error = true;
+                ChunkOutcome::Ok => {}
+                ChunkOutcome::Err => {}
+                ChunkOutcome::ErrBail { error_type } => {
                     // Drain the remainder of the iterator into requeue so
                     // unattempted entries retry on the next tick. Also emit
-                    // `unflushed_requests_total{cause="redis_error"}` for the
-                    // remainder so the rate reflects all requests blocked by
-                    // the error, not just the chunk that hit Redis. These
-                    // records aren't terminally lost (they'll retry next
-                    // tick), but the metric is an incident-magnitude signal,
-                    // and bail-mode otherwise hides everything past the
-                    // first failing chunk.
+                    // `flush_blocked_requests_total` for the remainder so the
+                    // rate reflects all requests blocked by the error, not
+                    // just the chunk that hit Redis. These records aren't
+                    // terminally lost (they'll retry next tick) — that's why
+                    // the metric is `flush_blocked_*`, not `unflushed_*` —
+                    // but the incident-magnitude signal would otherwise hide
+                    // everything past the first failing chunk in bail mode.
                     let remainder: Vec<(AggregationKey, u64)> = iter.by_ref().collect();
                     let remainder_counts: u64 = remainder.iter().map(|(_, c)| *c).sum();
-                    inc_unflushed(UnflushedCause::RedisError, remainder_counts);
+                    inc_flush_blocked(error_type, remainder_counts);
                     requeue.extend(remainder);
                     break;
                 }
@@ -734,15 +947,21 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
             &mut requeue,
         )
         .await;
+        // Same refresh as the per-chunk path: keep `in_flight_uncredited`
+        // in step with `flushed_counts` so an `Applied` trailing chunk
+        // deducts itself from the residual instead of being double-credited.
+        // See the per-chunk store above for ordering / underflow rationale.
+        debug_assert!(
+            flushed_counts <= total_counts,
+            "flushed_counts={flushed_counts} exceeded total_counts={total_counts}"
+        );
+        inner.in_flight_uncredited.store(
+            total_counts.saturating_sub(flushed_counts),
+            Ordering::Release,
+        );
         match outcome {
-            ChunkOutcome::Ok => {
-                inner
-                    .in_flight_uncredited
-                    .store(total_counts - flushed_counts, Ordering::Relaxed);
-            }
-            ChunkOutcome::Err | ChunkOutcome::ErrBail => {
-                any_error = true;
-            }
+            ChunkOutcome::Ok => {}
+            ChunkOutcome::Err | ChunkOutcome::ErrBail { .. } => {}
         }
     }
 
@@ -775,9 +994,18 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // the data isn't in Redis.
     let requeued_counts: u64 = requeue.iter().map(|(_, c)| *c).sum();
     if !requeue.is_empty() {
-        inner
-            .in_flight_uncredited
-            .fetch_sub(requeued_counts, Ordering::Relaxed);
+        // Under the loop's accounting invariant `requeued_counts <=
+        // in_flight_uncredited`, so this never underflows. Use a saturating
+        // update anyway so the clamp-on-drift defense at the per-chunk
+        // store sites holds end-to-end: a refactor that pushed
+        // `requeued_counts` past the residual would otherwise wrap to
+        // ~u64::MAX here and be re-credited as `shutdown_drop`.
+        let _ =
+            inner
+                .in_flight_uncredited
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+                    Some(v.saturating_sub(requeued_counts))
+                });
         let mut merged: HashMap<AggregationKey, u64> = {
             let mut pending = inner.pending.lock().unwrap();
             std::mem::take(&mut *pending)
@@ -823,46 +1051,70 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // permit the credit to be reordered before the swap on weak-memory
     // architectures, reintroducing the race the swap is meant to close.
     let in_flight_residual = inner.in_flight_uncredited.swap(0, Ordering::AcqRel);
-    if any_error {
+    if in_flight_residual > 0 {
         inc_unflushed(UnflushedCause::FlushDroppedOnError, in_flight_residual);
-    } else {
-        // Record the successful-flush timestamp so the metrics sampler can
-        // compute `seconds_since_successful_flush`. Stamp on any fully
-        // error-free flush — a partial-success BestEffort flush still
-        // dropped counts and shouldn't reset the "stale flush" alarm. The
-        // empty-drain branch above stamps for the same reason: a tick with
-        // nothing to flush is still proof the loop is alive.
+    }
+
+    // Stamp the successful-flush timestamp when every drained record
+    // landed in Redis. That happens via `Ok` chunks (clean success) AND
+    // `Applied` chunks (Redis processed the commands but returned an
+    // unusable reply — the records are in Redis, we just credited them
+    // through the error path). Using `flushed_counts == total_counts`
+    // rather than `!any_error` so a tick where every chunk was Applied
+    // — billing is whole — doesn't keep `seconds_since_successful_flush`
+    // climbing as if the flusher were wedged. A BailOnError tick that
+    // requeued anything (`flushed_counts < total_counts`) or a
+    // BestEffort tick that dropped anything (`in_flight_residual > 0`)
+    // does NOT stamp — both are real degradation. The empty-drain branch
+    // earlier in `flush_once` stamps for a different reason: a tick with
+    // nothing to flush is still proof the loop is alive.
+    if flushed_counts == total_counts {
         inner
             .last_successful_flush_epoch_ms
             .store(now_epoch_ms(), Ordering::Relaxed);
     }
 }
 
-/// Emit `FLUSH_ERRORS` (1 per failed chunk, classified by `error_type`) and
-/// — under `BailOnError` only — `unflushed_requests_total{cause="redis_error"}`
-/// for the chunk's aggregated request count, plus a warn-level log carrying
-/// the raw error (never on a metric label — unbounded cardinality risk).
+/// Emit `FLUSH_ERRORS` (1 per failed chunk, labeled by `error_type` and
+/// `outcome`) and — when the chunk is going to be requeued (`BailOnError` +
+/// non-`Applied`) — `flush_blocked_requests_total{error_type=…}` for the
+/// chunk's aggregated request count. Also logs the raw error at warn level
+/// (never on a metric label — unbounded cardinality risk).
 ///
-/// `requests_in_chunk` is the count of records affected by this chunk's
-/// failure. Under `BailOnError`, `flush_once` separately emits the same cause
-/// for the unattempted remainder so the rate reflects all requests blocked by
-/// the error, not just the chunk that hit it. See the
-/// `FLAGS_BILLING_UNFLUSHED_REQUESTS` cause docs in `metrics::consts` for why
-/// `redis_error` is suppressed on the `BestEffort` (shutdown) path.
-fn record_chunk_error(e: &CustomRedisError, requests_in_chunk: u64, policy: FlushPolicy) {
+/// `Applied` chunks are NOT emitted on `flush_blocked_requests_total` because
+/// they were credited to `entries_flushed_total` rather than retried — there
+/// is nothing "blocked" about them. Under `BestEffort` (shutdown) the
+/// blocked metric is always suppressed because errors there either
+/// terminally land in `flags_billing_unflushed_requests_total{cause="flush_dropped_on_error"}`
+/// (`Ambiguous` and `NotApplied`) or were credited to
+/// `entries_flushed_total` (`Applied`) — neither is "blocked, retry next
+/// tick" semantics.
+fn record_chunk_error(
+    e: &CustomRedisError,
+    error_type: &'static str,
+    outcome: FlushOutcome,
+    requests_in_chunk: u64,
+    policy: FlushPolicy,
+) {
     inc(
         FLAGS_BILLING_FLUSH_ERRORS,
-        &[(
-            "error_type".to_string(),
-            classify_redis_error(e).to_string(),
-        )],
+        &[
+            ("error_type".to_string(), error_type.to_string()),
+            ("outcome".to_string(), outcome.as_str().to_string()),
+        ],
         1,
     );
-    if policy == FlushPolicy::BailOnError {
-        inc_unflushed(UnflushedCause::RedisError, requests_in_chunk);
+    // Applied chunks are credited as flushed in the caller — they aren't
+    // blocked or retried, so emitting `flush_blocked_requests_total` for
+    // them would overstate incident magnitude.
+    let will_requeue = policy == FlushPolicy::BailOnError && outcome != FlushOutcome::Applied;
+    if will_requeue {
+        inc_flush_blocked(error_type, requests_in_chunk);
     }
     tracing::warn!(
         error = %e,
+        error_type,
+        outcome = outcome.as_str(),
         requests_in_chunk,
         "BillingAggregator: flush pipeline failed"
     );
@@ -990,7 +1242,7 @@ mod tests {
     ) -> (Arc<MockRedisClient>, Arc<BillingAggregator>) {
         let redis = Arc::new(redis);
         let agg = Arc::new(BillingAggregator {
-            inner: Inner::new(redis.clone(), config),
+            inner: Inner::new(redis.clone(), config, AggregatorMode::Shadow),
             flusher: Mutex::new(None),
             metrics_sampler: Mutex::new(None),
         });
@@ -1223,6 +1475,50 @@ mod tests {
         assert!(calls.contains(&(expected_sdk, 1)));
     }
 
+    /// Cutover-mode counterpart to `test_flush_once_writes_flag_definitions_keys`:
+    /// in `Authoritative` mode the aggregator writes the production billing
+    /// keys without the `:shadow` suffix, so the existing
+    /// `calculate_decide_usage` reader picks them up unchanged.
+    #[tokio::test]
+    async fn test_flush_once_authoritative_writes_non_shadow_keys() {
+        let redis = Arc::new(MockRedisClient::new());
+        let agg = BillingAggregator::for_tests_with_mode(
+            redis.clone(),
+            test_config(),
+            AggregatorMode::Authoritative,
+        );
+
+        agg.record(
+            42,
+            FlagRequestType::FlagDefinitions,
+            Some(Library::PosthogJs),
+        );
+        agg.record(7, FlagRequestType::Decide, None);
+
+        let bucket = current_bucket();
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+
+        let calls = hincrby_calls(&redis);
+        let expected_team_42_def = format!("posthog:local_evaluation_requests:42:{bucket}");
+        let expected_sdk_42_def =
+            format!("posthog:local_evaluation_requests:sdk:42:posthog-js:{bucket}");
+        let expected_team_7_decide = format!("posthog:decide_requests:7:{bucket}");
+        assert_eq!(calls.len(), 3);
+        assert!(calls.contains(&(expected_team_42_def, 1)));
+        assert!(calls.contains(&(expected_sdk_42_def, 1)));
+        assert!(calls.contains(&(expected_team_7_decide, 1)));
+
+        // Belt-and-braces: no key the aggregator writes in authoritative mode
+        // should ever carry the `:shadow` suffix. A regression here would
+        // double-count once the per-request HINCRBY is removed.
+        for (key, _) in &calls {
+            assert!(
+                !key.contains(":shadow"),
+                "authoritative mode wrote a shadow-suffixed key: {key}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_flush_once_drains_pending() {
         let (_, agg) = new_test_aggregator(test_config());
@@ -1307,6 +1603,7 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
 
         agg.record(1, FlagRequestType::Decide, None);
@@ -1333,6 +1630,7 @@ mod tests {
                 flush_interval: Duration::from_secs(60),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -1360,6 +1658,7 @@ mod tests {
                 shutdown_flush_timeout: Duration::from_millis(100),
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
         agg.record(1, FlagRequestType::Decide, None);
 
@@ -1604,6 +1903,72 @@ mod tests {
         assert_eq!(agg.inner.in_flight_uncredited.load(Ordering::Relaxed), 0);
     }
 
+    /// `FlushOutcome::Applied` chunks (e.g. ParseError on the response) must
+    /// be credited to `entries_flushed_total` and NOT requeued — Redis
+    /// already processed the HINCRBYs, so a retry would double-count. Since
+    /// every record landed in Redis (just via the error path), the flush
+    /// is treated as successful for staleness purposes and stamps
+    /// `last_successful_flush_epoch_ms` — otherwise a benign ParseError
+    /// storm would page on-call even though billing is whole.
+    #[tokio::test]
+    async fn test_flush_bail_applied_error_credits_chunk_without_requeue() {
+        let mut mock = MockRedisClient::new();
+        mock.pipeline_error(CustomRedisError::ParseError("bad reply".into()));
+        let (_, agg) = new_test_aggregator_with_redis(mock, test_config());
+
+        agg.record(1, FlagRequestType::Decide, None);
+        agg.record(2, FlagRequestType::Decide, None);
+        assert_eq!(agg.pending_total(), 2);
+
+        flush_once(&agg.inner, FlushPolicy::BailOnError).await;
+
+        // Pending is empty (chunk was credited, not requeued) and the
+        // residual `in_flight_uncredited` is zero (the credit-bump deducted
+        // it instead of leaving it for the epilogue to bill against
+        // `flush_dropped_on_error`).
+        assert_eq!(
+            agg.pending_len(),
+            0,
+            "Applied chunks must not be requeued — retry would double-count"
+        );
+        assert_eq!(agg.pending_total(), 0);
+        assert_eq!(agg.inner.in_flight_uncredited.load(Ordering::Relaxed), 0);
+        assert!(
+            agg.inner
+                .last_successful_flush_epoch_ms
+                .load(Ordering::Relaxed)
+                > 0,
+            "Applied chunks landed in Redis, so the staleness epoch must stamp",
+        );
+    }
+
+    /// Counterpart for the shutdown path: an Applied error during a
+    /// `BestEffort` flush must also credit the chunk (Redis applied it) and
+    /// not double-bill it under `shutdown_drop` via the residual.
+    #[tokio::test]
+    async fn test_flush_best_effort_applied_error_credits_chunk_without_residual() {
+        let mut mock = MockRedisClient::new();
+        mock.pipeline_error(CustomRedisError::ParseError("bad reply".into()));
+        let (_, agg) = new_test_aggregator_with_redis(mock, test_config());
+
+        agg.record(1, FlagRequestType::Decide, None);
+        agg.record(2, FlagRequestType::Decide, None);
+
+        flush_once(&agg.inner, FlushPolicy::BestEffort).await;
+
+        // No residual to be credited as `flush_dropped_on_error`; the chunk
+        // is fully accounted for via `entries_flushed_total`.
+        assert_eq!(agg.inner.in_flight_uncredited.load(Ordering::Relaxed), 0);
+        assert_eq!(agg.pending_len(), 0);
+        assert!(
+            agg.inner
+                .last_successful_flush_epoch_ms
+                .load(Ordering::Relaxed)
+                > 0,
+            "every record landed via Applied, so the staleness epoch must stamp",
+        );
+    }
+
     #[tokio::test]
     async fn test_flush_best_effort_mode_attempts_all_chunks_despite_errors() {
         // Same setup as the bail-mode test but with FlushPolicy::BestEffort.
@@ -1699,6 +2064,7 @@ mod tests {
                 per_flush_batch_size: 2,
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
 
         record_n_decide_with_library(&agg, 5);
@@ -1842,7 +2208,7 @@ mod tests {
             shutdown_flush_timeout: Duration::from_millis(50),
             ..test_config()
         };
-        let agg = BillingAggregator::start(redis, config);
+        let agg = BillingAggregator::start(redis, config, AggregatorMode::Shadow);
 
         for _ in 0..7 {
             agg.record(1, FlagRequestType::Decide, None);
@@ -2172,6 +2538,7 @@ mod tests {
                 flush_interval: Duration::ZERO,
                 ..test_config()
             },
+            AggregatorMode::Shadow,
         );
     }
 }

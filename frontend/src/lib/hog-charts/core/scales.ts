@@ -1,7 +1,10 @@
 import * as d3 from 'd3'
 
-import type { ChartDimensions, Series } from './types'
+import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
+
+/** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
+export const DEFAULT_BAND_PADDING = 0.2
 
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
 
@@ -57,6 +60,15 @@ export function seriesValueRange(series: Series[]): SeriesValueRange {
     return { min, max, minPositive, count }
 }
 
+/** Round `minPositive` down to the previous decade, `max` up to the next round multiple
+ *  of its top decade (e.g. 740 → 800, 4200 → 5000). */
+export function niceLogDomain(minPositive: number, max: number): [number, number] {
+    const niceMin = Math.pow(10, Math.ceil(Math.log10(minPositive)) - 1)
+    const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
+    const niceMax = Math.ceil(max / maxDecade) * maxDecade
+    return [niceMin, niceMax]
+}
+
 export function createXScale(labels: string[], dimensions: ChartDimensions): d3.ScalePoint<string> {
     return d3
         .scalePoint<string>()
@@ -66,7 +78,7 @@ export function createXScale(labels: string[], dimensions: ChartDimensions): d3.
 }
 
 export function yTickCountForHeight(plotHeight: number): number {
-    return Math.max(2, Math.min(8, Math.floor(plotHeight / 80)))
+    return Math.max(2, Math.min(11, Math.floor(plotHeight / 50)))
 }
 
 export function createYScale(
@@ -107,17 +119,19 @@ export function createYScale(
                 .nice(tickCount)
                 .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
         }
-        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
-        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
-        const niceMax = Math.ceil(max / maxDecade) * maxDecade
         return d3
             .scaleLog()
-            .domain([niceMin, niceMax])
+            .domain(niceLogDomain(range.minPositive, max))
             .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
             .clamp(true)
     }
 
-    if (min > 0) {
+    // Auxiliary overlays (trendline projections, moving averages) may dip below 0
+    // when the underlying data does not. They shouldn't drag the axis baseline below
+    // 0 — d3.nice() applied to a slightly-negative min produces a disproportionately
+    // large negative tick (e.g. [-1, 14500] → [-2000, 16000]).
+    const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : range
+    if (primaryRange.count > 0 && primaryRange.min >= 0) {
         min = 0
     } else if (max < 0) {
         max = 0
@@ -182,11 +196,10 @@ export interface StackedBand {
 function buildStackData(
     series: Series[],
     labels: string[],
-    offset?: typeof d3.stackOffsetNone
+    options: { offset?: typeof d3.stackOffsetNone; allowNegative?: boolean } = {}
 ): Map<string, StackedBand> {
-    const visibleSeries = series.filter(
-        (s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.visibility?.fromStack
-    )
+    const { offset, allowNegative = false } = options
+    const visibleSeries = series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
     if (visibleSeries.length === 0) {
         return new Map()
     }
@@ -208,7 +221,8 @@ function buildStackData(
         const tableData = labels.map((_, i) => {
             const row: Record<string, number> = {}
             for (const s of axisSeries) {
-                row[s.key] = Math.max(0, s.data[i] ?? 0)
+                const raw = s.data[i] ?? 0
+                row[s.key] = allowNegative ? raw : Math.max(0, raw)
             }
             return row
         })
@@ -236,7 +250,58 @@ export function computeStackData(series: Series[], labels: string[]): Map<string
 }
 
 export function computePercentStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
-    return buildStackData(series, labels, d3.stackOffsetExpand)
+    return buildStackData(series, labels, { offset: d3.stackOffsetExpand })
+}
+
+/** Stack that preserves negative segments — positives accumulate upward from 0, negatives
+ *  downward from 0 (d3.stackOffsetDiverging). Used by Lifecycle, where `dormant` is emitted
+ *  as a negative series so it renders below the zero baseline. */
+export function computeDivergingStackData(series: Series[], labels: string[]): Map<string, StackedBand> {
+    return buildStackData(series, labels, { offset: d3.stackOffsetDiverging, allowNegative: true })
+}
+
+/** Returns the stacked top of each series so the tooltip anchor and value-label position
+ *  land at the visual top of each segment. This is a *position* resolver — for the value
+ *  to *display* (the segment, not the cumulative total) use {@link buildSegmentResolveValue}.
+ *  Falls back to the raw value when the series isn't part of the stack (e.g. trend-line
+ *  overlays, CI bands). */
+export function buildStackedPositionValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const stacked = stackedData.get(s.key)?.top[dataIndex]
+        if (stacked != null && Number.isFinite(stacked)) {
+            return stacked
+        }
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    }
+}
+
+/** Returns each series's own segment height (`top − bottom`) — the per-series value to
+ *  display, not the cumulative stack total. Falls back to the raw value for series not in
+ *  the stack. Pair with {@link buildStackedPositionValue} for anchor positioning. */
+export function buildSegmentResolveValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const band = stackedData.get(s.key)
+        if (band) {
+            const top = band.top[dataIndex]
+            const bottom = band.bottom[dataIndex]
+            if (Number.isFinite(top) && Number.isFinite(bottom)) {
+                return top - bottom
+            }
+        }
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
+    }
 }
 
 export interface BarScaleSet {
@@ -257,28 +322,30 @@ export function createBarScales(
         bandPadding?: number
         groupPadding?: number
         stackedSeries?: Series[]
+        /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
+        maxBandRange?: number
     } = {}
 ): BarScaleSet {
     const {
         scaleType = 'linear',
         barLayout = 'stacked',
         axisOrientation = 'vertical',
-        bandPadding = 0.2,
+        bandPadding = DEFAULT_BAND_PADDING,
         groupPadding = 0.1,
         stackedSeries,
+        maxBandRange,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
     const tickCount = yTickCountForHeight(isHorizontal ? dimensions.plotWidth : dimensions.plotHeight)
 
+    const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
+    const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
+    const cappedExtent = maxBandRange != null ? Math.min(bandAxisExtent, maxBandRange) : bandAxisExtent
     const band = d3
         .scaleBand<string>()
         .domain(labels)
-        .range(
-            isHorizontal
-                ? [dimensions.plotTop, dimensions.plotTop + dimensions.plotHeight]
-                : [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
-        )
+        .range([bandAxisStart, bandAxisStart + cappedExtent])
         .paddingInner(bandPadding)
         .paddingOuter(bandPadding / 2)
 
@@ -317,10 +384,7 @@ function buildBarValueScale(
     const min = range.min > 0 ? 0 : range.min
     const max = range.max < 0 ? 0 : range.max
     if (scaleType === 'log' && isFinite(range.minPositive)) {
-        const niceMin = Math.pow(10, Math.ceil(Math.log10(range.minPositive)) - 1)
-        const maxDecade = Math.pow(10, Math.floor(Math.log10(max)))
-        const niceMax = Math.ceil(max / maxDecade) * maxDecade
-        return d3.scaleLog().domain([niceMin, niceMax]).range(valueRange).clamp(true)
+        return d3.scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
     }
     return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
 }
@@ -338,4 +402,11 @@ export function autoFormatYTick(value: number, domainMax: number): string {
 export function autoFormatterFor(ticks: number[]): (value: number) => string {
     const domainMax = ticks.length > 0 ? Math.max(...ticks.map((t) => Math.abs(t))) : 1
     return (v) => autoFormatYTick(v, domainMax)
+}
+
+export function resolveYScaleForSeries(
+    scales: Pick<ChartScales, 'y' | 'yAxes'>,
+    series: Pick<Series, 'yAxisId'>
+): (value: number) => number {
+    return scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.y
 }

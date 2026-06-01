@@ -28,6 +28,14 @@ Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
     - team_id maps to duckling via DuckLakeCatalog
     - date is the partition date (YYYY-MM-DD)
+
+Iceberg dual-write:
+    Teams in ICEBERG_BACKFILL_TEAM_IDS additionally dual-write each exported
+    Parquet file into their Iceberg (Lakekeeper) catalog alongside DuckLake.
+    Iceberg has no add_data_files equivalent, so the duckgres worker re-reads the
+    Parquet from S3 and writes Iceberg data + metadata via INSERT ... SELECT. The
+    Iceberg path is best-effort: any failure is logged but never aborts the
+    DuckLake backfill, which remains the source of truth for every team.
 """
 
 import json
@@ -62,7 +70,7 @@ from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common.common import JobOwners, dagster_tags, settings_with_log_comment
+from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.dags.events_backfill_to_ducklake import (
     DEFAULT_CLICKHOUSE_SETTINGS,
     EXPECTED_DUCKLAKE_COLUMNS,
@@ -78,6 +86,23 @@ logger = structlog.get_logger(__name__)
 # DuckLake catalog under this name on session start (see duckgres server.go),
 # so the DAG can hardcode it everywhere instead of threading a config value.
 DUCKLAKE_ALIAS = "ducklake"
+
+# Catalog alias duckgres uses when an org has the Iceberg (Lakekeeper) backend
+# enabled — see duckgres server/iceberg/migration.go CatalogName. Attached only
+# when Iceberg is enabled for the org's warehouse, so all Iceberg work here is
+# best-effort: failures are logged and never abort the DuckLake backfill.
+ICEBERG_ALIAS = "iceberg"
+
+# Teams that additionally dual-write their backfill into Iceberg alongside
+# DuckLake. Hardcoded allowlist for dogfooding the Iceberg path; DuckLake
+# remains the source of truth for every team, including these.
+ICEBERG_BACKFILL_TEAM_IDS = {2}
+
+
+def iceberg_enabled_for_team(team_id: int) -> bool:
+    """Whether this team should dual-write its backfill into Iceberg."""
+    return team_id in ICEBERG_BACKFILL_TEAM_IDS
+
 
 # Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
 # statement_timeout bounds query execution to prevent hung Dagster workers.
@@ -203,6 +228,35 @@ EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
     "_timestamp",
     "_inserted_at",
 }
+
+# Iceberg has no unsigned integer types, so the persons table mirrors
+# PERSONS_TABLE_DDL but stores person_version as BIGINT instead of UBIGINT.
+# The UInt64 values exported from ClickHouse fit comfortably in a signed
+# 64-bit column in practice (versions are small monotonic counters).
+ICEBERG_PERSONS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.persons (
+    team_id BIGINT,
+    distinct_id VARCHAR,
+    id VARCHAR,
+    properties VARCHAR,
+    created_at TIMESTAMPTZ,
+    is_identified BOOLEAN,
+    person_distinct_id_version BIGINT,
+    person_version BIGINT,
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
+)
+"""
+
+# Iceberg partition specs. Each uses a SINGLE Iceberg temporal transform per
+# source column — NOT the multi-level year/month/day spec the DuckLake tables
+# use. Lakekeeper rejects declaring several temporal transforms on one source
+# column as redundant ("Cannot add redundant partition with source id … and
+# transform `time`"), and a single day()/month() transform already encodes the
+# full date for partition pruning. DuckDB's Iceberg INSERT path supports these
+# transforms as of 1.5.3 (verified against the live Lakekeeper catalog).
+ICEBERG_EVENTS_PARTITION_EXPR = "day(timestamp)"
+ICEBERG_PERSONS_PARTITION_EXPR = "month(_timestamp)"
 
 duckling_events_partitions_def = DynamicPartitionsDefinition(name="duckling_events_backfill")
 duckling_persons_partitions_def = DynamicPartitionsDefinition(name="duckling_persons_backfill")
@@ -1207,6 +1261,213 @@ def register_persons_file_with_duckling(
     return True
 
 
+def drop_iceberg_table(
+    context: AssetExecutionContext,
+    conn: psycopg.Connection[Any],
+    table: str,
+) -> None:
+    """Best-effort DROP of the Iceberg table, mirroring delete_tables for DuckLake.
+
+    Used when config.delete_tables wipes the DuckLake table so the Iceberg copy
+    is reset to match instead of having dual-write append on top of stale rows.
+    Failures are logged and swallowed — the Iceberg path must never abort the
+    DuckLake backfill (e.g. when the catalog isn't attached for this org).
+    """
+    _validate_identifier(table)
+    try:
+        conn.execute(f"DROP TABLE IF EXISTS {ICEBERG_ALIAS}.posthog.{table}")
+        context.log.info(f"Dropped Iceberg table {ICEBERG_ALIAS}.posthog.{table} (delete_tables=True)")
+    except Exception as exc:
+        context.log.warning(f"Best-effort Iceberg DROP of {table} failed (continuing): {exc}")
+        logger.warning(
+            "duckling_iceberg_drop_table_failed",
+            table=table,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+
+def _set_iceberg_table_partitioning(
+    context: AssetExecutionContext,
+    conn: psycopg.Connection[Any],
+    table: str,
+    partition_expr: str,
+) -> None:
+    """Best-effort partition-evolve an existing Iceberg table.
+
+    `CREATE TABLE IF NOT EXISTS ... PARTITIONED BY` only partitions a *fresh*
+    table; a table created unpartitioned by an earlier deploy keeps its old
+    spec. `ALTER TABLE ... SET PARTITIONED BY` evolves it so new data files use
+    the new spec (existing files keep theirs — standard Iceberg partition
+    evolution). Lakekeeper rejects re-declaring the same spec as "redundant", so
+    that specific error is treated as success (the table is already partitioned
+    the way we want). Any other failure is logged and swallowed — partitioning
+    must never abort the best-effort dual-write.
+    """
+    _validate_identifier(table)
+    try:
+        conn.execute(f"ALTER TABLE {ICEBERG_ALIAS}.posthog.{table} SET PARTITIONED BY ({partition_expr})")
+    except Exception as exc:
+        # Lakekeeper rejects re-declaring an identical spec as redundant; that
+        # means the table already carries the partitioning we want.
+        if "redundant" in str(exc).lower():
+            return
+        context.log.warning(f"Best-effort Iceberg partition-evolve of {table} failed (continuing): {exc}")
+        logger.warning(
+            "duckling_iceberg_set_partitioning_failed",
+            table=table,
+            partition_expr=partition_expr,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+
+def ensure_iceberg_table_exists(
+    context: AssetExecutionContext,
+    conn: psycopg.Connection[Any],
+    table: str,
+    ddl: str,
+    team_id: int | None = None,
+    partition_expr: str | None = None,
+) -> bool:
+    """Create the Iceberg schema + table for dual-write, if missing.
+
+    Returns True if the Iceberg catalog is usable for this run, False if the
+    catalog isn't attached or table creation failed — in which case the caller
+    skips Iceberg writes for the run without failing the DuckLake backfill.
+
+    The `iceberg` catalog is only attached when the org's warehouse has the
+    Iceberg backend enabled (see lakekeeper-iceberg-catalog runbook in duckgres).
+
+    When `partition_expr` is set the table is partitioned by a single Iceberg
+    temporal transform (e.g. `day(timestamp)`), and existing unpartitioned
+    tables are evolved in place via ALTER. DuckDB's Iceberg INSERT path supports
+    these transforms as of 1.5.3 (verified against the live Lakekeeper catalog).
+    A single transform per source column is used deliberately — Lakekeeper
+    rejects the multi-level `year/month/day` spec DuckLake uses as redundant, and
+    `day()`/`month()` already encode the full date for partition pruning.
+    """
+    _validate_identifier(table)
+    try:
+        conn.execute(f"CREATE SCHEMA IF NOT EXISTS {ICEBERG_ALIAS}.posthog")
+        create_sql = ddl.format(catalog=ICEBERG_ALIAS)
+        if partition_expr:
+            # Append the partition clause to the column-list DDL. Partitions a
+            # fresh table; a no-op if the table already exists (handled by the
+            # ALTER below).
+            create_sql = f"{create_sql.rstrip().rstrip(';')}\nPARTITIONED BY ({partition_expr})"
+        conn.execute(create_sql)
+        if partition_expr:
+            _set_iceberg_table_partitioning(context, conn, table, partition_expr)
+        return True
+    except Exception as exc:
+        context.log.warning(
+            f"Iceberg dual-write disabled for this run (team_id={team_id}) — could not ensure "
+            f"{ICEBERG_ALIAS}.posthog.{table}: {exc}. Is the Iceberg backend enabled for this org's warehouse?"
+        )
+        logger.warning(
+            "duckling_iceberg_ensure_table_failed",
+            table=table,
+            team_id=team_id,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return False
+
+
+def write_partition_to_iceberg(
+    context: AssetExecutionContext,
+    conn: psycopg.Connection[Any],
+    table: str,
+    s3_path: str,
+    team_id: int,
+    timestamp_column: str,
+    partition_date: datetime | None,
+) -> bool:
+    """Dual-write one exported Parquet file into the team's Iceberg table.
+
+    Iceberg has no `ducklake_add_data_files` equivalent — the only write path is
+    `INSERT ... SELECT`, so the duckgres worker re-reads the Parquet from S3 and
+    writes Iceberg data + metadata itself. `BY NAME` matches on column name so we
+    don't depend on column ordering.
+
+    Idempotency is best-effort: we attempt a partition-scoped DELETE first, but
+    DuckDB's Iceberg extension may not support DELETE, so a failure there is
+    logged and the INSERT proceeds. Re-running a partition can therefore leave
+    duplicate rows in Iceberg. DuckLake (which does support DELETE) remains the
+    source of truth.
+
+    For full persons exports (partition_date is None) the DELETE targets all of
+    the team's rows.
+
+    Returns True if the INSERT succeeded, False otherwise (never raises — the
+    DuckLake backfill must not fail because of an Iceberg write).
+    """
+    _validate_identifier(table)
+    _validate_identifier(timestamp_column)
+
+    # Best-effort partition cleanup for idempotent re-runs. Use psql.Identifier
+    # for the catalog/table/column the same way the INSERT below does, so the
+    # whole function composes SQL one way.
+    try:
+        if partition_date is None:
+            delete_sql = psql.SQL("DELETE FROM {}.posthog.{} WHERE team_id = {}").format(
+                psql.Identifier(ICEBERG_ALIAS),
+                psql.Identifier(table),
+                psql.Literal(team_id),
+            )
+        else:
+            date_str = partition_date.strftime("%Y-%m-%d")
+            next_date_str = (partition_date + timedelta(days=1)).strftime("%Y-%m-%d")
+            delete_sql = psql.SQL("DELETE FROM {}.posthog.{} WHERE team_id = {} AND {} >= {} AND {} < {}").format(
+                psql.Identifier(ICEBERG_ALIAS),
+                psql.Identifier(table),
+                psql.Literal(team_id),
+                psql.Identifier(timestamp_column),
+                psql.Literal(date_str),
+                psql.Identifier(timestamp_column),
+                psql.Literal(next_date_str),
+            )
+        conn.execute(delete_sql)
+    except Exception as exc:
+        context.log.warning(
+            f"Iceberg partition delete skipped for {table} team_id={team_id} "
+            f"(DELETE may be unsupported) — re-run may duplicate rows: {exc}"
+        )
+        logger.warning(
+            "duckling_iceberg_delete_skipped",
+            table=table,
+            team_id=team_id,
+            partition_date=partition_date.strftime("%Y-%m-%d") if partition_date else None,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+    try:
+        conn.execute(
+            psql.SQL("INSERT INTO {}.posthog.{} BY NAME SELECT * FROM read_parquet({})").format(
+                psql.Identifier(ICEBERG_ALIAS),
+                psql.Identifier(table),
+                psql.Literal(s3_path),
+            )
+        )
+    except Exception as exc:
+        context.log.warning(f"Iceberg dual-write failed for {table} team_id={team_id} from {s3_path}: {exc}")
+        logger.warning(
+            "duckling_iceberg_write_failed",
+            table=table,
+            team_id=team_id,
+            s3_path=s3_path,
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return False
+
+    context.log.info(f"Iceberg dual-write succeeded for {table} team_id={team_id} from {s3_path}")
+    logger.info("duckling_iceberg_write_success", table=table, team_id=team_id, s3_path=s3_path)
+    return True
+
+
 @asset(
     partitions_def=duckling_events_partitions_def,
     name="duckling_events_backfill",
@@ -1256,6 +1517,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
     conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    iceberg_enabled = False
     try:
         if conn is not None:
             # Delete events table if requested (dangerous - loses all data)
@@ -1271,6 +1533,9 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                         bucket=catalog.bucket,
                     )
                     raise
+                # Keep Iceberg in sync with the DuckLake wipe (best-effort)
+                if iceberg_enabled_for_team(team_id):
+                    drop_iceberg_table(context, conn, "events")
 
             # Create events table if it doesn't exist
             if config.create_tables_if_missing:
@@ -1281,6 +1546,18 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling schema compatibility...")
                 validate_duckling_schema(context, catalog, conn)
+
+            # Dual-write to Iceberg for allowlisted teams (best-effort, non-fatal)
+            if iceberg_enabled_for_team(team_id):
+                context.log.info(f"Iceberg dual-write enabled for team_id={team_id}; ensuring Iceberg events table...")
+                iceberg_enabled = ensure_iceberg_table_exists(
+                    context,
+                    conn,
+                    "events",
+                    EVENTS_TABLE_DDL,
+                    team_id=team_id,
+                    partition_expr=ICEBERG_EVENTS_PARTITION_EXPR,
+                )
 
         # Prepare ClickHouse settings
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
@@ -1296,6 +1573,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
         # Process each date in the partition
         total_exported = 0
         total_registered = 0
+        total_iceberg = 0
         s3_paths: list[str] = []
 
         for partition_date in dates:
@@ -1331,6 +1609,11 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                 s3_paths.append(s3_path)
                 if conn is not None and register_file_with_duckling(context, catalog, s3_path, config, conn):
                     total_registered += 1
+                if iceberg_enabled and conn is not None:
+                    if write_partition_to_iceberg(
+                        context, conn, "events", s3_path, team_id, "timestamp", partition_date
+                    ):
+                        total_iceberg += 1
 
         context.add_output_metadata(
             {
@@ -1339,6 +1622,7 @@ def duckling_events_backfill(context: AssetExecutionContext, config: DucklingBac
                 "dates_processed": len(dates),
                 "files_exported": total_exported,
                 "files_registered": total_registered,
+                "files_iceberg_written": total_iceberg,
                 "bucket": catalog.bucket,
             }
         )
@@ -1419,6 +1703,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
     # entirely when no duckgres-backed work will run (dry_run / skip_ducklake_registration).
     should_use_duckgres = not (config.dry_run or config.skip_ducklake_registration)
     conn: psycopg.Connection[Any] | None = _connect_duckgres(catalog) if should_use_duckgres else None
+    iceberg_enabled = False
     try:
         if conn is not None:
             # Delete persons table if requested (dangerous - loses all data)
@@ -1434,6 +1719,9 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                         bucket=catalog.bucket,
                     )
                     raise
+                # Keep Iceberg in sync with the DuckLake wipe (best-effort)
+                if iceberg_enabled_for_team(team_id):
+                    drop_iceberg_table(context, conn, "persons")
 
             # Create persons table if it doesn't exist
             if config.create_tables_if_missing:
@@ -1443,6 +1731,18 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling persons schema compatibility...")
                 validate_duckling_persons_schema(context, catalog, conn)
+
+            # Dual-write to Iceberg for allowlisted teams (best-effort, non-fatal)
+            if iceberg_enabled_for_team(team_id):
+                context.log.info(f"Iceberg dual-write enabled for team_id={team_id}; ensuring Iceberg persons table...")
+                iceberg_enabled = ensure_iceberg_table_exists(
+                    context,
+                    conn,
+                    "persons",
+                    ICEBERG_PERSONS_TABLE_DDL,
+                    team_id=team_id,
+                    partition_expr=ICEBERG_PERSONS_PARTITION_EXPR,
+                )
 
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
         merged_settings.update(settings_with_log_comment(context))
@@ -1482,9 +1782,14 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 
             files_exported = 1 if s3_path else 0
             files_registered = 0
+            files_iceberg_written = 0
             if s3_path and conn is not None:
                 if register_persons_file_with_duckling(context, catalog, s3_path, config, conn):
                     files_registered = 1
+                if iceberg_enabled and write_partition_to_iceberg(
+                    context, conn, "persons", s3_path, team_id, "_timestamp", None
+                ):
+                    files_iceberg_written = 1
 
             context.add_output_metadata(
                 {
@@ -1493,6 +1798,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                     "export_mode": "full",
                     "files_exported": files_exported,
                     "files_registered": files_registered,
+                    "files_iceberg_written": files_iceberg_written,
                     "bucket": catalog.bucket,
                 }
             )
@@ -1512,6 +1818,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
             # DAILY EXPORT MODE - process each date in the partition
             total_exported = 0
             total_registered = 0
+            total_iceberg = 0
 
             for partition_date in dates:
                 date_str = partition_date.strftime("%Y-%m-%d")
@@ -1546,6 +1853,11 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                         context, catalog, s3_path, config, conn
                     ):
                         total_registered += 1
+                    if iceberg_enabled and conn is not None:
+                        if write_partition_to_iceberg(
+                            context, conn, "persons", s3_path, team_id, "_timestamp", partition_date
+                        ):
+                            total_iceberg += 1
 
             context.add_output_metadata(
                 {
@@ -1555,6 +1867,7 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
                     "dates_processed": len(dates),
                     "files_exported": total_exported,
                     "files_registered": total_registered,
+                    "files_iceberg_written": total_iceberg,
                     "bucket": catalog.bucket,
                 }
             )
