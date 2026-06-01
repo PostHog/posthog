@@ -1,5 +1,6 @@
 import os
 import subprocess
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -15,6 +16,19 @@ from products.tasks.backend.services.sandbox import (
     redact_sandbox_command,
 )
 from products.tasks.backend.temporal.exceptions import SandboxExecutionError
+
+
+def _agent_server_launch_command(mock_execute: Any) -> str:
+    """Return the agent-server launch command among the execute calls.
+
+    start_agent_server writes the BASH_ENV script (extra execute calls) before
+    launching the server, so the launch is no longer the first execute call.
+    """
+    for call in mock_execute.call_args_list:
+        command = call.args[0]
+        if "./node_modules/.bin/agent-server" in command:
+            return command
+    raise AssertionError("agent-server launch command not found among execute calls")
 
 
 def docker_available() -> bool:
@@ -267,7 +281,7 @@ class TestDockerSandboxUnit:
                     with patch.object(sandbox, "_wait_for_health_check", return_value=True):
                         sandbox.start_agent_server(repository, task_id, run_id, mode)
 
-                    command = mock_execute.call_args_list[0][0][0]
+                    command = _agent_server_launch_command(mock_execute)
 
                 org, repo = repository.lower().split("/")
                 repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -353,10 +367,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.side_effect = [
-                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-                ]
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
                 with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
                     sandbox.start_agent_server(
                         "posthog/posthog",
@@ -366,7 +377,7 @@ class TestDockerSandboxUnit:
                     )
 
         mock_setup_agentsh.assert_not_called()
-        command = mock_execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_execute)
         assert "--createPr true" in command
         assert "agentsh exec" not in command
         assert "nohup" in command
@@ -381,10 +392,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.side_effect = [
-                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-                ]
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
                 with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
                     sandbox.start_agent_server(
                         "posthog/posthog",
@@ -395,7 +403,7 @@ class TestDockerSandboxUnit:
                     )
 
         mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
-        command = mock_execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_execute)
         assert "--createPr true" in command
         assert "--allowedDomains example.com" in command
         assert "agentsh exec" in command
@@ -409,10 +417,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.side_effect = [
-                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-                ]
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
                 with patch.object(sandbox, "_setup_agentsh") as mock_setup_agentsh:
                     sandbox.start_agent_server(
                         "posthog/posthog",
@@ -423,7 +428,7 @@ class TestDockerSandboxUnit:
                     )
 
         mock_setup_agentsh.assert_called_once_with("/tmp/workspace", [])
-        command = mock_execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_execute)
         assert "--allowedDomains" not in command
         assert "agentsh exec" in command
 
@@ -472,10 +477,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.side_effect = [
-                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-                ]
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
                 sandbox.start_agent_server(
                     "posthog/posthog",
                     "task-123",
@@ -484,7 +486,7 @@ class TestDockerSandboxUnit:
                     create_pr=create_pr,
                 )
 
-        command = mock_execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_execute)
         assert expected_flag in command
 
     def test_start_agent_server_includes_runtime_environment_variables(self):
@@ -496,10 +498,7 @@ class TestDockerSandboxUnit:
 
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
-                mock_execute.side_effect = [
-                    ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                    ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
-                ]
+                mock_execute.return_value = ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
                 sandbox.start_agent_server(
                     "posthog/posthog",
                     "task-123",
@@ -512,7 +511,7 @@ class TestDockerSandboxUnit:
                     event_ingest_token="ingest-token",
                 )
 
-        command = mock_execute.call_args_list[0][0][0]
+        command = _agent_server_launch_command(mock_execute)
         assert "POSTHOG_CODE_RUNTIME_ADAPTER=codex" in command
         assert "POSTHOG_CODE_PROVIDER=openai" in command
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command

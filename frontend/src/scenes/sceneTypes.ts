@@ -198,6 +198,7 @@ export enum Scene {
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     LogsAlertDetail = 'LogsAlertDetail',
+    LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
     LogsSamplingDetail = 'LogsSamplingDetail',
     ManagedMigration = 'ManagedMigration',

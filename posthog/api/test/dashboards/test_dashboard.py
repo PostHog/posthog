@@ -2135,7 +2135,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": dashboard_one["tiles"][0], "toDashboard": dashboard_two_id},
+            {"tile": dashboard_one["tiles"][0], "to_dashboard": dashboard_two_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["tiles"] == []
@@ -2162,7 +2162,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_a_id}/move_tile",
-            {"tile": {"id": tile_a.id}, "toDashboard": dashboard_b_id},
+            {"tile": {"id": tile_a.id}, "to_dashboard": dashboard_b_id},
         )
         assert patch_response.status_code == status.HTTP_200_OK
         dashboard_b = self.dashboard_api.get_dashboard(dashboard_b_id)
@@ -2182,7 +2182,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/move_tile",
-            {"tile": tile, "toDashboard": other_dashboard.id},
+            {"tile": tile, "to_dashboard": other_dashboard.id},
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -2214,7 +2214,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         move_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_one_id}/move_tile",
-            {"tile": tile, "toDashboard": dashboard_two_id},
+            {"tile": tile, "to_dashboard": dashboard_two_id},
         )
         self.assertEqual(move_response.status_code, status.HTTP_403_FORBIDDEN)
 
@@ -2453,6 +2453,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "layouts": {},
                 "order": 0,
                 "show_description": None,
+                "widget": None,
                 "text": {
                     "body": "hello world",
                     "created_by": None,
@@ -2573,6 +2574,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "show_description": None,
                 "text": None,
                 "transparent_background": None,
+                "widget": None,
             },
         ]
 

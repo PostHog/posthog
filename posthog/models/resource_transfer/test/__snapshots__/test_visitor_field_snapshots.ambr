@@ -46,6 +46,11 @@
     'refreshing',
   ])
 # ---
+# name: TestVisitorFieldSnapshots.test_excluded_fields_DashboardWidget
+  list([
+    'last_modified_at',
+  ])
+# ---
 # name: TestVisitorFieldSnapshots.test_excluded_fields_EarlyAccessFeature
   list([
     'created_at',
@@ -178,6 +183,14 @@
     'layouts',
     'show_description',
     'transparent_background',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_primitive_fields_DashboardWidget
+  list([
+    'config',
+    'description',
+    'name',
+    'widget_type',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_EarlyAccessFeature
@@ -335,6 +348,14 @@
     'insight',
     'team',
     'text',
+    'widget',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_relation_fields_DashboardWidget
+  list([
+    'created_by',
+    'last_modified_by',
+    'team',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_EarlyAccessFeature
@@ -579,6 +600,25 @@
     'sort_tiles_by_layout',
     'team_id',
     'text_id',
+    'widget_id',
+  ])
+# ---
+# name: TestVisitorFieldSnapshots.test_skipped_fields_DashboardWidget
+  list([
+    'DoesNotExist',
+    'MultipleObjectsReturned',
+    '__doc__',
+    '__module__',
+    '_meta',
+    'all_teams',
+    'created_by_id',
+    'dashboard_tiles',
+    'get_next_by_last_modified_at',
+    'get_previous_by_last_modified_at',
+    'id',
+    'last_modified_at',
+    'last_modified_by_id',
+    'team_id',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_skipped_fields_EarlyAccessFeature

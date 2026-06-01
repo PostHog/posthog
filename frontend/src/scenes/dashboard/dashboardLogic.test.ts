@@ -247,7 +247,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/:id/move_tile/': async (req) => {
                     // backend updates the two dashboards and the insight
                     const jsonPayload = await req.json()
-                    const { toDashboard, tile: tileToUpdate } = jsonPayload
+                    const { to_dashboard: toDashboard, tile: tileToUpdate } = jsonPayload
                     const from = dashboards[Number(req.params.id)]
                     // remove the tile from the source dashboard
                     const fromIndex = from.tiles.findIndex(
@@ -646,7 +646,7 @@ describe('dashboardLogic', () => {
 
             expect(api.update).toHaveBeenCalledWith(
                 `api/environments/${MOCK_TEAM_ID}/dashboards/${9}/move_tile`,
-                expect.objectContaining({ tile: sourceTile, toDashboard: 8 })
+                expect.objectContaining({ tile: sourceTile, to_dashboard: 8 })
             )
         })
 
