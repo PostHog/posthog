@@ -78,14 +78,14 @@ const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
 
 const WIDGET_TILE: DashboardTile<QueryBasedInsightModel> = {
     id: 7,
-    widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
+    widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
     layouts: {},
     color: null,
 }
 
 const WIDGET_TILE_WITH_CUSTOM_NAME: DashboardTile<QueryBasedInsightModel> = {
     id: 8,
-    widget: { id: 2, widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+    widget: { id: '2', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
     layouts: {},
     color: null,
 }
@@ -1439,7 +1439,7 @@ describe('dashboardLogic', () => {
 
             const toastContent = lemonToast.info.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
-            expect(container.textContent).toBe('Top issues widget removed')
+            expect(container.textContent).toBe('error_tracking_list widget removed')
         })
 
         it('uses custom widget name in undo toast when set', async () => {
@@ -1667,12 +1667,12 @@ describe('dashboardLogic', () => {
         })
 
         it('addWidgetTiles refreshes newly created widget tiles', async () => {
-            const addedTile: DashboardTile<QueryBasedInsightModel> = {
+            const addedTile = {
                 id: 99,
-                widget: { id: 3, widget_type: 'error_tracking_list', config: { limit: 5 } },
-                layouts: { sm: [{ i: '99', x: 0, y: 10, w: 6, h: 5 }] },
+                widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
+                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
                 color: null,
-            }
+            } as unknown as DashboardTile<QueryBasedInsightModel>
 
             jest.spyOn(api, 'create').mockResolvedValueOnce({
                 tiles: [addedTile],

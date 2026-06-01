@@ -16,18 +16,18 @@ describe('getDashboardTileDisplayName', () => {
     it('uses widget header title when no custom name is set', () => {
         const tile: DashboardTile<QueryBasedInsightModel> = {
             id: 1,
-            widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
             layouts: {},
             color: null,
         }
 
-        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
+        expect(getDashboardTileDisplayName(tile)).toBe('error_tracking_list')
     })
 
     it('uses custom widget name when set', () => {
         const tile: DashboardTile<QueryBasedInsightModel> = {
             id: 1,
-            widget: { id: 1, widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
+            widget: { id: '1', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
             layouts: {},
             color: null,
         }

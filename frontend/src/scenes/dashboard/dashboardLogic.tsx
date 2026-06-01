@@ -2493,7 +2493,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     const dashboard = getQueryBasedDashboard({
                         ...values.dashboard,
                         tiles: [...values.dashboard.tiles, ...createdTiles],
-                    })
+                    } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
                     }
@@ -2533,7 +2533,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles: values.dashboard.tiles.map((existingTile) =>
                         existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
                     ),
-                })
+                } as DashboardType<InsightModel>)
                 if (dashboard) {
                     dashboardsModel.actions.updateDashboardSuccess(dashboard)
                 }
@@ -2563,7 +2563,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles: values.dashboard.tiles.map((existingTile) =>
                         existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
                     ),
-                })
+                } as DashboardType<InsightModel>)
                 if (dashboard) {
                     dashboardsModel.actions.updateDashboardSuccess(dashboard)
                 }

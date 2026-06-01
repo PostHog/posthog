@@ -164,7 +164,10 @@ export function WidgetCardHeader({
 }: WidgetCardHeaderProps): JSX.Element {
     const showWidgetType = headerMeta?.showWidgetType ?? true
     const showDateRange = headerMeta?.showDateRange ?? false
-    const dateText = widgetTypeLabel && showDateRange ? widgetDateRangeToText(config?.dateRange) : null
+    const dateText =
+        widgetTypeLabel && showDateRange
+            ? widgetDateRangeToText(config?.dateRange as Record<string, unknown> | null | undefined)
+            : null
     const derivedTopHeading =
         widgetTypeLabel && (showWidgetType || dateText) ? (
             <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText} />

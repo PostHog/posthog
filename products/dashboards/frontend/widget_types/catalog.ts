@@ -34,26 +34,25 @@ export type DashboardWidgetCatalogEntry = {
 }
 
 /** New widget types: add here. See products/dashboards/CONTRIBUTING.md. */
-export const DASHBOARD_WIDGET_CATALOG = {} as const satisfies Record<string, DashboardWidgetCatalogEntry>
+export const DASHBOARD_WIDGET_CATALOG: Record<string, DashboardWidgetCatalogEntry> = {}
 
-export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
+export type DashboardWidgetCatalogKey = string
 
 /** New widget_type aliases: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_TYPE_ALIASES: Partial<Record<string, DashboardWidgetCatalogKey>> = {}
 
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
-export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {}
+export const DASHBOARD_WIDGET_PREVIEWS: Partial<Record<DashboardWidgetCatalogKey, () => JSX.Element>> = {}
 
 export function resolveDashboardWidgetCatalogKey(widgetType: string): DashboardWidgetCatalogKey | undefined {
     if (widgetType in DASHBOARD_WIDGET_CATALOG) {
-        return widgetType as DashboardWidgetCatalogKey
+        return widgetType
     }
     return DASHBOARD_WIDGET_TYPE_ALIASES[widgetType]
 }
 
 export function getDashboardWidgetCatalogEntry(widgetType: string): DashboardWidgetCatalogEntry | undefined {
-    const key = resolveDashboardWidgetCatalogKey(widgetType)
-    return key ? DASHBOARD_WIDGET_CATALOG[key] : undefined
+    return DASHBOARD_WIDGET_CATALOG[widgetType]
 }
 
 export type DashboardWidgetCatalogGroup = {
@@ -69,8 +68,7 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
     const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
     const groupOrder: string[] = []
 
-    for (const widgetType of Object.keys(DASHBOARD_WIDGET_CATALOG) as DashboardWidgetCatalogKey[]) {
-        const entry = DASHBOARD_WIDGET_CATALOG[widgetType]
+    for (const [widgetType, entry] of Object.entries(DASHBOARD_WIDGET_CATALOG)) {
         let group = groupsById.get(entry.groupId)
 
         if (!group) {

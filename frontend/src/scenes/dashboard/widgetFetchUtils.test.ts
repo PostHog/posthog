@@ -5,7 +5,7 @@ import { chunkTileIds, findNewlyAddedWidgetTiles } from './widgetFetchUtils'
 describe('widgetFetchUtils', () => {
     const widgetTile = (id: number): DashboardTile<QueryBasedInsightModel> => ({
         id,
-        widget: { id, widget_type: 'error_tracking_list', config: {} },
+        widget: { id: String(id), widget_type: 'error_tracking_list', config: {} },
         layouts: {},
         color: null,
     })

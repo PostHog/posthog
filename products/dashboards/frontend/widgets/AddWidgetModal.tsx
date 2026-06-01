@@ -42,7 +42,7 @@ function AddWidgetCatalogPicker({
     selected,
     onToggleWidgetType,
 }: AddWidgetCatalogPickerProps): JSX.Element {
-    const WidgetPreview = DASHBOARD_WIDGET_PREVIEWS[widgetType as keyof typeof DASHBOARD_WIDGET_PREVIEWS]
+    const WidgetPreview = DASHBOARD_WIDGET_PREVIEWS[widgetType]
 
     function handleSelect(): void {
         onToggleWidgetType(widgetType)

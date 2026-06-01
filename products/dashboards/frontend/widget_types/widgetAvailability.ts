@@ -4,7 +4,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import type { TeamType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 /** New catalog-driven setup requirements: add here — CONTRIBUTING.md */
 export type WidgetAvailabilityRequirementId = 'exception_autocapture'
@@ -48,7 +48,7 @@ export type WidgetAvailabilityStatus = {
 
 export function isWidgetAvailabilityRequirementMet(
     requirement: WidgetAvailabilityRequirementId,
-    team: TeamType | null
+    team: TeamType | TeamPublicType | null
 ): boolean {
     switch (requirement) {
         // New requirements: add a case here — CONTRIBUTING.md
@@ -63,7 +63,7 @@ export function isWidgetAvailabilityRequirementMet(
 
 export function getWidgetAvailabilityStatus(
     config: WidgetAvailabilityConfig | undefined,
-    team: TeamType | null
+    team: TeamType | TeamPublicType | null
 ): WidgetAvailabilityStatus {
     if (!config) {
         return { isAvailable: true, config: undefined }

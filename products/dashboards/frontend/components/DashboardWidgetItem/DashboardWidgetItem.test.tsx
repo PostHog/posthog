@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -7,7 +9,13 @@ import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dash
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import {
+    DashboardPlacement,
+    DashboardTile,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
@@ -59,14 +67,14 @@ const tile = {
     id: 1,
     show_description: true,
     widget: {
-        id: 10,
+        id: '10',
         widget_type: 'error_tracking_list',
         name: 'My issues',
         description: 'Top errors this week',
         config: { limit: 10, dateRange: { date_from: '-7d' } },
         dashboard_tiles: [],
     },
-} as DashboardTile<QueryBasedInsightModel>
+} as unknown as DashboardTile<QueryBasedInsightModel>
 
 const tileWithoutDescription = {
     ...tile,
@@ -79,7 +87,15 @@ const tileWithoutDescription = {
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
         initKeaTests(true, {
-            test_account_filters: [{ key: 'email', value: '@posthog.com', operator: 'not_icontains', type: 'person' }],
+            ...MOCK_DEFAULT_TEAM,
+            test_account_filters: [
+                {
+                    key: 'email',
+                    value: '@posthog.com',
+                    operator: PropertyOperator.NotIContains,
+                    type: PropertyFilterType.Person,
+                },
+            ],
         })
         featureFlagLogic.mount()
         dashboardWidgetMenusLogic({
@@ -128,7 +144,7 @@ describe('DashboardWidgetItem', () => {
         expect(
             screen
                 .getAllByRole('button', { name: 'Edit' })
-                .find((button) => button.classList.contains('LemonButton--full-width'))
+                .find((button: HTMLElement) => button.classList.contains('LemonButton--full-width'))
         ).toBeTruthy()
         expect(screen.getByRole('button', { name: 'Duplicate' })).toBeInTheDocument()
         expect(screen.getByText('Dashboard')).toBeInTheDocument()

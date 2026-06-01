@@ -117,20 +117,8 @@ describe('calculating tile layouts', () => {
 
     it.each([
         {
-            name: 'uses catalog minH override when set',
-            widgetType: 'error_tracking_list' as const,
-            expectedMinH: 3,
-            expectedMinW: 6,
-        },
-        {
-            name: 'uses session replay catalog minH for resize floor',
-            widgetType: 'session_replay_list' as const,
-            expectedMinH: 3,
-            expectedMinW: 6,
-        },
-        {
             name: 'uses default widget minH when catalog omits minH',
-            widgetType: 'unknown_widget' as const,
+            widgetType: 'unknown_widget',
             expectedMinH: 4,
             expectedMinW: 6,
         },

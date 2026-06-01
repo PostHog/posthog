@@ -20,7 +20,7 @@ export const WIDGET_DATE_FROM_VALUES = ['-1h', '-3h', '-24h', '-7d', '-14d', '-3
 export type WidgetDateFromValue = (typeof WIDGET_DATE_FROM_VALUES)[number]
 
 export const widgetDateFromSchema = z.enum(WIDGET_DATE_FROM_VALUES, {
-    errorMap: () => ({ message: 'Select a supported date range.' }),
+    message: 'Select a supported date range.',
 })
 
 export const WIDGET_DATE_RANGE_SELECT_OPTIONS: { value: WidgetDateFromValue; label: string }[] = [

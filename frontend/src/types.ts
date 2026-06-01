@@ -2549,10 +2549,19 @@ export type DashboardTemplateStoredButtonTile = {
     color?: InsightColor | null
 }
 
+export type DashboardTemplateStoredWidgetTile = {
+    type: 'WIDGET'
+    widget_type: string
+    config?: Record<string, unknown>
+    layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
+    color?: InsightColor | null
+}
+
 export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredInsightTile
     | DashboardTemplateStoredTextTile
     | DashboardTemplateStoredButtonTile
+    | DashboardTemplateStoredWidgetTile
 
 export interface DashboardTemplateType {
     id: string

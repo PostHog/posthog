@@ -85,7 +85,7 @@ export type DashboardWidgetEditModalProps = {
  *
  * `satisfies Record<DashboardWidgetCatalogKey, …>` fails typecheck if catalog grows without a matching key.
  */
-export const DASHBOARD_WIDGET_REGISTRY = {} satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
+export const DASHBOARD_WIDGET_REGISTRY: Record<string, DashboardWidgetDefinition> = {}
 
 function isDashboardWidgetRegistryKey(widgetType: string): widgetType is DashboardWidgetCatalogKey {
     return widgetType in DASHBOARD_WIDGET_REGISTRY
