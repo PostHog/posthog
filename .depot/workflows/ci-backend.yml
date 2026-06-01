@@ -25,17 +25,14 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .depot/workflows/ci-backend-update-test-timing.yml action
 name: Backend CI
+# Shadow disabled — reduced to manual workflow_dispatch only (no auto-runs on
+# push/pull_request/merge_group). Restore those triggers to re-enable.
 on:
-    push:
-        branches:
-            - master
     workflow_dispatch:
         inputs:
             clickhouseServerVersion:
                 description: ClickHouse server version. Leave blank for default
                 type: string
-    pull_request:
-    merge_group:
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}

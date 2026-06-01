@@ -6,13 +6,11 @@ name: Backend CI shadow drift check
 # without this check, canonical drifts silently and the depot timing trial stops
 # measuring the same work.
 #
-# Cheap to run — only triggers when one of the two files changes.
+# Disabled alongside the shadow — reduced to manual workflow_dispatch. Restore
+# the pull_request paths trigger to re-enable.
 
 on:
-    pull_request:
-        paths:
-            - .github/workflows/ci-backend.yml
-            - .depot/workflows/ci-backend.yml
+    workflow_dispatch:
 
 permissions:
     contents: read
