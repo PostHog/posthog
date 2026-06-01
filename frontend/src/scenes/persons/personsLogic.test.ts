@@ -147,6 +147,37 @@ describe('personsLogic', () => {
         })
     })
 
+    describe('loadPersonUUID error handling', () => {
+        it('surfaces a genuine load failure as personError', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: 'boom',
+                })
+        })
+
+        it('swallows an aborted query without surfacing an error', async () => {
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: null,
+                })
+        })
+    })
+
     describe('tab-aware person scene state', () => {
         const person: PersonType = {
             id: 'person-1',

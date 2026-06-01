@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -200,16 +200,28 @@ export const personsLogic = kea<personsLogicType>([
 
                     return person
                 },
-                loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await api.query<HogQLQuery>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: getHogqlQueryStringForPersonId(),
-                            values: { id: uuid },
-                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                        { refresh: 'blocking' }
-                    )
+                loadPersonUUID: async ({ uuid }, breakpoint): Promise<PersonType | null> => {
+                    let response: HogQLQueryResponse
+                    try {
+                        response = await api.query<HogQLQuery>(
+                            {
+                                kind: NodeKind.HogQLQuery,
+                                query: getHogqlQueryStringForPersonId(),
+                                values: { id: uuid },
+                                tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            },
+                            { refresh: 'blocking' }
+                        )
+                    } catch (error) {
+                        // The blocking query is aborted when navigation moves on before it resolves.
+                        // That's expected, not a load failure — drop the stale result instead of
+                        // surfacing an error or letting it be captured as an exception.
+                        if ((error as { name?: string })?.name === 'AbortError') {
+                            breakpoint()
+                            return values.person
+                        }
+                        throw error
+                    }
                     const row = response?.results?.[0]
                     if (row) {
                         const person = parsePersonFromHogQLRow(row)
@@ -307,6 +319,7 @@ export const personsLogic = kea<personsLogicType>([
                 setPerson: () => null,
                 loadPersonUUID: () => null,
                 loadPersonFailure: (_, { error }) => error,
+                loadPersonUUIDFailure: (_, { error }) => error,
             },
         ],
         distinctId: [
