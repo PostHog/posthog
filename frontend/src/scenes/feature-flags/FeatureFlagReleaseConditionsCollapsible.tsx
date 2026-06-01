@@ -1100,13 +1100,13 @@ export function FeatureFlagReleaseConditionsCollapsible({
                             info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
                         />
                     </div>
-                    {releaseFilters.early_exit &&
-                        evaluationRuntime !== undefined &&
-                        evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
-                            <LemonBanner type="warning" className="mt-1">
-                                Early exit is not supported with local evaluation.
-                            </LemonBanner>
-                        )}
+                    {releaseFilters.early_exit && (
+                        <LemonBanner type="warning" className="mt-1">
+                            Early exit is not applied when a server-side SDK evaluates this flag with local evaluation —
+                            those SDKs evaluate all condition sets. It takes effect when the flag is evaluated through
+                            the <code>/flags</code> endpoint.
+                        </LemonBanner>
+                    )}
                 </div>
             )}
 
