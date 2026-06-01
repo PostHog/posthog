@@ -7,12 +7,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, pluralize } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 import {
+    DataWarehouseSyncInterval,
     ExternalDataJob,
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
@@ -219,6 +220,37 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
     }
 }
 
+// Run a per-schema API action across many schemas; returns how many failed.
+export async function runBulkSchemaAction(
+    schemas: ExternalDataSourceSchema[],
+    action: (schemaId: string) => Promise<unknown>
+): Promise<number> {
+    const results = await Promise.allSettled(schemas.map((schema) => action(schema.id)))
+    return results.filter((result) => result.status === 'rejected').length
+}
+
+// Only schemas that are enabled with a configured sync method can be synced on demand.
+export function schemasEligibleForSync(schemas: ExternalDataSourceSchema[]): ExternalDataSourceSchema[] {
+    return schemas.filter((schema) => !!schema.sync_type && schema.should_sync)
+}
+
+function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
+    const succeeded = total - failed
+    const parts = [`${verb} ${pluralize(succeeded, 'schema', 'schemas')}`]
+    if (failed > 0) {
+        parts.push(`${failed} failed`)
+    }
+    if (skipped > 0) {
+        parts.push(`skipped ${skipped}${skipReason ? ` ${skipReason}` : ''}`)
+    }
+    const message = parts.join(', ')
+    if (failed > 0) {
+        lemonToast.error(message)
+    } else {
+        lemonToast.success(message)
+    }
+}
+
 export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     path(['products', 'dataWarehouse', 'sourceSettingsLogic']),
     props({} as SourceSettingsLogicProps),
@@ -233,6 +265,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
+        bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
+            schemas,
+            frequency,
+        }),
+        bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkDeleteData: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setSelectedSchemas: (schemaNames: string[]) => ({ schemaNames }),
@@ -836,6 +876,51 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         lemonToast.error("Can't delete data at this time")
                     }
                 }
+            },
+            bulkDisable: ({ schemas }) => {
+                // Reuse the debounced single-schema update — these coalesce into one bulk PATCH.
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, should_sync: false }))
+                lemonToast.success(`Disabled ${pluralize(schemas.length, 'schema', 'schemas')}`)
+            },
+            bulkSetFrequency: ({ schemas, frequency }) => {
+                schemas.forEach((schema) => actions.updateSchema({ ...schema, sync_frequency: frequency }))
+                lemonToast.success(`Updated sync frequency for ${pluralize(schemas.length, 'schema', 'schemas')}`)
+            },
+            bulkSyncNow: async ({ schemas }) => {
+                // Only schemas that are enabled with a sync method can sync.
+                const eligible = schemasEligibleForSync(schemas)
+                const skipped = schemas.length - eligible.length
+                if (eligible.length === 0) {
+                    lemonToast.warning('None of the selected schemas are enabled with a sync method')
+                    return
+                }
+                const failed = await runBulkSchemaAction(eligible, (id) => api.externalDataSchemas.reload(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk synced', {
+                    sourceType: values.source?.source_type,
+                    count: eligible.length,
+                })
+                reportBulkResult('Started sync for', eligible.length, failed, skipped, 'with no sync method')
+            },
+            bulkResync: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.resync(id))
+                actions.loadSource()
+                actions.loadJobs()
+                posthog.capture('schemas bulk resynced', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Resyncing', schemas.length, failed, 0)
+            },
+            bulkDeleteData: async ({ schemas }) => {
+                const failed = await runBulkSchemaAction(schemas, (id) => api.externalDataSchemas.delete_data(id))
+                actions.loadSource()
+                posthog.capture('schemas bulk data deleted', {
+                    sourceType: values.source?.source_type,
+                    count: schemas.length,
+                })
+                reportBulkResult('Deleted data for', schemas.length, failed, 0)
             },
         }
     }),

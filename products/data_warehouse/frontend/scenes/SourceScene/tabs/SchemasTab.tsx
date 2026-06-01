@@ -19,6 +19,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
@@ -26,10 +27,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
-import { SourceEditorAction } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import {
+    SourceEditorAction,
+    useSourceEditorAccess,
+} from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import { StatusTagSetting, SyncFrequencyLabelMap, SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
@@ -227,6 +231,7 @@ function ManagedSchemaTable({
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
+    const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -241,6 +246,14 @@ function ManagedSchemaTable({
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
+            bulkSelection={{
+                getKey: (schema) => schema.id,
+                isRowSelectable: () => (editDisabledReason ? { disabledReason: editDisabledReason } : true),
+                noun: ['schema', 'schemas'],
+                renderActions: (ctx) => (
+                    <SchemaBulkActions schemas={ctx.selectedRecords} clearSelection={ctx.clearSelection} />
+                ),
+            }}
             columns={[
                 {
                     title: 'Schema',
@@ -474,6 +487,114 @@ function ManagedSchemaTable({
                 },
             ]}
         />
+    )
+}
+
+function SchemaBulkActions({
+    schemas,
+    clearSelection,
+}: {
+    schemas: readonly ExternalDataSourceSchema[]
+    clearSelection: () => void
+}): JSX.Element {
+    const { bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } = useActions(sourceSettingsLogic)
+
+    // Wrap every action so the selection clears once it's been kicked off.
+    const run = (action: () => void): void => {
+        action()
+        clearSelection()
+    }
+
+    const selected = [...schemas]
+    const count = selected.length
+
+    const onDisable = (): void => {
+        const hasDataLossType = selected.some((schema) => schema.sync_type === 'cdc' || schema.sync_type === 'webhook')
+        if (!hasDataLossType) {
+            run(() => bulkDisable(selected))
+            return
+        }
+        LemonDialog.open({
+            title: `Disable ${pluralize(count, 'schema', 'schemas')}?`,
+            description:
+                'Some selected tables use CDC or webhook sync. Disabling stops consuming changes — re-enabling them later requires a full resync to avoid missing data.',
+            primaryButton: {
+                children: 'Disable',
+                status: 'danger',
+                onClick: () => run(() => bulkDisable(selected)),
+            },
+            secondaryButton: { children: 'Cancel', type: 'tertiary' },
+        })
+    }
+
+    return (
+        <>
+            <LemonButton type="secondary" size="small" onClick={onDisable}>
+                Disable
+            </LemonButton>
+            <LemonMenu
+                items={(Object.keys(SyncFrequencyLabelMap) as DataWarehouseSyncInterval[]).map((interval) => ({
+                    label: SyncFrequencyLabelMap[interval],
+                    onClick: () => run(() => bulkSetFrequency(selected, interval)),
+                }))}
+            >
+                <LemonButton type="secondary" size="small">
+                    Set frequency
+                </LemonButton>
+            </LemonMenu>
+            <LemonButton type="secondary" size="small" onClick={() => run(() => bulkSyncNow(selected))}>
+                Sync now
+            </LemonButton>
+            <More
+                size="small"
+                overlay={
+                    <>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete tables and resync ${pluralize(count, 'schema', 'schemas')}?`,
+                                    description:
+                                        'Existing data for the selected tables is deleted and re-imported from scratch. Only recommended if there is a data-quality issue with previously imported data.',
+                                    primaryButton: {
+                                        children: 'Delete and resync',
+                                        status: 'danger',
+                                        onClick: () => run(() => bulkResync(selected)),
+                                    },
+                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                })
+                            }
+                        >
+                            Delete tables and resync
+                        </LemonButton>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete ${pluralize(count, 'table', 'tables')} from PostHog?`,
+                                    description:
+                                        'Removes the synced tables from PostHog. The data in the source is not touched.',
+                                    primaryButton: {
+                                        children: 'Delete from PostHog',
+                                        status: 'danger',
+                                        onClick: () => run(() => bulkDeleteData(selected)),
+                                    },
+                                    secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                })
+                            }
+                        >
+                            Delete tables from PostHog
+                        </LemonButton>
+                    </>
+                }
+            />
+        </>
     )
 }
 
