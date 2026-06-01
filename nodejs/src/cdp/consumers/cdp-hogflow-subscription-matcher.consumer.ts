@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
+import { Counter, Histogram } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
@@ -15,14 +16,36 @@ import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import {
-    counterHogflowMatcherBytecodeError,
-    counterHogflowMatcherCandidatesEvaluated,
-    counterHogflowMatcherEventSkipped,
-    counterHogflowMatcherJobsWoken,
-    counterParseError,
-    histogramHogflowMatcherFindParkedJobs,
-} from './metrics'
+import { counterParseError } from './metrics'
+
+const counterHogflowMatcherBytecodeError = new Counter({
+    name: 'cdp_hogflow_matcher_bytecode_error',
+    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
+})
+
+const counterHogflowMatcherCandidatesEvaluated = new Counter({
+    name: 'cdp_hogflow_matcher_candidates_evaluated',
+    help: 'Parked hogflow jobs the matcher loaded from cyclotron and evaluated against a batch.',
+})
+
+const counterHogflowMatcherJobsWoken = new Counter({
+    name: 'cdp_hogflow_matcher_jobs_woken',
+    help: 'Parked hogflow jobs the matcher woke because an incoming event matched.',
+})
+
+// Latency of the cyclotron lookup for parked jobs. Watch this for cyclotron-node
+// read pressure as the wait-until-event feature ramps.
+const histogramHogflowMatcherFindParkedJobs = new Histogram({
+    name: 'cdp_hogflow_matcher_find_parked_jobs_seconds',
+    help: 'Duration of the findParkedJobs cyclotron query.',
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+})
+
+const counterHogflowMatcherEventSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_event_skipped',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), or unknown team.',
+    labelNames: ['reason'],
+})
 
 type ParkedCandidate = {
     id: string
@@ -86,29 +109,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return
         }
 
-        // Team-level early-out via the in-memory hogflow cache (same pattern as cdp-events).
-        // Skip cyclotron entirely for teams that have no workflow with a wait_until_condition
-        // step or an event-based conversion goal — most batches won't have any.
+        // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
+        // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
+        // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
+        // small and skips cyclotron entirely when a batch has none.
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
-        const candidateTeamIds: number[] = []
         const hogflows: Record<string, HogFlow> = {}
-        for (const teamIdStr of Object.keys(hogFlowsByTeam)) {
-            const teamId = parseInt(teamIdStr)
-            const flows = hogFlowsByTeam[teamId]
-            if (!flows.some(hasWaitUntilOrConversion)) {
-                continue
-            }
-            candidateTeamIds.push(teamId)
+        for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
-                // Only flows with a wait step or event conversion goal are actionable;
-                // the matcher never wakes jobs parked in any other flow.
                 if (hasWaitUntilOrConversion(flow)) {
                     hogflows[flow.id] = flow
                 }
             }
         }
 
-        if (candidateTeamIds.length === 0) {
+        if (Object.keys(hogflows).length === 0) {
             return
         }
 
