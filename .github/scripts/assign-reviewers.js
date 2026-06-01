@@ -8,7 +8,7 @@ const fs = require('fs')
 // an owner actually owns in this diff.
 const CONFIG = {
     // Files whose changes are generated or mechanical. They never count toward
-    // ownership matching or footprint — a team gains nothing from reviewing a
+    // ownership matching or footprint. A team gains nothing from reviewing a
     // regenerated client or a lockfile bump.
     excludedPatterns: [
         'frontend/src/generated/**',
@@ -73,7 +73,7 @@ function parseOwnersFromProductYaml(content) {
     for (const rawLine of content.split('\n')) {
         const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
 
-        // Skip blank lines and full-line comments — neither should terminate the
+        // Skip blank lines and full-line comments; neither should terminate the
         // owners block. Inline comments are already stripped above; the regex
         // requires preceding whitespace, so we handle column-0 comments here.
         if (!line.trim() || /^\s*#/.test(rawLine)) {
@@ -128,7 +128,7 @@ function loadProductYamlRules(productsDir = 'products') {
 
         const owners = []
         for (const slug of slugs) {
-            // Guard against slugs that already include an `@` prefix — otherwise
+            // Guard against slugs that already include an `@` prefix, otherwise
             // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
             // refuses to resolve and reviewer assignment is dropped.
             if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
@@ -207,7 +207,7 @@ async function getChangedFiles() {
         for (const file of data.files || []) {
             allFiles.push({
                 filename: file.filename,
-                // Binary files and pure renames report null counts — treat as 0.
+                // Binary files and pure renames report null counts; treat as 0.
                 additions: file.additions || 0,
                 deletions: file.deletions || 0,
             })
@@ -233,7 +233,7 @@ function classifyOwner(owner) {
 
 // Build a footprint per owner: which rule patterns matched, which (non-excluded)
 // files they own in this diff, and the total lines changed across those files.
-// Pure function — takes already-fetched files so it's trivially testable.
+// Pure function; takes already-fetched files so it's trivially testable.
 function computeOwnerFootprints(rules, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
     const footprints = new Map()
@@ -343,18 +343,18 @@ function formatPatterns(patterns, max = 3) {
     return shown.join(', ')
 }
 
-// Owners are rendered as inline code so the comment is informational and
-// doesn't fire a round of @-mention notifications. The matched rule is the only
-// locator worth showing — it tells the owner which area pulled them in. Raw
-// file/line counts are intentionally omitted: without the actual file list (too
-// long to include) a bare "10 files" tells the reader nothing actionable.
+// One bullet per skipped owner: the owner (inline code so it doesn't fire an
+// @-mention) followed by the matched rule, the one locator worth showing since
+// it tells the owner which area pulled them in. Raw file/line counts are
+// omitted: without the actual file list (too long to include) a bare "10 files"
+// tells the reader nothing actionable.
 function formatSkippedOwner(footprint) {
-    return `\`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
+    return `- \`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
 }
 
 // Produce the explanation comment body, or null if no owner was dropped. We
 // only post when we actually skipped someone GitHub's "Reviewers" sidebar would
-// otherwise have hidden — so the comment carries signal, not noise.
+// otherwise have hidden, so the comment carries signal, not noise.
 function buildReviewerComment(requested, demoted, config = CONFIG) {
     if (demoted.length === 0) {
         return null
@@ -363,17 +363,19 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
     const allMinor = demoted.every((f) => f.reason === 'minor')
     const reason = allMinor
         ? 'they only have minor changes here'
-        : 'their changes are minor or the reviewer list was getting long'
+        : 'their changes are minor, or the reviewer list was getting long'
 
     return [
         config.commentMarker,
         '### 👥 Auto-assigned reviewers',
         '',
-        `Skipped a review request for ${demoted.map(formatSkippedOwner).join(', ')} because ${reason}. ` +
-            'These are soft owners ' +
-            '([`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) / ' +
-            "each product's `product.yaml`), so nothing blocks merge — self-assign if you'd like a look. " +
-            '(Generated files and lockfiles are ignored when deciding ownership.)',
+        `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
+        '',
+        ...demoted.map(formatSkippedOwner),
+        '',
+        'Soft owners come from ' +
+            '[`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) ' +
+            "and each product's `product.yaml`. Generated files and lockfiles are ignored when deciding ownership.",
     ].join('\n')
 }
 
@@ -411,7 +413,7 @@ async function assignReviewers(teams, users) {
     const response = await post(payload)
 
     // GitHub returns 422 for the whole batch if *any* requested team isn't a
-    // collaborator on the repo (teams get renamed, deleted, or never set up —
+    // collaborator on the repo (teams get renamed, deleted, or never set up,
     // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
     // each team independently so valid entries still land, and log the bad
     // slugs so they're visible in the action log as cleanup nudges.
@@ -483,7 +485,7 @@ async function findExistingComment(marker) {
     return null
 }
 
-// Best-effort: posts/updates the explanation comment. Never throws — the
+// Best-effort: posts/updates the explanation comment. Never throws, since the
 // reviewer assignment is the critical path and must not fail because the app
 // token lacks `issues: write` or the comments API hiccups.
 async function upsertReviewerComment(body) {
