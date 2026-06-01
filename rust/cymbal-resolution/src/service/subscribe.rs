@@ -8,6 +8,9 @@ use tracing::info;
 use crate::load_monitor::LoadMonitor;
 use cymbal_proto::cymbal::resolution::v1::LoadEvent;
 
+const SUBSCRIBE_EVENTS_TOTAL: &str = "cymbal_resolution_subscribe_events_total";
+const SUBSCRIBERS_TOTAL: &str = "cymbal_resolution_subscribers_total";
+
 pub(super) struct SubscribeRuntime {
     pub(super) service_instance_id: Arc<str>,
     pub(super) load_monitor: LoadMonitor,
@@ -25,6 +28,7 @@ struct CloseLog {
 impl Drop for CloseLog {
     fn drop(&mut self) {
         info!(subscriber = %self.subscriber_id, "load event subscription closed");
+        metrics::counter!(SUBSCRIBERS_TOTAL, "event" => "close").increment(1);
     }
 }
 
@@ -32,6 +36,7 @@ pub(super) fn load_event_stream(
     runtime: SubscribeRuntime,
 ) -> impl Stream<Item = Result<LoadEvent, Status>> {
     async_stream::stream! {
+        metrics::counter!(SUBSCRIBERS_TOTAL, "event" => "open").increment(1);
         let _close_log = CloseLog { subscriber_id: runtime.subscriber_id };
 
         let mut ticker = tokio::time::interval(runtime.tick);
@@ -49,6 +54,7 @@ pub(super) fn load_event_stream(
 
             sequence += 1;
             let snapshot = runtime.load_monitor.snapshot();
+            metrics::counter!(SUBSCRIBE_EVENTS_TOTAL).increment(1);
             yield Ok(LoadEvent {
                 service_instance_id: runtime.service_instance_id.as_ref().to_string(),
                 draining: snapshot.draining,

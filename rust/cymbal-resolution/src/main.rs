@@ -11,7 +11,9 @@ use cymbal_resolution::app_context::AppContext;
 use cymbal_resolution::auth::InternalApiSecretInterceptor;
 use cymbal_resolution::config::Config;
 use cymbal_resolution::load_monitor::LoadMonitor;
-use cymbal_resolution::service::{CymbalResolutionService, ServiceConfig};
+use cymbal_resolution::service::{
+    CymbalResolutionService, ServiceConfig, ITEM_DURATION_BUCKETS_MS,
+};
 use envconfig::Envconfig;
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use tokio::sync::watch;
@@ -143,7 +145,14 @@ fn spawn_metrics_server(
                 "/_readiness",
                 get(move || readiness(readiness_draining.clone())),
             );
-        let router = common_metrics::setup_metrics_routes_for_product(router, "cymbal-resolution");
+        let router = common_metrics::setup_metrics_routes_for_product_with_overrides(
+            router,
+            "cymbal-resolution",
+            &[(
+                common_metrics::Matcher::Full("cymbal_resolution_item_duration_ms".into()),
+                ITEM_DURATION_BUCKETS_MS,
+            )],
+        );
 
         let bind = format!("0.0.0.0:{port}");
         tracing::info!("Metrics server listening on {}", bind);

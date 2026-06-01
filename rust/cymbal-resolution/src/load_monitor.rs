@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::Notify;
 
-const SERVER_IN_FLIGHT_ITEMS: &str = "cymbal_remote_resolution_server_in_flight_items";
+const IN_FLIGHT_ITEMS: &str = "cymbal_resolution_in_flight_items";
 
 #[derive(Clone, Debug)]
 pub struct LoadSnapshot {
@@ -96,7 +96,7 @@ impl LoadMonitor {
 }
 
 fn record_in_flight(in_flight: u32) {
-    metrics::gauge!(SERVER_IN_FLIGHT_ITEMS).set(in_flight as f64);
+    metrics::gauge!(IN_FLIGHT_ITEMS).set(in_flight as f64);
 }
 
 #[cfg(test)]

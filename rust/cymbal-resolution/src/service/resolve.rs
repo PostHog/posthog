@@ -17,8 +17,24 @@ use cymbal_proto::cymbal::resolution::v1::{
 use super::codes;
 use crate::load_monitor::LoadMonitor;
 
-const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
-const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
+// Per-stream lifecycle counter — increments once per Resolve gRPC stream when
+// it closes. Use the gRPC layer's `grpc_server_request_duration_ms` for
+// stream-level latency; this counter only distinguishes how the stream ended.
+const RESOLVE_STREAMS_TOTAL: &str = "cymbal_resolution_resolve_streams_total";
+// Per-item completion counter — increments once per item that flows through
+// `process_item`, labelled by `result` and source `lang`. Use for throughput
+// and success-ratio queries.
+const ITEMS_TOTAL: &str = "cymbal_resolution_items_total";
+// Per-item processing time, labelled by source `lang`. Buckets are widened in
+// `main.rs` because symbol fetches can push the tail past 10s.
+const ITEM_DURATION_MS: &str = "cymbal_resolution_item_duration_ms";
+// Per-item error counter — increments only on error paths, labelled by error
+// `kind` (proto enum) and source `lang`.
+const ERRORS_TOTAL: &str = "cymbal_resolution_errors_total";
+
+pub const ITEM_DURATION_BUCKETS_MS: &[f64] = &[
+    1.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0,
+];
 
 pub(super) async fn run_resolve(
     mut input: Streaming<ResolveItem>,
@@ -26,12 +42,10 @@ pub(super) async fn run_resolve(
     tx: mpsc::Sender<Result<ResolveOutcome, Status>>,
     load_monitor: LoadMonitor,
 ) {
-    let started_at = Instant::now();
-
     loop {
         let item = tokio::select! {
             _ = tx.closed() => {
-                record_resolve_duration(started_at, "cancelled");
+                record_stream_outcome("cancelled");
                 return;
             }
             maybe_item = input.message() => {
@@ -40,7 +54,7 @@ pub(super) async fn run_resolve(
                     Ok(None) => break,
                     Err(err) => {
                         warn!(error = %err, "resolve input stream failed");
-                        record_resolve_duration(started_at, "input_error");
+                        record_stream_outcome("input_error");
                         return;
                     }
                 }
@@ -48,16 +62,16 @@ pub(super) async fn run_resolve(
         };
 
         if item.deadline_ms == 0 {
-            if !send_overloaded(&tx, item.id, "item deadline expired", 0).await {
-                record_resolve_duration(started_at, "cancelled");
+            if !send_overloaded(&tx, item.id, "item deadline expired").await {
+                record_stream_outcome("cancelled");
                 return;
             }
             continue;
         }
 
         if !load_monitor.try_admit() {
-            if !send_overloaded(&tx, item.id, "server overloaded", 0).await {
-                record_resolve_duration(started_at, "cancelled");
+            if !send_overloaded(&tx, item.id, "server overloaded").await {
+                record_stream_outcome("cancelled");
                 return;
             }
             continue;
@@ -77,18 +91,20 @@ pub(super) async fn run_resolve(
         });
     }
 
-    record_resolve_duration(started_at, "completed");
+    record_stream_outcome("completed");
 }
 
 async fn send_overloaded(
     tx: &mpsc::Sender<Result<ResolveOutcome, Status>>,
     id: u64,
     message: impl Into<String>,
-    _retry_after_ms: u32,
 ) -> bool {
+    // Pre-admission rejects never see the payload, so language is unknown.
+    let result = error_result(codes::ErrorKind::Overloaded, message.into(), "unknown");
+    record_item("error", "unknown", None);
     tx.send(Ok(ResolveOutcome {
         id,
-        result: Some(error_result(codes::ErrorKind::Overloaded, message.into())),
+        result: Some(result),
     }))
     .await
     .is_ok()
@@ -123,6 +139,8 @@ async fn process_item(
     let id = item.id;
     let deadline = Duration::from_millis(item.deadline_ms as u64);
     let _in_flight_guard = in_flight_guard;
+    let lang = detect_lang(&item.exception_json);
+    let started_at = Instant::now();
 
     let result = match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
         Ok(Ok(resolved)) => resolve_outcome::Result::Done(Done {
@@ -134,11 +152,11 @@ async fn process_item(
                 error = %msg,
                 "rejecting item with invalid payload",
             );
-            error_result(codes::ErrorKind::InvalidPayload, msg)
+            error_result(codes::ErrorKind::InvalidPayload, msg, lang)
         }
         Ok(Err(ItemFailure::Overloaded(msg))) => {
             warn!(id, "limiter closed mid-request, asking caller to retry");
-            error_result(codes::ErrorKind::Overloaded, msg)
+            error_result(codes::ErrorKind::Overloaded, msg, lang)
         }
         Ok(Err(ItemFailure::Unhandled(err))) => {
             warn!(
@@ -146,19 +164,31 @@ async fn process_item(
                 error = %err,
                 "unhandled error during resolution",
             );
-            error_result(codes::ErrorKind::Unhandled, err)
+            error_result(codes::ErrorKind::Unhandled, err, lang)
         }
         Err(_) => error_result(
             codes::ErrorKind::Overloaded,
             "item deadline expired".to_string(),
+            lang,
         ),
     };
+
+    let result_label = if matches!(result, resolve_outcome::Result::Done(_)) {
+        "ok"
+    } else {
+        "error"
+    };
+    record_item(result_label, lang, Some(started_at.elapsed()));
 
     ProcessedItem { id, result }
 }
 
-fn error_result(kind: codes::ErrorKind, message: String) -> resolve_outcome::Result {
-    metrics::counter!(SERVER_ERROR_KINDS, "kind" => error_kind_label(kind)).increment(1);
+fn error_result(
+    kind: codes::ErrorKind,
+    message: String,
+    lang: &'static str,
+) -> resolve_outcome::Result {
+    metrics::counter!(ERRORS_TOTAL, "kind" => error_kind_label(kind), "lang" => lang).increment(1);
     resolve_outcome::Result::Error(ItemError {
         kind: kind as i32,
         message,
@@ -176,9 +206,49 @@ fn error_kind_label(kind: codes::ErrorKind) -> &'static str {
     }
 }
 
-fn record_resolve_duration(started_at: Instant, outcome: &'static str) {
-    metrics::histogram!(RESOLVE_REQUEST_DURATION_MS, "outcome" => outcome)
-        .record(started_at.elapsed().as_secs_f64() * 1000.0);
+fn record_stream_outcome(outcome: &'static str) {
+    metrics::counter!(RESOLVE_STREAMS_TOTAL, "outcome" => outcome).increment(1);
+}
+
+fn record_item(result: &'static str, lang: &'static str, duration: Option<Duration>) {
+    metrics::counter!(ITEMS_TOTAL, "result" => result, "lang" => lang).increment(1);
+    if let Some(d) = duration {
+        metrics::histogram!(ITEM_DURATION_MS, "lang" => lang).record(d.as_secs_f64() * 1000.0);
+    }
+}
+
+/// Cheap probe of the exception payload to label per-item metrics by source
+/// language. Reads `stack.frames[0].platform` (the RawFrame serde tag) without
+/// fully parsing the Exception type. Any failure — malformed JSON, missing
+/// stack, unknown variant — collapses to `"unknown"` so the metric never
+/// rejects on a quirky payload.
+fn detect_lang(exception_json: &[u8]) -> &'static str {
+    let parsed: serde_json::Value = match serde_json::from_slice(exception_json) {
+        Ok(v) => v,
+        Err(_) => return "unknown",
+    };
+    let platform = parsed
+        .get("stack")
+        .and_then(|s| s.get("frames"))
+        .and_then(|f| f.as_array())
+        .and_then(|f| f.first())
+        .and_then(|f| f.get("platform"))
+        .and_then(|p| p.as_str());
+
+    match platform {
+        Some("python") => "python",
+        Some("ruby") => "ruby",
+        Some("web:javascript") | Some("javascript") => "javascript",
+        Some("node:javascript") => "node",
+        Some("go") => "go",
+        Some("php") => "php",
+        Some("hermes") => "hermes",
+        Some("java") => "java",
+        Some("dart") => "dart",
+        Some("apple") => "apple",
+        Some("custom") => "custom",
+        _ => "unknown",
+    }
 }
 
 enum ItemFailure {

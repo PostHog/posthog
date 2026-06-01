@@ -26,6 +26,7 @@ mod resolve;
 mod subscribe;
 
 pub use config::ServiceConfig;
+pub use resolve::ITEM_DURATION_BUCKETS_MS;
 
 use resolve::run_resolve;
 use subscribe::{load_event_stream, SubscribeRuntime};
