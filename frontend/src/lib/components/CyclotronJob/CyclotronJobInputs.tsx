@@ -834,8 +834,17 @@ function CyclotronJobInputWithSchema({
             onInputChange?.(newSchema.key, value)
         }
 
+        const isEmptyValue = (v: unknown): boolean =>
+            v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
+
         if (newSchema?.type && newSchema.type !== schema.type) {
-            onInputChange?.(schema.key, { value: null })
+            // Reset on type change; seed from schema default when one is declared
+            onInputChange?.(schema.key, {
+                value: newSchema.default !== undefined ? newSchema.default : null,
+            })
+        } else if (newSchema?.default !== undefined && isEmptyValue(value.value)) {
+            // Seed an empty input value from the schema's default so save succeeds without a separate edit
+            onInputChange?.(newSchema.key ?? schema.key, { ...value, value: newSchema.default })
         }
         onInputSchemaChange?.(inputsSchema)
     }
