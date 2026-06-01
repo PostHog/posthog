@@ -12966,6 +12966,11 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
+
     /**
      * * `pending` - Pending
     * `delivered` - Delivered
@@ -17869,6 +17874,8 @@ export namespace Schemas {
          * @nullable
          */
       feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
     }
 
     export interface FeatureFlagCreateRequestSchema {
@@ -25001,6 +25008,7 @@ export namespace Schemas {
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
     * `signals_scout` - Signals scout
+    * `logs` - Logs
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -25015,6 +25023,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      Logs: 'logs',
     } as const;
 
     /**
@@ -25026,6 +25035,7 @@ export namespace Schemas {
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
     * `cross_source_issue` - Cross source issue
+    * `alert_state_change` - Alert state change
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -25039,6 +25049,7 @@ export namespace Schemas {
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
     } as const;
 
     export interface SignalSourceConfig {
@@ -25852,12 +25863,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -31910,12 +31937,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -40423,6 +40466,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -45485,6 +45540,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
+    };
+
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
+
+
+    export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -49497,10 +49564,13 @@ export namespace Schemas {
     internal?: boolean;
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -49565,10 +49635,13 @@ export namespace Schemas {
     export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     };

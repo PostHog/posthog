@@ -13,6 +13,7 @@ from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -1171,11 +1172,15 @@ class TestFlagDefinitionsCache(BaseTest):
         assert config1.cache_name == "flag_definitions"
         assert config1.hypercache == flag_definitions_hypercache
         assert config1.update_fn == _update_flag_definitions_with_cohorts
+        # Grace-period skip prevents the verifier from flagging caches whose
+        # underlying flags were just updated and whose async rebuild is still in flight.
+        assert config1.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
 
         config2 = FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG
         assert config2.cache_name == "flag_definitions_no_cohorts"
         assert config2.hypercache == flag_definitions_without_cohorts_hypercache
         assert config2.update_fn == _update_flag_definitions_without_cohorts
+        assert config2.get_team_ids_to_skip_fix_fn == get_team_ids_with_recently_updated_flags
 
     def test_update_flag_definitions_cache_returns_false_on_partial_failure(self):
         FeatureFlag.objects.create(

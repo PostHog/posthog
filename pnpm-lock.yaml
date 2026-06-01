@@ -3219,8 +3219,6 @@ importers:
 
   products/product_tours: {}
 
-  products/query_performance_ai: {}
-
   products/replay:
     dependencies:
       '@posthog/icons':
@@ -3471,6 +3469,9 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+      react-window:
+        specifier: '*'
+        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/user_interviews:
     dependencies:
