@@ -1,8 +1,12 @@
 import type { ComponentType } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconRewindPlay, IconWarning, IconWrench } from '@posthog/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
+import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
+import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
+import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
+import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 
 export interface McpToolRendererProps {
@@ -50,7 +54,65 @@ class MapBackedRegistry implements McpToolRegistry {
  */
 export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 
-// Custom adapters are registered here as they land. The skeleton ships with the fallback only.
+// Custom adapters are registered here as they land. Each lives behind a `phai-sandbox-tool-{slug}`
+// gate (runtime config, not here). The single-exec inner tool names come in two conventions across
+// the in-flight specs/yaml — the hyphenated form (03_RICH_UI.md § 4.2) and the snake_case form
+// (MCP_TOOLS.md). We register both aliases so dispatch is robust to whichever the MCP server emits.
+
+// --- Data tools: insight (UI-A) ---
+// VisualizationArtifactAnswer renderer — create / update / query / read insight.
+for (const key of [
+    'insight-create',
+    'insight-update',
+    'insight-query',
+    'insight-read',
+    'create_insight',
+    'edit_insight',
+    'read_insight',
+]) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Insight',
+        icon: <IconGraph />,
+        Renderer: CreateInsightAdapter,
+    })
+}
+
+// --- Data tools: dashboard (UI-A) ---
+for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Dashboard',
+        icon: <IconDashboard />,
+        Renderer: UpsertDashboardAdapter,
+    })
+}
+
+// --- Data tools: session recordings (UI-A) ---
+for (const key of ['query-session-recordings-list', 'search_session_recordings', 'filter_session_recordings']) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Session recordings',
+        icon: <IconRewindPlay />,
+        Renderer: SearchSessionRecordingsAdapter,
+    })
+}
+
+// --- Data tools: error tracking (UI-A) ---
+for (const key of [
+    'query-error-tracking-issues-list',
+    'query-error-tracking-issue',
+    'query-error-tracking-issue-events',
+    'search_error_tracking_issues',
+    'filter_error_tracking_issues',
+]) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Error tracking',
+        icon: <IconWarning />,
+        Renderer: ErrorTrackingAdapter,
+    })
+}
 
 /** Looks up the renderer entry for a resolved tool key, falling back to the generic card. */
 export function lookupMcpToolRenderer(resolvedKey: string): McpToolRegistryEntry {
