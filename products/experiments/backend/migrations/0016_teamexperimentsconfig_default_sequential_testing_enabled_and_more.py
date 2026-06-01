@@ -25,7 +25,10 @@ class Migration(migrations.Migration):
                 blank=True,
                 help_text="Default tuning parameter for sequential testing. Roughly the sample size at which the confidence sequence is tightest. Overridden by the experiment-level `stats_config.frequentist.sequential_tuning_parameter` setting when set.",
                 null=True,
-                validators=[django.core.validators.MinValueValidator(1)],
+                validators=[
+                    django.core.validators.MinValueValidator(1),
+                    django.core.validators.MaxValueValidator(1000000000),
+                ],
             ),
         ),
     ]
