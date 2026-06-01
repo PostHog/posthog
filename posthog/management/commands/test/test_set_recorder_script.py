@@ -3,6 +3,7 @@ from io import StringIO
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
+from django.db import connection
 
 from parameterized import parameterized
 
@@ -125,7 +126,9 @@ class TestSetRecorderScriptCommand(BaseTest):
         # Team.objects.create() calls (each of which also creates a Project
         # in its own transaction). The test only cares that 2500 teams exist
         # for the management command to iterate over.
-        ids = [Team.objects.increment_id_sequence() for _ in range(2500)]
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT nextval('posthog_team_id_seq') FROM generate_series(1, 2500)")
+            ids = [row[0] for row in cursor.fetchall()]
         Project.objects.bulk_create([Project(id=i, organization=self.organization, name=f"Project {i}") for i in ids])
         Team.objects.bulk_create(
             [Team(id=i, project_id=i, organization=self.organization, name=f"Team {i}") for i in ids]

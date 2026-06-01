@@ -10,6 +10,7 @@ from parameterized import parameterized_class
 
 from posthog.models import Cohort, Person, Team
 from posthog.models.cohort.cohort import CohortPeople
+from posthog.models.project import Project
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
@@ -398,7 +399,6 @@ class TestPropertyToQStaticCohortShortCircuit(PersonhogTestMixin, BaseTest):
     def test_isolates_cohort_by_team_id(self):
         """A cohort owned by a different team must resolve to Q(pk__isnull=True),
         regardless of any CohortPeople rows or fake memberships set up for it."""
-        from posthog.models.project import Project
         from posthog.queries.base import property_to_Q
 
         _, other_team = Project.objects.create_with_team(
