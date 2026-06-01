@@ -1,17 +1,27 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconCheck, IconChevronRight, IconClock } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconCheck,
+    IconChevronRight,
+    IconClock,
+    IconCopy,
+    IconDownload,
+    IconFlask,
+} from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { UserInterviewTopicApi } from './generated/api.schemas'
+import type { TestInterviewLinkApi, UserInterviewTopicApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
@@ -44,7 +54,11 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         respondedCount,
         totalTargeted,
         responseRate,
+        linksCsvExporting,
+        testLink,
+        testLinkLoading,
     } = useValues(userInterviewLogic)
+    const { exportLinksCsv, loadTestLink } = useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -74,7 +88,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     return (
         <SceneContent>
             {/* Header */}
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-4 gap-4">
                 <div>
                     <LemonButton
                         type="tertiary"
@@ -87,6 +101,21 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     </LemonButton>
                     <h1 className="text-2xl font-bold mb-1">{topic.topic}</h1>
                     {topic.agent_context && <p className="text-muted mb-0 text-sm">{topic.agent_context}</p>}
+                </div>
+                <div className="shrink-0">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconDownload />}
+                        onClick={exportLinksCsv}
+                        loading={linksCsvExporting}
+                        disabledReason={
+                            totalTargeted === 0 ? 'Add interviewees to the topic before exporting links' : undefined
+                        }
+                        data-attr="export-interview-links-csv"
+                        tooltip="Download a CSV with each interviewee's personal interview link, for use in your own email tooling"
+                    >
+                        Export links (CSV)
+                    </LemonButton>
                 </div>
             </div>
 
@@ -112,6 +141,12 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                         <StatCard label="Awaiting response" value={pendingCount} color="warning" />
                         <StatCard label="Questions" value={questionCount} color="muted" />
                     </div>
+
+                    <TestInterviewWidget
+                        testLink={testLink}
+                        testLinkLoading={testLinkLoading}
+                        onRefresh={loadTestLink}
+                    />
 
                     {/* Targeted people list */}
                     <LemonWidget title={`People (${allIdentifiers.length})`}>
@@ -215,6 +250,106 @@ function DetailRow({ label, value }: { label: string; value: string }): JSX.Elem
             <span className="text-muted text-sm">{label}</span>
             <span className="text-sm font-medium">{value}</span>
         </div>
+    )
+}
+
+function TestInterviewWidget({
+    testLink,
+    testLinkLoading,
+    onRefresh,
+}: {
+    testLink: TestInterviewLinkApi | null
+    testLinkLoading: boolean
+    onRefresh: () => void
+}): JSX.Element {
+    const interviewUrl = testLink?.interview_url
+    const latest = testLink?.latest_test_interview ?? null
+
+    const handleCopy = (): void => {
+        if (interviewUrl) {
+            void copyToClipboard(interviewUrl, 'test interview link')
+        }
+    }
+
+    return (
+        <LemonWidget
+            title={
+                <span className="flex items-center gap-2">
+                    <IconFlask />
+                    <span>Test interview</span>
+                    <LemonTag type="warning">No real user needed</LemonTag>
+                </span>
+            }
+        >
+            <div className="p-3 space-y-3">
+                <p className="text-muted text-sm mb-0">
+                    Open this link to try the AI voice interview yourself — your test calls are kept separate from the
+                    targeted interviewees and the most recent one appears below.
+                </p>
+                {testLinkLoading && !testLink ? (
+                    <LemonSkeleton.Text className="h-4 w-[80%]" />
+                ) : interviewUrl ? (
+                    <div className="flex items-center gap-2">
+                        <Link to={interviewUrl} target="_blank" className="text-sm font-mono break-all">
+                            {interviewUrl}
+                        </Link>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={handleCopy}
+                            tooltip="Copy test interview link"
+                        />
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={onRefresh}
+                            loading={testLinkLoading}
+                            tooltip="Refresh test interview state"
+                        >
+                            Refresh
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <p className="text-danger text-sm mb-0">Couldn't load the test link. Try refreshing the page.</p>
+                )}
+                <div>
+                    <div className="text-xs font-semibold uppercase text-muted tracking-wide mb-1">
+                        Latest test transcript
+                    </div>
+                    {latest ? (
+                        <div className="text-sm space-y-2">
+                            <div className="text-muted">
+                                Recorded {dayjs(latest.completed_at).format('MMM D, YYYY [at] HH:mm')}
+                            </div>
+                            {latest.summary ? (
+                                <div>
+                                    <div className="text-xs font-semibold uppercase text-muted tracking-wide mb-1">
+                                        Summary
+                                    </div>
+                                    <LemonMarkdown>{latest.summary}</LemonMarkdown>
+                                </div>
+                            ) : null}
+                            {latest.transcript ? (
+                                <details>
+                                    <summary className="cursor-pointer text-xs uppercase text-muted tracking-wide">
+                                        Full transcript
+                                    </summary>
+                                    <pre className="text-xs whitespace-pre-wrap mt-2">{latest.transcript}</pre>
+                                </details>
+                            ) : null}
+                            {!latest.summary && !latest.transcript ? (
+                                <div className="text-muted">
+                                    The most recent test call completed but no transcript or summary was delivered.
+                                </div>
+                            ) : null}
+                        </div>
+                    ) : (
+                        <div className="text-sm text-muted">No test call has completed yet for this topic.</div>
+                    )}
+                </div>
+            </div>
+        </LemonWidget>
     )
 }
 

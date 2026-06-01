@@ -11,7 +11,7 @@
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
     },
     "dependencies": {
-        "@babel/core": "^7.22.10",
+        "@babel/core": "^7.26.10",
         "@babel/plugin-transform-class-properties": "^7.24.7",
         "@babel/plugin-transform-class-static-block": "^7.24.7",
         "@babel/plugin-transform-nullish-coalescing-operator": "^7.24.7",
@@ -21,7 +21,7 @@
         "@babel/preset-env": "^7.22.10",
         "@babel/preset-react": "^7.22.5",
         "@babel/preset-typescript": "^7.22.5",
-        "@babel/runtime": "^7.24.0",
+        "@babel/runtime": "^7.26.10",
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "catalog:",
@@ -51,10 +51,10 @@
         "postcss-loader": "^4.3.0",
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
-        "storybook": "^7.6.4",
+        "storybook": "^7.6.21",
         "storybook-addon-pseudo-states": "2.1.2",
         "style-loader": "^2.0.0",
-        "webpack": "^5.88.2",
+        "webpack": "5.88.2",
         "webpack-cli": "^5.1.4"
     },
     "devDependencies": {

@@ -42,7 +42,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
@@ -89,9 +88,49 @@ from posthog.utils import (
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    TeamDefaultEvaluationContext,
+    normalize_context_name,
+)
+from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+class TeamLogsConfigSerializer(serializers.ModelSerializer):
+    logs_distinct_id_attribute_key = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Log attribute key whose value should match a person's distinct_id. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
+            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "https://posthog.com/docs/logs/link-session-replay and the key the "
+            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
+            "your pipeline emits a different attribute."
+        ),
+    )
+
+    class Meta:
+        model = TeamLogsConfig
+        fields = ["logs_distinct_id_attribute_key"]
+
+
+def handle_logs_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the logs_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamLogsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamLogsConfigSerializer(config).data)
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -225,6 +264,25 @@ TEAM_CONFIG_FIELDS = (
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
+
+TEAM_CONFIG_MEMBER_FIELDS = (
+    "completed_snippet_onboarding",
+    "has_completed_onboarding_for",
+    "onboarding_tasks",
+    "session_recording_opt_in",
+    "autocapture_exceptions_opt_in",
+    "autocapture_web_vitals_opt_in",
+    "autocapture_web_vitals_allowed_metrics",
+    "surveys_opt_in",
+    "primary_dashboard",
+)
+TEAM_CONFIG_MEMBER_FIELDS_SET = set(TEAM_CONFIG_MEMBER_FIELDS)
+
+TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_MEMBER_FIELDS_SET) | {
+    "is_demo",
+    "app_urls",
+    "access_control",
+}
 
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
@@ -599,7 +657,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -1124,7 +1182,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         raise exceptions.PermissionDenied("Proactive tasks can only be enabled for authorized teams.")
 
     def validate(self, attrs: Any) -> Any:
-        attrs = validate_team_attrs(attrs, self.context["view"], self.context["request"], self.instance)
+        attrs = validate_team_attrs(attrs, self.context["view"], self.instance)
         return super().validate(attrs)
 
     def create(self, validated_data: dict[str, Any], **kwargs) -> Team:
@@ -1324,7 +1382,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
             from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1478,8 +1536,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if mixin_result is not None:
             return mixin_result
 
-        # If the request only contains config fields, require read:team scope
-        # Otherwise, require write:team scope (handled by APIScopePermission)
         # NOTE: This downgrade only applies to session-based auth (browser users).
         # All other auth methods (API keys, OAuth tokens, etc.) must have project:write
         # to modify any fields, preserving the semantic meaning of read-only API keys.
@@ -1487,8 +1543,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                non_team_config_fields = request_fields - TEAM_CONFIG_FIELDS_SET
-                if not non_team_config_fields:
+                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
@@ -1687,6 +1742,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         methods=["GET", "PATCH"],
         detail=True,
         permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this environment."""
+        return handle_logs_config(request, self.get_object())
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="experiments_config",
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
@@ -1705,6 +1770,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
                     "default_cuped_enabled",
+                    "default_cuped_lookback_days",
+                    "default_minimum_detectable_effect",
                 ]
 
         team = self.get_object()
@@ -2039,8 +2106,18 @@ def handle_conversations_token_on_update(
 
 
 def validate_team_attrs(
-    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, request: request.Request, instance: Team | Project | None
+    attrs: dict[str, Any], view: TeamAndOrgViewSetMixin, instance: Team | Project | None
 ) -> dict[str, Any]:
+    if instance is not None:
+        admin_fields_touched = TEAM_CONFIG_ADMIN_FIELDS_SET & attrs.keys()
+        if admin_fields_touched:
+            team_for_check = instance if isinstance(instance, Team) else instance.passthrough_team
+            level = view.user_permissions.team(team_for_check).effective_membership_level
+            if level is None or level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
+                )
+
     if "primary_dashboard" in attrs:
         if not instance:
             raise exceptions.ValidationError(

@@ -100,6 +100,8 @@ pub fn resolve_consistency(
     let level = get_consistency(read_options);
     if level.is_some() {
         counter!("personhog_router_consistency_source", "source" => "body").increment(1);
+    } else {
+        counter!("personhog_router_consistency_source", "source" => "none").increment(1);
     }
     level
 }
@@ -147,6 +149,7 @@ mod tests {
         metadata.insert("x-read-consistency", "strong".parse().unwrap());
         let body_options = Some(ReadOptions {
             consistency: ConsistencyLevel::Eventual.into(),
+            ..Default::default()
         });
         assert_eq!(
             resolve_consistency(&metadata, &body_options),
@@ -159,6 +162,7 @@ mod tests {
         let metadata = MetadataMap::new();
         let body_options = Some(ReadOptions {
             consistency: ConsistencyLevel::Strong.into(),
+            ..Default::default()
         });
         assert_eq!(
             resolve_consistency(&metadata, &body_options),

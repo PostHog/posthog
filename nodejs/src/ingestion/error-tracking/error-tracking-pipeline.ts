@@ -18,13 +18,16 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '../common/outputs'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import {
+    createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
+    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
-    createRateLimitToOverflowStep,
     createResolveTeamStep,
+    createSkipCookielessRateLimitToOverflowStep,
 } from '../event-preprocessing'
 import { createCreateEventStep } from '../event-processing/create-event-step'
 import { createEmitEventStep } from '../event-processing/emit-event-step'
@@ -74,6 +77,7 @@ export interface ErrorTrackingPipelineConfig {
     hogTransformer: ErrorTrackingHogTransformer | null
     cymbalClient: CymbalClient
     groupTypeManager: GroupTypeManager
+    cookielessManager: CookielessManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
     /**
@@ -134,17 +138,23 @@ function applyKeyedRateLimiters<TInput, TOutput, CInput, COutput, R extends stri
  * Creates the error tracking pipeline.
  *
  * The pipeline processes exception events through these phases:
- * 1. Parse headers - Extract token, timestamps from Kafka message headers
- * 2. Apply event restrictions - Billing limits, drop/overflow
- * 3. Parse Kafka message - Parse message body into event
- * 4. Resolve team - Look up team by token
- * 5. Cymbal processing - Symbolicate, fingerprint, and link issues
- * 6. Person properties - Fetch person by distinct_id (read-only)
- * 7. Hog transformations - Run team transformations (including GeoIP if enabled)
- * 8. Prepare event - Convert to PreIngestionEvent format, track if person found
- * 9. Group type mapping - Map group types to indexes (read-only)
- * 10. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
- * 11. Emit event - Produce to output topic
+ *  1. Parse headers - Extract token, timestamps from Kafka message headers
+ *  2. Apply event restrictions - Billing limits, drop/overflow
+ *  3. Skip-cookieless rate limit - Redirect non-cookieless rate-limited events to overflow
+ *     pre-parse (cookieless events pass through to step 6)
+ *  4. Parse Kafka message - Parse message body into event
+ *  5. Resolve team - Look up team by token
+ *  6. Apply cookieless processing - Rewrite distinct_id for cookieless events
+ *  7. Only-cookieless rate limit - Redirect cookieless rate-limited events to overflow
+ *     using the hashed distinct_id from step 6
+ *  8. Team-global rate limit - Drop events that exceed per-team caps (optional)
+ *  9. Cymbal processing - Symbolicate, fingerprint, and link issues
+ * 10. Person properties - Fetch person by distinct_id (read-only)
+ * 11. Hog transformations - Run team transformations (including GeoIP if enabled)
+ * 12. Prepare event - Convert to PreIngestionEvent format, track if person found
+ * 13. Group type mapping - Map group types to indexes (read-only)
+ * 14. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
+ * 15. Emit event - Produce to output topic
  *
  * Note: Cymbal runs before enrichment because it only needs the raw exception data
  * for symbolication and fingerprinting. This reduces payload size and avoids
@@ -168,6 +178,7 @@ export function createErrorTrackingPipeline(
         hogTransformer,
         cymbalClient,
         groupTypeManager,
+        cookielessManager,
         eventIngestionRestrictionManager,
         overflowEnabled,
         preservePartitionLocality,
@@ -188,20 +199,27 @@ export function createErrorTrackingPipeline(
     const pipeline = newBatchPipelineBuilder<ErrorTrackingPipelineInput, { message: Message }>()
         .messageAware((b) =>
             b
+                // Header-only steps: parse Kafka headers and apply token-level restrictions.
+                // Cheap; runs per-event before we touch the body.
+                .sequentially((b) =>
+                    b.pipe(createParseHeadersStep()).pipe(
+                        createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
+                            overflowEnabled,
+                            preservePartitionLocality,
+                        })
+                    )
+                )
+                // Rate-limit non-cookieless events to overflow before parsing the body.
+                // Cookieless events (headers.distinct_id === sentinel) pass through and are
+                // handled post-cookieless by createOnlyCookielessRateLimitToOverflowStep, which
+                // keys on the hashed distinct_id assigned by the cookieless step.
+                .pipeBatch(
+                    createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService)
+                )
+                // Body parse and team resolution. Anything that needs the parsed event lives here.
                 .sequentially((b) =>
                     b
-                        // Parse headers from Kafka message [REUSE]
-                        .pipe(createParseHeadersStep())
-                        // Apply event restrictions (billing limits, drop/overflow) [REUSE]
-                        .pipe(
-                            createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowEnabled,
-                                preservePartitionLocality,
-                            })
-                        )
-                        // Parse Kafka message body [REUSE]
                         .pipe(createParseKafkaMessageStep())
-                        // Resolve team from token [REUSE]
                         .pipe(
                             topHogWrapper(createResolveTeamStep(teamManager), [
                                 countOk('resolved_teams', (output) => ({
@@ -229,19 +247,29 @@ export function createErrorTrackingPipeline(
                     (b) =>
                         b
                             .teamAware((b) => {
-                                // Pre-Cymbal rate limit chain runs FIRST so that events we'd drop
-                                // never consume overflow-redirect cycles or symbolication budget.
-                                // Each spec becomes its own batch step, applied in array order.
-                                // Empty / undefined → no-op.
-                                const afterRateLimit = applyKeyedRateLimiters(b.gather(), preCymbalRateLimiters ?? [])
-                                const preCymbal = afterRateLimit
-                                    // Rate limit high-volume token:distinct_id pairs to overflow
+                                // Cookieless processing: rewrites event.distinct_id for cookieless
+                                // events. Must run as a batch and before any step that depends on
+                                // the final distinct ID.
+                                const afterCookieless = b
+                                    .gather()
+                                    .pipeBatch(createApplyCookielessProcessingStep(cookielessManager))
+                                    // Rate-limit only cookieless events to overflow now that they
+                                    // have a real hashed distinct_id. Non-cookieless events were
+                                    // rate-limited pre-parse above.
                                     .pipeBatch(
-                                        createRateLimitToOverflowStep(
+                                        createOnlyCookielessRateLimitToOverflowStep(
                                             preservePartitionLocality,
                                             overflowRedirectService
                                         )
                                     )
+                                // Pre-Cymbal team-global rate-limit chain. Drops events the team
+                                // has explicitly capped, so they never consume symbolication
+                                // budget. Empty / undefined → no-op.
+                                const afterRateLimit = applyKeyedRateLimiters(
+                                    afterCookieless,
+                                    preCymbalRateLimiters ?? []
+                                )
+                                const preCymbal = afterRateLimit
                                     // Refresh TTLs for overflow lane events (keeps Redis flags alive)
                                     .pipeBatch(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
                                 return (

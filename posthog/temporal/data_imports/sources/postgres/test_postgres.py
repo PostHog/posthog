@@ -37,6 +37,7 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     SSL_REQUIRED_AFTER_DATE,
     JsonAsStringLoader,
+    PostgresImplementation,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
@@ -49,6 +50,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_sslmode,
     _get_table,
     _has_duplicate_primary_keys,
+    _is_connection_dropped_error,
     _is_partitioned_table,
     _is_read_replica,
     _normalize_function_names,
@@ -91,6 +93,18 @@ class TestSafeDateLoader:
         assert loader.load(input_data) == expected
 
 
+class TestPostgresImplementationWiring:
+    def test_source_exposes_postgres_implementation_singleton(self):
+        source = PostgresSource()
+        assert isinstance(source.get_implementation, PostgresImplementation)
+        # Same instance across two PostgresSource constructions — module-level singleton.
+        assert source.get_implementation is PostgresSource().get_implementation
+
+    def test_get_incremental_filter_returns_filter_postgres_incremental_fields(self):
+        impl = PostgresSource().get_implementation
+        assert impl.get_incremental_filter() is filter_postgres_incremental_fields
+
+
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
     def source(self):
@@ -118,6 +132,7 @@ class TestPostgresSourceNonRetryableErrors:
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
             "Name or service not known",
+            "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -136,6 +151,54 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Source column type changed",
+            "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
+        ],
+    )
+    def test_widened_integer_column_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+
+class TestIsConnectionDroppedError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError("connection to server was lost"),
+            psycopg.OperationalError("connection to server was closed unexpectedly"),
+            psycopg.OperationalError("consuming input failed: EOF detected"),
+            psycopg.OperationalError("terminating connection due to administrator command"),
+            psycopg.errors.ProtocolViolation("SERVER CONN CRASHED?"),
+        ],
+    )
+    def test_connection_dropped_errors_are_detected(self, error):
+        assert _is_connection_dropped_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.errors.SerializationFailure("could not serialize access due to conflict with recovery"),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            psycopg.OperationalError("password authentication failed for user"),
+            # Initial-connect failures embed "connection to server …" but are
+            # permanent — they must not be misclassified as a recoverable drop.
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.UniqueViolation("duplicate key value violates unique constraint"),
+            ValueError("server conn crashed?"),
+            Exception("server conn crashed?"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_dropped_error(error) is False
 
 
 class TestPostgresSourceForPipelineSchemaResolution:
@@ -193,7 +256,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -222,7 +285,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -254,7 +317,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -286,7 +349,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -308,7 +371,7 @@ class TestPostgresSourceForPipelineSchemaResolution:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.models.external_data_schema.ExternalDataSchema.objects"
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
             ) as objects_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.postgres_source") as postgres_source_mock,
             mock.patch("posthog.temporal.data_imports.sources.postgres.source.source_requires_ssl", return_value=False),
@@ -415,6 +478,64 @@ class TestPostgresSchemaDiscovery:
         assert schemas["public.users"].source_table_name == "users"
         assert schemas["analytics.events"].source_schema == "analytics"
         assert schemas["analytics.events"].source_table_name == "events"
+
+    @pytest.mark.parametrize(
+        "selected_schema,requested_name,fetchall_results,expected_keys",
+        [
+            # Qualified lookup against a schema that's keyed unqualified (config.schema set).
+            # This is the multi-schema migration scenario: row name was rewritten to
+            # `public.tracking_link` while the source still has `schema="public"` configured.
+            (
+                "public",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+            # Unqualified lookup against an unqualified keyspace — the legacy path.
+            (
+                "public",
+                "tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"tracking_link"},
+            ),
+            # Qualified lookup against a qualified keyspace (no config.schema, multi-schema mode).
+            (
+                "",
+                "public.tracking_link",
+                (
+                    [("public", "tracking_link")],
+                    [("public", "tracking_link", "id", "integer", "NO", 1)],
+                ),
+                {"public.tracking_link"},
+            ),
+        ],
+    )
+    def test_get_schemas_accepts_qualified_and_unqualified_names(
+        self, selected_schema, requested_name, fetchall_results, expected_keys
+    ):
+        connection = self._mock_connection(*fetchall_results)
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.postgres.postgres._connect_to_postgres",
+            return_value=connection,
+        ):
+            schemas = get_schemas(
+                host="localhost",
+                port=5432,
+                database="postgres",
+                user="postgres",
+                password="postgres",
+                schema=selected_schema,
+                names=[requested_name],
+            )
+
+        assert set(schemas.keys()) == expected_keys
 
     def test_get_foreign_keys_qualifies_target_table_names_when_schema_is_blank(self):
         connection = self._mock_connection(

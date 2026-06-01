@@ -12,8 +12,6 @@ from rest_framework import request, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import ProductKey
-
 from posthog.api.documentation import extend_schema, extend_schema_field
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -192,7 +190,6 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.

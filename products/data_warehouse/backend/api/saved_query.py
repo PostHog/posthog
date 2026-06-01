@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -46,6 +46,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
@@ -53,19 +58,11 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
-from products.data_warehouse.backend.models import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    DataModelingJob,
-    DataWarehouseJoin,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryFolder,
-    clean_type,
-)
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 
 logger = structlog.get_logger(__name__)
 
@@ -190,8 +187,24 @@ class DataWarehouseSavedQueryMinimalSerializer(
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
+    @extend_schema_field(
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["HogQLQuery"], "default": "HogQLQuery"},
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        }
+    )
+    class QueryDefinitionField(serializers.JSONField):
+        pass
+
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
+    query = QueryDefinitionField(
+        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}',
+    )
     sync_frequency = serializers.SerializerMethodField()
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -272,9 +285,6 @@ class DataWarehouseSavedQuerySerializer(
             "soft_update": {"write_only": True},
             "name": {
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
-            },
-            "query": {
-                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
             },
         }
 
@@ -531,6 +541,19 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def validate_query(self, query):
+        if not isinstance(query, dict):
+            raise exceptions.ValidationError(
+                detail=(
+                    'Query must be a JSON object with a "query" key, '
+                    f"got {type(query).__name__}. "
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                )
+            )
+        if not isinstance(query.get("query"), str) or not query["query"].strip():
+            raise exceptions.ValidationError(
+                detail='Query object must contain a non-empty "query" key with the SQL string.'
+            )
+
         team_id = self.context["team_id"]
         user = self.context["request"].user
 
@@ -623,7 +646,6 @@ class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, 
         return normalized_name
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
@@ -675,7 +697,6 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.

@@ -6,6 +6,7 @@ import { Message } from 'node-rdkafka'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
+import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
@@ -19,7 +20,6 @@ import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import type { LlmAnalyticsConfig } from './llm-analytics/config'
 import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
@@ -38,7 +38,7 @@ type Brand<K, T> = K & { __brand: T }
 
 // Re-export config types from domain-specific files, this is to avoid mass refactors, we can eventually update it
 export type { CdpConfig } from './cdp/config'
-export type { LlmAnalyticsConfig } from './llm-analytics/config'
+export type { AIObservabilityConfig } from './ai-observability/config'
 export { KafkaSaslMechanism, PluginServerMode, stringToPluginServerMode } from './common/config'
 export type { CommonConfig, LogLevel } from './common/config'
 export type {
@@ -116,7 +116,7 @@ export type PluginServerService = {
 export interface PluginsServerConfig
     extends CommonConfig,
         CdpConfig,
-        LlmAnalyticsConfig,
+        AIObservabilityConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
         TracesIngestionConsumerConfig,
@@ -168,12 +168,14 @@ export interface PluginServerCapabilities {
     cdpBatchHogFlow?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
+    cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
     cdpCyclotronV2Janitor?: boolean
+    cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean

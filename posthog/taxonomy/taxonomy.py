@@ -1,6 +1,8 @@
 import re
 from typing import Literal, NotRequired, TypedDict
 
+STALE_EVENT_DAYS = 30
+
 
 class CoreFilterDefinition(TypedDict):
     """Like the CoreFilterDefinition type in the frontend, except no JSX.Element allowed."""
@@ -2534,7 +2536,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The MCP tool's description as advertised to the agent at the time of the call. Useful when triaging errors to see what the agent thought the tool would do — descriptions change over time, so the value captured here is the version the agent actually saw. Only present on mcp_tool_call and the paired $exception event.",
             "examples": [
                 "Run a HogQL/SQL query against PostHog.",
-                "Fetch the trace referenced by an LLM analytics URL.",
+                "Fetch the trace referenced by an AI observability URL.",
             ],
         },
         "$mcp_resource_name": {

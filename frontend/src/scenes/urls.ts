@@ -46,6 +46,7 @@ export const urls = {
     destinations: (): string => '/data-management/destinations',
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     transformations: (): string => '/data-management/transformations',
+    eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
@@ -147,11 +148,14 @@ export const urls = {
     /** After linking a social provider to an existing session (OAuth `next`; see posthog/api/authentication.py sso_login). */
     accountSocialConnected: (): string => '/account/social-connected',
     /**
-     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO) or
-     * `github-integration` (user GitHub App integration); see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
+     * PostHog Code / web return page after connecting an account. Use `github-login` (social SSO),
+     * `github-integration` (user GitHub App integration), or `slack-integration` (team Slack integration);
+     * see `AccountConnected` and `posthog/api/authentication.py` / `user_integration.py`.
      */
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
+    /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
+    credentialReview: (): string => '/account/credential-review',
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     emailMFAVerify: (): string => '/login/verify',
@@ -165,6 +169,7 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     vercelConnect: (): string => '/connect/vercel/link',
     vercelLinkError: (): string => '/integrations/vercel/link-error',
+    agenticAccountMismatch: (): string => '/agentic/account-mismatch',
     inviteSignup: (id: string): string => `/signup/${id}`,
     onboarding: ({
         campaign,
@@ -283,6 +288,10 @@ export const urls = {
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
     healthCategory: (category: string): string => `/health/${category}`,
+    healthAlerts: (presetKinds?: string[]): string =>
+        presetKinds && presetKinds.length > 0
+            ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
+            : '/health/alerts',
     inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',

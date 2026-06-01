@@ -194,6 +194,16 @@ export const extractValidationError = (error: Error | Record<string, any> | null
     return null
 }
 
+export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
+        if (error?.status === 400 || error?.status === 512) {
+            return error.code ?? error.data?.code ?? null
+        }
+    }
+
+    return null
+}
+
 export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         return error?.status === 512

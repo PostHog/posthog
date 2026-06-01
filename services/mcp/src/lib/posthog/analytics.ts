@@ -12,6 +12,11 @@ export enum AnalyticsEvent {
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 
+// Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server
+// no longer branches on a request version (v2 fully rolled out); this constant
+// keeps the property stable for dashboards that already filter on it.
+export const MCP_ANALYTICS_VERSION = 2
+
 export type MCPAnalyticsContext = {
     organizationId?: string
     projectId?: string
@@ -57,10 +62,12 @@ export type IdentityProvider = {
     getMcpClientName: () => Promise<string | undefined>
     getMcpClientVersion: () => Promise<string | undefined>
     getMcpProtocolVersion: () => Promise<string | undefined>
+    // Per-request `x-anthropic-client` value. Distinct from `mcpClientName`:
+    // tracks the live inner client on pooled MCP transports.
+    getMcpVendorClient: () => Promise<string | undefined>
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
-    getMcpVersion: () => Promise<number | undefined>
     getOAuthClientName: () => Promise<string | undefined>
     getReadOnly: () => Promise<boolean | undefined>
     getTransport: () => Promise<string | undefined>
@@ -68,7 +75,7 @@ export type IdentityProvider = {
     getMcpMode: () => Promise<string | undefined>
     // PostHog-side session UUID. Resolved from the wrapper-app `?sessionId=`
     // query hint via `SessionManager.getSessionUuid()` and used as `$session_id`
-    // / `$ai_session_id` to drive Session Replay and LLM Analytics grouping.
+    // / `$ai_session_id` to drive Session Replay and AI observability grouping.
     // Only set when a wrapping consumer app supplied the hint.
     getSessionUuid: () => Promise<string | undefined>
     // Streamable-HTTP transport session id from the inbound `Mcp-Session-Id`
@@ -139,13 +146,13 @@ async function buildEventTags(identity: IdentityProvider): Promise<Record<string
     }
 }
 
-async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
+export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
-        mcpVersion,
         clientUserAgent,
         mcpClientName,
         mcpClientVersion,
         mcpProtocolVersion,
+        mcpVendorClient,
         mcpRegion,
         analyticsContext,
         oauthClientName,
@@ -156,11 +163,11 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
         mcpSessionId,
         mcpConversationId,
     ] = await Promise.all([
-        identity.getMcpVersion(),
         identity.getClientUserAgent(),
         identity.getMcpClientName(),
         identity.getMcpClientVersion(),
         identity.getMcpProtocolVersion(),
+        identity.getMcpVendorClient(),
         identity.getRegion(),
         identity.getAnalyticsContext(),
         identity.getOAuthClientName(),
@@ -179,10 +186,11 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
 
     return {
         $ai_product: 'mcp',
-        $mcp_version: mcpVersion,
+        $mcp_version: MCP_ANALYTICS_VERSION,
         $mcp_client_user_agent: clientUserAgent,
         $mcp_client_name: mcpClientName,
         $mcp_client_version: mcpClientVersion,
+        mcp_vendor_client: mcpVendorClient,
         $mcp_protocol_version: mcpProtocolVersion,
         $mcp_region: mcpRegion,
         $mcp_organization_id: analyticsContext?.organizationId,
@@ -200,7 +208,7 @@ async function buildEventProperties(identity: IdentityProvider): Promise<Record<
     }
 }
 
-function redactSensitiveInformation(text: string): string {
+export function redactSensitiveInformation(text: string): string {
     return text.replace(/Bearer\s?[\w\-.]+/g, '<redacted>')
 }
 

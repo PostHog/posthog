@@ -7,19 +7,23 @@ from typing import Optional
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -28,10 +32,20 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(exclude=True)
 class DebugCHQueries(viewsets.ViewSet):
     """
     List recent CH queries initiated by this user.
     """
+
+    # `INTERNAL` (not `"query_performance"`) so a staff user's full-access (`*`) PAT
+    # cannot satisfy the scope check via the wildcard short-circuit in
+    # `APIScopePermission.has_permission`. The action below pins the explicit
+    # `query_performance:read` requirement, which only programmatically-minted PATs hold.
+    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    required_scopes: Optional[list[str]] = None
 
     def _get_path(self, query: str) -> Optional[str]:
         try:
@@ -344,7 +358,7 @@ class DebugCHQueries(viewsets.ViewSet):
             logger.warning("Failed to fetch org ARR from billing tables, skipping", exc_info=True)
             return {}
 
-    @action(detail=False, methods=["GET"], url_path="slowest_queries")
+    @action(detail=False, methods=["GET"], url_path="slowest_queries", required_scopes=["query_performance:read"])
     def slowest_queries(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view slowest queries.")

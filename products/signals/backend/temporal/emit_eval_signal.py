@@ -146,7 +146,7 @@ async def emit_eval_signal_activity(inputs: EmitEvalSignalInputs) -> None:
     if summary.significance < 0.1:
         return
 
-    from products.signals.backend.api import emit_signal
+    from products.signals.backend.facade.api import emit_signal
 
     await emit_signal(
         team=team,

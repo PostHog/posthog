@@ -18,12 +18,14 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         person_ids: &[i64],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>>;
 
     async fn get_persons_by_uuids(
         &self,
         team_id: i64,
         uuids: &[Uuid],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>>;
 
     // Lookups by distinct ID
@@ -38,26 +40,30 @@ pub trait PersonLookup: Send + Sync {
         &self,
         team_id: i64,
         distinct_ids: &[String],
+        include_properties: bool,
     ) -> StorageResult<Vec<(String, Option<Person>)>>;
 
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        include_properties: bool,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>>;
 
     // Deletes
 
-    /// Delete persons by UUID for a given team. In a single transaction:
-    /// 1. Deletes associated posthog_persondistinctid rows (FK is NO ACTION, would block otherwise)
-    /// 2. Deletes the posthog_person rows (posthog_featureflaghashkeyoverride cascades at DB level)
-    /// Returns the number of deleted person records.
+    /// Delete persons by UUID for a given team. Large batches are split into
+    /// fixed-size chunks and deleted concurrently. Each chunk runs in its own
+    /// transaction, deleting distinct_ids first (FK is NO ACTION) then persons
+    /// (feature flag hash key overrides cascade at the DB level). Idempotent:
+    /// deleting already-removed UUIDs is a no-op.
     async fn delete_persons(&self, team_id: i64, uuids: &[Uuid]) -> StorageResult<i64>;
 
-    /// Delete up to `batch_size` persons for a team. In a single transaction:
-    /// 1. Selects up to batch_size person IDs for the team
-    /// 2. Deletes their posthog_persondistinctid rows (FK is NO ACTION)
-    /// 3. Deletes the posthog_person rows (posthog_featureflaghashkeyoverride cascades at DB level)
-    /// Returns the number of deleted person records. 0 means no more persons to delete.
+    /// Delete up to `batch_size` persons for a team. Selects person IDs with
+    /// FOR UPDATE SKIP LOCKED, then splits them into fixed-size chunks and
+    /// deletes concurrently. Each chunk deletes distinct_ids first (FK is
+    /// NO ACTION) then persons (feature flag hash key overrides cascade at
+    /// the DB level). Returns the number of deleted person records; 0 means
+    /// no more persons to delete.
     async fn delete_persons_batch_for_team(
         &self,
         team_id: i64,

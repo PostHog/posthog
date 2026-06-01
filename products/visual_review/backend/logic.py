@@ -7,6 +7,7 @@ Called by api/api.py facade. Do not call from outside this module.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -468,7 +469,9 @@ def _resolve_baselines(repo, run_type: str, branch: str) -> dict[str, str]:
     return _resolve_baselines_at_ref(repo, github, run_type, branch)
 
 
-def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -> tuple[dict[str, str], int]:
+def _resolve_baselines_with_merge_base(
+    repo: Repo, run_type: str, branch: str, commit_sha: str | None = None
+) -> tuple[dict[str, str], int]:
     """Fetch branch baseline merged with merge-base baseline.
 
     The branch baseline tracks approvals. The merge-base baseline
@@ -479,6 +482,12 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
     Identifiers previously approved as REMOVED on this branch are
     tombstoned — healing would otherwise resurrect them from master
     and re-flag them as removed on every subsequent run.
+
+    When *commit_sha* is provided and the run is on the default branch,
+    the baseline is fetched at that exact commit instead of the branch
+    tip.  This prevents a race where a newer commit updates the
+    baseline file before an older commit's VR run completes.
+
     Returns (merged_baseline, healed_count).
     """
     try:
@@ -489,9 +498,13 @@ def _resolve_baselines_with_merge_base(repo: Repo, run_type: str, branch: str) -
         logger.info("visual_review.no_github_integration", repo_id=str(repo.id))
         return {}, 0
 
-    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, branch)
-
     default_branch = _get_default_branch(github, repo.repo_full_name)
+
+    # On the default branch, pin the baseline to the exact commit so
+    # that back-to-back pushes don't race against each other.
+    baseline_ref = commit_sha if (commit_sha and branch == default_branch) else branch
+    branch_baseline = _resolve_baselines_at_ref(repo, github, run_type, baseline_ref)
+
     if branch == default_branch:
         return branch_baseline, 0
 
@@ -810,8 +823,12 @@ def complete_run(run_id: UUID) -> Run:
     # Fetch baseline merged with merge-base to heal rebase-induced drift.
     # Branch baseline tracks approvals; merge-base fills entries lost when
     # git rebase replays a full-file bot commit destructively.
+    # Pass commit_sha so default-branch runs fetch the baseline at the
+    # exact commit being tested, avoiding races with concurrent pushes.
     try:
-        baseline, healed_count = _resolve_baselines_with_merge_base(repo, run.run_type, run.branch)
+        baseline, healed_count = _resolve_baselines_with_merge_base(
+            repo, run.run_type, run.branch, commit_sha=run.commit_sha
+        )
     except GitHubRateLimitError:
         # Roll back to PENDING so the caller can retry after the limit resets
         Run.objects.filter(id=run_id).update(status=RunStatus.PENDING)
@@ -1133,6 +1150,34 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     repo = run.repo
     if not repo.repo_full_name:
         return False, "Repo has no GitHub full name configured"
+
+    try:
+        check_run_response = _github_api_request(
+            "GET",
+            repo,
+            f"check-runs/{check_run_id}",
+            timeout=10,
+        )
+    except Exception:
+        return False, "Failed to verify check run ownership"
+
+    if check_run_response.status_code != 200:
+        return False, f"Could not fetch check run details (status {check_run_response.status_code})"
+
+    try:
+        check_run_data = check_run_response.json()
+    except Exception:
+        return False, "Failed to parse check run response"
+
+    if check_run_data.get("head_sha") != run.commit_sha:
+        logger.warning(
+            "visual_review.ci_rerun_sha_mismatch",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+            expected_sha=run.commit_sha,
+            actual_sha=check_run_data.get("head_sha"),
+        )
+        return False, "Check run does not belong to this commit"
 
     try:
         response = _github_api_request(
@@ -1597,6 +1642,188 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
         logger.warning("visual_review.pr_comment_error", run_id=str(run.id), pr_number=run.pr_number, exc_info=True)
 
 
+_MARKDOWN_ESCAPE_CHARS = r"\`*_{}[]()#+-.!|<>~"
+
+
+def _escape_markdown(value: str) -> str:
+    """Escape GitHub-flavored markdown control characters in user-supplied text."""
+    return "".join(f"\\{c}" if c in _MARKDOWN_ESCAPE_CHARS else c for c in value)
+
+
+@dataclass(frozen=True)
+class _Approver:
+    label: str
+    is_github_login: bool
+
+
+def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | None) -> str:
+    """Build the markdown body of the post-approval PR comment.
+
+    A short textual summary of what changed — reviewers go to PostHog to see
+    the actual snapshots.
+    """
+    from django.conf import settings
+
+    counts = Counter(
+        run.snapshots.filter(
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.NEW, SnapshotResult.REMOVED)
+        ).values_list("result", flat=True)
+    )
+
+    run_url = f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
+    if approver is None:
+        approver_text = "a reviewer"
+    elif approver.is_github_login:
+        approver_text = f"@{approver.label}"
+    else:
+        approver_text = _escape_markdown(approver.label)
+    baseline_sha = run.metadata.get("baseline_commit_sha")
+    sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
+
+    header = f"✅ **Visual changes approved** by {approver_text}{sha_text}.\n\n[View this run in PostHog]({run_url})\n"
+
+    parts = []
+    for result, label in (
+        (SnapshotResult.CHANGED, "changed"),
+        (SnapshotResult.NEW, "new"),
+        (SnapshotResult.REMOVED, "removed"),
+    ):
+        if counts.get(result):
+            parts.append(f"{counts[result]} {label}")
+
+    if not parts:
+        return header
+
+    return header + f"\n{', '.join(parts)}.\n"
+
+
+def _resolve_approver(user_id: int | None) -> _Approver | None:
+    """Resolve the approver's identity for the PR comment.
+
+    Prefers a verified GitHub login (safe to mention with `@`); otherwise
+    falls back to email local-part or first name, which the caller must
+    treat as untrusted markdown.
+    """
+    if user_id is None:
+        return None
+
+    from posthog.models.user import User
+    from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+    gh = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB)
+        .order_by("-created_at")
+        .first()
+    )
+    if gh is not None:
+        github_login = UserGitHubIntegration(gh).github_login
+        if github_login:
+            return _Approver(label=github_login, is_github_login=True)
+
+    user = User.objects.filter(id=user_id).only("email", "first_name").first()
+    if user is None:
+        return None
+    if user.email and "@" in user.email:
+        return _Approver(label=user.email.split("@", 1)[0], is_github_login=False)
+    if user.first_name:
+        return _Approver(label=user.first_name, is_github_login=False)
+    return None
+
+
+def _post_approval_comment(run: Run, repo: Repo) -> None:
+    """Update the existing PR comment in place with the approved-changes summary.
+
+    Best-effort and never raises. Skips silently when the original review-prompt
+    comment was never posted (no `github_comment_id` in run.metadata) — i.e.,
+    when the review wasn't initiated by a human.
+    """
+    if not repo.enable_pr_comments:
+        return
+
+    if not repo.repo_full_name or run.pr_number is None:
+        return
+
+    if run.review_decision != ReviewDecision.HUMAN_APPROVED:
+        return
+
+    comment_id = run.metadata.get("github_comment_id")
+    if not comment_id:
+        return
+    if isinstance(comment_id, str) and comment_id.isdigit():
+        comment_id = int(comment_id)
+    if not isinstance(comment_id, int):
+        return
+
+    approver = _resolve_approver(run.approved_by_id)
+    body = _build_approval_comment_body(run, repo, approver)
+
+    try:
+        response = _github_api_request(
+            method="PATCH",
+            repo=repo,
+            path=f"issues/comments/{comment_id}",
+            json={"body": body},
+            timeout=15,
+        )
+        if response.status_code == 200:
+            return
+
+        # Comment was deleted or inaccessible — fall back to creating a new one
+        if response.status_code == 404:
+            create_response = _github_api_request(
+                method="POST",
+                repo=repo,
+                path=f"issues/{run.pr_number}/comments",
+                json={"body": body},
+                timeout=15,
+            )
+            if create_response.status_code == 201:
+                new_comment_id = create_response.json().get("id")
+                if isinstance(new_comment_id, int):
+                    run.metadata["github_comment_id"] = new_comment_id
+                    run.save(update_fields=["metadata"], using=WRITER_DB)
+                return
+            logger.warning(
+                "visual_review.approval_comment_create_failed",
+                run_id=str(run.id),
+                pr_number=run.pr_number,
+                status_code=create_response.status_code,
+                response=create_response.text[:200],
+            )
+            return
+
+        logger.warning(
+            "visual_review.approval_comment_update_failed",
+            run_id=str(run.id),
+            comment_id=comment_id,
+            status_code=response.status_code,
+            response=response.text[:200],
+        )
+    except GitHubRateLimitError:
+        # Bubble up so the Celery task can retry with the suggested countdown.
+        raise
+    except Exception:
+        logger.warning(
+            "visual_review.approval_comment_error",
+            run_id=str(run.id),
+            pr_number=run.pr_number,
+            exc_info=True,
+        )
+
+
+def post_approval_comment_for_run(run_id: UUID, team_id: int | None = None) -> None:
+    """Public entrypoint for the Celery task to update a PR comment after approval."""
+    run = (
+        Run.objects.select_related("repo")
+        .using(READER_DB)
+        .filter(id=run_id, **({"team_id": team_id} if team_id is not None else {}))
+        .first()
+    )
+    if run is None:
+        return
+    _post_approval_comment(run, run.repo)
+
+
 @transaction.atomic(using=WRITER_DB)
 def approve_all(
     run_id: UUID,
@@ -1767,6 +1994,16 @@ def approve_run(
     if commit_to_github:
         _post_commit_status(run, repo, "success", "Visual changes approved")
 
+    if commit_to_github and review_decision == ReviewDecision.HUMAN_APPROVED:
+        from .tasks.tasks import post_approval_comment
+
+        run_id_str = str(run.id)
+        run_team_id = run.team_id
+        transaction.on_commit(
+            lambda: post_approval_comment.delay(run_team_id, run_id_str),
+            using=WRITER_DB,
+        )
+
     return run
 
 
@@ -1932,7 +2169,6 @@ def get_baselines_overview(repo_id: UUID) -> _BaselineOverviewRaw:
       - 2 queries for the recent-drift average (resolve last-N runs, aggregate)
       - 3 cheap aggregate queries for totals
     """
-    from collections import Counter
     from datetime import timedelta
 
     from .facade.contracts import BASELINE_DRIFT_RECENT_RUN_COUNT, BASELINE_OVERVIEW_MAX_ENTRIES

@@ -13,11 +13,11 @@ from typing import Any
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.postgres_helpers import (
     _normalize_default_schema,
     rename_postgres_schemas_to_match_source_schemas,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 def _qualify_legacy_row(
@@ -65,7 +65,7 @@ def apply_on_schema_clear(source: ExternalDataSource, old_schema: str) -> None:
     """Pin legacy rows to the OLD schema before the next refresh sees `default_schema=None` and
     misroutes them to `"public"`.
     """
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     rows = list(ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id, deleted=False))
     rows_by_name = {row.name: row for row in rows}
@@ -160,7 +160,7 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     falls back to `"public"` when `job_inputs.schema` is blank, missing the actual schema.
     Returns `{old_name: new_name}` for callers feeding `sync_old_schemas_with_new_schemas`.
     """
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     rows = list(
         ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False).select_related("table")

@@ -15,8 +15,9 @@ from rest_framework import status
 
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 
-from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):
@@ -460,3 +461,90 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # The orphan duplicate is soft-deleted.
         orphan.refresh_from_db()
         assert orphan.deleted is True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_persists_detected_primary_key_for_cdc(self, mock_get_source):
+        # A table added after source creation is discovered via refresh. Its detected primary key
+        # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
+        # CDC (which requires a PK) — otherwise the toggle fails with "refresh to pick one up".
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.cdc_test_orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("customer", "text", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="cdc_test_orders",
+                detected_primary_keys=["id"],
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="public.cdc_test_orders",
+            should_sync=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+        assert schema.primary_key_columns == ["id"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_refresh_schemas_does_not_clobber_existing_primary_key(self, mock_get_source):
+        # A user-set / previously-stored PK must survive refresh even if discovery detects a
+        # different one — the explicit choice wins.
+        mock_get_source.return_value.parse_config.return_value = None
+        mock_get_source.return_value.get_schemas.return_value = [
+            SourceSchema(
+                name="public.orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("order_key", "text", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="orders",
+                detected_primary_keys=["id"],
+            ),
+        ]
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={"host": "localhost", "port": 5432, "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source_id=source.pk,
+            name="public.orders",
+            should_sync=False,
+            sync_type_config={"primary_key_columns": ["order_key"]},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/refresh_schemas/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["order_key"]

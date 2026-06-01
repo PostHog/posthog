@@ -4,6 +4,8 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TagSelect } from 'lib/components/TagSelect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -107,6 +109,14 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             },
             sorter: (a: EndpointType, b: EndpointType) => a.name.localeCompare(b.name),
         },
+        {
+            title: 'Tags',
+            key: 'tags',
+            dataIndex: 'tags',
+            render: function RenderTags(tags: EndpointType['tags']) {
+                return tags && tags.length > 0 ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+            },
+        } as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdAtColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         createdByColumn<EndpointType>() as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         atColumn<EndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
@@ -200,23 +210,33 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
 
     return (
         <SceneContent>
-            <div className="flex justify-between gap-2 flex-wrap">
+            <div className="flex justify-between gap-2 flex-wrap items-center">
                 <LemonInput
                     type="search"
-                    className="w-1/3"
                     placeholder="Search for endpoints"
                     onChange={(x) => setFilters({ search: x })}
                     value={filters.search}
                 />
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={() => loadEndpoints()}
-                    loading={allEndpointsLoading}
-                    size="small"
-                >
-                    Reload
-                </LemonButton>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="ml-1">
+                        <b>Tags</b>
+                    </span>
+                    <TagSelect
+                        defaultLabel="Any tags"
+                        value={filters.tags}
+                        onChange={(tags) => setFilters({ tags })}
+                        data-attr="endpoints-tag-filter"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => loadEndpoints()}
+                        loading={allEndpointsLoading}
+                        size="small"
+                    >
+                        Reload
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 data-attr="endpoints-table"

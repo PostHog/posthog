@@ -20,6 +20,8 @@ on:
         paths:
             - 'rust/**'
             - '.github/workflows/rust-docker-build.yml'
+            - '.github/workflows/_rust-build-images.yml'
+            - '.github/rust-images.yml'
         branches:
             - 'master'
 
@@ -65,6 +67,9 @@ jobs:
                     - release: property-defs-rs
                       digest_key: property-defs-rs
                       values_key: image
+                    - release: property-vals-rs
+                      digest_key: property-vals-rs
+                      values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
                       values_key: image
@@ -79,6 +84,9 @@ jobs:
                       values_key: image
                     - release: cymbal
                       digest_key: cymbal
+                      values_key: image
+                    - release: cymbal-resolution
+                      digest_key: cymbal-resolution
                       values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker

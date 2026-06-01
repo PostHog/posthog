@@ -6,7 +6,6 @@ from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -14,11 +13,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Annotation, Insight
+from posthog.models import Annotation
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 @dataclasses.dataclass(frozen=True)
@@ -128,7 +128,6 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
-@extend_schema(tags=["core"])
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
@@ -152,7 +151,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         # across all actions — including `partial_update`, so they cannot be
         # individually edited or restored while their parent is soft-deleted.
         # They reappear automatically when the parent is restored. Mirrors how
-        # alerts behave (see posthog/tasks/alerts/checks.py).
+        # alerts behave (see posthog/temporal/alerts/activities.py).
         queryset = queryset.filter(
             Q(dashboard_item__isnull=True) | Q(dashboard_item__deleted=False),
             Q(dashboard__isnull=True) | Q(dashboard__deleted=False),
