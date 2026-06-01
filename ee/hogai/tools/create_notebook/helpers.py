@@ -59,7 +59,7 @@ async def save_notebook_to_db(
     artifact: AgentArtifact,
     blocks: Sequence[StoredBlock],
     title: str,
-    state_messages: Sequence[AssistantMessageUnion] | None = None,
+    state_messages: Sequence[AssistantMessageUnion],
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
@@ -67,10 +67,8 @@ async def save_notebook_to_db(
     If a Notebook with the artifact's short_id already exists, update its content.
     Otherwise, create a new Notebook.
     """
-    # Resolve referenced visualizations through the unified handler so we hit state,
-    # AgentArtifact, and Insight sources (same as the chat preview). Resolving only
-    # via AgentArtifact misses charts that live only in conversation state or as
-    # saved Insight rows and silently degrades them to "[Visualization not found]".
+    # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
+    # matching the chat preview. A direct AgentArtifact query misses state-only charts.
     ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]
     viz_lookup: dict[str, dict] = {}
     if ref_ids:

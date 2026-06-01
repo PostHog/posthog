@@ -65,7 +65,7 @@ class TestSaveNotebookToDb(BaseTest):
             artifact=parent,
             blocks=blocks,
             title="Test Notebook",
-            state_messages=state_messages,
+            state_messages=state_messages or [],
         )
         return Notebook.objects.get(team=self.team, short_id=parent.short_id)
 
