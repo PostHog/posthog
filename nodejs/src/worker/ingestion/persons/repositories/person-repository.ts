@@ -35,32 +35,39 @@ export class PersonPropertiesSizeViolationError extends Error {
 }
 
 /**
- * Read-only person lookups. Used by services that only need to fetch person
- * data (CDP, error tracking, future pipelines). Implementations may be
- * backed by personhog gRPC with no Postgres dependency.
+ * Read-only person lookups backed by personhog gRPC. Used by services that
+ * only need to fetch person data (CDP, error tracking, future pipelines).
+ * Always uses eventual consistency. Independent of PersonRepository — the
+ * two interfaces have different parameter shapes reflecting their different
+ * backends and consumers.
  */
 export interface PersonReadRepository {
-    fetchPerson(teamId: Team['id'], distinctId: string): Promise<InternalPerson | undefined>
+    fetchPerson(teamId: Team['id'], distinctId: string, callerTag?: string): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]>
 
-    fetchPersonsByPersonIds(teamPersons: { teamId: TeamId; personId: string }[]): Promise<InternalPerson[]>
+    fetchPersonsByPersonIds(
+        teamPersons: { teamId: TeamId; personId: string }[],
+        callerTag?: string
+    ): Promise<InternalPerson[]>
 
     fetchDistinctIdsForPersons(
         teamId: TeamId,
         personIntIds: string[],
-        options?: { limitPerPerson?: number }
+        options?: { limitPerPerson?: number },
+        callerTag?: string
     ): Promise<Record<string, string[]>>
 }
 
 /**
  * Full person repository with read and write operations. Used by the
  * ingestion pipeline which creates, updates, merges, and deletes persons.
- * Extends PersonReadRepository so ingestion code can also perform lookups.
+ * Postgres-backed with support for consistency control and row locking.
  */
-export interface PersonRepository extends PersonReadRepository {
+export interface PersonRepository {
     fetchPerson(
         teamId: Team['id'],
         distinctId: string,

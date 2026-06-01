@@ -89,7 +89,6 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
-            undefined,
             'cdp/hogflow-person-enrichment'
         )
 
@@ -117,7 +116,6 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
-            undefined,
             'cdp/hogflow-person-enrichment'
         )
 

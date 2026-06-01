@@ -62,29 +62,33 @@ export class PersonHogReadRepository implements PersonReadRepository {
         private clientLabel: string = 'unknown'
     ) {}
 
-    async fetchPerson(teamId: number, distinctId: string): Promise<InternalPerson | undefined> {
+    async fetchPerson(teamId: number, distinctId: string, callerTag?: string): Promise<InternalPerson | undefined> {
         const results = await withRetry(() =>
             timedGrpc(this.clientLabel, 'fetchPerson', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }])
+                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], callerTag)
             )
         )
         return results.length > 0 ? results[0] : undefined
     }
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
         return withRetry(() =>
             timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
             )
         )
     }
 
-    async fetchPersonsByPersonIds(teamPersons: { teamId: TeamId; personId: string }[]): Promise<InternalPerson[]> {
+    async fetchPersonsByPersonIds(
+        teamPersons: { teamId: TeamId; personId: string }[],
+        callerTag?: string
+    ): Promise<InternalPerson[]> {
         return withRetry(() =>
             timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
             )
         )
     }
@@ -92,11 +96,17 @@ export class PersonHogReadRepository implements PersonReadRepository {
     async fetchDistinctIdsForPersons(
         teamId: TeamId,
         personIntIds: string[],
-        options?: { limitPerPerson?: number }
+        options?: { limitPerPerson?: number },
+        callerTag?: string
     ): Promise<Record<string, string[]>> {
         return withRetry(() =>
             timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
-                this.grpcClient.persons.getDistinctIdsForPersons(teamId, personIntIds, options?.limitPerPerson)
+                this.grpcClient.persons.getDistinctIdsForPersons(
+                    teamId,
+                    personIntIds,
+                    options?.limitPerPerson,
+                    callerTag
+                )
             )
         )
     }
