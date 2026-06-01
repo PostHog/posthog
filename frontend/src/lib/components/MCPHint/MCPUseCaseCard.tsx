@@ -79,7 +79,7 @@ export function MCPUseCaseCard({
                 </h4>
             </div>
             <div className="text-sm text-default">
-                Ask <AgentBadgeRotator surfaceKey={surfaceKey} />:
+                Ask <AgentBadgeRotator />:
             </div>
             <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
                 {examples.map((example) => (
