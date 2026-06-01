@@ -97,7 +97,13 @@ test.describe('Quick create survey from feature flag', () => {
     test.beforeEach(async ({ page, playwrightSetup }) => {
         // Dedicated empty workspace per test — no shared demo team, so the feature-flag
         // list only contains the flag this test creates (see playwright-test-base deprecation).
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        // Seed one $autocapture event so its definition lands in the taxonomy and the
+        // "launch survey with event" test can pick "Autocapture" from the event selector.
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+            events: [{ event: '$autocapture', distinct_id: 'survey-seed-user', timestamp: '2024-11-03T12:00:00Z' }],
+        })
         await playwrightSetup.login(page, workspace)
 
         name = randomString('ff')
@@ -159,10 +165,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, [])
     })
 
-    // TODO un-skip: the empty no_demo_data workspace has no `$autocapture` event
-    // definition, so the taxonomic event picker never lists "Autocapture". Re-enable
-    // once the beforeEach seeds an autocapture event (or pick an always-present event).
-    test.skip('launch survey with event', async ({ page }) => {
+    test('launch survey with event', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
 
