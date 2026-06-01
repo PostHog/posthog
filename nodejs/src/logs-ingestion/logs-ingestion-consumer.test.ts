@@ -1045,6 +1045,9 @@ describe('LogsIngestionConsumer', () => {
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
 
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
             const messages = [
                 ...(await createKafkaMessages([createLogMessage()], {
                     token: team.api_token,
