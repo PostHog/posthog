@@ -129,6 +129,9 @@ describe('the authorized urls list logic', () => {
             // www-equivalence both directions
             { url: 'https://example.com', authorized: ['https://www.example.com'], expected: true },
             { url: 'https://www.example.com', authorized: ['https://example.com'], expected: true },
+            // Protocol must match: an http origin must not match an https-only authorized entry
+            { url: 'http://example.com', authorized: ['https://example.com'], expected: false },
+            { url: 'http://www.example.com', authorized: ['https://example.com'], expected: false },
             // wildcard subdomains and ports
             { url: 'https://app.example.com', authorized: ['https://*.example.com'], expected: true },
             { url: 'https://a.b.example.com', authorized: ['https://*.example.com'], expected: true },

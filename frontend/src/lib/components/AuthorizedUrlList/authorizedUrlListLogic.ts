@@ -219,8 +219,12 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
                 if (authorizedUrlParsed.protocol + '//' + authorizedUrlParsed.host === urlWithoutPath) {
                     return true
                 }
-                // www-equivalence: compare hostnames with www. stripped
-                return stripWww(authorizedUrlParsed.hostname) === hostNormalized
+                // www-equivalence: same protocol, hostnames equal with www. stripped. The protocol
+                // check keeps an http origin from matching an https-only authorized entry.
+                return (
+                    authorizedUrlParsed.protocol === parsedUrl.protocol &&
+                    stripWww(authorizedUrlParsed.hostname) === hostNormalized
+                )
             } catch {
                 return false
             }
