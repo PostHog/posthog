@@ -16,7 +16,12 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.naming_convention import NamingConvention
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.consts import (
+    MERGE_MAX_ROW_GROUP_SIZE,
+    MERGE_SOURCE_CHUNK_SIZE,
+    MERGE_WRITE_BATCH_SIZE,
+    PARTITION_KEY,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     conditional_lru_cache_async,
     normalize_column_name,
@@ -26,6 +31,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
+_WRITER_PROPERTIES = deltalake.WriterProperties(
+    write_batch_size=MERGE_WRITE_BATCH_SIZE,
+    max_row_group_size=MERGE_MAX_ROW_GROUP_SIZE,
+)
+
 
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
@@ -34,6 +44,7 @@ def _write_deltalake(
     mode: Literal["error", "append", "overwrite", "ignore"],
     schema_mode: Literal["merge", "overwrite"] | None,
     commit_properties: deltalake.CommitProperties | None = None,
+    writer_properties: deltalake.WriterProperties | None = None,
 ) -> None:
     deltalake.write_deltalake(
         table_or_uri=table_or_uri,
@@ -42,6 +53,7 @@ def _write_deltalake(
         mode=mode,
         schema_mode=schema_mode,
         commit_properties=commit_properties,
+        writer_properties=writer_properties,
     )
 
 
@@ -268,14 +280,16 @@ class DeltaTableHelper:
                         predicate: str,
                         merge_commit_properties: deltalake.CommitProperties | None,
                     ):
+                        # Reader is single-use; built here right before its one execute.
                         return (
                             existing_delta_table.merge(
-                                source=filtered_table,
+                                source=filtered_table.to_reader(max_chunksize=MERGE_SOURCE_CHUNK_SIZE),
                                 source_alias="source",
                                 target_alias="target",
                                 predicate=predicate,
                                 streamed_exec=True,
                                 commit_properties=merge_commit_properties,
+                                writer_properties=_WRITER_PROPERTIES,
                             )
                             .when_matched_update_all()
                             .when_not_matched_insert_all()
@@ -291,14 +305,16 @@ class DeltaTableHelper:
             else:
                 # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
+                    # Reader is single-use; built here right before its one execute.
                     return (
                         existing_delta_table.merge(
-                            source=data,
+                            source=data.to_reader(max_chunksize=MERGE_SOURCE_CHUNK_SIZE),
                             source_alias="source",
                             target_alias="target",
                             predicate=" AND ".join(predicate_ops),
                             streamed_exec=False,
                             commit_properties=commit_properties,
+                            writer_properties=_WRITER_PROPERTIES,
                         )
                         .when_matched_update_all()
                         .when_not_matched_insert_all()
@@ -340,6 +356,7 @@ class DeltaTableHelper:
                     mode=mode,
                     schema_mode=schema_mode,
                     commit_properties=commit_properties,
+                    writer_properties=_WRITER_PROPERTIES,
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
@@ -353,6 +370,7 @@ class DeltaTableHelper:
                     mode=mode,
                     schema_mode="overwrite",
                     commit_properties=commit_properties,
+                    writer_properties=_WRITER_PROPERTIES,
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -376,6 +394,7 @@ class DeltaTableHelper:
                 mode="append",
                 schema_mode="merge",
                 commit_properties=commit_properties,
+                writer_properties=_WRITER_PROPERTIES,
             )
 
         delta_table = await self.get_delta_table()
@@ -433,13 +452,15 @@ class DeltaTableHelper:
                 # redelivery would see the tagged commit, treat the batch as already done, and
                 # silently skip the append → data loss. Tag only the terminal commit (step 2).
                 def _do_scd2_close(first_per_pk: pa.Table, predicate: str) -> dict:
+                    # Reader is single-use; built here right before its one execute.
                     return (
                         existing_delta_table.merge(
-                            source=first_per_pk,
+                            source=first_per_pk.to_reader(max_chunksize=MERGE_SOURCE_CHUNK_SIZE),
                             source_alias="source",
                             target_alias="target",
                             predicate=predicate,
                             streamed_exec=False,
+                            writer_properties=_WRITER_PROPERTIES,
                         )
                         .when_matched_update(updates={"valid_to": "source.valid_from"})
                         .execute()
@@ -466,6 +487,7 @@ class DeltaTableHelper:
             mode="append",
             schema_mode="merge",
             commit_properties=commit_properties,
+            writer_properties=_WRITER_PROPERTIES,
         )
 
         delta_table = await self.get_delta_table()

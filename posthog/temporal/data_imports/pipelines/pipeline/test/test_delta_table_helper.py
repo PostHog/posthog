@@ -3,10 +3,13 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pyarrow as pa
 import deltalake
+import deltalake.exceptions
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import _WRITER_PROPERTIES, DeltaTableHelper
 
 
 def _make_logger():
@@ -152,8 +155,6 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
         commit_metadata: dict[str, str] | None,
         expected_custom_metadata: dict[str, str] | None,
     ):
-        import pyarrow as pa
-
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
         data = pa.table({"id": [1, 2, 3]})
         mock_delta = MagicMock()
@@ -180,3 +181,139 @@ class TestWriteToDeltalakeCommitMetadataPassThrough:
             else:
                 assert isinstance(commit_properties, deltalake.CommitProperties)
                 assert commit_properties.custom_metadata == expected_custom_metadata
+
+
+def _make_merge_delta() -> MagicMock:
+    delta = MagicMock()
+    builder = MagicMock()
+    delta.merge.return_value = builder
+    builder.when_matched_update_all.return_value = builder
+    builder.when_not_matched_insert_all.return_value = builder
+    builder.when_matched_update.return_value = builder
+    builder.execute.return_value = {"num_target_rows_inserted": 0}
+    return delta
+
+
+class TestWriterPropertiesAndReaderSource:
+    """1.2 (tuned WriterProperties on every delta write) + 1.3 (merge source is a streamed RecordBatchReader)."""
+
+    @pytest.mark.asyncio
+    async def test_partitioned_merge_uses_reader_and_writer_properties(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        helper._is_first_sync = False
+        data = pa.table({"id": [1, 2, 3, 4], PARTITION_KEY: ["a", "a", "b", "b"]})
+        delta = _make_merge_delta()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=delta)),
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="incremental", should_overwrite_table=False, primary_keys=["id"]
+            )
+
+        assert delta.merge.call_count == 2
+        total_rows = 0
+        for call in delta.merge.call_args_list:
+            assert call.kwargs["streamed_exec"] is True
+            assert call.kwargs["writer_properties"] is _WRITER_PROPERTIES
+            source = call.kwargs["source"]
+            assert isinstance(source, pa.RecordBatchReader)
+            total_rows += pa.Table.from_batches(list(source)).num_rows
+        assert total_rows == 4
+
+    @pytest.mark.asyncio
+    async def test_unpartitioned_merge_uses_reader_and_writer_properties(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        helper._is_first_sync = False
+        data = pa.table({"id": [1, 2, 3]})
+        delta = _make_merge_delta()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=delta)),
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="incremental", should_overwrite_table=False, primary_keys=["id"]
+            )
+
+        assert delta.merge.call_count == 1
+        kwargs = delta.merge.call_args.kwargs
+        assert kwargs["streamed_exec"] is False
+        assert kwargs["writer_properties"] is _WRITER_PROPERTIES
+        source = kwargs["source"]
+        assert isinstance(source, pa.RecordBatchReader)
+        assert pa.Table.from_batches(list(source)).num_rows == 3
+
+    @pytest.mark.asyncio
+    async def test_full_refresh_passes_writer_properties_and_keeps_table_on_retry(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table({"id": [1, 2, 3]})
+        delta = _make_merge_delta()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=delta)),
+            patch(
+                "deltalake.write_deltalake",
+                side_effect=[deltalake.exceptions.SchemaMismatchError("mismatch"), None],
+            ) as mock_write,
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="full_refresh", should_overwrite_table=True, primary_keys=None
+            )
+
+        assert mock_write.call_count == 2
+        for call in mock_write.call_args_list:
+            assert call.kwargs["writer_properties"] is _WRITER_PROPERTIES
+            # data must stay a re-iterable Table so the retry isn't handed an exhausted reader.
+            assert isinstance(call.kwargs["data"], pa.Table)
+
+    @pytest.mark.asyncio
+    async def test_append_passes_writer_properties_with_table_source(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table({"id": [1, 2, 3]})
+        delta = _make_merge_delta()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=delta)),
+            patch("deltalake.write_deltalake") as mock_write,
+        ):
+            await helper.write_to_deltalake(
+                data=data, write_type="append", should_overwrite_table=False, primary_keys=None
+            )
+
+        assert mock_write.call_args.kwargs["writer_properties"] is _WRITER_PROPERTIES
+        assert isinstance(mock_write.call_args.kwargs["data"], pa.Table)
+
+    @pytest.mark.asyncio
+    async def test_scd2_close_uses_reader_and_append_passes_writer_properties(self):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        data = pa.table(
+            {
+                "id": [1, 2],
+                "valid_from": [1, 2],
+                "valid_to": pa.array([None, None], type=pa.int64()),
+            }
+        )
+        delta = _make_merge_delta()
+
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=delta)),
+            patch.object(helper, "_evolve_delta_schema", AsyncMock(return_value=delta)),
+            patch("deltalake.write_deltalake") as mock_write,
+        ):
+            await helper.write_scd2_to_deltalake(data=data, primary_keys=["id"])
+
+        close_kwargs = delta.merge.call_args.kwargs
+        assert close_kwargs["streamed_exec"] is False
+        assert close_kwargs["writer_properties"] is _WRITER_PROPERTIES
+        assert isinstance(close_kwargs["source"], pa.RecordBatchReader)
+
+        assert mock_write.call_args.kwargs["writer_properties"] is _WRITER_PROPERTIES
+        assert isinstance(mock_write.call_args.kwargs["data"], pa.Table)
+
+    def test_writer_properties_values_match_rfc(self):
+        assert _WRITER_PROPERTIES.write_batch_size == 8_192
+        assert _WRITER_PROPERTIES.max_row_group_size == 131_072
