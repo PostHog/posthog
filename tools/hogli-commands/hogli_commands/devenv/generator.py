@@ -240,8 +240,14 @@ printf '    {blue}hogli dev:setup{reset}    Configure which services run\\n'
 printf '    {blue}hogli dev:explain{reset}  Show why each service is running\\n'
 echo ''
 printf '{gray}  ─────────────────────────────────────{reset}\\n'
+printf '  {bold}Path:{reset}      {gray}%s{reset}\\n' "${{REPOSITORY_ROOT:-$PWD}}"
 printf '  {bold}Products:{reset}  {blue}{", ".join(products)}{reset}\\n'
 printf '  {bold}Processes:{reset} {process_count} active\\n'
+if [ -n "${{_POSTHOG_OP_RESOLVED:-}}" ]; then
+    printf '  {bold}Secrets:{reset}   {blue}1Password{reset} {gray}(op run){reset}\\n'
+else
+    printf '  {bold}Secrets:{reset}   {gray}local .env files{reset}\\n'
+fi
 echo ''
 printf '  {bold}Log in with:{reset} test@posthog.com - {blue}12345678{reset}\\n'
 printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to your workflow.{reset}\\n'
