@@ -62,10 +62,10 @@ from posthog.permissions import (
     CREATE_ACTIONS,
     AccessControlPermission,
     APIScopePermission,
-    OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    UserCanCreateProjectPermission,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1596,7 +1596,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(OrganizationAdminWritePermissions)
+                    permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":

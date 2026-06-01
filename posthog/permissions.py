@@ -875,3 +875,27 @@ class UserCanInvitePermission(BasePermission):
             return True
 
         return members_can_invite
+
+
+class UserCanCreateProjectPermission(BasePermission):
+    """
+    Only allows Admins+, and Members if the members_can_create_projects org setting is True.
+    """
+
+    message = "You need to be an organization admin or above to create new projects."
+
+    def has_permission(self, request: Request, view) -> bool:
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return True
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+
+        return bool(organization.members_can_create_projects)

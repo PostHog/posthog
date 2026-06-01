@@ -202,6 +202,9 @@ export function Members(): JSX.Element | null {
     const membersCanInviteRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
+    const membersCanCreateProjectsRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const membersCanUsePersonalApiKeysRestrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
     })
@@ -387,6 +390,26 @@ export function Members(): JSX.Element | null {
                     checked={!!currentOrganization?.members_can_invite}
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
                     disabledReason={membersCanInviteRestrictionReason}
+                />
+            </PayGateMini>
+
+            <h3 className="mt-4">Project settings</h3>
+            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+                <p>
+                    Control who can create new projects. When enabled, organization admins and owners are notified each
+                    time a member creates one. Admins and owners can always create projects.
+                </p>
+                <LemonSwitch
+                    label={
+                        <span>
+                            Members can create new projects in <i>{currentOrganization?.name}</i>
+                        </span>
+                    }
+                    bordered
+                    data-attr="org-members-can-create-projects-toggle"
+                    checked={!!currentOrganization?.members_can_create_projects}
+                    onChange={(members_can_create_projects) => updateOrganization({ members_can_create_projects })}
+                    disabledReason={membersCanCreateProjectsRestrictionReason}
                 />
             </PayGateMini>
 

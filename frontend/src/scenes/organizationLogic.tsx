@@ -25,6 +25,7 @@ export type OrganizationUpdatePayload = Partial<
         | 'logo_media_id'
         | 'enforce_2fa'
         | 'members_can_invite'
+        | 'members_can_create_projects'
         | 'members_can_use_personal_api_keys'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
@@ -132,11 +133,15 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
         projectCreationForbiddenReason: [
             (s) => [s.currentOrganization],
-            (currentOrganization): string | null =>
-                !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
-                    ? 'You need to be an organization admin or above to create new projects.'
-                    : null,
+            (currentOrganization): string | null => {
+                const isAdminOrAbove =
+                    !!currentOrganization?.membership_level &&
+                    currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
+                if (isAdminOrAbove || currentOrganization?.members_can_create_projects) {
+                    return null
+                }
+                return 'You need to be an organization admin or above to create new projects.'
+            },
         ],
         isAdminOrOwner: [
             (s) => [s.currentOrganization],
