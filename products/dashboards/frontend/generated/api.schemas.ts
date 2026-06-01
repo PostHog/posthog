@@ -7708,8 +7708,8 @@ export interface AddDashboardWidgetRequestApi {
      * @maxLength 64
      */
     widget_type: string
-    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list, session_replay_list). */
-    config: ErrorTrackingListWidgetConfigApi
+    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+    config: unknown
     /**
      * Optional custom display name for the widget tile.
      * @maxLength 400
