@@ -173,6 +173,17 @@ class TestSkillTemplateViewSet(APIBaseTest):
         assert body["body"] == "hello"
         assert len(body["files"]) == 1
 
+    def test_duplicate_blank_description_rejected(self) -> None:
+        # The duplicate path must enforce the spec's non-empty description
+        # like create/publish — a blank one can't sneak through to freeze.
+        self._create("orig2")
+        res = self.client.post(
+            f"{self.base_url}name/orig2/duplicate/",
+            data={"name": "copy2", "description": "   "},
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
     # ---- File CRUD ----
 
     def test_create_file_then_delete(self) -> None:

@@ -56,7 +56,7 @@ from .models import (
     AgentRevisionSkillTemplate,
     AgentSkillTemplate,
 )
-from .skill_frontmatter import assemble_skill_md
+from .skill_frontmatter import SKILL_NAME_RE, assemble_skill_md
 
 
 class FreezeError(Exception):
@@ -333,9 +333,11 @@ def _write_custom_tool_to_bundle(
 # An alias becomes a bundle directory segment (`skills/<alias>/…`,
 # `tools/<alias>/…`) and the runtime spec `id`. Constrain it to a single
 # safe path segment so a draft spec can't escape the bundle root via
-# `../`, nested `a/b`, or absolute paths. Permits hyphen + underscore so
-# existing tool aliases (e.g. `stripe_lookup`) stay valid.
-_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# `../`, nested `a/b`, or absolute paths. Tools permit hyphen + underscore
+# so existing aliases (e.g. `stripe_lookup`) stay valid; skills are
+# stricter because the alias also becomes the assembled SKILL.md `name`,
+# which must satisfy the Agent Skills spec slug (`SKILL_NAME_RE`).
+_TOOL_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _require_alias(entry: dict[str, Any], *, kind: str, index: int) -> str:
@@ -346,7 +348,15 @@ def _require_alias(entry: dict[str, Any], *, kind: str, index: int) -> str:
             kind=kind,
             index=index,
         )
-    if not _ALIAS_RE.match(alias):
+    if kind == "skill":
+        if not SKILL_NAME_RE.match(alias):
+            raise FreezeError(
+                f"spec.skills[{index}] alias {alias!r} must be a valid Agent Skills name "
+                "(lowercase letters, digits, single hyphens) — it becomes the SKILL.md `name`.",
+                kind=kind,
+                index=index,
+            )
+    elif not _TOOL_ALIAS_RE.match(alias):
         raise FreezeError(
             f"spec.{kind}s[{index}] alias {alias!r} must be a single path segment "
             "(letters, digits, hyphen, underscore) — no slashes or '..'.",

@@ -346,9 +346,14 @@ export async function unzip(file: File, budget: ByteBudget = new ByteBudget()): 
         if (name.endsWith('/')) {
             continue // directory entry
         }
-        // Charge the declared uncompressed size up front so a zip bomb is
-        // rejected before we spend CPU inflating it.
-        budget.add(uncompSize, name)
+        // Cheap pre-check on the *declared* size (catches an honestly-huge
+        // entry without inflating). The declared size is attacker-controlled,
+        // so it is NOT trusted as the real guard — `inflateRaw` enforces the
+        // cap on the *actual* output below, and the budget is charged the
+        // real byte count.
+        if (uncompSize > MAX_FILE_BYTES) {
+            throw new UploadLimitError(`${name} exceeds the ${MAX_FILE_BYTES.toLocaleString()}-byte per-file limit.`)
+        }
 
         if (localOffset + 30 > buf.length) {
             malformed()
@@ -361,7 +366,8 @@ export async function unzip(file: File, budget: ByteBudget = new ByteBudget()): 
             malformed()
         }
         const raw = buf.subarray(dataStart, dataStart + compSize)
-        const bytes = method === 0 ? raw : await inflateRaw(raw)
+        const bytes = method === 0 ? raw : await inflateRaw(raw, MAX_FILE_BYTES, name)
+        budget.add(bytes.byteLength, name)
         out.push({ path: name, content: decoder.decode(bytes) })
     }
     return out
@@ -378,7 +384,39 @@ function findEocd(view: DataView, length: number): number {
     return -1
 }
 
-async function inflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
-    const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'))
-    return new Uint8Array(await new Response(stream).arrayBuffer())
+/**
+ * Inflate a raw DEFLATE stream, aborting once the *actual* output passes
+ * `maxBytes`. The zip's declared uncompressed size is attacker-controlled
+ * (a 1-byte declaration can hide a multi-GB stream), so we meter the real
+ * decompressed output chunk-by-chunk and cancel the stream the moment it
+ * exceeds the cap — memory never grows past ~`maxBytes` + one chunk.
+ */
+async function inflateRaw(bytes: Uint8Array, maxBytes: number, label: string): Promise<Uint8Array> {
+    const reader = new Blob([bytes as BlobPart])
+        .stream()
+        .pipeThrough(new DecompressionStream('deflate-raw'))
+        .getReader()
+    const chunks: Uint8Array[] = []
+    let total = 0
+    for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+            break
+        }
+        total += value.byteLength
+        if (total > maxBytes) {
+            await reader.cancel()
+            throw new UploadLimitError(
+                `${label} inflates past the ${maxBytes.toLocaleString()}-byte per-file limit (possible zip bomb).`
+            )
+        }
+        chunks.push(value)
+    }
+    const out = new Uint8Array(total)
+    let offset = 0
+    for (const chunk of chunks) {
+        out.set(chunk, offset)
+        offset += chunk.byteLength
+    }
+    return out
 }

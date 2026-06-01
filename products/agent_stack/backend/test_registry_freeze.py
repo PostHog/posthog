@@ -232,6 +232,11 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
             ("absolute", "/etc/passwd"),
             ("dot", "."),
             ("space", "bad alias"),
+            # A skill alias becomes the SKILL.md `name`, so it must be a valid
+            # Agent Skills slug — uppercase / underscores are rejected even
+            # though they're filesystem-safe.
+            ("uppercase", "MySkill"),
+            ("underscore", "my_skill"),
         ]
     )
     def test_unsafe_alias_raises(self, _name: str, alias: str) -> None:

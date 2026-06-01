@@ -360,12 +360,16 @@ class SkillTemplateDuplicateSerializer(serializers.Serializer):
     description = serializers.CharField(
         max_length=DESCRIPTION_MAX,
         required=False,
-        allow_blank=True,
-        help_text="Description for the new template. Defaults to the source's description.",
+        help_text="Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description.",
     )
 
     def validate_name(self, value: str) -> str:
         return _validate_template_name(value)
+
+    def validate_description(self, value: str) -> str:
+        # Match create/publish: an explicit description must satisfy the spec
+        # (non-empty). Omitting it falls back to the source's description.
+        return _spec(validate_description, value)
 
 
 class SkillTemplateFileWriteSerializer(serializers.Serializer):
