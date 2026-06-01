@@ -18,7 +18,7 @@ export interface ConfigurePromotedProductModalProps {
 const PRODUCT_OPTIONS = PROMOTED_PRODUCT_KEYS.map((value) => ({ value, label: labelForPromotedProductKey(value) }))
 
 export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigurePromotedProductModalProps): JSX.Element {
-    const { pendingProduct, defaultProductKey } = useValues(promotedProductLogic)
+    const { pendingProduct, defaultProductKey, override } = useValues(promotedProductLogic)
     const { setPendingProduct, setOverride, clearOverride } = useActions(promotedProductLogic)
 
     const handleSave = (): void => {
@@ -43,9 +43,7 @@ export function ConfigurePromotedProductModal({ isOpen, onClose }: ConfigureProm
                     <LemonButton
                         type="tertiary"
                         onClick={handleReset}
-                        disabledReason={
-                            pendingProduct === defaultProductKey ? 'That is your current choice' : undefined
-                        }
+                        disabledReason={override ? undefined : 'No override to reset'}
                     >
                         Reset to default ({labelForPromotedProductKey(defaultProductKey)})
                     </LemonButton>
