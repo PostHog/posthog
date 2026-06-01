@@ -25,7 +25,9 @@ def _make_digest(team: Team) -> PulseDigest:
         )
 
 
-def _make_finding(digest: PulseDigest, team: Team, label: str = "Test metric", rank: int = 0) -> PulseFinding:
+def _make_finding(
+    digest: PulseDigest, team: Team, label: str = "Test metric", rank: int = 0, evidence: dict | None = None
+) -> PulseFinding:
     with team_scope(team.id):
         return PulseFinding.objects.create(
             digest=digest,
@@ -37,6 +39,7 @@ def _make_finding(digest: PulseDigest, team: Team, label: str = "Test metric", r
             change_pct=0.25,
             impact=2.24,
             robust_z=2.5,
+            evidence=evidence,
             narrative=f"{label} rose 25%.",
             rank=rank,
         )
@@ -55,6 +58,14 @@ class TestPulseFindingSerializerFields(APIBaseTest):
         self.assertNotIn("z_score", data)
         self.assertEqual(data["robust_z"], 2.5)
         self.assertEqual(data["impact"], 2.24)
+
+    @patch(FLAG_TARGET, return_value=True)
+    def test_finding_exposes_evidence(self, _mock) -> None:
+        digest = _make_digest(self.team)
+        finding = _make_finding(digest, self.team, evidence={"session_ids": ["abc", "def"]})
+        resp = self.client.get(f"/api/environments/{self.team.id}/pulse_findings/{finding.id}/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.json())
+        self.assertEqual(resp.json()["evidence"], {"session_ids": ["abc", "def"]})
 
     @patch(FLAG_TARGET, return_value=True)
     def test_subscription_drops_channel_fields(self, _mock) -> None:

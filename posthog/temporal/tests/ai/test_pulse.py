@@ -18,17 +18,23 @@ from posthog.temporal.ai.pulse.detection import (
     _extract_weekly_series,
 )
 from posthog.temporal.ai.pulse.narrative import (
+    MAX_NEW_ISSUES_FOR_AI_CONTEXT,
     NARRATIVE_MAX_TOKENS,
     NARRATIVE_MODEL,
     NARRATIVE_TIMEOUT_SECONDS,
+    REPLAY_EVIDENCE_LIMIT,
     SYNTHESIS_SYSTEM_PROMPT,
     _attribute_finding,
+    _collect_replay_evidence,
     _describe_flag_change,
     _enrich_one,
     _fallback_narrative,
+    _fetch_error_signals,
     _fetch_flag_changes,
+    _finding_event,
     _generate_narrative,
     _pick_top_contributor,
+    _query_session_ids,
     _sanitize_for_prompt,
     enrich_findings,
     synthesize_digest,
@@ -50,6 +56,22 @@ def _finding(*, impact: float, robust_z: float, label: str) -> Finding:
         change_pct=-0.5,
         impact=impact,
         robust_z=robust_z,
+    )
+
+
+def _finding_with_event(event: str) -> Finding:
+    return Finding(
+        descriptor=MetricDescriptor(
+            source="top_event",
+            source_id=1,
+            label=event,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": event}]},
+        ),
+        current_value=50.0,
+        baseline_value=100.0,
+        change_pct=-0.5,
+        impact=10.0,
+        robust_z=4.0,
     )
 
 
@@ -372,7 +394,7 @@ class TestSynthesizeDigestFeedsFlagChangesToLLM:
         flag_changes = [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]
 
         async def _fake_resolve():
-            return MagicMock(name="team"), MagicMock(name="user"), [], flag_changes
+            return MagicMock(name="team"), MagicMock(name="user"), [], flag_changes, []
 
         # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
         mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
@@ -450,3 +472,260 @@ class TestFetchFlagChanges:
         )
 
         assert out == [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]
+
+
+class TestFetchErrorSignals:
+    @parameterized.expand(
+        [
+            (
+                "maps_and_sanitizes",
+                [
+                    {"name": "Payment <timeout>", "occurrence_count": 42},
+                    {"name": "NullPointer", "occurrence_count": 3},
+                ],
+                [{"name": "Payment timeout", "count": 42}, {"name": "NullPointer", "count": 3}],
+            ),
+            (
+                "missing_fields_default_safely",
+                [{"name": None}, {}],
+                [{"name": "Untitled issue", "count": 0}, {"name": "Untitled issue", "count": 0}],
+            ),
+            ("empty_list", [], []),
+        ]
+    )
+    def test_maps_issues(self, _name, issues, expected):
+        with patch("products.error_tracking.backend.facade.api.get_new_issues_for_team", return_value=issues):
+            assert _fetch_error_signals(MagicMock(id=1)) == expected
+
+    def test_caps_to_max(self):
+        issues = [{"name": f"issue{i}", "occurrence_count": i} for i in range(20)]
+        with patch("products.error_tracking.backend.facade.api.get_new_issues_for_team", return_value=issues):
+            assert len(_fetch_error_signals(MagicMock(id=1))) == MAX_NEW_ISSUES_FOR_AI_CONTEXT
+
+    def test_degrades_to_empty_on_facade_error(self):
+        # A ClickHouse hiccup (or no error tracking) must never break the additive synthesis step.
+        with patch(
+            "products.error_tracking.backend.facade.api.get_new_issues_for_team",
+            side_effect=RuntimeError("clickhouse down"),
+        ):
+            assert _fetch_error_signals(MagicMock(id=1)) == []
+
+
+class TestSynthesisPromptFramesErrorIssues:
+    def test_prompt_covers_new_error_issues_as_coincidence(self):
+        assert "error issue" in SYNTHESIS_SYSTEM_PROMPT
+        assert "never proven cause" in SYNTHESIS_SYSTEM_PROMPT
+
+
+class TestSynthesizeDigestFeedsErrorIssuesToLLM:
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async")
+    async def test_error_issues_reach_the_model(self, mock_db_wrap):
+        error_signals = [{"name": "Payment timeout", "count": 42}]
+
+        async def _fake_resolve():
+            return MagicMock(name="team"), MagicMock(name="user"), [], [], error_signals
+
+        # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
+        mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
+
+        fake_chain = MagicMock()
+        fake_chain.ainvoke = AsyncMock(return_value="A metric dropped alongside a new error.")
+        with (
+            patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
+            patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
+        ):
+            mock_llm_cls.return_value.__or__ = MagicMock(return_value=fake_chain)
+            result = await synthesize_digest(
+                team_id=1,
+                user_id=None,
+                findings=[
+                    _make_enriched(_finding(impact=10.0, robust_z=4.0, label="A")),
+                    _make_enriched(_finding(impact=5.0, robust_z=3.0, label="B")),
+                ],
+                period_start="2026-05-19T00:00:00+00:00",
+                period_end="2026-05-26T00:00:00+00:00",
+            )
+
+        assert result == "A metric dropped alongside a new error."
+        human_message = fake_chain.ainvoke.call_args.args[0][1]
+        assert "Payment timeout" in human_message.content
+
+
+class TestFindingEvent:
+    @parameterized.expand(
+        [
+            ("happy_path", {"kind": "TrendsQuery", "series": [{"event": "purchase"}]}, "purchase"),
+            ("no_series", {"kind": "TrendsQuery"}, None),
+            ("empty_series", {"kind": "TrendsQuery", "series": []}, None),
+            ("non_dict_series_item", {"series": ["nope"]}, None),
+            ("missing_event_key", {"series": [{"kind": "EventsNode"}]}, None),
+            ("empty_event", {"series": [{"event": ""}]}, None),
+            ("non_string_event", {"series": [{"event": 123}]}, None),
+        ]
+    )
+    def test_extract(self, _name, query, expected):
+        finding = Finding(
+            descriptor=MetricDescriptor(source="top_event", label="m", query=query),
+            current_value=1.0,
+            baseline_value=1.0,
+            change_pct=0.5,
+            impact=1.0,
+            robust_z=1.0,
+        )
+        assert _finding_event(finding) == expected
+
+
+class TestQuerySessionIds:
+    def test_builds_valid_recordings_query_and_extracts_ids(self):
+        # Patch only the runner; RecordingsQuery is constructed for real so its (extra='forbid')
+        # schema validates the shape — a wrong field name here would raise.
+        fake_result = MagicMock(results=[{"session_id": "s1"}, {"session_id": "s2"}, {"no_id": True}])
+        fake_runner_cls = MagicMock()
+        fake_runner_cls.return_value.run.return_value = fake_result
+
+        with patch(
+            "posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery",
+            fake_runner_cls,
+        ):
+            out = _query_session_ids(
+                team=MagicMock(),
+                event_name="purchase",
+                prop_key="$browser",
+                prop_value="Safari",
+                date_from="2026-05-19",
+                date_to="2026-05-26",
+            )
+
+        assert out == ["s1", "s2"]  # the row without a session_id is dropped
+        query_arg = fake_runner_cls.call_args.kwargs["query"]
+        assert query_arg.events[0]["id"] == "purchase"
+        assert query_arg.events[0]["type"] == "events"
+        assert query_arg.events[0]["properties"][0]["type"] == "event"
+        assert query_arg.events[0]["properties"][0]["key"] == "$browser"
+        assert query_arg.events[0]["properties"][0]["value"] == "Safari"
+        assert query_arg.limit == REPLAY_EVIDENCE_LIMIT
+        assert query_arg.filter_test_accounts is True
+
+
+class TestCollectReplayEvidence:
+    @parameterized.expand(
+        [
+            ("no_attribution", None, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"),
+            ("no_period", {"property": "$browser", "value": "Safari"}, "", ""),
+            (
+                "synthetic_other_label",
+                {"property": "$browser", "value": "Other"},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            ),
+            (
+                "synthetic_breakdown_sentinel",
+                {"property": "$browser", "value": "$$_posthog_breakdown_other_$$"},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            ),
+            ("missing_property", {"value": "Safari"}, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"),
+            (
+                "none_value",
+                {"property": "$browser", "value": None},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            ),
+        ]
+    )
+    async def test_guards_skip_query(self, _name, attribution, period_start, period_end):
+        with patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async") as mock_db:
+            out = await _collect_replay_evidence(
+                MagicMock(id=1), _finding_with_event("purchase"), attribution, period_start, period_end
+            )
+        assert out == []
+        mock_db.assert_not_called()
+
+    async def test_skips_when_finding_has_no_event(self):
+        finding = _finding(impact=10.0, robust_z=4.0, label="m")  # query has no series → no event
+        with patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async") as mock_db:
+            out = await _collect_replay_evidence(
+                MagicMock(id=1),
+                finding,
+                {"property": "$browser", "value": "Safari"},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            )
+        assert out == []
+        mock_db.assert_not_called()
+
+    async def test_returns_session_ids_for_real_segment(self):
+        async def _fake_ids():
+            return ["s1", "s2"]
+
+        with patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async") as mock_db:
+            mock_db.side_effect = lambda fn, **kw: (lambda *a, **k: _fake_ids())
+            out = await _collect_replay_evidence(
+                MagicMock(id=1),
+                _finding_with_event("purchase"),
+                {"property": "$browser", "value": "Safari"},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            )
+        assert out == ["s1", "s2"]
+
+    async def test_degrades_to_empty_on_query_error(self):
+        def _raising_wrapper(fn, **kw):
+            def _call(*a, **k):
+                raise RuntimeError("clickhouse exploded")
+
+            return _call
+
+        with patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async", side_effect=_raising_wrapper):
+            out = await _collect_replay_evidence(
+                MagicMock(id=1),
+                _finding_with_event("purchase"),
+                {"property": "$browser", "value": "Safari"},
+                "2026-05-19T00:00:00+00:00",
+                "2026-05-26T00:00:00+00:00",
+            )
+        assert out == []
+
+
+class TestEnrichOneSetsEvidence:
+    async def test_evidence_set_when_sessions_found(self):
+        with (
+            patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock) as mock_attr,
+            patch("posthog.temporal.ai.pulse.narrative._collect_replay_evidence", new_callable=AsyncMock) as mock_evi,
+            patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock) as mock_narr,
+        ):
+            mock_attr.return_value = {"property": "$browser", "value": "Safari"}
+            mock_evi.return_value = ["s1", "s2"]
+            mock_narr.return_value = "Purchases dropped, concentrated in Safari."
+            result = await _enrich_one(
+                team=MagicMock(id=1),
+                user=MagicMock(),
+                finding=_finding_with_event("purchase"),
+                enrichment_semaphore=asyncio.Semaphore(1),
+                attribution_semaphore=asyncio.Semaphore(1),
+                period_start="2026-05-19T00:00:00+00:00",
+                period_end="2026-05-26T00:00:00+00:00",
+            )
+
+        assert result.evidence == {"session_ids": ["s1", "s2"]}
+        assert result.attribution_breakdown == {"property": "$browser", "value": "Safari"}
+
+    async def test_evidence_none_when_no_sessions(self):
+        with (
+            patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock) as mock_attr,
+            patch("posthog.temporal.ai.pulse.narrative._collect_replay_evidence", new_callable=AsyncMock) as mock_evi,
+            patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock) as mock_narr,
+        ):
+            mock_attr.return_value = None
+            mock_evi.return_value = []
+            mock_narr.return_value = "Purchases dropped."
+            result = await _enrich_one(
+                team=MagicMock(id=1),
+                user=MagicMock(),
+                finding=_finding_with_event("purchase"),
+                enrichment_semaphore=asyncio.Semaphore(1),
+                attribution_semaphore=asyncio.Semaphore(1),
+            )
+
+        assert result.evidence is None

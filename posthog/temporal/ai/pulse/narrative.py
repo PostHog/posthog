@@ -9,6 +9,7 @@ import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.annotation import Annotation
@@ -185,27 +186,106 @@ def _fallback_narrative(finding: Finding) -> str:
     )
 
 
+REPLAY_EVIDENCE_LIMIT = 3
+# Breakdown placeholders that don't name a real segment — never worth a replay lookup.
+SYNTHETIC_BREAKDOWN_VALUES = {"Other", "unknown", "", BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_NULL_STRING_LABEL}
+
+
+def _finding_event(finding: Finding) -> str | None:
+    """Pull the headline event name out of the finding's TrendsQuery-shaped descriptor, if it has one."""
+    series = finding.descriptor.query.get("series") or []
+    if not series or not isinstance(series[0], dict):
+        return None
+    event = series[0].get("event")
+    return event if isinstance(event, str) and event else None
+
+
+def _query_session_ids(
+    team: Team, event_name: str, prop_key: str, prop_value: Any, date_from: str, date_to: str
+) -> list[str]:
+    """Up to REPLAY_EVIDENCE_LIMIT session ids where `event_name` fired with `prop_key=prop_value`.
+
+    Synchronous — executes a ClickHouse query — so it is only ever called via database_sync_to_async.
+    """
+    # Lazy import: the pulse package is eagerly preloaded via posthog.api; importing the recordings
+    # query layer at module level risks an app-init circular import (see selection.py / delivery.py).
+    from posthog.schema import RecordingOrder, RecordingsQuery
+
+    from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+
+    query = RecordingsQuery(
+        events=[
+            {
+                "id": event_name,
+                "name": event_name,
+                "type": "events",  # entity type is plural
+                "properties": [
+                    {
+                        "type": "event",
+                        "key": prop_key,
+                        "value": prop_value,
+                        "operator": "exact",
+                    },  # property type is singular
+                ],
+            }
+        ],
+        date_from=date_from,
+        date_to=date_to,
+        limit=REPLAY_EVIDENCE_LIMIT,
+        filter_test_accounts=True,
+        order=RecordingOrder.START_TIME,
+    )
+    result = SessionRecordingListFromQuery(team=team, query=query, max_execution_time=30).run()
+    return [sid for row in result.results[:REPLAY_EVIDENCE_LIMIT] if (sid := row.get("session_id"))]
+
+
+async def _collect_replay_evidence(
+    team: Team, finding: Finding, attribution: dict[str, Any] | None, period_start: str, period_end: str
+) -> list[str]:
+    """Find a few example replay session ids for the segment that drove the change.
+
+    Targeted: only runs when there is a concrete attribution segment (a headline event plus a real,
+    non-synthetic breakdown value) and a period window. Best-effort — degrades to [] on any error or
+    zero matches, which is common (sampling, retention, server-side events).
+    """
+    if not attribution or not period_start or not period_end:
+        return []
+    prop_key = attribution.get("property")
+    prop_value = attribution.get("value")
+    if not prop_key or prop_value is None or str(prop_value) in SYNTHETIC_BREAKDOWN_VALUES:
+        return []
+    event_name = _finding_event(finding)
+    if not event_name:
+        return []
+    try:
+        date_from = datetime.fromisoformat(period_start).date().isoformat()
+        date_to = datetime.fromisoformat(period_end).date().isoformat()
+        return await database_sync_to_async(_query_session_ids, thread_sensitive=False)(
+            team, event_name, prop_key, prop_value, date_from, date_to
+        )
+    except Exception as exc:
+        logger.warning("pulse_replay_evidence_failed", team_id=team.id, metric=finding.descriptor.label, error=str(exc))
+        return []
+
+
 async def _enrich_one(
     team: Team,
     user: User,
     finding: Finding,
     enrichment_semaphore: asyncio.Semaphore,
     attribution_semaphore: asyncio.Semaphore,
+    period_start: str = "",
+    period_end: str = "",
 ) -> EnrichedFinding:
     async with enrichment_semaphore:
+        # Attribution and evidence are independent of the narrative LLM, so collect them first and
+        # keep them even if narrative generation falls back.
+        attribution: dict[str, Any] | None = None
+        session_ids: list[str] = []
         try:
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
+            session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
             narrative = await _generate_narrative(team, user, finding, attribution)
-            return EnrichedFinding(
-                descriptor=finding.descriptor,
-                current_value=finding.current_value,
-                baseline_value=finding.baseline_value,
-                change_pct=finding.change_pct,
-                impact=finding.impact,
-                robust_z=finding.robust_z,
-                attribution_breakdown=attribution,
-                narrative=narrative,
-            )
         except Exception as exc:
             logger.exception(
                 "pulse_enrich_finding_failed",
@@ -213,20 +293,27 @@ async def _enrich_one(
                 metric=finding.descriptor.label,
                 error=str(exc),
             )
-            return EnrichedFinding(
-                descriptor=finding.descriptor,
-                current_value=finding.current_value,
-                baseline_value=finding.baseline_value,
-                change_pct=finding.change_pct,
-                impact=finding.impact,
-                robust_z=finding.robust_z,
-                attribution_breakdown=None,
-                narrative=_fallback_narrative(finding),
-            )
+            narrative = _fallback_narrative(finding)
+        return EnrichedFinding(
+            descriptor=finding.descriptor,
+            current_value=finding.current_value,
+            baseline_value=finding.baseline_value,
+            change_pct=finding.change_pct,
+            impact=finding.impact,
+            robust_z=finding.robust_z,
+            attribution_breakdown=attribution,
+            evidence={"session_ids": session_ids} if session_ids else None,
+            narrative=narrative,
+        )
 
 
 async def enrich_findings(
-    team_id: int, user_id: int | None, findings: list[Finding], max_findings: int
+    team_id: int,
+    user_id: int | None,
+    findings: list[Finding],
+    max_findings: int,
+    period_start: str = "",
+    period_end: str = "",
 ) -> list[EnrichedFinding]:
     ranked = sorted(findings, key=lambda f: f.impact, reverse=True)[:max_findings]
 
@@ -240,20 +327,27 @@ async def enrich_findings(
     enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
     attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
     return list(
-        await asyncio.gather(*[_enrich_one(team, user, f, enrichment_semaphore, attribution_semaphore) for f in ranked])
+        await asyncio.gather(
+            *[
+                _enrich_one(team, user, f, enrichment_semaphore, attribution_semaphore, period_start, period_end)
+                for f in ranked
+            ]
+        )
     )
 
 
 SYNTHESIS_MAX_TOKENS = 320
 MAX_FLAG_CHANGES_FOR_AI_CONTEXT = 15
+MAX_NEW_ISSUES_FOR_AI_CONTEXT = 5
 
 SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
 
-You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), and optionally feature-flag changes in the same period (a flag rolled out, turned on/off). Write a short paragraph, 2-4 sentences:
+You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), optionally feature-flag changes in the same period (a flag rolled out, turned on/off), and optionally new error-tracking issues that appeared recently (name and how many times they fired). Write a short paragraph, 2-4 sentences:
 - If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
 - Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
 - If a change lines up with an annotation, note it as a possible explanation to verify — e.g. "the signup rise lines up with your 'pricing v2' note on the 20th." A coincidence to check, never proven cause.
 - If a change lines up with a feature-flag change, note it as a possible explanation to verify — e.g. "the activation dip coincides with turning on the 'new-onboarding' flag — worth checking." A coincidence to check, never proven cause.
+- If a metric drop lines up with a new error issue, note it as a possible explanation to verify — e.g. "checkout completions fell while a new 'Payment timeout' error appeared — worth checking if they're linked." A coincidence to check, never proven cause.
 - Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
 
 If the findings share no obvious pattern, say that briefly rather than forcing a connection.""".strip()
@@ -303,6 +397,31 @@ def _fetch_flag_changes(team_id: int, start: datetime, end: datetime) -> list[di
     ]
 
 
+def _fetch_error_signals(team: Team) -> list[dict[str, Any]]:
+    """New error-tracking issues seen recently, as coincident-signal context for synthesis (never causation).
+
+    Uses the error-tracking facade's recent-new-issues query (a ~7-day window, which lines up with the
+    weekly digest period). Best-effort: any failure — including ClickHouse being unavailable or the team
+    not using error tracking — degrades to no signal rather than breaking the additive synthesis step.
+    """
+    # Lazy import: the pulse package is eagerly preloaded via posthog.api, and importing the
+    # error-tracking facade at module level risks an app-init circular import (see delivery.py).
+    from products.error_tracking.backend.facade import api as error_tracking_api
+
+    try:
+        issues = error_tracking_api.get_new_issues_for_team(team)
+    except Exception as exc:
+        logger.warning("pulse_fetch_error_signals_failed", team_id=team.id, error=str(exc))
+        return []
+    return [
+        {
+            "name": _sanitize_for_prompt(str(issue.get("name") or "Untitled issue")),
+            "count": int(issue.get("occurrence_count") or 0),
+        }
+        for issue in issues[:MAX_NEW_ISSUES_FOR_AI_CONTEXT]
+    ]
+
+
 async def synthesize_digest(
     team_id: int,
     user_id: int | None,
@@ -320,9 +439,11 @@ async def synthesize_digest(
         return ""
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User, list[dict[str, str]], list[dict[str, str]]]:
+    def _resolve() -> tuple[Team, User, list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]]]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
+        # New error issues use a ~7-day window internally, independent of the digest period bounds.
+        error_signals = _fetch_error_signals(team)
         annotations: list[dict[str, str]] = []
         flag_changes: list[dict[str, str]] = []
         if period_start and period_end:
@@ -344,9 +465,9 @@ async def synthesize_digest(
                 if content
             ]
             flag_changes = _fetch_flag_changes(team_id, start, end)
-        return team, user, annotations, flag_changes
+        return team, user, annotations, flag_changes, error_signals
 
-    team, user, annotations, flag_changes = await _resolve()
+    team, user, annotations, flag_changes, error_signals = await _resolve()
     facts = {
         "findings": [
             {
@@ -358,6 +479,7 @@ async def synthesize_digest(
         ],
         "annotations": annotations,
         "feature_flag_changes": flag_changes,
+        "new_error_issues": error_signals,
     }
 
     llm = MaxChatOpenAI(
@@ -377,7 +499,9 @@ async def synthesize_digest(
     chain = llm | StrOutputParser()
     messages = [
         SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),
-        HumanMessage(content=f"This period's findings and annotations:\n{json.dumps(facts, default=str)}"),
+        HumanMessage(
+            content=f"This period's findings, annotations, flag changes, and new error issues:\n{json.dumps(facts, default=str)}"
+        ),
     ]
     try:
         result = await chain.ainvoke(messages)

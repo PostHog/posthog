@@ -39,6 +39,7 @@ def _persist_findings_sync(
                 impact=f.impact,
                 robust_z=f.robust_z,
                 attribution_breakdown=f.attribution_breakdown,
+                evidence=f.evidence,
                 narrative=f.narrative,
                 rank=idx,
             )

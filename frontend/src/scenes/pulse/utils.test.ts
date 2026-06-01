@@ -12,6 +12,7 @@ const FINDING: PulseFindingType = {
     robust_z: 4.2,
     impact: 5.5,
     attribution_breakdown: { property: '$browser', value: 'Safari' },
+    evidence: null,
     narrative: 'purchase_completed is down 49% this week.',
     chart_thumbnail_url: '',
     rank: 0,

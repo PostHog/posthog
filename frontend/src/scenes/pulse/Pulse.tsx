@@ -23,6 +23,7 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -94,6 +95,22 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                 </div>
             </div>
             <p className="text-sm mb-0">{finding.narrative}</p>
+            {finding.evidence?.session_ids?.length ? (
+                <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
+                    <span className="text-muted-alt">Example sessions:</span>
+                    {finding.evidence.session_ids.map((sessionId, index) => (
+                        <LemonButton
+                            key={sessionId}
+                            type="tertiary"
+                            size="xsmall"
+                            to={urls.replaySingle(sessionId)}
+                            targetBlank
+                        >
+                            Replay {index + 1}
+                        </LemonButton>
+                    ))}
+                </div>
+            ) : null}
         </LemonCard>
     )
 }

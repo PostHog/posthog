@@ -96,6 +96,8 @@ async def enrich_findings_activity(inputs: EnrichFindingsInputs) -> list[Enriche
         user_id=inputs.user_id,
         findings=inputs.findings,
         max_findings=inputs.max_findings,
+        period_start=inputs.period_start,
+        period_end=inputs.period_end,
     )
 
 
@@ -284,6 +286,8 @@ class PulseScanWorkflow(PostHogWorkflow):
                     user_id=inputs.user_id,
                     findings=findings,
                     max_findings=config.max_findings,
+                    period_start=inputs.period_start,
+                    period_end=inputs.period_end,
                 ),
                 start_to_close_timeout=timedelta(minutes=10),
                 heartbeat_timeout=timedelta(minutes=2),

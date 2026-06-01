@@ -58,6 +58,8 @@ class EnrichedFinding(BaseModel):
     impact: float
     robust_z: float
     attribution_breakdown: dict[str, Any] | None = None
+    # Supporting evidence, e.g. {"session_ids": [...]} for example replays. None when none found.
+    evidence: dict[str, Any] | None = None
     narrative: str
 
 
@@ -78,6 +80,9 @@ class EnrichFindingsInputs(BaseModel):
     user_id: int | None = None
     findings: list[Finding]
     max_findings: int = 5
+    # Period bounds (ISO) used to scope the replay-evidence window. Empty disables evidence collection.
+    period_start: str = ""
+    period_end: str = ""
 
 
 class DeliverDigestInputs(BaseModel):

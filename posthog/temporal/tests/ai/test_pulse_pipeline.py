@@ -13,7 +13,7 @@ START = "2026-05-22T00:00:00+00:00"
 END = "2026-05-29T00:00:00+00:00"
 
 
-def _enriched(label: str = "$pageview") -> EnrichedFinding:
+def _enriched(label: str = "$pageview", evidence: dict | None = None) -> EnrichedFinding:
     return EnrichedFinding(
         descriptor=MetricDescriptor(source="top_event", source_id=1, label=label, query={"kind": "TrendsQuery"}),
         current_value=50.0,
@@ -22,6 +22,7 @@ def _enriched(label: str = "$pageview") -> EnrichedFinding:
         impact=5.0,
         robust_z=4.2,
         attribution_breakdown={"$browser": "Safari"},
+        evidence=evidence,
         narrative="Pageviews dropped by half.",
     )
 
@@ -89,6 +90,22 @@ async def test_persist_findings_is_idempotent_on_retry(ateam):
     assert len(rows) == 2  # no duplicates
     assert all(tid == ateam.id for tid in team_ids)  # team_id denormalized from digest
     assert status == PulseDigestStatus.DELIVERED
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_persist_findings_persists_evidence(ateam):
+    digest_id = await create_or_get_digest_activity(ateam.id, PERIOD, START, END)
+    finding = _enriched("$pageview", evidence={"session_ids": ["abc", "def"]})
+
+    await persist_findings(ateam.id, digest_id, [finding])
+
+    @sync_to_async
+    def _evidence():
+        with team_scope(ateam.id, canonical=True):
+            return PulseFinding.objects.get(digest_id=digest_id).evidence
+
+    assert await _evidence() == {"session_ids": ["abc", "def"]}
 
 
 @pytest.mark.asyncio

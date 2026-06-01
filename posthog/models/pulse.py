@@ -84,6 +84,11 @@ class PulseFinding(RootTeamMixin, CreatedMetaFields, UUIDModel):
     # The breakdown the LLM picked as most explanatory (if any) — e.g. {"$browser": "Safari"}
     attribution_breakdown = models.JSONField(null=True, blank=True)
 
+    # Supporting evidence for the finding — currently {"session_ids": [...]} pointing at example
+    # replays of the segment that drove the change. Null when none were found (common). IDs only,
+    # never recording blobs, to stay well under Temporal's activity-payload limit.
+    evidence = models.JSONField(null=True, blank=True)
+
     narrative = models.TextField()
     chart_thumbnail_url = models.URLField(max_length=2048, blank=True, default="")
 

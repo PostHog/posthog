@@ -23974,7 +23974,10 @@ export namespace Schemas {
       readonly robust_z: number;
       /** Ranking score: abs(change_pct) * sqrt(baseline_median). */
       readonly impact: number;
+      /** Breakdown segment that best explains the change, e.g. {'$browser': 'Safari'}, or null. */
       readonly attribution_breakdown: unknown;
+      /** Supporting evidence, currently {'session_ids': [...]} for example replays, or null. */
+      readonly evidence: unknown;
       /** LLM-generated explanation of the change. */
       readonly narrative: string;
       readonly chart_thumbnail_url: string;

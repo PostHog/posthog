@@ -66,6 +66,7 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             "robust_z",
             "impact",
             "attribution_breakdown",
+            "evidence",
             "narrative",
             "chart_thumbnail_url",
             "rank",
@@ -82,6 +83,7 @@ class PulseFindingSerializer(serializers.ModelSerializer):
             "robust_z",
             "impact",
             "attribution_breakdown",
+            "evidence",
             "narrative",
             "chart_thumbnail_url",
             "rank",
@@ -97,6 +99,12 @@ class PulseFindingSerializer(serializers.ModelSerializer):
                 "help_text": "Robust z-score (median/MAD based). Secondary signal only, never a sole trigger."
             },
             "impact": {"help_text": "Ranking score: abs(change_pct) * sqrt(baseline_median)."},
+            "attribution_breakdown": {
+                "help_text": "Breakdown segment that best explains the change, e.g. {'$browser': 'Safari'}, or null."
+            },
+            "evidence": {
+                "help_text": "Supporting evidence, currently {'session_ids': [...]} for example replays, or null."
+            },
             "narrative": {"help_text": "LLM-generated explanation of the change."},
         }
 
