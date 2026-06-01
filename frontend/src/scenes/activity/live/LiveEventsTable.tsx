@@ -22,6 +22,7 @@ import { ActivityTab, PropertyOperator } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
+import { LiveBotPanel } from './LiveBotPanel'
 import { LiveEventsFeed } from './LiveEventsFeed'
 import { liveEventsLogic } from './liveEventsLogic'
 import { liveEventsTableSceneLogic } from './liveEventsTableSceneLogic'
@@ -110,6 +111,7 @@ export function LiveEventsTable(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            <LiveBotPanel events={events} className="mb-2" />
             <LiveEventsFeed events={events} streamPaused={streamPaused} />
         </SceneContent>
     )

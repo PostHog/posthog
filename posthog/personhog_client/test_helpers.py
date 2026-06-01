@@ -97,10 +97,25 @@ class PersonhogTestMixin:
             )
         return person
 
-    def _assert_personhog_called(self, method: str, *, times: int | None = None) -> None:
-        """Assert a personhog method was called.  No-op on the ORM path."""
+    def _seed_cohort_membership(self, *, person_id: int, cohort_id: int, is_member: bool = True) -> None:
+        """Seed a cohort membership in the fake personhog client.  No-op on the ORM path.
+
+        Mirrors the pattern of ``_seed_person``: callers still create real
+        ``CohortPeople`` DB rows (needed for the ORM fallback and any secondary
+        queries).  This helper additionally registers the membership in the
+        fake client when personhog routing is active.
+        """
         if self._fake_client is not None:
-            self._fake_client.assert_called(method, times=times)
+            self._fake_client.add_cohort_membership(person_id=person_id, cohort_id=cohort_id, is_member=is_member)
+
+    def _assert_personhog_called(self, method: str, *, times: int | None = None) -> list[Any]:
+        """Assert a personhog method was called.  No-op on the ORM path.
+
+        Returns the matched calls so tests can inspect request arguments.
+        """
+        if self._fake_client is not None:
+            return self._fake_client.assert_called(method, times=times)
+        return []
 
     def _assert_personhog_not_called(self, method: str) -> None:
         """Assert a personhog method was NOT called.  No-op on the ORM path."""

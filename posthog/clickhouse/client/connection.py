@@ -24,7 +24,6 @@ class NodeRole(StrEnum):
     # Roles of nodes for a particular NodeType. These are meant to
     # match the CH macro hostClusterRole
     ALL = "all"
-    COORDINATOR = "coordinator"
     DATA = "data"
     INGESTION_EVENTS = "events"
     INGESTION_SMALL = "small"
@@ -38,6 +37,16 @@ class NodeRole(StrEnum):
     AUX = "aux"
     OPS = "ops"
     SESSIONS = "sessions"
+
+
+# Roles that host replicated MergeTree data; valid ALTER TABLE targets.
+DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.DATA, NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
+# Single-shard data clusters: ALTER runs on one host, replication propagates.
+SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
+    {NodeRole.AI_EVENTS, NodeRole.AUX, NodeRole.OPS, NodeRole.SESSIONS}
+)
 
 
 _default_workload = Workload.ONLINE
@@ -62,6 +71,7 @@ class ClickHouseUser(StrEnum):
     MESSAGING = "messaging"  # a.k.a. behavioral cohorts
     MAX_AI = "max_ai"  # llm/a
     ENDPOINTS = "endpoints"
+    BILLING = "billing"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -134,6 +144,8 @@ class ProxyClient:
         columnar=False,
     ):
         if query_id:
+            if settings is None:
+                settings = {}
             settings["query_id"] = query_id
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
 

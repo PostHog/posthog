@@ -75,6 +75,19 @@
   '''
   
   SELECT team_id,
+         SUM(count) as count
+  FROM app_metrics2
+  WHERE app_source='logs'
+    AND metric_name='records_ingested'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.14
+  '''
+  
+  SELECT team_id,
          multiIf(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python', 'unknown') AS library,
          count(1) as total
   FROM events
@@ -85,7 +98,7 @@
            library
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.14
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.15
   '''
   
   SELECT team_id,
@@ -93,19 +106,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.15
-  '''
-  
-  SELECT team_id,
-         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-  FROM events
-  WHERE timestamp >= '2022-01-10 02:00:00'
-    AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -115,9 +116,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 04:00:00'
-    AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 02:00:00'
+    AND timestamp < '2022-01-10 04:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -127,9 +128,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 06:00:00'
-    AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 04:00:00'
+    AND timestamp < '2022-01-10 06:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -139,9 +140,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 08:00:00'
-    AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 06:00:00'
+    AND timestamp < '2022-01-10 08:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -151,9 +152,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 10:00:00'
-    AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -177,9 +178,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 12:00:00'
-    AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -189,9 +190,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 14:00:00'
-    AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -201,9 +202,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 16:00:00'
-    AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 14:00:00'
+    AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -213,9 +214,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 18:00:00'
-    AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -225,9 +226,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 20:00:00'
-    AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 18:00:00'
+    AND timestamp < '2022-01-10 20:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -237,9 +238,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 22:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 20:00:00'
+    AND timestamp < '2022-01-10 22:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -249,11 +250,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
-    AND person_mode IN ('full',
-                        'force_upgrade')
+  WHERE timestamp >= '2022-01-10 22:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
   GROUP BY team_id
   '''
 # ---
@@ -263,9 +262,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 02:00:00'
-    AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 02:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -277,9 +276,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 04:00:00'
-    AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 02:00:00'
+    AND timestamp < '2022-01-10 04:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -291,9 +290,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 06:00:00'
-    AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 04:00:00'
+    AND timestamp < '2022-01-10 06:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -319,9 +318,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 08:00:00'
-    AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 06:00:00'
+    AND timestamp < '2022-01-10 08:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -333,9 +332,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 10:00:00'
-    AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -347,9 +346,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 12:00:00'
-    AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -361,9 +360,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 14:00:00'
-    AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -375,9 +374,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 16:00:00'
-    AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 14:00:00'
+    AND timestamp < '2022-01-10 16:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -389,9 +388,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 18:00:00'
-    AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 16:00:00'
+    AND timestamp < '2022-01-10 18:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -403,9 +402,9 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 20:00:00'
-    AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 18:00:00'
+    AND timestamp < '2022-01-10 20:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
@@ -417,15 +416,29 @@
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
-  WHERE timestamp >= '2022-01-10 22:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+  WHERE timestamp >= '2022-01-10 20:00:00'
+    AND timestamp < '2022-01-10 22:00:00'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND person_mode IN ('full',
                         'force_upgrade')
   GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.38
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 22:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+    AND event NOT IN ['$feature_flag_called', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
+    AND person_mode IN ('full',
+                        'force_upgrade')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.39
   '''
   
   SELECT team_id,
@@ -438,29 +451,6 @@
          OR $group_2 != ''
          OR $group_3 != ''
          OR $group_4 != '')
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.39
-  '''
-  
-  SELECT team_id,
-         count(distinct session_id) as count
-  FROM
-    (SELECT any(team_id) as team_id,
-            session_id
-     FROM session_replay_events
-     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
-       AND min_first_timestamp < '2022-01-10 23:59:59'
-     GROUP BY session_id
-     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
-     AND max(is_deleted) = 0)
-  WHERE session_id NOT IN
-      (SELECT DISTINCT session_id
-       FROM session_replay_events
-       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
-         AND min_first_timestamp < '2022-01-10 00:00:00'
-       GROUP BY session_id)
   GROUP BY team_id
   '''
 # ---
@@ -490,7 +480,7 @@
      WHERE min_first_timestamp >= '2022-01-10 00:00:00'
        AND min_first_timestamp < '2022-01-10 23:59:59'
      GROUP BY session_id
-     HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+     HAVING ifNull(argMinMerge(snapshot_source), 'web') == 'web'
      AND max(is_deleted) = 0)
   WHERE session_id NOT IN
       (SELECT DISTINCT session_id
@@ -502,6 +492,29 @@
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.41
+  '''
+  
+  SELECT team_id,
+         count(distinct session_id) as count
+  FROM
+    (SELECT any(team_id) as team_id,
+            session_id
+     FROM session_replay_events
+     WHERE min_first_timestamp >= '2022-01-10 00:00:00'
+       AND min_first_timestamp < '2022-01-10 23:59:59'
+     GROUP BY session_id
+     HAVING dateDiff('milliseconds', min(min_first_timestamp), max(max_last_timestamp)) = 0
+     AND max(is_deleted) = 0)
+  WHERE session_id NOT IN
+      (SELECT DISTINCT session_id
+       FROM session_replay_events
+       WHERE min_first_timestamp >= '2022-01-09 00:00:00'
+         AND min_first_timestamp < '2022-01-10 00:00:00'
+       GROUP BY session_id)
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.42
   '''
   
   SELECT team_id,
@@ -525,7 +538,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.42
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.43
   '''
   
   SELECT team_id,
@@ -548,7 +561,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.43
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.44
   '''
   
   SELECT team_id,
@@ -572,7 +585,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.44
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.45
   '''
   
   SELECT team_id,
@@ -599,7 +612,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.45
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.46
   '''
   
   SELECT distinct_id as team,
@@ -613,7 +626,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.46
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.47
   '''
   
   SELECT distinct_id as team,
@@ -627,7 +640,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.47
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.48
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
@@ -644,30 +657,13 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.48
-  '''
-  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
-       JSONExtractString(log_comment, 'query_type') as query_type,
-       JSONExtractString(log_comment, 'access_method') as access_method
-  SELECT team_id,
-         sum(read_rows) as count
-  FROM clusterAllReplicas(posthog, system.query_log)
-  WHERE (type = 'QueryFinish'
-         OR type = 'ExceptionWhileProcessing')
-    AND is_initial_query = 1
-    AND query_start_time >= '2022-01-10 00:00:00'
-    AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
-  GROUP BY team_id
-  '''
-# ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.49
   '''
   WITH JSONExtractInt(log_comment, 'team_id') as team_id,
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -698,14 +694,14 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -715,7 +711,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -732,7 +728,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -749,15 +745,14 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
     AND is_initial_query = 1
-    AND query_type IN (['EventsQuery'])
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = ''
+    AND access_method = 'personal_api_key'
   GROUP BY team_id
   '''
 # ---
@@ -767,7 +762,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -785,7 +780,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -803,7 +798,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_bytes) as count
+         sum(query_duration_ms) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -811,7 +806,7 @@
     AND query_type IN (['EventsQuery'])
     AND query_start_time >= '2022-01-10 00:00:00'
     AND query_start_time < '2022-01-10 23:59:59'
-    AND access_method = 'personal_api_key'
+    AND access_method = ''
   GROUP BY team_id
   '''
 # ---
@@ -821,7 +816,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(read_rows) as count
+         sum(read_bytes) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -839,7 +834,7 @@
        JSONExtractString(log_comment, 'query_type') as query_type,
        JSONExtractString(log_comment, 'access_method') as access_method
   SELECT team_id,
-         sum(query_duration_ms) as count
+         sum(read_rows) as count
   FROM clusterAllReplicas(posthog, system.query_log)
   WHERE (type = 'QueryFinish'
          OR type = 'ExceptionWhileProcessing')
@@ -852,6 +847,38 @@
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.59
+  '''
+  WITH JSONExtractInt(log_comment, 'team_id') as team_id,
+       JSONExtractString(log_comment, 'query_type') as query_type,
+       JSONExtractString(log_comment, 'access_method') as access_method
+  SELECT team_id,
+         sum(query_duration_ms) as count
+  FROM clusterAllReplicas(posthog, system.query_log)
+  WHERE (type = 'QueryFinish'
+         OR type = 'ExceptionWhileProcessing')
+    AND is_initial_query = 1
+    AND query_type IN (['EventsQuery'])
+    AND query_start_time >= '2022-01-10 00:00:00'
+    AND query_start_time < '2022-01-10 23:59:59'
+    AND access_method = 'personal_api_key'
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(1) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 12:00:00'
+    AND timestamp < '2022-01-10 14:00:00'
+  GROUP BY team_id,
+           metric
+  HAVING metric != 'other'
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.60
   '''
   
   SELECT team_id,
@@ -875,21 +902,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
-  '''
-  
-  SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
-         count(1) as count
-  FROM events
-  WHERE timestamp >= '2022-01-10 12:00:00'
-    AND timestamp < '2022-01-10 14:00:00'
-  GROUP BY team_id,
-           metric
-  HAVING metric != 'other'
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.60
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.61
   '''
   
   SELECT team_id,
@@ -904,7 +917,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.61
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.62
   '''
   
   SELECT team_id,
@@ -918,7 +931,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.62
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.63
   '''
   
   SELECT team_id,
@@ -931,27 +944,13 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.63
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.64
   '''
   
   SELECT team_id,
          COUNT() as count
   FROM events
-  WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
-    AND timestamp >= '2022-01-10 00:00:00'
-    AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.64
-  '''
-  
-  SELECT team_id,
-         SUM(count) as count
-  FROM app_metrics2
-  WHERE app_source='hog_flow'
-    AND metric_name IN ('billable_invocation')
-    AND metric_kind IN ('email')
+  WHERE event IN ['$ai_generation', '$ai_embedding', '$ai_span', '$ai_trace', '$ai_metric', '$ai_feedback', '$ai_evaluation', '$ai_tag', '$ai_trace_summary', '$ai_generation_summary', '$ai_trace_clusters', '$ai_generation_clusters']
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -965,7 +964,7 @@
   FROM app_metrics2
   WHERE app_source='hog_flow'
     AND metric_name IN ('billable_invocation')
-    AND metric_kind IN ('push')
+    AND metric_kind IN ('email')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -979,7 +978,7 @@
   FROM app_metrics2
   WHERE app_source='hog_flow'
     AND metric_name IN ('billable_invocation')
-    AND metric_kind IN ('sms')
+    AND metric_kind IN ('push')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -993,7 +992,7 @@
   FROM app_metrics2
   WHERE app_source='hog_flow'
     AND metric_name IN ('billable_invocation')
-    AND metric_kind IN ('fetch')
+    AND metric_kind IN ('sms')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -1005,8 +1004,9 @@
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
-  WHERE app_source='logs'
-    AND metric_name='bytes_ingested'
+  WHERE app_source='hog_flow'
+    AND metric_name IN ('billable_invocation')
+    AND metric_kind IN ('fetch')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id
@@ -1019,7 +1019,7 @@
          SUM(count) as count
   FROM app_metrics2
   WHERE app_source='logs'
-    AND metric_name='records_ingested'
+    AND metric_name='bytes_ingested'
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
   GROUP BY team_id

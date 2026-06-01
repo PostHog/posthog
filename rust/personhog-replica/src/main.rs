@@ -6,8 +6,10 @@ use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::fmt;
@@ -40,6 +42,22 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 ..primary_pool_config.clone()
             };
 
+            let bulk_primary_pool_config = PoolConfig {
+                min_connections: config
+                    .min_pg_connections
+                    .min(config.bulk_max_pg_connections),
+                max_connections: config.bulk_max_pg_connections,
+                acquire_timeout: config.bulk_acquire_timeout(),
+                statement_timeout_ms: config.bulk_statement_timeout(),
+                pool_name: Some("bulk_primary".to_string()),
+                ..primary_pool_config.clone()
+            };
+
+            let bulk_replica_pool_config = PoolConfig {
+                pool_name: Some("bulk_replica".to_string()),
+                ..bulk_primary_pool_config.clone()
+            };
+
             // Create primary pool
             let primary_pool =
                 get_pool_with_config(&config.primary_database_url, primary_pool_config)
@@ -58,7 +76,46 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 pool
             };
 
-            Arc::new(PostgresStorage::new(primary_pool, replica_pool))
+            // Create bulk pools (same URLs, smaller pool with longer timeouts)
+            let bulk_primary_pool =
+                get_pool_with_config(&config.primary_database_url, bulk_primary_pool_config)
+                    .expect("Failed to create bulk primary database pool");
+
+            let bulk_replica_pool = if replica_url == config.primary_database_url {
+                bulk_primary_pool.clone()
+            } else {
+                get_pool_with_config(replica_url, bulk_replica_pool_config)
+                    .expect("Failed to create bulk replica database pool")
+            };
+            tracing::info!(
+                max_connections = config.bulk_max_pg_connections,
+                statement_timeout_ms = config.bulk_statement_timeout_ms,
+                "Created bulk database pools"
+            );
+
+            assert!(
+                config.bulk_chunk_size >= 1,
+                "BULK_CHUNK_SIZE must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks >= 1,
+                "BULK_MAX_CONCURRENT_CHUNKS must be at least 1"
+            );
+            assert!(
+                config.bulk_max_concurrent_chunks <= config.bulk_max_pg_connections as usize,
+                "BULK_MAX_CONCURRENT_CHUNKS ({}) must not exceed BULK_MAX_PG_CONNECTIONS ({})",
+                config.bulk_max_concurrent_chunks,
+                config.bulk_max_pg_connections
+            );
+
+            Arc::new(PostgresStorage::new(
+                primary_pool,
+                replica_pool,
+                bulk_primary_pool,
+                bulk_replica_pool,
+                config.bulk_chunk_size,
+                config.bulk_max_concurrent_chunks,
+            ))
         }
         other => {
             panic!("Unknown storage backend: {other}. Supported: postgres");
@@ -150,6 +207,69 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // gRPC server
     let storage = create_storage(&config).await;
 
+    // Pre-warm DB connection pools before accepting traffic.
+    // connect_lazy() starts with zero connections; without this, the first
+    // burst of requests after K8s routes traffic all pay the cold-start cost
+    // (TCP + TLS + PgBouncer + SET statement_timeout). Warming here is safe
+    // because the gRPC server hasn't bound its port yet — the startup probe
+    // (TCP on 50051) can't pass until after this completes.
+    if config.min_pg_connections > 0 {
+        let warmup_count = config.min_pg_connections as usize;
+        let server_warmup_count = (config.warmup_server_connections as usize).min(warmup_count);
+        tracing::info!(
+            count = warmup_count,
+            server_warmup = server_warmup_count,
+            "Warming database connection pools before accepting traffic"
+        );
+        let separate_replica = config.replica_database_url() != config.primary_database_url;
+        let pools: Vec<(&sqlx::PgPool, &str)> = if separate_replica {
+            vec![
+                (&storage.primary_pool, "primary"),
+                (&storage.replica_pool, "replica"),
+            ]
+        } else {
+            vec![(&storage.primary_pool, "primary")]
+        };
+
+        for (pool, label) in &pools {
+            let pool_start = std::time::Instant::now();
+            let mut conns = Vec::with_capacity(warmup_count);
+            for _ in 0..warmup_count {
+                match pool.acquire().await {
+                    Ok(conn) => conns.push(conn),
+                    Err(e) => {
+                        tracing::warn!(pool = label, error = %e, "Failed to warm connection");
+                        break;
+                    }
+                }
+            }
+            // Run a query on a subset of held connections to warm PgBouncer → PG.
+            // acquire() only establishes app → PgBouncer; in transaction pooling
+            // mode PgBouncer doesn't open a server connection until a query runs.
+            // We cap this to warmup_server_connections to avoid pinning too many
+            // PgBouncer backend connections — the remaining client connections are
+            // still warm (app → PgBouncer) and will get a server connection on
+            // first real query.
+            let mut server_warmed = 0u32;
+            for conn in conns.iter_mut().take(server_warmup_count) {
+                match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                    Ok(_) => server_warmed += 1,
+                    Err(e) => {
+                        tracing::warn!(pool = label, error = %e, "Failed to warm server-side connection");
+                    }
+                }
+            }
+            tracing::info!(
+                pool = label,
+                client_conns = conns.len(),
+                server_conns = server_warmed,
+                elapsed_ms = pool_start.elapsed().as_millis() as u64,
+                "Pool warmup complete"
+            );
+            // Connections drop here, returning to the pool as idle
+        }
+    }
+
     // Spawn background pool health monitor
     let mut pools = vec![MonitoredPool {
         pool: storage.primary_pool.clone(),
@@ -165,6 +285,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         label: "replica".to_string(),
         max_connections: config.max_pg_connections,
     });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_primary_pool.clone(),
+        label: "bulk_primary".to_string(),
+        max_connections: config.bulk_max_pg_connections,
+    });
+    pools.push(MonitoredPool {
+        pool: storage.bulk_replica_pool.clone(),
+        label: "bulk_replica".to_string(),
+        max_connections: config.bulk_max_pg_connections,
+    });
     spawn_pool_monitor(
         pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
@@ -174,9 +304,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
+    let max_connection_age = config.grpc_max_connection_age();
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
+    let max_concurrent_requests = config.max_concurrent_requests;
+    let gzip_config = AsyncGzipConfig::new(
+        config.gzip_response_compression,
+        config.gzip_compression_level,
+        config.gzip_min_payload_size,
+    );
 
+    if gzip_config.enabled {
+        tracing::info!(
+            level = gzip_config.compression_level,
+            min_payload_size = gzip_config.min_payload_size,
+            "Async gzip response compression enabled"
+        );
+    }
+    if max_concurrent_requests > 0 {
+        tracing::info!(
+            limit = max_concurrent_requests,
+            "gRPC load shedding enabled"
+        );
+    }
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
     tokio::spawn(async move {
@@ -189,14 +339,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
         let incoming = tracked_tcp_incoming(listener);
-        if let Err(e) = Server::builder()
+        let mut server = Server::builder()
             .http2_keepalive_interval(keepalive_interval)
-            .http2_keepalive_timeout(keepalive_timeout)
-            .layer(GrpcMetricsLayer)
+            .http2_keepalive_timeout(keepalive_timeout);
+        if let Some(age) = max_connection_age {
+            server = server.max_connection_age(age);
+        }
+        if let Err(e) = server
+            .layer(AsyncGzipLayer::new(gzip_config))
+            .layer(GrpcMetricsLayer::default().with_processing_time_header())
+            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogReplicaServer::new(service)
                     .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv),
+                    .max_decoding_message_size(max_recv)
+                    .accept_compressed(CompressionEncoding::Zstd)
+                    .send_compressed(CompressionEncoding::Zstd),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

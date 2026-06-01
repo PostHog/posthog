@@ -198,7 +198,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Experiments',
         activityScope: ActivityScope.EXPERIMENT,
         description:
-            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
+            'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
         iconType: 'experiment',
     },
     [Scene.Activity]: {
@@ -275,6 +275,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
         name: 'Event ingestion warnings',
@@ -345,6 +346,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.TwoFactorReset]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VercelConnect]: { allowUnauthenticated: true, layout: 'plain', name: 'Connect to Vercel' },
     [Scene.VercelLinkError]: { layout: 'plain', name: 'Vercel account mismatch' },
+    [Scene.AgenticAccountMismatch]: { layout: 'plain', name: 'Account mismatch', allowUnauthenticated: true },
     [Scene.Person]: {
         projectBased: true,
         name: 'People',
@@ -358,8 +360,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.PERSON,
         iconType: 'persons',
     },
-    [Scene.AccountSocialConnected]: {
+    [Scene.AccountConnected]: {
         name: 'Account connected',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+    },
+    [Scene.CredentialReview]: {
+        name: 'Review API keys',
         layout: 'plain',
         projectBased: false,
         organizationBased: false,
@@ -438,6 +446,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Copy to project',
         layout: 'app-container',
     },
+    [Scene.DashboardTemplateCopy]: {
+        projectBased: true,
+        name: 'Copy template to project',
+        layout: 'app-container',
+    },
     [Scene.RevenueAnalytics]: {
         projectBased: true,
         name: 'Revenue analytics',
@@ -450,6 +463,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
+    },
+    [Scene.MarketingAnalyticsSettings]: {
+        projectBased: true,
+        name: 'Marketing settings',
+        description: 'Configure marketing analytics integrations and data sources.',
+        iconType: 'marketing_settings',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -467,6 +486,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.HealthCategoryDetail]: {
         projectBased: true,
         name: 'Health detail',
+        iconType: 'health',
+    },
+    [Scene.HealthAlerts]: {
+        projectBased: true,
+        name: 'Health alerts',
+        description: 'Subscribe to alerts when health checks fire.',
         iconType: 'health',
     },
     [Scene.PipelineStatus]: {
@@ -547,15 +572,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
+    [Scene.EventFiltering]: {
+        projectBased: true,
+        name: 'Event ingestion filtering',
+        description: 'Drop events at ingestion time based on event metadata.',
+        iconType: 'data_pipeline',
+    },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
-    [Scene.WebAnalyticsMarketing]: {
-        projectBased: true,
-        name: 'Marketing settings',
-        layout: 'app-container',
-        description: 'Analyze your marketing analytics data to understand your marketing performance.',
-        iconType: 'marketing_settings',
-    },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
         name: 'Page reports',
@@ -622,7 +646,7 @@ const redirectPipeline = (id: string, fallbackUrl: string): string => {
 
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use a function (not string) redirect
 // NOTE: If you need a query param to be automatically forwarded to the redirect URL, add it to the forwardedRedirectQueryParams array
-export const forwardedRedirectQueryParams: string[] = ['invite_modal']
+export const forwardedRedirectQueryParams: string[] = ['modal']
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
@@ -639,6 +663,7 @@ export const redirects: Record<
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
+    '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
@@ -719,12 +744,16 @@ export const redirects: Record<
     '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
     '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
 
+    // Redirect old path-based /configuration URLs to query param format
+    '/functions/:id/configuration': ({ id }) => urls.hogFunction(id, 'configuration'),
+
     ...productRedirects,
 }
 
 export const routes: Record<string, [Scene | string, string]> = {
     [urls.newTab()]: [Scene.NewTab, 'newTab'],
     [urls.dashboards()]: [Scene.Dashboards, 'dashboards'],
+    [urls.dashboardTemplateCopyToProject(':sourceTemplateId')]: [Scene.DashboardTemplateCopy, 'dashboardTemplateCopy'],
     [urls.dashboard(':id')]: [Scene.Dashboard, 'dashboard'],
     [urls.dashboardTextTile(':id', ':textTileId')]: [Scene.Dashboard, 'dashboardTextTile'],
     [urls.dashboardButtonTile(':id', ':buttonTileId')]: [Scene.Dashboard, 'dashboardButtonTile'],
@@ -752,7 +781,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
-    [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
     [urls.coreEvents()]: [Scene.DataManagement, 'coreEvents'],
     [urls.eventDefinitions()]: [Scene.DataManagement, 'eventDefinitions'],
@@ -844,11 +872,13 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.materializedColumns()]: [Scene.MaterializedColumns, 'materializedColumns'],
     [urls.models()]: [Scene.Models, 'models'],
     [urls.transformations()]: [Scene.Transformations, 'transformations'],
+    [urls.eventFiltering()]: [Scene.EventFiltering, 'eventFiltering'],
     [urls.toolbarLaunch()]: [Scene.ToolbarLaunch, 'toolbarLaunch'],
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
-    [urls.accountSocialConnected()]: [Scene.AccountSocialConnected, 'accountSocialConnected'],
+    [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
+    [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
@@ -866,8 +896,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.verifyEmail(':uuid', ':token')]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
+    [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
 
@@ -892,6 +924,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],

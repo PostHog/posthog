@@ -1,12 +1,12 @@
-from datetime import timedelta
 from functools import reduce
 from operator import or_
 from typing import Any
 
 from django.db.models import Q
 
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
+
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
 from .base import Recommendation
 
@@ -19,7 +19,11 @@ ALERT_TRIGGERS: list[dict[str, str]] = [
 
 class AlertsRecommendation(Recommendation):
     type = "alerts"
-    refresh_interval = timedelta(seconds=5)
+    refresh_interval = None
+
+    def is_completed(self, meta: dict[str, Any]) -> bool:
+        alerts = meta.get("alerts") or []
+        return bool(alerts) and all(a.get("enabled") for a in alerts)
 
     def compute(self, team: Team) -> dict[str, Any]:
         event_filter = reduce(

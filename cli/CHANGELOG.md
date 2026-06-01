@@ -1,5 +1,34 @@
 # posthog-cli
 
+# 0.7.14
+
+- feat: add `--env-file <PATH>` to load `POSTHOG_CLI_HOST`, `POSTHOG_CLI_API_KEY`, and `POSTHOG_CLI_PROJECT_ID` (and their legacy aliases) from a dotenv-style file when not set in the process environment. Credentials are resolved atomically from a single source (process env first, then the file), so `POSTHOG_CLI_HOST` from the file cannot redirect a key supplied by the process env.
+
+# 0.7.13
+
+- chore: bump `cargo-dist` to 0.32.0; the new npm installer drops the bundled transitive deps that were carrying open CVEs (`axios`, `follow-redirects`, `minimatch`, `brace-expansion`)
+
+# 0.7.12
+
+- feat: add `--skip-on-conflict` to symbol upload commands for keeping existing symbol sets when content differs
+- feat: add `--force` to sourcemap, Hermes, and ProGuard uploads for explicit content overwrites
+
+# 0.7.11
+
+- fix: resolve release once in `process` command to avoid race condition when multiple workers run in parallel
+- fix: skip synthetic Swift CU names (e.g. `<swift-imported-modules>`) before joining with `comp_dir` so they no longer dominate the project-root prefix and reject real source files
+
+# 0.7.10
+
+- feat: add `symbol-sets download` command to download symbol sets by ID or ref
+- feat: add `symbol-sets extract` command for local file extraction
+- fix: prevent ZIP path traversal in dSYM extraction
+- fix: validate symbol set ID is a UUID before download
+
+# 0.7.9
+
+- feat: warn and skip empty sourcemaps (no mappings/sources/names) during upload to surface bundler misconfigurations instead of silently uploading useless symbol sets
+
 # 0.7.8
 
 - feat: add `--build` flag to all upload commands (hermes, dsym, proguard, sourcemap) via shared ReleaseArgs

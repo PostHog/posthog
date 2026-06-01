@@ -1,8 +1,70 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
-import { getAuthorizationServerUrl, getBaseUrlForRegion, toCloudRegion } from '@/lib/constants'
+import {
+    getAuthorizationServerUrl,
+    getBaseUrlForRegion,
+    getPublicBaseUrl,
+    isCloudApi,
+    isLocalApi,
+    toCloudRegion,
+} from '@/lib/constants'
 
 describe('OAuth Region Routing', () => {
+    const originalEnv = { ...process.env }
+
+    afterEach(() => {
+        process.env = { ...originalEnv }
+    })
+
+    describe('isLocalApi', () => {
+        it('returns true when POSTHOG_API_BASE_URL is localhost', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
+            expect(isLocalApi()).toBe(true)
+        })
+
+        it('returns false when POSTHOG_API_BASE_URL is a cloud URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            expect(isLocalApi()).toBe(false)
+        })
+
+        it('returns false when POSTHOG_API_BASE_URL is not set', () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            expect(isLocalApi()).toBe(false)
+        })
+    })
+
+    describe('isCloudApi', () => {
+        it('returns true when POSTHOG_API_BASE_URL is not set', () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            expect(isCloudApi()).toBe(true)
+        })
+
+        it('returns true for us.posthog.com', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            expect(isCloudApi()).toBe(true)
+        })
+
+        it('returns true for eu.posthog.com', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://eu.posthog.com'
+            expect(isCloudApi()).toBe(true)
+        })
+
+        it('returns true for internal cluster URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            expect(isCloudApi()).toBe(true)
+        })
+
+        it('returns false for self-hosted domain', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://posthog.example.com'
+            expect(isCloudApi()).toBe(false)
+        })
+
+        it('returns false for localhost', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
+            expect(isCloudApi()).toBe(false)
+        })
+    })
+
     describe('toCloudRegion', () => {
         it.each([
             { input: 'eu', expected: 'eu' },
@@ -29,8 +91,49 @@ describe('OAuth Region Routing', () => {
         })
     })
 
+    describe('getPublicBaseUrl', () => {
+        it('returns POSTHOG_PUBLIC_URL when set', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            process.env.POSTHOG_PUBLIC_URL = 'https://us.posthog.com'
+            expect(getPublicBaseUrl()).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to POSTHOG_API_BASE_URL when POSTHOG_PUBLIC_URL is not set', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
+            delete process.env.POSTHOG_PUBLIC_URL
+            expect(getPublicBaseUrl()).toBe('http://localhost:8010')
+        })
+
+        it('returns undefined when neither is set', () => {
+            delete process.env.POSTHOG_API_BASE_URL
+            delete process.env.POSTHOG_PUBLIC_URL
+            expect(getPublicBaseUrl()).toBeUndefined()
+        })
+    })
+
     describe('getAuthorizationServerUrl', () => {
-        it('returns oauth proxy URL', () => {
+        it('returns localhost when POSTHOG_API_BASE_URL is localhost', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
+            expect(getAuthorizationServerUrl()).toBe('http://localhost:8010')
+        })
+
+        it('returns oauth proxy URL when POSTHOG_API_BASE_URL is a cloud URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://us.posthog.com'
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
+        })
+
+        it('returns oauth proxy URL when POSTHOG_API_BASE_URL is an internal cluster URL', () => {
+            process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+            expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
+        })
+
+        it('returns self-hosted URL when POSTHOG_API_BASE_URL is a custom domain', () => {
+            process.env.POSTHOG_API_BASE_URL = 'https://posthog.example.com'
+            expect(getAuthorizationServerUrl()).toBe('https://posthog.example.com')
+        })
+
+        it('returns oauth proxy URL when not set', () => {
+            delete process.env.POSTHOG_API_BASE_URL
             expect(getAuthorizationServerUrl()).toBe('https://oauth.posthog.com')
         })
     })
@@ -40,6 +143,8 @@ describe('OAuth Region Routing', () => {
         // between the host and the resource path:
         // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
         // - Resource /sse → metadata at /.well-known/oauth-protected-resource/sse
+        //   (the /sse endpoint itself is deprecated and redirects to /mcp, but the
+        //   metadata generator stays generic so cached metadata for /sse remains valid)
         const testCases = [
             {
                 name: 'includes region param and resource path /mcp in metadata URL',
@@ -52,7 +157,7 @@ describe('OAuth Region Routing', () => {
                 expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp',
             },
             {
-                name: 'includes resource path /sse for SSE endpoint',
+                name: 'includes resource path /sse for legacy SSE endpoint',
                 requestUrl: 'https://mcp.posthog.com/sse',
                 expectedMetadataUrl: 'https://mcp.posthog.com/.well-known/oauth-protected-resource/sse',
             },

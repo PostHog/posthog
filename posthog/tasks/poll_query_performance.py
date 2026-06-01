@@ -8,6 +8,7 @@ from structlog import get_logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
@@ -25,6 +26,7 @@ def query_manager_from_initial_query_id(initial_query_id: str) -> Optional[Query
 
 
 def get_query_results() -> list[Any]:
+    tag_queries(product=Product.INTERNAL, feature=Feature.HEALTH_CHECK, name="poll_query_performance")
     SYSTEM_PROCESSES_SQL = r"""
         SELECT
             initial_query_id,

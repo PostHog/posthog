@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Optional, cast
 
@@ -6,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db.models import Model
 
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAdminUser
 from rest_framework.request import Request
@@ -13,6 +15,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -25,7 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
-from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update"]
@@ -267,8 +270,6 @@ class IsStaffUserOrImpersonating(BasePermission):
     message = "You are not a staff user, contact your instance admin."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        from loginas.utils import is_impersonated_session
-
         return bool(
             request.user
             and request.user.is_authenticated
@@ -287,6 +288,11 @@ class PremiumFeaturePermission(BasePermission):
       Self-hosted instances are not gated.
 
     Exactly one of the two attributes must be set on the view.
+
+    Staff impersonating a customer (`is_impersonated_session`) bypass the feature check
+    so PostHog support can debug paid features for non-paying orgs. Plain staff sessions
+    are not bypassed — staff must actively start an impersonation session, which is
+    audit-logged via the `loginas` flow.
     """
 
     def has_permission(self, request: Request, view: APIView) -> bool:
@@ -303,6 +309,9 @@ class PremiumFeaturePermission(BasePermission):
             feature = cloud_only_feature
         else:
             feature = always_feature
+
+        if is_impersonated_session(request):
+            return True
 
         try:
             organization = get_organization_from_view(view)
@@ -481,18 +490,46 @@ class APIScopePermission(ScopeBasePermission):
             if not key_scopes:
                 self.message = "OAuth token has no scopes and cannot access this resource"
                 return False
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            key_scopes = list(request.successful_authenticator.scopes)
+            if not key_scopes:
+                self.message = "ID-JAG access token has no scopes and cannot access this resource"
+                return False
         else:
+            # Session (and other non-token) auth normally bypasses API-scope checks — scopes
+            # are a PAK/OAuth concept; logged-in users are gated by team membership + access
+            # control instead. But INTERNAL scope objects are a programmatic-only security
+            # boundary (e.g. `signal_scout_internal:write`, the sandbox-only scout write scope)
+            # and must be unreachable via session auth — otherwise any logged-in team member
+            # could bypass the boundary (e.g. write durable scout scratchpad that is read
+            # verbatim into the scout's prompt). Mirror the internal-scope guard applied to the
+            # `*` wildcard below.
+            session_required_scopes = self._get_required_scopes(request, view) or []
+            session_required_objects = {s.split(":", 1)[0] for s in session_required_scopes}
+            if not session_required_objects.isdisjoint(INTERNAL_API_SCOPE_OBJECTS):
+                self.message = "This action requires a programmatic token carrying an internal scope"
+                return False
             return True
 
         required_scopes = self._get_required_scopes(request, view)
 
         if not required_scopes:
-            self.message = f"This action does not support Personal API Key access"
+            self.message = "This action does not support personal API key access"
             return False
 
         self.check_team_and_org_permissions(request, view)
 
-        if "*" in key_scopes:
+        # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
+        # are programmatic-only and must not be reachable via user-consented tokens.
+        # Also fall through when *any* required_scope on this action targets an
+        # INTERNAL_API_SCOPE_OBJECTS object (e.g. `signal_scout_internal:write` on
+        # a viewset whose own `scope_object` is the public sibling like `signal_scout`).
+        # Those scope objects are intentionally not selectable in the consent UI, and
+        # `*` must not be a backdoor past that.
+        scope_object = self._get_scope_object(request, view)
+        required_scope_objects = {s.split(":", 1)[0] for s in required_scopes}
+        action_targets_internal = not required_scope_objects.isdisjoint(INTERNAL_API_SCOPE_OBJECTS)
+        if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
         for required_scope in required_scopes:
@@ -510,6 +547,16 @@ class APIScopePermission(ScopeBasePermission):
 
     def check_team_and_org_permissions(self, request, view) -> None:
         scope_object = self._get_scope_object(request, view)
+
+        # Guard runs above the `user` early return so the misconfig still trips
+        # if someone sets the flag on a `scope_object = "user"` viewset.
+        skip_team_and_org = getattr(view, "dangerously_skip_scoped_team_enforcement", False)
+        if skip_team_and_org and scope_object != "INTERNAL":
+            raise RuntimeError(
+                f"`dangerously_skip_scoped_team_enforcement = True` is only allowed on viewsets with "
+                f"`scope_object = 'INTERNAL'`; {type(view).__name__} declares `scope_object = {scope_object!r}`."
+            )
+
         if scope_object == "user":
             return  # The /api/users/@me/ endpoint is exempt from team and org scoping
 
@@ -521,10 +568,23 @@ class APIScopePermission(ScopeBasePermission):
         elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            # ID-JAG access tokens are bound to the specific PostHog Organization
+            # whose OrganizationDomain pinned the trusted IdP — carried in the
+            # `org_id` claim. Pin `scoped_organizations` to that single org so
+            # the token cannot reach other orgs the resolved user happens to
+            # be a member of (cross-org confused-deputy defense).
+            scoped_organizations = [request.successful_authenticator.organization_id]
+            scoped_teams = None
         else:
             raise ValueError("Unexpected authentication type")
 
-        if scoped_teams:
+        if scoped_teams and not skip_team_and_org:
+            # Views that aren't project-nested but still need to accept
+            # scoped_teams tokens can set `dangerously_skip_scoped_team_enforcement = True`
+            # and take on responsibility for their own per-team access. The
+            # flag is only honored on `scope_object = "INTERNAL"` views —
+            # anywhere else it's a config error and we fail loudly.
             try:
                 team = view.team
                 if team.id not in scoped_teams:
@@ -532,7 +592,9 @@ class APIScopePermission(ScopeBasePermission):
             except (KeyError, AttributeError):
                 raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
-        if scoped_organizations:
+        if scoped_organizations and not skip_team_and_org:
+            # The flag also opts out of org enforcement — INTERNAL views aren't
+            # org-nested today, but adding nesting later must revisit the flag.
             try:
                 organization = get_organization_from_view(view)
                 if str(organization.id) not in scoped_organizations:
@@ -699,6 +761,10 @@ class AccessControlPermission(ScopeBasePermission):
         return False
 
 
+_raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
+_FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
+
+
 class PostHogFeatureFlagPermission(BasePermission):
     def has_permission(self, request, view) -> bool:
         user = cast(User, request.user)
@@ -719,18 +785,38 @@ class PostHogFeatureFlagPermission(BasePermission):
 
         for required_flag, actions in config.items():
             if "*" in actions or view.action in actions:
+                if required_flag in _FORCE_ENABLED_FLAGS:
+                    return True
+
                 org_id = str(organization.id)
+                groups: dict[str, str] = {"organization": org_id}
+                group_properties: dict[str, dict[str, str]] = {"organization": {"id": org_id}}
+                # Match in-app flag evaluation: posthog-js often has project (team) context; server-only org
+                # groups miss per-environment rollouts (e.g. logs-settings-drop-rules for project 2 only).
+                try:
+                    team_for_flag = view.team
+                except (ValueError, KeyError, AttributeError):
+                    team_for_flag = None
+                if team_for_flag is not None:
+                    project_id = str(team_for_flag.id)
+                    groups["project"] = project_id
+                    group_properties["project"] = {"id": project_id}
 
                 enabled = posthoganalytics.feature_enabled(
                     required_flag,
                     str(user.distinct_id),
-                    groups={"organization": org_id},
-                    group_properties={"organization": {"id": org_id}},
+                    groups=groups,
+                    group_properties=group_properties,
                     only_evaluate_locally=False,
                     send_feature_flag_events=False,
                 )
 
-                return enabled or False
+                if enabled:
+                    return True
+                self.message = (
+                    f"This action requires feature flag {required_flag!r} to be enabled for your organization."
+                )
+                return False
 
         return True
 

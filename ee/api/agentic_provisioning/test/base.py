@@ -35,12 +35,12 @@ _RSA_KEY = _generate_rsa_key()
 
 @pytest.mark.requires_secrets
 @override_settings(
-    STRIPE_APP_SECRET_KEY=HMAC_SECRET,
+    STRIPE_SIGNING_SECRET=HMAC_SECRET,
     STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
     OIDC_RSA_PRIVATE_KEY=_RSA_KEY,
     OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": _RSA_KEY},
 )
-class StripeProvisioningTestBase(APIBaseTest):
+class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
@@ -58,6 +58,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://localhost",
                 "algorithm": "RS256",
+                "provisioning_can_issue_deep_links": True,
             },
         )
 
@@ -137,7 +138,6 @@ class StripeProvisioningTestBase(APIBaseTest):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
+            headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
         return res.json()["access_token"]

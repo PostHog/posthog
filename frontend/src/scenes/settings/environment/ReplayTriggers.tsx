@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
@@ -265,7 +265,12 @@ function MobileMinimumDuration(): JSX.Element {
         <div className="flex flex-col gap-2">
             <div className="flex flex-row items-center gap-2">
                 <LemonLabel className="text-base">
-                    Duration threshold <Since ios={{ version: '3.53.0' }} />
+                    Duration threshold{' '}
+                    <Since
+                        ios={{ version: '3.53.0' }}
+                        android={{ version: '3.44.0' }}
+                        flutter={{ version: '5.24.3' }}
+                    />
                 </LemonLabel>
                 <Tooltip title="Minimum duration is shared across web and mobile. Change it on the Web tab.">
                     <span className="text-muted font-semibold">
@@ -274,7 +279,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across Web and iOS.{' '}
+                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -299,15 +304,8 @@ function MinimumDurationSetting(): JSX.Element | null {
                 </div>
                 <Tooltip
                     delayMs={200}
-                    title={
-                        <>
-                            The JS SDK has an in-memory queue. This means that for traditional web apps the minimum
-                            duration control is best effort.{' '}
-                            <Link to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations">
-                                Read more in our docs
-                            </Link>
-                        </>
-                    }
+                    docLink="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record#limitations"
+                    title="The JS SDK has an in-memory queue. This means that for traditional web apps the minimum duration control is best effort."
                 >
                     Setting a minimum session duration will ensure that only sessions that last longer than that value
                     are collected. This helps you avoid collecting sessions that are too short to be useful.
@@ -496,6 +494,7 @@ export function ReplayTriggers(): JSX.Element {
                     {currentTeam && (
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
+                    <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
                     <LinkedFlagSelector />
                     <MobileSampling />
                     <MobileMinimumDuration />

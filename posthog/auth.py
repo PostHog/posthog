@@ -20,6 +20,7 @@ from django.utils import timezone
 
 import jwt
 import structlog
+from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
@@ -28,8 +29,9 @@ from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
-from posthog.jwt import PosthogJwtAudience, decode_jwt
+from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_public_key
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
@@ -59,6 +61,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 structlog_logger = structlog.get_logger(__name__)
+
+tracer = trace.get_tracer(__name__)
 
 _SECRET_API_KEY_RE = re.compile(r"^phs_[a-zA-Z0-9]+$")
 
@@ -157,15 +161,16 @@ class SessionAuthentication(authentication.SessionAuthentication):
     """
 
     def authenticate(self, request):
-        auth_result = super().authenticate(request)
+        with tracer.start_as_current_span("posthog.auth.session"):
+            auth_result = super().authenticate(request)
 
-        if not auth_result:
-            return None
+            if not auth_result:
+                return None
 
-        user, auth = auth_result
-        enforce_two_factor(request, user)
+            user, auth = auth_result
+            enforce_two_factor(request, user)
 
-        return (user, auth)
+            return (user, auth)
 
     def authenticate_header(self, request):
         return "Session"
@@ -241,22 +246,29 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         personal_api_key, source = personal_api_key_with_source
         personal_api_key_object = None
         mode_used = None
+        modes_tried = 0
 
-        for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
-            secure_value = hash_key_value(
-                personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
-            )
-            try:
-                personal_api_key_object = (
-                    PersonalAPIKey.objects.select_related("user")
-                    .filter(user__is_active=True)
-                    .get(secure_value=secure_value)
+        with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
+            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+                modes_tried += 1
+                secure_value = hash_key_value(
+                    personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
                 )
-                mode_used = mode
-                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
-                break
-            except PersonalAPIKey.DoesNotExist:
-                pass
+                try:
+                    personal_api_key_object = (
+                        PersonalAPIKey.objects.select_related("user")
+                        .filter(user__is_active=True)
+                        .get(secure_value=secure_value)
+                    )
+                    mode_used = mode
+                    PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
+                    break
+                except PersonalAPIKey.DoesNotExist:
+                    pass
+
+            db_span.set_attribute("auth.modes_tried", modes_tried)
+            if mode_used:
+                db_span.set_attribute("auth.hash_mode_used", mode_used)
 
         if not personal_api_key_object:
             source_display = cls._SOURCE_DISPLAY.get(source, source)
@@ -265,9 +277,11 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
         if mode_used != "sha256":
-            key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
-            key_to_update.secure_value = hash_key_value(personal_api_key)
-            key_to_update.save(update_fields=["secure_value"])
+            with tracer.start_as_current_span("posthog.auth.personal_api_key.mode_upgrade") as upgrade_span:
+                upgrade_span.set_attribute("auth.hash_mode_used", mode_used or "")
+                key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
+                key_to_update.secure_value = hash_key_value(personal_api_key)
+                key_to_update.save(update_fields=["secure_value"])
 
         if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
@@ -275,35 +289,38 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return personal_api_key_object
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        personal_api_key_with_source = self.find_key_with_source(request)
-        if not personal_api_key_with_source:
-            return None
+        with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
+            personal_api_key_with_source = self.find_key_with_source(request)
+            if not personal_api_key_with_source:
+                return None
 
-        _, source = personal_api_key_with_source
-        personal_api_key_object = self.validate_key(personal_api_key_with_source)
+            _, source = personal_api_key_with_source
+            span.set_attribute("auth.source", source)
 
-        now = timezone.now()
-        key_last_used_at = personal_api_key_object.last_used_at
-        # Only updating last_used_at if the hour's changed
-        # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
-            personal_api_key_object.last_used_at = now
-            personal_api_key_object.save(update_fields=["last_used_at"])
-        assert personal_api_key_object.user is not None
+            personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
-        # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
-        tag_queries(
-            user_id=personal_api_key_object.user.pk,
-            team_id=personal_api_key_object.user.current_team_id,
-            access_method="personal_api_key",
-            api_key_mask=personal_api_key_object.mask_value,
-            api_key_label=personal_api_key_object.label,
-        )
+            now = timezone.now()
+            key_last_used_at = personal_api_key_object.last_used_at
+            # Only updating last_used_at if the hour's changed
+            # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
+            if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+                personal_api_key_object.last_used_at = now
+                personal_api_key_object.save(update_fields=["last_used_at"])
+            assert personal_api_key_object.user is not None
 
-        self.personal_api_key = personal_api_key_object
-        self.personal_api_key_source = source
+            # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
+            tag_queries(
+                user_id=personal_api_key_object.user.pk,
+                team_id=personal_api_key_object.user.current_team_id,
+                access_method="personal_api_key",
+                api_key_mask=personal_api_key_object.mask_value,
+                api_key_label=personal_api_key_object.label,
+            )
 
-        return personal_api_key_object.user, None
+            self.personal_api_key = personal_api_key_object
+            self.personal_api_key_source = source
+
+            return personal_api_key_object.user, None
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -404,28 +421,194 @@ class JwtAuthentication(authentication.BaseAuthentication):
 
     @classmethod
     def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if "authorization" in request.headers:
-            authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
-            if authorization_match:
-                try:
-                    token = authorization_match.group(1).strip()
-                    info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                    user = User.objects.get(pk=info["id"])
-                    return (user, None)
-                except jwt.DecodeError:
-                    # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+        with tracer.start_as_current_span("posthog.auth.jwt"):
+            if "authorization" in request.headers:
+                authorization_match = re.match(rf"^Bearer\s+(\S.+)$", request.headers["authorization"])
+                if authorization_match:
+                    try:
+                        token = authorization_match.group(1).strip()
+                        info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
+                        user = User.objects.get(pk=info["id"])
+                        return (user, None)
+                    except jwt.DecodeError:
+                        # If it doesn't look like a JWT then we allow the PersonalAPIKeyAuthentication to have a go
+                        return None
+                    except Exception:
+                        raise AuthenticationFailed(detail=f"Token invalid.")
+                else:
+                    # We don't throw so that the PersonalAPIKeyAuthentication can have a go
                     return None
-                except Exception:
-                    raise AuthenticationFailed(detail=f"Token invalid.")
-            else:
-                # We don't throw so that the PersonalAPIKeyAuthentication can have a go
-                return None
 
-        return None
+            return None
 
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates inbound API requests using an access token minted by our
+    ID-JAG token endpoint (`posthog.api.id_jag`). Validates the JWT against the
+    RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
+    to the User whose email matches the `userSub` half of the token's `sub`
+    claim (`{provider}:{userSub}` per
+    https://xaa.dev/docs/token-structure#sub-claim-format).
+
+    Scope enforcement lives in `posthog.permissions.APIScopePermission`; this
+    class only handles signature + claim validation and user resolution.
+    """
+
+    _ID_JAG_ACCESS_TOKEN_TYPE = "at+jwt"
+
+    keyword = "Bearer"
+
+    id_jag_claims: dict[str, Any]
+    scopes: list[str]
+    organization_id: str
+
+    @classmethod
+    def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
+        auth_header = request.headers.get("authorization")
+        if not auth_header:
+            return None
+        match = re.match(rf"^{cls.keyword}\s+(\S.+)$", auth_header)
+        if not match:
+            return None
+        token = match.group(1).strip()
+
+        return token
+
+    @classmethod
+    def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
+        """`{providerName}:{userSub}` per spec — split into (provider, user_sub).
+
+        Returns None if the format is malformed (no colon, empty provider, empty
+        user_sub) so the caller can fail with `invalid_token`.
+        """
+        if not sub or ":" not in sub:
+            return None
+        provider, user_sub = sub.split(":", 1)
+        if not provider or not user_sub:
+            return None
+        return provider, user_sub
+
+    @classmethod
+    def _is_id_jag_token(cls, token: str) -> bool:
+        # Personal/OAuth API key prefixes are reserved for those auth backends.
+        if token.startswith(("phx_", "pha_", "phs_")):
+            return False
+
+        if token.count(".") != 2:
+            return False
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError:
+            return False
+        return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        with tracer.start_as_current_span("posthog.auth.id_jag"):
+            token = self._extract_token(request)
+            if not token:
+                return None
+            if not self._is_id_jag_token(token):
+                return None
+
+            public_key = get_oidc_public_key()
+            if public_key is None:
+                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+            site_url = (settings.SITE_URL or "").rstrip("/")
+            if not site_url:
+                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
+
+            try:
+                claims = jwt.decode(
+                    token,
+                    public_key,
+                    algorithms=["RS256"],
+                    audience=site_url,
+                    issuer=site_url,
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": [
+                            "iss",
+                            "sub",
+                            "email",
+                            "aud",
+                            "exp",
+                            "iat",
+                            "client_id",
+                            "scope",
+                            "org_id",
+                        ],
+                        "verify_signature": True,
+                        "verify_exp": True,
+                        "verify_aud": True,
+                        "verify_iss": True,
+                    },
+                )
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+            except jwt.InvalidAudienceError:
+                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
+            except jwt.InvalidIssuerError:
+                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+            except jwt.MissingRequiredClaimError as e:
+                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+            sub_parts = self._parse_sub(str(claims.get("sub", "")))
+            if sub_parts is None:
+                raise AuthenticationFailed(
+                    detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
+                )
+
+            organization_id = str(claims.get("org_id") or "")
+            if not organization_id:
+                raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
+
+            token_email = str(claims.get("email") or "")
+            if not token_email:
+                raise AuthenticationFailed(detail="ID-JAG access token is missing the email claim.")
+
+            # Resolve the user by (email, org_id) so the token only authenticates
+            # against the specific organization it was minted for. This prevents
+            # a token from authenticating as another user that happens to share
+            # the email, and re-validates membership at every request (the user
+            # may have been removed from the org after the token was issued).
+            user_qs = User.objects.filter(
+                is_active=True,
+                email__iexact=token_email,
+                organization_membership__organization_id=organization_id,
+            ).distinct()
+            users = list(user_qs[:2])
+            if not users:
+                raise AuthenticationFailed(
+                    detail="No active PostHog user matches the ID-JAG access token subject for this organization."
+                )
+            if len(users) > 1:
+                raise AuthenticationFailed(
+                    detail="ID-JAG access token resolves to multiple users; refusing to authenticate."
+                )
+            user = users[0]
+
+            self.id_jag_claims = claims
+            self.scopes = str(claims.get("scope") or "").split()
+            self.organization_id = organization_id
+
+            tag_queries(
+                user_id=user.pk,
+                team_id=user.current_team_id,
+                access_method="id_jag",
+            )
+
+            return user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
 
 
 class ExportRendererAuthentication(authentication.BaseAuthentication):
@@ -457,6 +640,18 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
         return self.keyword
 
 
+def _organization_disallows_public_sharing(sharing_configuration: SharingConfiguration) -> bool:
+    """Returns True when the organization has disabled public sharing under the
+    ORGANIZATION_SECURITY_SETTINGS feature. Sharing tokens must fail closed in that case,
+    even though individual `SharingConfiguration` rows remain `enabled=True`.
+    """
+    organization = sharing_configuration.team.organization
+    return (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    )
+
+
 class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
@@ -481,6 +676,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
+                if _organization_disallows_public_sharing(sharing_configuration):
+                    raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
@@ -539,6 +737,9 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             if sharing_configuration.access_token != payload.get("access_token"):
                 return None
 
+            if _organization_disallows_public_sharing(sharing_configuration):
+                raise AuthenticationFailed(detail="Sharing access token is invalid.")
+
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
             return (AnonymousUser(), None)
@@ -547,6 +748,10 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
             # Expected: JWT decode failed (likely a personal API key was passed)
             # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
             return None
+        except AuthenticationFailed:
+            # Intentional auth failures (e.g. organization kill switch) must propagate,
+            # not be swallowed by the generic Exception handler below.
+            raise
         except Exception as e:
             # Unexpected: Database issues, programming errors, etc.
             # Log for debugging but still fail gracefully
@@ -567,31 +772,32 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
     access_token: OAuthAccessToken
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        authorization_token = self._extract_token(request)
+        with tracer.start_as_current_span("posthog.auth.oauth"):
+            authorization_token = self._extract_token(request)
 
-        if not authorization_token:
-            return None
+            if not authorization_token:
+                return None
 
-        try:
-            access_token = self._validate_token(authorization_token)
+            try:
+                access_token = self._validate_token(authorization_token)
 
-            if not access_token:
+                if not access_token:
+                    raise AuthenticationFailed(detail="Invalid access token.")
+
+                self.access_token = access_token
+
+                tag_queries(
+                    user_id=access_token.user.pk,
+                    team_id=access_token.user.current_team_id,
+                    access_method="oauth",
+                )
+
+                return access_token.user, None
+
+            except AuthenticationFailed:
+                raise
+            except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
-
-            self.access_token = access_token
-
-            tag_queries(
-                user_id=access_token.user.pk,
-                team_id=access_token.user.current_team_id,
-                access_method="oauth",
-            )
-
-            return access_token.user, None
-
-        except AuthenticationFailed:
-            raise
-        except Exception:
-            raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
         if "authorization" in request.headers:
@@ -934,7 +1140,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
                 return int(tid)
         return None
 
-    def authenticate(self, request: Request) -> tuple[None, Any] | None:
+    def authenticate(self, request: Request) -> tuple[AnonymousUser, Any] | None:
         signature = request.headers.get(self.get_signature_header())
         timestamp = request.headers.get(self.get_timestamp_header())
         if not signature or not timestamp:
@@ -963,7 +1169,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 
-        return (None, self.get_auth_context(request))
+        # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
+        return (AnonymousUser(), self.get_auth_context(request))
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"

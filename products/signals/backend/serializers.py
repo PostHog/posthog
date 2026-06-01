@@ -1,13 +1,12 @@
 import json
 import logging
+from collections.abc import Mapping
+from typing import cast
 
 from asgiref.sync import async_to_sync
 from rest_framework import serializers
-from temporalio.client import WorkflowExecutionStatus
-from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import User
-from posthog.temporal.ai.video_segment_clustering.constants import clustering_workflow_id
 from posthog.temporal.common.client import sync_connect
 
 from .models import (
@@ -23,11 +22,15 @@ from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
+
+
 # Maps (source_product, source_type) → (ExternalDataSourceType value, schema name)
 _DATA_IMPORT_SOURCE_MAP: dict[tuple[str, str], tuple[str, str]] = {
     (SignalSourceConfig.SourceProduct.GITHUB, SignalSourceConfig.SourceType.ISSUE): ("Github", "issues"),
     (SignalSourceConfig.SourceProduct.LINEAR, SignalSourceConfig.SourceType.ISSUE): ("Linear", "issues"),
     (SignalSourceConfig.SourceProduct.ZENDESK, SignalSourceConfig.SourceType.TICKET): ("Zendesk", "tickets"),
+    (SignalSourceConfig.SourceProduct.PGANALYZE, SignalSourceConfig.SourceType.ISSUE): ("PgAnalyze", "issues"),
 }
 
 
@@ -50,7 +53,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         if obj.source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            return self._get_clustering_status(obj)
+            return self._get_session_analysis_status(obj.team_id)
 
         mapping = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
         if mapping is None:
@@ -58,33 +61,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ext_source_type, schema_name = mapping
         return self._get_data_import_status(obj.team_id, ext_source_type, schema_name)
 
-    def _get_clustering_status(self, obj: SignalSourceConfig) -> str | None:
-        workflow_id = clustering_workflow_id(obj.team_id, obj.id)
+    def _get_session_analysis_status(self, team_id: int) -> str | None:
+        """ "running" iff any `summarize-session` workflow for this team is currently executing."""
+        query = f'PostHogTeamId = {team_id} AND WorkflowType = "summarize-session" AND ExecutionStatus = "Running"'
+
         try:
-            client = sync_connect()
-            handle = client.get_workflow_handle(workflow_id)
-            desc = async_to_sync(handle.describe)()
-            status = desc.status
-            if status == WorkflowExecutionStatus.RUNNING:
+            temporal = sync_connect()
+
+            async def has_running() -> bool:
+                async for _ in temporal.list_workflows(query=query, page_size=1):
+                    return True
+                return False
+
+            if async_to_sync(has_running)():
                 return "running"
-            if status == WorkflowExecutionStatus.COMPLETED:
-                return "completed"
-            if status in (
-                WorkflowExecutionStatus.FAILED,
-                WorkflowExecutionStatus.TERMINATED,
-                WorkflowExecutionStatus.CANCELED,
-                WorkflowExecutionStatus.TIMED_OUT,
-            ):
-                return "failed"
-            return None
-        except RPCError as e:
-            if e.status == RPCStatusCode.NOT_FOUND:
-                return None
-            logger.warning("Failed to fetch clustering workflow status: %s", e)
-            return None
+        except Exception as e:
+            logger.warning("Failed to list session summarization workflows: %s", e)
+        return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(
@@ -111,19 +107,62 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
+        source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config", {})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
                 raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
+            sample_rate = config.get("sample_rate")
+            if sample_rate is not None:
+                # `isinstance(True, int)` is True in Python — reject bools explicitly.
+                if isinstance(sample_rate, bool) or not isinstance(sample_rate, int | float):
+                    raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
+                if not (0 <= sample_rate <= 1):
+                    raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
+        if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
+            get_team = self.context.get("get_team")
+            team = get_team() if get_team else None
+            if team is not None and not team.organization.is_ai_data_processing_approved:
+                raise serializers.ValidationError(
+                    {
+                        "enabled": "AI data processing must be approved at the organization level to enable session analysis."
+                    }
+                )
         return attrs
+
+    def create(self, validated_data: dict) -> SignalSourceConfig:
+        if (
+            validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
+            and validated_data.get("source_type") == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER
+        ):
+            config = dict(validated_data.get("config") or {})
+            config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
+            validated_data["config"] = config
+        return super().create(validated_data)
 
 
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalTeamConfig
-        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "default_autostart_priority",
+            "default_slack_notification_channel",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {
+            "default_slack_notification_channel": {
+                "help_text": (
+                    "Default Slack channel for this team's signal inbox notifications, in the same "
+                    "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
+                    "Null means no team-level default; per-user channels still apply."
+                )
+            },
+        }
 
 
 class _UserSerializer(serializers.ModelSerializer):
@@ -135,11 +174,39 @@ class _UserSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
     user = _UserSerializer(read_only=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the Slack Integration to deliver inbox-item notifications through, or null when notifications are disabled.",
+    )
 
     class Meta:
         model = SignalUserAutonomyConfig
-        fields = ["id", "user", "autostart_priority", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "user",
+            "autostart_priority",
+            "slack_notification_integration_id",
+            "slack_notification_channel",
+            "slack_notification_min_priority",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "user", "created_at", "updated_at"]
+        extra_kwargs = {
+            "slack_notification_channel": {
+                "help_text": (
+                    "Slack channel target in the same `channel_id|#channel-name` shape PostHog uses elsewhere "
+                    "(only the channel id is required). Null disables Slack notifications."
+                )
+            },
+            "slack_notification_min_priority": {
+                "help_text": (
+                    "Minimum report priority that triggers a Slack notification. P0 is highest. "
+                    "Null means notify on every priority (and reports without a priority judgment)."
+                )
+            },
+        }
 
 
 class SignalReportTaskSerializer(serializers.ModelSerializer):
@@ -151,6 +218,27 @@ class SignalReportTaskSerializer(serializers.ModelSerializer):
 
 class SignalUserAutonomyConfigCreateSerializer(serializers.Serializer):
     autostart_priority = serializers.ChoiceField(choices=AutonomyPriority.choices, required=False, allow_null=True)
+    slack_notification_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Primary key of a Slack `Integration` row in one of the caller's teams. Pair with "
+            "`slack_notification_channel` to enable notifications; pass null on either to disable them."
+        ),
+    )
+    slack_notification_channel = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text="`channel_id|#channel-name` target — same convention used by Insight Alerts.",
+    )
+    slack_notification_min_priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        required=False,
+        allow_null=True,
+        help_text="P0 is highest. Null = notify for every priority.",
+    )
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
@@ -165,6 +253,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
+    source_products = serializers.SerializerMethodField(
+        help_text="Distinct source products contributing signals to this report (from ClickHouse).",
+    )
+    implementation_pr_url = serializers.SerializerMethodField(
+        help_text="PR URL from the latest implementation task run, if available.",
+    )
 
     class Meta:
         model = SignalReport
@@ -183,6 +277,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "actionability",
             "already_addressed",
             "is_suggested_reviewer",
+            "source_products",
+            "implementation_pr_url",
         ]
         read_only_fields = fields
 
@@ -229,8 +325,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         data = self._get_actionability_artefact_data(obj)
         if data is None:
             return None
-        # Support both agentic ("actionability") and legacy ("choice") field names
-        value = data.get("actionability") or data.get("choice")
+        value = data.get("actionability")
         return value if isinstance(value, str) else None
 
     def get_already_addressed(self, obj: SignalReport) -> bool | None:
@@ -239,6 +334,19 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    def get_source_products(self, obj: SignalReport) -> list[str]:
+        source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
+        if source_products_map is not None:
+            return source_products_map.get(str(obj.id), [])
+        return []
+
+    def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
+        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
+        if implementation_pr_url_map is not None:
+            return implementation_pr_url_map.get(str(obj.id))
+        value = getattr(obj, "implementation_pr_url", None)
+        return value if isinstance(value, str) else None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
@@ -257,6 +365,71 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
         # Enrich suggested_reviewers with fresh PostHog user info at read time
         if obj.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS and isinstance(parsed, list):
-            return enrich_reviewer_dicts_with_org_members(obj.team_id, parsed)
+            reviewer_login_map = cast(
+                Mapping[str, User] | None,
+                self.context.get("signals_github_login_to_user_map"),
+            )
+            return enrich_reviewer_dicts_with_org_members(
+                obj.team_id,
+                parsed,
+                login_to_user=reviewer_login_map,
+            )
 
         return parsed
+
+
+class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
+    """Single entry in a PUT body for a `suggested_reviewers` artefact.
+
+    Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`.
+    The server canonicalizes to a lowercase `github_login` — if `user_uuid` is supplied,
+    it must map to an org member on this team with a linked GitHub login.
+    """
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text="GitHub login (case-insensitive). Stored lowercased.",
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID. Must be an org member on this team with a linked GitHub identity. "
+            "If supplied together with `github_login`, the server-resolved login from the user wins."
+        ),
+    )
+    github_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each entry must include `github_login` or `user_uuid` (or both).")
+        return attrs
+
+
+class SignalReportArtefactWriteSerializer(serializers.Serializer):
+    """PUT body for replacing a `suggested_reviewers` artefact's content.
+
+    Only `suggested_reviewers` artefacts may be modified via this endpoint;
+    the viewset enforces the type check before validation runs.
+    """
+
+    MAX_ENTRIES = 10
+
+    content = SuggestedReviewerEntryWriteSerializer(
+        many=True,
+        allow_empty=True,
+        help_text=(
+            f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
+        ),
+    )
+
+    def validate_content(self, value: list[dict]) -> list[dict]:
+        if len(value) > self.MAX_ENTRIES:
+            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
+        return value

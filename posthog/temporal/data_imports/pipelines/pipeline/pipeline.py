@@ -5,7 +5,7 @@ import threading
 import contextvars
 from collections.abc import AsyncIterable, AsyncIterator, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -52,13 +52,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseTable,
-    ExternalDataJob,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
-from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 T = TypeVar("T")
 
@@ -78,7 +75,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
     """
     if isinstance(iterable, AsyncIterable):
         async for item in iterable:
-            yield item
+            yield cast(T, item)
         return
 
     iterator = iter(iterable)
@@ -108,6 +105,7 @@ async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterat
             if not has_value:
                 break
 
+            assert item is not None
             yield item
     finally:
         # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
@@ -436,6 +434,7 @@ class PipelineNonDLT(Generic[ResumableData]):
                 row_count=row_count,
                 queryable_folder=queryable_folder,
                 table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=self._resource.primary_keys,
             )
             await self._logger.adebug("Finished validating schema and updating table")
 

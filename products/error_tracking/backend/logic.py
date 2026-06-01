@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from django.db.models import Count, QuerySet
@@ -21,6 +22,10 @@ from products.error_tracking.backend.models import (
 
 
 class ErrorTrackingIssueNotFoundError(Exception):
+    pass
+
+
+class ErrorTrackingExternalReferenceValidationError(Exception):
     pass
 
 
@@ -72,6 +77,58 @@ def get_issue_id_for_fingerprint(team_id: int, fingerprint: str) -> UUID | None:
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, fingerprint=fingerprint)
         .values_list("issue_id", flat=True)
         .first()
+    )
+
+
+def list_fingerprints(team_id: int, issue_id: UUID | None = None) -> QuerySet[ErrorTrackingIssueFingerprintV2]:
+    queryset = ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id).order_by("created_at")
+    if issue_id is not None:
+        queryset = queryset.filter(issue_id=issue_id)
+    return queryset
+
+
+def get_fingerprint(team_id: int, fingerprint_id: UUID) -> ErrorTrackingIssueFingerprintV2 | None:
+    return ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, id=fingerprint_id).first()
+
+
+def list_external_references(team_id: int) -> QuerySet[ErrorTrackingExternalReference]:
+    return ErrorTrackingExternalReference.objects.select_related("integration").filter(issue__team_id=team_id)
+
+
+def get_external_reference(reference_id: UUID, team_id: int) -> ErrorTrackingExternalReference | None:
+    return list_external_references(team_id=team_id).filter(id=reference_id).first()
+
+
+def create_external_reference(
+    *,
+    team_id: int,
+    issue_id: UUID,
+    integration_id: int,
+    config: dict[str, Any],
+) -> ErrorTrackingExternalReference:
+    issue = ErrorTrackingIssue.objects.filter(id=issue_id, team_id=team_id).first()
+    if issue is None:
+        raise ErrorTrackingExternalReferenceValidationError("Issue does not belong to this team.")
+
+    integration = Integration.objects.filter(id=integration_id, team_id=team_id).first()
+    if integration is None:
+        raise ErrorTrackingExternalReferenceValidationError("Integration does not belong to this team.")
+
+    if integration.kind == Integration.IntegrationKind.GITHUB:
+        external_context = GitHubIntegration(integration).create_issue(config)
+    elif integration.kind == Integration.IntegrationKind.GITLAB:
+        external_context = GitLabIntegration(integration).create_issue(config)
+    elif integration.kind == Integration.IntegrationKind.LINEAR:
+        external_context = LinearIntegration(integration).create_issue(str(team_id), issue.id, config)
+    elif integration.kind == Integration.IntegrationKind.JIRA:
+        external_context = JiraIntegration(integration).create_issue(config)
+    else:
+        raise ErrorTrackingExternalReferenceValidationError("Provider not supported")
+
+    return ErrorTrackingExternalReference.objects.create(
+        issue=issue,
+        integration=integration,
+        external_context=external_context,
     )
 
 

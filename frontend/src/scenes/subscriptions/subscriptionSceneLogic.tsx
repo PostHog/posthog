@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import {
     subscriptionsDeliveriesList,
+    subscriptionsPartialUpdate,
     subscriptionsRetrieve,
     subscriptionsTestDeliveryCreate,
 } from '~/generated/core/api'
@@ -83,6 +84,16 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                         return null
                     }
                     return await subscriptionsRetrieve(String(getCurrentTeamId()), numericId)
+                },
+                // Used by the Pause / Resume button on the detail page. PATCH
+                // returns the updated subscription so the loader replaces the
+                // whole value — no extra GET needed.
+                setEnabled: async ({ enabled }: { enabled: boolean }) => {
+                    const numericId = parseInt(props.id, 10)
+                    if (!Number.isFinite(numericId)) {
+                        return values.subscription
+                    }
+                    return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, { enabled })
                 },
             },
         ],
@@ -194,6 +205,18 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                       ? detail
                       : 'Could not load delivery history.'
             lemonToast.error(message)
+        },
+        setEnabledSuccess: ({ subscription }) => {
+            if (!subscription) {
+                return
+            }
+            lemonToast.success(subscription.enabled ? 'Subscription enabled' : 'Subscription disabled')
+        },
+        setEnabledFailure: ({ errorObject }) => {
+            // Surface the serializer's actionable message (e.g. re-enabling a Slack
+            // sub with no integration) — backend already validates this.
+            const detail = errorObject?.detail
+            lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
         },
     })),
     afterMount(({ actions }) => {

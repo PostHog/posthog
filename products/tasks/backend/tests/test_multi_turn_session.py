@@ -2,16 +2,27 @@ import json
 from pathlib import Path
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
+from posthog.models import Integration, Organization, Team
+from posthog.models.user import User
+
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.services.custom_prompt_internals import (
+    CustomPromptSandboxContext,
+    EmptyAgentTurnError,
+    create_task_and_trigger,
+    poll_for_turn,
+)
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import EmptyAgentTurnError, _poll_for_turn
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
     _end_turn_line,
+    _usage_update_line,
     _user_message_line,
 )
 
@@ -25,7 +36,7 @@ class _Resp(BaseModel):
 class TestPollForTurnEmptyEndTurn:
     @pytest.mark.asyncio
     async def test_raises_empty_agent_turn_error_with_offsets(self):
-        """_poll_for_turn must translate the _check_logs empty-end_turn flag into a
+        """poll_for_turn must translate the _check_logs empty-end_turn flag into a
         typed exception so the caller can retry instead of polling until timeout."""
         turn_1 = [_agent_message_line("first"), _end_turn_line()]
         turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
@@ -36,12 +47,12 @@ class TestPollForTurnEmptyEndTurn:
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch(
-                "products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS",
+                "products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
         ):
             with pytest.raises(EmptyAgentTurnError) as exc_info:
-                await _poll_for_turn(FakeTaskRun(), skip_lines=skip)
+                await poll_for_turn(FakeTaskRun(), skip_lines=skip)
 
         # Carries log offsets so the caller can resume from the tail on retry
         # instead of re-streaming already-printed lines.
@@ -50,7 +61,7 @@ class TestPollForTurnEmptyEndTurn:
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
-        """When agent_message arrives in one poll and end_turn in the next, _poll_for_turn
+        """When agent_message arrives in one poll and end_turn in the next, poll_for_turn
         must recognize the turn as complete — not raise EmptyAgentTurnError and cause a
         spurious retry."""
         turn_1 = [_agent_message_line("prev"), _end_turn_line()]
@@ -76,17 +87,17 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, _ = await _poll_for_turn(fake_task_run, skip_lines=skip)
+            last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
         assert last_message == "current-turn-text"
         assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
 
     @pytest.mark.asyncio
     async def test_poll_handles_s3_shrink_then_recovery_without_duplicates(self):
         """End-to-end regression: if S3 briefly serves a truncated log between polls,
-        cursor clamps in _poll_for_turn + _stream_new_lines must prevent already-streamed
+        cursor clamps in poll_for_turn + _stream_new_lines must prevent already-streamed
         lines from being re-emitted or re-parsed when the log recovers."""
         # Poll 1: user_message only (turn in progress).
         # Poll 2: S3 truncated (1 line instead of 2).
@@ -105,10 +116,10 @@ class TestPollForTurnEmptyEndTurn:
         with (
             patch("posthog.storage.object_storage.read", side_effect=next_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, printed_lines = await _poll_for_turn(
+            last_message, _, total_lines, printed_lines = await poll_for_turn(
                 fake_task_run, skip_lines=0, output_fn=captured.append, verbose=True
             )
 
@@ -118,6 +129,90 @@ class TestPollForTurnEmptyEndTurn:
         # Cursors settled on the final (recovered) line count, not the truncated one.
         assert total_lines == len(poll_3_lines)
         assert printed_lines == len(poll_3_lines)
+
+
+class TestPollForTurnTerminalDrain:
+    """Terminal-status drain must recover an agent_message from *this* turn only.
+
+    When the TaskRun reaches a terminal status (FAILED/CANCELLED/COMPLETED) without
+    emitting `end_turn`, `_drain_final_log` re-reads the log and walks backward for
+    the trailing agent_message. The walk must be bounded by the start-of-turn cursor
+    so it never returns a previous turn's response in a multi-turn session.
+    """
+
+    @pytest.mark.asyncio
+    async def test_terminal_status_does_not_return_previous_turn_message(self):
+        """Regression: turn 2 hits terminal status with no agent_message of its own.
+        The drain must raise RuntimeError, NOT silently return turn 1's response."""
+        turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
+        # Turn 2 prompt + tool churn, but the agent died before emitting any agent_message
+        # AND before emitting end_turn (so the empty_end_turn path is not what triggers drain).
+        turn_2_partial = [_user_message_line("followup question"), _usage_update_line(0)]
+
+        log = "\n".join(turn_1 + turn_2_partial)
+        skip = len(turn_1)  # start-of-turn-2 cursor — what MultiTurnSession passes
+
+        # Simulate the task reaching FAILED status mid-poll
+        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            with pytest.raises(RuntimeError, match="terminal status"):
+                await poll_for_turn(fake_task_run, skip_lines=skip)
+
+    @pytest.mark.asyncio
+    async def test_terminal_status_recovers_mid_turn_agent_message(self):
+        """The original commit's intent must still hold: when the agent emitted an
+        agent_message earlier in *this* turn but the workflow then hit terminal status
+        without `end_turn`, the drain recovers that message. Verified with skip_lines>0
+        so we're sure the scan walks the current-turn slice, not just [0..end)."""
+        turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
+        # Turn 2: agent emitted text, then died before end_turn (e.g. inactivity timeout)
+        turn_2_recoverable = [
+            _user_message_line("followup question"),
+            _agent_message_line("turn-2-partial-answer"),
+            _usage_update_line(0),  # cursor has advanced past the agent_message by now
+        ]
+
+        log = "\n".join(turn_1 + turn_2_recoverable)
+        skip = len(turn_1)
+        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
+
+        assert last_message == "turn-2-partial-answer"
+
+    @pytest.mark.asyncio
+    async def test_terminal_status_first_turn_still_scans_full_log(self):
+        """First-turn case (skip_lines=0): the drain scans from 0 as before — no behavior
+        change for single-turn or initial-turn callers."""
+        turn_1 = [
+            _user_message_line("initial prompt"),
+            _agent_message_line("partial-before-death"),
+            _usage_update_line(0),
+        ]
+        log = "\n".join(turn_1)
+        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert last_message == "partial-before-death"
 
 
 class TestMultiTurnSessionRetry:
@@ -142,7 +237,7 @@ class TestMultiTurnSessionRetry:
         agent_response = json.dumps({"value": "ok"})
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=AsyncMock(return_value=(agent_response, None, 10, 5)),
         ):
             result = await session.send_followup("hello", _Resp, label="unit")
@@ -163,7 +258,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             result = await session.send_followup("please prioritize", _Resp, label="priority")
@@ -189,7 +284,7 @@ class TestMultiTurnSessionRetry:
             ]
         )
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=poll_mock,
         ):
             with pytest.raises(EmptyAgentTurnError, match="twice"):
@@ -200,7 +295,7 @@ class TestMultiTurnSessionRetry:
 
     @pytest.mark.asyncio
     async def test_full_retry_path_with_real_poll_loop(self):
-        """End-to-end integration: send_followup → real _poll_for_turn → real _check_logs
+        """End-to-end integration: send_followup → real poll_for_turn → real _check_logs
         → EmptyAgentTurnError → retry → real _check_logs finds agent_message → parsed.
 
         The log fixture mirrors the production incident: initial turn with a real
@@ -230,7 +325,7 @@ class TestMultiTurnSessionRetry:
             return "\n".join(fixture_lines[:visible])
 
         session = self._make_session()
-        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]
+        session._workflow_handle.signal = AsyncMock(side_effect=record_signal)  # type: ignore[union-attr,method-assign]  # ty: ignore[invalid-assignment]
         # Session state as if MultiTurnSession.start already consumed the initial turn.
         session.log_lines_seen = 2
         session.printed_lines = 2
@@ -238,7 +333,7 @@ class TestMultiTurnSessionRetry:
         with (
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_runner.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
@@ -270,9 +365,143 @@ class TestMultiTurnSessionRetry:
             return (agent_response, None, 120, 60)
 
         with patch(
-            "products.tasks.backend.services.custom_prompt_multi_turn_runner._poll_for_turn",
+            "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
             new=fake_poll,
         ):
             await session.send_followup("x", _Resp, label="priority")
 
         assert captured_skip_lines == [5, 99]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestMultiTurnSessionStartBranch:
+    """Regression: an earlier impl rewrote branch='master' to None as a sentinel for
+    'use repo default'. That sentinel was removed once callers stopped defaulting to
+    'master'. The branch arg must now reach TaskRun.branch unchanged so repos with
+    non-master defaults aren't forced into a failing checkout."""
+
+    @staticmethod
+    def _setup_team_and_user() -> tuple[Team, User]:
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="branch-test@example.com")
+        Integration.objects.create(team=team, kind="github", config={})
+        return team, user
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("branch", [None, "master", "main", "feature/x"])
+    async def test_branch_passed_through_to_task_run(self, branch):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
+        agent_response = json.dumps({"value": "ok"})
+
+        with (
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=MagicMock(get_workflow_handle=MagicMock(return_value=AsyncMock()))),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(return_value=(agent_response, None, 1, 1)),
+            ),
+        ):
+            kwargs = {"branch": branch} if branch is not None else {}
+            session, _ = await MultiTurnSession.start(
+                prompt="hello",
+                context=context,
+                model=_Resp,
+                **kwargs,
+            )
+
+        # Re-fetch from DB to confirm the value was actually persisted, not just
+        # held in memory by the in-process Task object.
+        persisted = await sync_to_async(TaskRun.objects.get)(id=session.task_run.id)
+        assert persisted.branch == branch
+
+
+class TestMultiTurnSessionStartCleanup:
+    """Regression: if MultiTurnSession.start raises after create_task_and_trigger
+    has already started the workflow (e.g. poll_for_turn fails), the failure path
+    must signal completion so the orphaned workflow doesn't run until its
+    inactivity timeout."""
+
+    @pytest.mark.asyncio
+    async def test_cleans_up_when_initial_poll_fails(self):
+        fake_task = MagicMock()
+        fake_task.id = "task-id"
+        fake_run = MagicMock()
+        fake_run.id = "run-id"
+
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_client = MagicMock(get_workflow_handle=MagicMock(return_value=mock_handle))
+
+        with (
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.create_task_and_trigger",
+                new=AsyncMock(return_value=(fake_task, fake_run)),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.async_connect",
+                new=AsyncMock(return_value=mock_client),
+            ),
+            patch(
+                "products.tasks.backend.services.custom_prompt_multi_turn_runner.poll_for_turn",
+                new=AsyncMock(side_effect=RuntimeError("storage explode")),
+            ),
+            pytest.raises(RuntimeError, match="storage explode"),
+        ):
+            await MultiTurnSession.start(
+                prompt="test",
+                context=CustomPromptSandboxContext(team_id=1, user_id=2),
+                model=_Resp,
+            )
+
+        # session.end() must have signalled the workflow exactly once on the cleanup path.
+        mock_handle.signal.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCreateTaskAndTriggerForwardsContext:
+    """Regression: CustomPromptSandboxContext.sandbox_environment_id and
+    posthog_mcp_scopes were silently dropped by create_task_and_trigger, so
+    least-privilege configs at call sites (e.g. Signals' GitHub-only sandbox,
+    repo-selection's read_only MCP scope) had no effect downstream."""
+
+    @staticmethod
+    def _setup_team_and_user() -> tuple[Team, User]:
+        org = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create(email="ctx-fwd@example.com")
+        return team, user
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "ctx_env, ctx_scopes, expected_env, expected_scopes",
+        [
+            ("env-uuid-abc", "read_only", "env-uuid-abc", "read_only"),
+            (None, None, None, "full"),
+        ],
+    )
+    async def test_forwards_sandbox_env_and_scopes(self, ctx_env, ctx_scopes, expected_env, expected_scopes):
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id,
+            user_id=user.id,
+            repository="posthog/posthog",
+            sandbox_environment_id=ctx_env,
+            posthog_mcp_scopes=ctx_scopes,
+        )
+
+        mock_task = MagicMock()
+        mock_task.latest_run = MagicMock()
+        with patch(
+            "products.tasks.backend.services.custom_prompt_internals.Task.create_and_run",
+            return_value=mock_task,
+        ) as mock_create:
+            await create_task_and_trigger("prompt", context)
+
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["sandbox_environment_id"] == expected_env
+        assert kwargs["posthog_mcp_scopes"] == expected_scopes

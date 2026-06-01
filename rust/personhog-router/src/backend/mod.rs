@@ -1,27 +1,38 @@
 mod leader;
 mod replica;
 mod retry;
+mod stash;
 
-pub use leader::LeaderBackend;
-pub use replica::ReplicaBackend;
+pub use leader::{AddressResolver, LeaderBackend, LeaderBackendConfig};
+pub use replica::{ReplicaBackend, ReplicaBackendConfig};
+pub use stash::{StashDecision, StashTable, StashedRequest};
 
 use async_trait::async_trait;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
-    DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
-    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
+    CheckCohortMembershipRequest, CohortMembershipResponse, CountCohortMembersRequest,
+    CountCohortMembersResponse, CreateGroupRequest, CreateGroupResponse, DeleteCohortMemberRequest,
+    DeleteCohortMemberResponse, DeleteCohortMembersBulkRequest, DeleteCohortMembersBulkResponse,
+    DeleteGroupTypeMappingRequest, DeleteGroupTypeMappingResponse,
+    DeleteGroupTypeMappingsBatchForTeamRequest, DeleteGroupTypeMappingsBatchForTeamResponse,
+    DeleteGroupsBatchForTeamRequest, DeleteGroupsBatchForTeamResponse,
+    DeleteHashKeyOverridesByTeamsRequest, DeleteHashKeyOverridesByTeamsResponse,
+    DeletePersonsBatchForTeamRequest, DeletePersonsBatchForTeamResponse, DeletePersonsRequest,
+    DeletePersonsResponse, GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
-    GetGroupResponse, GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupResponse, GetGroupTypeMappingByDashboardIdRequest,
+    GetGroupTypeMappingByDashboardIdResponse, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsBatchResponse,
     GetGroupsRequest, GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
     GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
+    InsertCohortMembersRequest, InsertCohortMembersResponse, ListCohortMemberIdsRequest,
+    ListCohortMemberIdsResponse, ListGroupsRequest, ListGroupsResponse,
     PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::Status;
 
@@ -105,6 +116,26 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: CheckCohortMembershipRequest,
     ) -> Result<CohortMembershipResponse, Status>;
+    async fn count_cohort_members(
+        &self,
+        request: CountCohortMembersRequest,
+    ) -> Result<CountCohortMembersResponse, Status>;
+    async fn delete_cohort_member(
+        &self,
+        request: DeleteCohortMemberRequest,
+    ) -> Result<DeleteCohortMemberResponse, Status>;
+    async fn delete_cohort_members_bulk(
+        &self,
+        request: DeleteCohortMembersBulkRequest,
+    ) -> Result<DeleteCohortMembersBulkResponse, Status>;
+    async fn insert_cohort_members(
+        &self,
+        request: InsertCohortMembersRequest,
+    ) -> Result<InsertCohortMembersResponse, Status>;
+    async fn list_cohort_member_ids(
+        &self,
+        request: ListCohortMemberIdsRequest,
+    ) -> Result<ListCohortMemberIdsResponse, Status>;
 
     // Groups
     async fn get_group(&self, request: GetGroupRequest) -> Result<GetGroupResponse, Status>;
@@ -113,6 +144,7 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status>;
+    async fn list_groups(&self, request: ListGroupsRequest) -> Result<ListGroupsResponse, Status>;
 
     // Group type mappings
     async fn get_group_type_mappings_by_team_id(
@@ -131,4 +163,38 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status>;
+
+    // Group type mapping lookups (additional)
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        request: GetGroupTypeMappingByDashboardIdRequest,
+    ) -> Result<GetGroupTypeMappingByDashboardIdResponse, Status>;
+
+    // Group writes
+    async fn create_group(
+        &self,
+        request: CreateGroupRequest,
+    ) -> Result<CreateGroupResponse, Status>;
+    async fn update_group(
+        &self,
+        request: UpdateGroupRequest,
+    ) -> Result<UpdateGroupResponse, Status>;
+    async fn delete_groups_batch_for_team(
+        &self,
+        request: DeleteGroupsBatchForTeamRequest,
+    ) -> Result<DeleteGroupsBatchForTeamResponse, Status>;
+
+    // Group type mapping writes
+    async fn update_group_type_mapping(
+        &self,
+        request: UpdateGroupTypeMappingRequest,
+    ) -> Result<UpdateGroupTypeMappingResponse, Status>;
+    async fn delete_group_type_mapping(
+        &self,
+        request: DeleteGroupTypeMappingRequest,
+    ) -> Result<DeleteGroupTypeMappingResponse, Status>;
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        request: DeleteGroupTypeMappingsBatchForTeamRequest,
+    ) -> Result<DeleteGroupTypeMappingsBatchForTeamResponse, Status>;
 }

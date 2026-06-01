@@ -37,7 +37,7 @@ from posthog.constants import (
     TRENDS_LINEAR,
     TRENDS_TABLE,
 )
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models import Cohort, Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
 from posthog.models.person.util import create_person_distinct_id
@@ -47,6 +47,8 @@ from posthog.queries.trends.trends import Trends
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
+
+from products.actions.backend.models.action import Action
 
 
 def breakdown_label(entity: Entity, value: Union[str, int]) -> dict[str, Optional[Union[str, int]]]:
@@ -325,7 +327,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 from posthog.models.team import util
 
-                util.can_enable_actor_on_events = True
+                util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
 
                 response = Trends().run(Filter(team=self.team, data=data), self.team)
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])

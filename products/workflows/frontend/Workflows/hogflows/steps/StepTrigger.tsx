@@ -11,6 +11,7 @@ import {
     IconPeople,
     IconPlusSmall,
     IconTarget,
+    IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
 import {
@@ -37,6 +38,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
@@ -488,10 +490,28 @@ function StepTriggerConfigurationManual(): JSX.Element {
 
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const logic = batchTriggerLogic({ id: actionId, filters })
-    const { blastRadiusLoading, blastRadius } = useValues(logic)
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
+    }
+
+    if (blastRadiusError) {
+        return (
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
+                <IconWarning className="text-base shrink-0 mt-0.5" />
+                <div>
+                    <div className="font-semibold">
+                        Couldn't validate audience size — this batch will likely fail to run.
+                    </div>
+                    <div>
+                        Your filters could not be evaluated against the audience. Review and adjust them before saving,
+                        otherwise the batch is likely to error when it executes.
+                    </div>
+                    <div className="mt-1 text-muted">Details: {blastRadiusError}</div>
+                </div>
+            </div>
+        )
     }
 
     if (!blastRadius) {
@@ -524,7 +544,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <RecurringSchedulePicker />
         </>
     )
@@ -553,7 +573,7 @@ function StepTriggerConfigurationBatch({
                     orFiltering
                     sendAllKeyUpdates
                     allowRelativeDateOptions
-                    exactMatchFeatureFlagCohortOperators
+                    {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>
@@ -662,9 +682,13 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+
 const FREQUENCY_OPTIONS = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
 ]
 
 const TTL_OPTIONS = [
@@ -723,13 +747,17 @@ function FrequencySection(): JSX.Element {
                                 val
                                     ? {
                                           hash: val,
-                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                          ttl:
+                                              val === MASKING_HASH_PER_PERSON_PER_DAY
+                                                  ? CALENDAR_DAY_TTL
+                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
                                       }
                                     : null
                             )
                         }
                     />
-                    {workflow.trigger_masking?.hash ? (
+                    {workflow.trigger_masking?.hash &&
+                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>

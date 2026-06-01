@@ -17,6 +17,7 @@ const (
 	iconCharStopped = sharedpalette.IconStopped
 	iconCharDone    = sharedpalette.IconDone
 	iconCharCrashed = sharedpalette.IconCrashed
+	iconCharStandby = sharedpalette.IconStandby
 )
 
 var (
@@ -29,6 +30,8 @@ var (
 	colorBrightWhite  = sharedpalette.ColorBrightWhite
 	colorBrightBlack  = sharedpalette.ColorBrightBlack
 	colorBrightYellow = sharedpalette.ColorBrightYellow
+	selectionDark     = sharedpalette.SelectionDark
+	selectionLight    = sharedpalette.SelectionLight
 	brandYellow       = sharedpalette.BrandYellow
 	brandBlue         = sharedpalette.BrandBlue
 	brandRed          = sharedpalette.BrandRed
@@ -136,6 +139,8 @@ func statusIconChar(s process.Status) string {
 		return iconCharDone
 	case process.StatusCrashed:
 		return iconCharCrashed
+	case process.StatusStandby:
+		return iconCharStandby
 	default:
 		return iconCharStopped
 	}
@@ -151,17 +156,27 @@ func statusIconColor(s process.Status) color.Color {
 		return nil
 	case process.StatusCrashed:
 		return colorRed
+	case process.StatusStandby:
+		return colorBrightBlack
 	default:
 		return colorYellow
 	}
 }
 
-// Renders a single sidebar row with icon and name
+// Renders a single sidebar row with icon and name.
 func subtleBg(isDark bool) color.Color {
 	if isDark {
 		return colorBrightBlack
 	}
 	return colorBrightWhite
+}
+
+// Selection fill color for highlighted rows.
+func selectionBg(isDark bool) color.Color {
+	if isDark {
+		return selectionDark
+	}
+	return selectionLight
 }
 
 // borderFor returns the border style with a foreground appropriate for the
@@ -180,13 +195,14 @@ type sidebarRow struct {
 	iconColor color.Color
 	selected  bool
 	unread    bool
+	standby   bool
 	innerW    int
 	isDark    bool
 }
 
 func renderSidebarRow(r sidebarRow) string {
 	nameW := max(r.innerW-2, 0) // 1 padding + 1 icon
-	selBg := subtleBg(r.isDark)
+	selBg := selectionBg(r.isDark)
 
 	iconStyle := lipgloss.NewStyle().PaddingLeft(1).Foreground(r.iconColor)
 	if r.selected {
@@ -196,6 +212,8 @@ func renderSidebarRow(r sidebarRow) string {
 	nameStyle := lipgloss.NewStyle().Width(nameW)
 	if r.selected {
 		nameStyle = nameStyle.Background(selBg)
+	} else if r.standby {
+		nameStyle = nameStyle.Foreground(colorBrightBlack)
 	} else if r.unread {
 		nameStyle = nameStyle.Bold(true)
 	}

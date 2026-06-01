@@ -46,6 +46,58 @@ OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 
+_KNOWN_LITELLM_PROVIDER_PREFIXES = (
+    "anthropic/",
+    "bedrock/",
+    "fireworks_ai/",
+    "openai/",
+    "openrouter/",
+)
+
+
+def normalize_litellm_model_name(model: str, provider: str) -> str:
+    """Add an explicit LiteLLM provider prefix when a provider endpoint receives a bare model ID."""
+    if model.startswith(_KNOWN_LITELLM_PROVIDER_PREFIXES):
+        return model
+    return f"{provider}/{model}"
+
+
+# Google providers require litellm[google], which we don't install. Reject these
+# at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
+# Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
+# that litellm will route to vertex/gemini — most commonly anything starting with
+# "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
+# registry when brand new.
+_UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini"})
+_UNSUPPORTED_MODEL_PREFIXES = (
+    *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
+    "gemini-",
+)
+
+
+def _raise_unsupported_model(model: str) -> None:
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "error": {
+                "message": f"Model '{model}' is not supported by this gateway",
+                "type": "invalid_request_error",
+                "code": "model_not_supported",
+            }
+        },
+    )
+
+
+def _raise_if_unsupported_model(model: str) -> None:
+    from llm_gateway.services.model_registry import ModelRegistryService
+
+    if model.lower().startswith(_UNSUPPORTED_MODEL_PREFIXES):
+        _raise_unsupported_model(model)
+    info = ModelRegistryService.get_instance().get_model(model)
+    if info is not None and info.provider in _UNSUPPORTED_PROVIDERS:
+        _raise_unsupported_model(model)
+
+
 # Parameters that control LLM client routing/authentication.
 # These must never be accepted from user input to prevent request
 # redirection and API key exfiltration.
@@ -78,6 +130,7 @@ async def handle_llm_request(
     llm_call: Callable[..., Awaitable[Any]],
     product: str = "llm_gateway",
 ) -> dict[str, Any] | StreamingResponse:
+    _raise_if_unsupported_model(model)
     request_data = _sanitize_request_data(request_data)
     settings = get_settings()
     start_time = time.monotonic()

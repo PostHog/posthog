@@ -1,19 +1,30 @@
 import { Message } from 'node-rdkafka'
 
-import { createAiGenerationEvent, createEvaluation, createEvaluationCondition } from '~/llm-analytics/_tests/fixtures'
+import {
+    createAiGenerationEvent,
+    createEvaluation,
+    createEvaluationCondition,
+    createTagger,
+} from '~/ai-observability/_tests/fixtures'
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
+import { parseTeamsList } from '~/ingestion/event-processing/split-ai-events-step'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
+import { logger } from '~/utils/logger'
 
 import {
     EvaluationMatcher,
     checkConditionMatch,
     checkRolloutPercentage,
+    eachBatchEvaluationScheduler,
     filterAndParseMessages,
     groupEventsByTeam,
+    teamShouldBeProcessed,
+    unwrapOrLog,
 } from './evaluation-scheduler'
 
-jest.mock('~/llm-analytics/services/temporal.service')
-jest.mock('~/llm-analytics/services/evaluation-manager.service')
+jest.mock('~/ai-observability/services/temporal.service')
+jest.mock('~/ai-observability/services/evaluation-manager.service')
 jest.mock('~/cdp/utils/hog-exec')
 
 describe('Evaluation Scheduler', () => {
@@ -363,6 +374,218 @@ describe('Evaluation Scheduler', () => {
                     }),
                 })
             )
+        })
+
+        it('matches taggers using the same Matchable contract as evaluations', async () => {
+            mockExecHog.mockResolvedValue({ execResult: { result: true } })
+
+            const event = createAiGenerationEvent(teamId)
+            const tagger = createTagger({
+                enabled: true,
+                conditions: [
+                    createEvaluationCondition({ id: 'cond-1', rollout_percentage: 100, bytecode: ['_H', 1, 32, true] }),
+                ],
+            })
+
+            const result = await matcher.shouldTriggerEvaluation(event, tagger)
+
+            expect(result).toEqual({ matched: true, conditionId: 'cond-1' })
+        })
+
+        it('returns disabled for a disabled tagger without consulting bytecode', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const tagger = createTagger({ enabled: false })
+
+            const result = await matcher.shouldTriggerEvaluation(event, tagger)
+
+            expect(result).toEqual({ matched: false, reason: 'disabled' })
+            expect(mockExecHog).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('unwrapOrLog', () => {
+        it('returns the value when the promise was fulfilled', () => {
+            const result = unwrapOrLog(
+                { status: 'fulfilled', value: { 1: ['a'], 2: ['b'] } } as PromiseSettledResult<
+                    Record<string, string[]>
+                >,
+                'should not log'
+            )
+
+            expect(result).toEqual({ 1: ['a'], 2: ['b'] })
+        })
+
+        it('returns an empty object and logs when rejected', () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+
+            const result = unwrapOrLog(
+                { status: 'rejected', reason: new Error('db down') } as PromiseSettledResult<Record<string, string[]>>,
+                'fetch failed'
+            )
+
+            expect(result).toEqual({})
+            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'db down' })
+
+            errorSpy.mockRestore()
+        })
+
+        it('coerces non-Error rejection reasons to string for the log payload', () => {
+            const errorSpy = jest.spyOn(logger, 'error').mockImplementation(() => undefined)
+
+            unwrapOrLog(
+                { status: 'rejected', reason: 'plain string failure' } as PromiseSettledResult<
+                    Record<string, string[]>
+                >,
+                'fetch failed'
+            )
+
+            expect(errorSpy).toHaveBeenCalledWith('fetch failed', { error: 'plain string failure' })
+
+            errorSpy.mockRestore()
+        })
+    })
+
+    describe('teamShouldBeProcessed', () => {
+        // Drives the partition between the two scheduler deployments. Both must read
+        // the same aiTopicTeams value or you get gap (some team handled by neither)
+        // or overlap (some team handled by both → broken results may cement).
+        const cases: Array<{
+            name: string
+            topic: 'events' | 'ai_events'
+            teams: number[] | '*'
+            teamId: number
+            expected: boolean
+        }> = [
+            { name: 'ai_events keeps team in list', topic: 'ai_events', teams: [2, 99], teamId: 2, expected: true },
+            {
+                name: 'ai_events drops team not in list',
+                topic: 'ai_events',
+                teams: [2, 99],
+                teamId: 7,
+                expected: false,
+            },
+            { name: 'events drops team in list', topic: 'events', teams: [2, 99], teamId: 2, expected: false },
+            { name: 'events keeps team not in list', topic: 'events', teams: [2, 99], teamId: 7, expected: true },
+            { name: 'ai_events keeps everything when *', topic: 'ai_events', teams: '*', teamId: 1234, expected: true },
+            { name: 'events drops everything when *', topic: 'events', teams: '*', teamId: 1234, expected: false },
+            {
+                name: 'ai_events drops everything when empty list',
+                topic: 'ai_events',
+                teams: [],
+                teamId: 2,
+                expected: false,
+            },
+            { name: 'events keeps everything when empty list', topic: 'events', teams: [], teamId: 2, expected: true },
+        ]
+
+        it.each(cases)('$name', ({ topic, teams, teamId, expected }) => {
+            expect(teamShouldBeProcessed(teamId, topic, teams)).toBe(expected)
+        })
+    })
+
+    describe('eachBatchEvaluationScheduler partitioning', () => {
+        const noopEvaluationManager = {
+            getEvaluationsForTeams: jest.fn().mockResolvedValue({}),
+        } as unknown as import('~/ai-observability/services/evaluation-manager.service').EvaluationManagerService
+        const noopTaggerManager = {
+            getTaggersForTeams: jest.fn().mockResolvedValue({}),
+        } as unknown as import('~/ai-observability/services/tagger-manager.service').TaggerManagerService
+        const noopTemporal = {} as unknown as import('~/ai-observability/services/temporal.service').TemporalService
+
+        beforeEach(() => {
+            ;(noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mockClear()
+            ;(noopTaggerManager.getTaggersForTeams as jest.Mock).mockClear()
+        })
+
+        const messageFor = (teamIdForEvent: number): Message =>
+            ({
+                headers: [{ productTrack: Buffer.from('llma') }],
+                value: Buffer.from(JSON.stringify(createAiGenerationEvent(teamIdForEvent))),
+            }) as any
+
+        it('ai_events deployment only fetches definitions for teams in the list', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(2), messageFor(7), messageFor(99)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'ai_events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+            const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock.calls[0][0] as number[]
+            expect(teamsAsked.sort()).toEqual([2, 99])
+        })
+
+        it('events deployment only fetches definitions for teams NOT in the list', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(2), messageFor(7), messageFor(99)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+            const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock.calls[0][0] as number[]
+            expect(teamsAsked).toEqual([7])
+        })
+
+        it('skips Postgres entirely when partition drops every event', async () => {
+            await eachBatchEvaluationScheduler(
+                [messageFor(7), messageFor(8)],
+                noopEvaluationManager,
+                noopTaggerManager,
+                noopTemporal,
+                { topic: 'ai_events', aiTopicTeams: [2, 99] }
+            )
+
+            expect(noopEvaluationManager.getEvaluationsForTeams).not.toHaveBeenCalled()
+            expect(noopTaggerManager.getTaggersForTeams).not.toHaveBeenCalled()
+        })
+
+        // Locks down the contract that gates the deploy ordering: a deployment
+        // running the new image with neither LLMA_EVAL_SCHEDULER_TOPIC nor
+        // LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS set in env behaves identically to
+        // the legacy events-only consumer. This is what lets us land the new
+        // image into state.yaml before any chart override is applied without
+        // any risk of accidental traffic divergence.
+        describe('default config preserves legacy behavior', () => {
+            it('exposes "events" topic and empty team list as defaults', () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                expect(defaults.LLMA_EVAL_SCHEDULER_TOPIC).toBe('events')
+                expect(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS).toBe('')
+            })
+
+            it('parsed defaults yield empty team list (not "*"), so events-mode processes everyone', () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                const parsed = parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS)
+                expect(parsed).toEqual([])
+                expect(teamShouldBeProcessed(2, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+                expect(teamShouldBeProcessed(385921, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+                expect(teamShouldBeProcessed(7, defaults.LLMA_EVAL_SCHEDULER_TOPIC, parsed)).toBe(true)
+            })
+
+            it('eachBatchEvaluationScheduler with parsed defaults processes every team in the batch', async () => {
+                const defaults = getDefaultAIObservabilityConfig()
+                const partition = {
+                    topic: defaults.LLMA_EVAL_SCHEDULER_TOPIC,
+                    aiTopicTeams: parseTeamsList(defaults.LLMA_EVAL_SCHEDULER_AI_TOPIC_TEAMS),
+                }
+
+                await eachBatchEvaluationScheduler(
+                    [messageFor(2), messageFor(7), messageFor(385921), messageFor(99)],
+                    noopEvaluationManager,
+                    noopTaggerManager,
+                    noopTemporal,
+                    partition
+                )
+
+                expect(noopEvaluationManager.getEvaluationsForTeams).toHaveBeenCalledTimes(1)
+                const teamsAsked = (noopEvaluationManager.getEvaluationsForTeams as jest.Mock).mock
+                    .calls[0][0] as number[]
+                expect(teamsAsked.sort((a, b) => a - b)).toEqual([2, 7, 99, 385921])
+            })
         })
     })
 })

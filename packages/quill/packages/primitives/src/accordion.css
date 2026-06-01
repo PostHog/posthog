@@ -1,0 +1,91 @@
+@layer components {
+    .quill-accordion {
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-accordion__item:not(:last-child) {
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-accordion__item[data-open] {
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
+    }
+
+    .quill-accordion__trigger {
+        padding: 0.5rem;
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1.625;
+        text-align: start;
+        cursor: pointer;
+        border: 1px solid transparent;
+        outline: none;
+        transition: all 0.15s ease;
+    }
+
+    .quill-accordion__trigger:hover {
+        background-color: color-mix(in oklab, var(--muted) 50%, transparent);
+        background-color: var(--fill-hover);
+    }
+
+    .quill-accordion__trigger[aria-disabled='true'] {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
+    .quill-accordion__trigger [data-slot='accordion-trigger-icon'] {
+        width: 1rem;
+        height: 1rem;
+        margin-inline-start: auto;
+        color: var(--muted-foreground);
+    }
+
+    .quill-accordion__trigger:active > span {
+        translate: 0 1px;
+    }
+
+    /* Chevron swap */
+    .quill-accordion__trigger[aria-expanded='true'] svg[data-chevron='down'],
+    .quill-accordion__trigger:not([aria-expanded='true']) svg[data-chevron='up'] {
+        display: none;
+    }
+
+    .quill-accordion__trigger[aria-expanded='true'] svg[data-chevron='up'],
+    .quill-accordion__trigger:not([aria-expanded='true']) svg[data-chevron='down'] {
+        display: inline;
+    }
+
+    .quill-accordion__panel {
+        height: var(--accordion-panel-height);
+        padding-inline: 0.5rem;
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1.625;
+        transition: height 200ms ease-out;
+    }
+
+    .quill-accordion__panel[data-starting-style],
+    .quill-accordion__panel[data-ending-style] {
+        height: 0;
+    }
+
+    .quill-accordion__panel-content {
+        padding-top: 0;
+        padding-bottom: 0.5rem;
+    }
+
+    .quill-accordion__panel-content a {
+        text-decoration: underline;
+        text-underline-offset: 3px;
+    }
+
+    .quill-accordion__panel-content a:hover {
+        color: var(--foreground);
+    }
+
+    .quill-accordion__panel-content p:not(:last-child) {
+        margin-bottom: 1rem;
+    }
+}

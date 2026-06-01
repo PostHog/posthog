@@ -32,6 +32,7 @@ from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
     expand_test_account_filters,
+    is_session_property,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -121,6 +122,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         hogql_query_modifiers: HogQLQueryModifiers | None = None,
         allow_event_property_expansion: bool = False,
         max_execution_time: int | None = None,
+        extra_having_predicates: list[ast.Expr] | None = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -181,6 +183,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
         self._max_execution_time = max_execution_time
+        self._extra_having_predicates = extra_having_predicates or []
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -194,7 +197,6 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 query_type="SessionRecordingListQuery",
                 modifiers=self._hogql_query_modifiers,
                 settings=HogQLGlobalSettings(
-                    enable_analyzer=None,
                     **(
                         {"max_execution_time": self._max_execution_time} if self._max_execution_time is not None else {}
                     ),
@@ -261,18 +263,31 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def _where_predicates(self) -> Union[ast.And, ast.Or]:
         exprs: list[ast.Expr] = []
 
+        # When both distinct_ids and person_uuid are provided (e.g. person profile
+        # replay tab), OR them together so we find:
+        #   - sessions recorded under the known distinct_ids (covers replay-only
+        #     sessions with no product analytics events), AND
+        #   - sessions linked via person_id on the events table through POE (covers
+        #     anonymous distinct IDs that aren't in person.distinct_ids yet)
+        person_subexprs: list[ast.Expr] = []
+
         if self._query.distinct_ids:
-            exprs.append(
+            person_subexprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
                     left=ast.Field(chain=["distinct_id"]),
                     right=ast.Constant(value=self._query.distinct_ids),
                 )
             )
-        else:
-            person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
-            if person_id_compare_operation:
-                exprs.append(person_id_compare_operation)
+
+        person_id_compare_operation = PersonsIdCompareOperation(self._team, self._query).get_operation()
+        if person_id_compare_operation:
+            person_subexprs.append(person_id_compare_operation)
+
+        if len(person_subexprs) == 1:
+            exprs.append(person_subexprs[0])
+        elif len(person_subexprs) > 1:
+            exprs.append(ast.Or(exprs=person_subexprs))
 
         # we check for session_ids type not for truthiness since we want to allow empty lists
         if isinstance(self._query.session_ids, list):
@@ -358,6 +373,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     right=cohort_subquery,
                 )
             )
+
+        # Session-scoped properties (e.g. $entry_utm_source) join to the sessions table
+        # via property_to_expr's "replay" scope. They're stripped from `remaining_properties`
+        # below to avoid the UnexpectedQueryProperties exception, so handle them here.
+        session_properties = [p for p in (self._query.properties or []) if is_session_property(p)]
+        if session_properties:
+            optional_exprs.append(property_to_expr(session_properties, team=self._team, scope="replay"))
 
         remaining_properties = _strip_person_and_event_and_cohort_properties(self._query.properties)
         if remaining_properties:
@@ -465,5 +487,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        exprs.extend(self._extra_having_predicates)
 
         return ast.And(exprs=exprs)

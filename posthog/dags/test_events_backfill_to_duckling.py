@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import duckdb
+import psycopg
 from parameterized import parameterized
 
 from posthog.dags.events_backfill_to_duckling import (
@@ -13,23 +14,27 @@ from posthog.dags.events_backfill_to_duckling import (
     EVENTS_TABLE_DDL,
     EXPECTED_DUCKLAKE_COLUMNS,
     EXPECTED_DUCKLAKE_PERSONS_COLUMNS,
-    MAX_RETRY_ATTEMPTS,
+    ICEBERG_BACKFILL_TEAM_IDS,
+    ICEBERG_EVENTS_PARTITION_EXPR,
+    ICEBERG_PERSONS_PARTITION_EXPR,
+    ICEBERG_PERSONS_TABLE_DDL,
     PERSONS_COLUMNS,
     PERSONS_TABLE_DDL,
-    _connect_duckdb,
     _get_cluster,
-    _is_transaction_conflict,
+    _set_iceberg_table_partitioning,
     _set_table_partitioning,
     _validate_identifier,
-    delete_events_partition_data,
-    delete_persons_partition_data,
+    drop_iceberg_table,
     duckling_events_full_backfill_sensor,
+    ensure_iceberg_table_exists,
     get_months_in_range,
     get_s3_url_for_clickhouse,
+    iceberg_enabled_for_team,
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
     table_exists,
+    write_partition_to_iceberg,
 )
 
 
@@ -122,37 +127,28 @@ class TestValidateIdentifier:
 
 
 class TestTableExists:
-    def test_returns_true_when_table_exists(self):
-        conn = duckdb.connect()
-        conn.execute("CREATE TABLE test_table (id INTEGER)")
-        assert table_exists(conn, "memory", "main", "test_table") is True
-        conn.close()
+    """Identifier-validation tests for `table_exists`.
 
-    def test_returns_false_when_table_does_not_exist(self):
-        conn = duckdb.connect()
-        assert table_exists(conn, "memory", "main", "nonexistent_table") is False
-        conn.close()
+    The actual existence check now runs against a duckgres pgwire server, so
+    the round-trip behavior is covered by integration tests rather than this
+    unit suite. The validation here still runs before any SQL executes,
+    so a `MagicMock()` connection is sufficient.
+    """
 
     def test_rejects_invalid_catalog_alias(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "invalid;injection", "main", "test")
+            table_exists(MagicMock(), "invalid;injection", "main", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_schema(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "DROP TABLE", "test")
+            table_exists(MagicMock(), "memory", "DROP TABLE", "test")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
     def test_rejects_invalid_table(self):
-        conn = duckdb.connect()
         with pytest.raises(ValueError) as exc_info:
-            table_exists(conn, "memory", "main", "test'; DROP TABLE users;--")
+            table_exists(MagicMock(), "memory", "main", "test'; DROP TABLE users;--")
         assert "Invalid SQL identifier" in str(exc_info.value)
-        conn.close()
 
 
 class TestEventsDDL:
@@ -201,6 +197,129 @@ class TestPersonsDDL:
         conn.execute(ddl)
         conn.execute(ddl)
         conn.close()
+
+
+class TestIcebergDualWrite:
+    @parameterized.expand([(2, True), (1, False), (12345, False), (0, False)])
+    def test_iceberg_enabled_for_team(self, team_id, expected):
+        assert iceberg_enabled_for_team(team_id) is expected
+
+    def test_iceberg_backfill_team_ids_is_dogfood_only(self):
+        assert ICEBERG_BACKFILL_TEAM_IDS == {2}
+
+    def test_iceberg_persons_ddl_is_valid_sql_with_signed_version(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        conn.execute(ICEBERG_PERSONS_TABLE_DDL.format(catalog="memory"))
+
+        result = conn.execute("DESCRIBE memory.posthog.persons").fetchall()
+        column_names = {row[0] for row in result}
+        types_by_name = {row[0]: row[1] for row in result}
+
+        assert column_names == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+        # Iceberg has no unsigned types — person_version must be signed BIGINT, not UBIGINT.
+        assert types_by_name["person_version"] == "BIGINT"
+        conn.close()
+
+    def test_iceberg_persons_ddl_is_idempotent(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        ddl = ICEBERG_PERSONS_TABLE_DDL.format(catalog="memory")
+        conn.execute(ddl)
+        conn.execute(ddl)
+        conn.close()
+
+    def test_ensure_iceberg_table_returns_false_when_catalog_unavailable(self):
+        # When the iceberg catalog isn't attached, CREATE SCHEMA raises — the
+        # helper must swallow it and disable Iceberg for the run, not fail.
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("Catalog with name iceberg does not exist")
+        assert ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL) is False
+
+    def test_ensure_iceberg_table_returns_true_on_success(self):
+        conn = MagicMock()
+        assert ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL) is True
+
+    def test_ensure_iceberg_table_unpartitioned_without_expr(self):
+        conn = MagicMock()
+        ensure_iceberg_table_exists(MagicMock(), conn, "events", EVENTS_TABLE_DDL)
+        executed = " ".join(str(c.args[0]) for c in conn.execute.call_args_list)
+        assert "PARTITIONED BY" not in executed
+
+    def test_ensure_iceberg_table_appends_partition_clause(self):
+        conn = MagicMock()
+        assert (
+            ensure_iceberg_table_exists(
+                MagicMock(), conn, "events", EVENTS_TABLE_DDL, partition_expr=ICEBERG_EVENTS_PARTITION_EXPR
+            )
+            is True
+        )
+        executed = " ".join(str(c.args[0]) for c in conn.execute.call_args_list)
+        # Fresh tables are partitioned in the CREATE; existing tables are evolved via ALTER.
+        assert f"PARTITIONED BY ({ICEBERG_EVENTS_PARTITION_EXPR})" in executed
+        assert "ALTER TABLE" in executed and "SET PARTITIONED BY" in executed
+
+    def test_iceberg_partition_exprs_are_single_temporal_transform(self):
+        # Lakekeeper rejects multiple temporal transforms on one source column as
+        # redundant, so each spec must be a single day()/month() transform — not
+        # the multi-level year/month/day spec DuckLake uses.
+        assert ICEBERG_EVENTS_PARTITION_EXPR == "day(timestamp)"
+        assert ICEBERG_PERSONS_PARTITION_EXPR == "month(_timestamp)"
+        for expr in (ICEBERG_EVENTS_PARTITION_EXPR, ICEBERG_PERSONS_PARTITION_EXPR):
+            assert "," not in expr
+
+    def test_set_iceberg_partitioning_treats_redundant_as_success(self):
+        # Lakekeeper reports re-declaring an identical spec as "redundant"; that
+        # means the table is already partitioned the way we want — not an error.
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("Cannot add redundant partition with source id 2 and transform `time`")
+        _set_iceberg_table_partitioning(MagicMock(), conn, "events", "day(timestamp)")  # must not raise
+
+    def test_set_iceberg_partitioning_is_non_fatal(self):
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("some other partitioning failure")
+        _set_iceberg_table_partitioning(MagicMock(), conn, "events", "day(timestamp)")  # must not raise
+
+    def test_set_iceberg_partitioning_rejects_invalid_table(self):
+        with pytest.raises(ValueError) as exc_info:
+            _set_iceberg_table_partitioning(MagicMock(), MagicMock(), "events; DROP", "day(timestamp)")
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    def test_write_partition_rejects_invalid_table(self):
+        with pytest.raises(ValueError) as exc_info:
+            write_partition_to_iceberg(
+                MagicMock(), MagicMock(), "events; DROP TABLE", "s3://b/f.parquet", 2, "timestamp", None
+            )
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    @parameterized.expand(
+        [
+            ("daily_partition", datetime(2024, 1, 15)),
+            ("full_export_no_date", None),
+        ]
+    )
+    def test_write_partition_is_non_fatal_on_insert_failure(self, _name, partition_date):
+        # A failed Iceberg INSERT must never bubble up — DuckLake is the source
+        # of truth and its backfill must complete regardless. Covers both the
+        # daily partition-scoped DELETE and the full-export delete-by-team path.
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("iceberg insert blew up")
+        result = write_partition_to_iceberg(
+            MagicMock(), conn, "events", "s3://b/f.parquet", 2, "timestamp", partition_date
+        )
+        assert result is False
+
+    def test_drop_iceberg_table_rejects_invalid_table(self):
+        with pytest.raises(ValueError) as exc_info:
+            drop_iceberg_table(MagicMock(), MagicMock(), "events; DROP")
+        assert "Invalid SQL identifier" in str(exc_info.value)
+
+    def test_drop_iceberg_table_is_non_fatal(self):
+        # delete_tables wipes DuckLake; the Iceberg drop is best-effort and must
+        # not raise even when the catalog isn't attached for this org.
+        conn = MagicMock()
+        conn.execute.side_effect = Exception("Catalog with name iceberg does not exist")
+        drop_iceberg_table(MagicMock(), conn, "events")  # must not raise
 
 
 class TestParsePartitionKeyDates:
@@ -304,106 +423,17 @@ class TestGetMonthsInRange:
 
 
 class TestSetTablePartitioning:
-    def test_partitioning_is_idempotent_in_ducklake(self):
-        """Verify that SET PARTITIONED BY can be called multiple times safely."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # First call should succeed
-        result1 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result1 is True
-
-        # Second call with same keys should also succeed (idempotent)
-        result2 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result2 is True
-
-        # Third call should also succeed
-        result3 = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-        assert result3 is True
-
-        conn.close()
-
-    def test_partitioning_logs_success(self):
-        """Verify that successful partitioning logs appropriately."""
-        conn = duckdb.connect()
-        conn.execute("INSTALL ducklake; LOAD ducklake;")
-        conn.execute("ATTACH ':memory:' AS test_catalog (TYPE DUCKLAKE, DATA_PATH ':memory:')")
-        conn.execute("CREATE SCHEMA test_catalog.posthog")
-        conn.execute("CREATE TABLE test_catalog.posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        result = _set_table_partitioning(
-            conn,
-            "test_catalog",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is True
-        mock_context.log.info.assert_any_call("Setting partitioning on events table...")
-        mock_context.log.info.assert_any_call("Successfully set partitioning on events table")
-        conn.close()
-
-    def test_partitioning_handles_failure_gracefully(self):
-        """Verify that partitioning failures return False and log warning."""
-        conn = duckdb.connect()
-        # Don't load ducklake - table won't support SET PARTITIONED BY
-        conn.execute("CREATE SCHEMA posthog")
-        conn.execute("CREATE TABLE posthog.events (timestamp TIMESTAMP, event VARCHAR)")
-
-        mock_context = MagicMock()
-
-        # This should fail because regular DuckDB tables don't support SET PARTITIONED BY
-        result = _set_table_partitioning(
-            conn,
-            "memory",
-            "events",
-            "year(timestamp), month(timestamp)",
-            mock_context,
-            team_id=123,
-        )
-
-        assert result is False
-        mock_context.log.warning.assert_called()
-        conn.close()
+    """Identifier-validation only — the SET PARTITIONED BY behavior itself is a
+    DuckLake property and is exercised via duckgres integration tests rather
+    than this unit suite.
+    """
 
     def test_partitioning_rejects_invalid_identifiers(self):
-        """Verify that SQL injection attempts are blocked."""
-        conn = duckdb.connect()
         mock_context = MagicMock()
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test; DROP TABLE",
                 "events",
                 "year(timestamp)",
@@ -414,7 +444,7 @@ class TestSetTablePartitioning:
 
         with pytest.raises(ValueError) as exc_info:
             _set_table_partitioning(
-                conn,
+                MagicMock(),
                 "test_catalog",
                 "events'; --",
                 "year(timestamp)",
@@ -422,8 +452,6 @@ class TestSetTablePartitioning:
                 team_id=123,
             )
         assert "Invalid SQL identifier" in str(exc_info.value)
-
-        conn.close()
 
 
 class TestExportSQLOrderBy:
@@ -466,32 +494,60 @@ class TestIsFullExportPartition:
         assert is_full_export_partition(key) == expected
 
 
-class TestConnectDuckdb:
-    def test_sets_memory_limit(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('memory_limit')").fetchone()
-            assert result is not None
-            # DuckDB reports memory in its own format; verify it's not the default (~80% of RAM)
-            # 4GB is reported as "3.7 GiB" by DuckDB
-            assert "GiB" in result[0] or "GB" in result[0]
-            # Parse the numeric value and verify it's approximately 4GB
-            numeric = float(result[0].split()[0])
-            assert 3.5 <= numeric <= 4.5
-        finally:
-            conn.close()
+class TestDeleteErrorHandling:
+    """Verify the exception contract for delete_*_partition_data.
 
-    def test_sets_temp_directory(self):
-        conn = _connect_duckdb()
-        try:
-            result = conn.execute("SELECT current_setting('temp_directory')").fetchone()
-            assert result is not None
-            assert result[0] == "/tmp/duckdb_temp"
-        finally:
-            conn.close()
+    Missing-table errors must be swallowed (return 0) so first-run partitions
+    don't fail. Operational/connection errors must propagate so caller-level
+    retry/handling can deal with transient failures.
+    """
+
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data", datetime(2024, 1, 1)),
+            ("persons_daily", "delete_persons_partition_data", datetime(2024, 1, 1)),
+            ("persons_full", "delete_persons_partition_data", None),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling.logger")
+    def test_handles_missing_table(self, _label, fn_name, partition_date, mock_logger):
+        from posthog.dags import events_backfill_to_duckling as mod
+
+        delete_fn = getattr(mod, fn_name)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.errors.UndefinedTable()
+
+        count = delete_fn(MagicMock(), MagicMock(), 12345, partition_date, conn=mock_conn)
+
+        assert count == 0
+        assert mock_logger.exception.call_count == 0
+
+    @parameterized.expand(
+        [
+            ("events", "delete_events_partition_data"),
+            ("persons", "delete_persons_partition_data"),
+        ]
+    )
+    def test_bubbles_operational_error(self, _label, fn_name):
+        from posthog.dags import events_backfill_to_duckling as mod
+
+        delete_fn = getattr(mod, fn_name)
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value.execute.side_effect = psycopg.OperationalError("timeout")
+
+        with pytest.raises(psycopg.OperationalError):
+            delete_fn(MagicMock(), MagicMock(), 12345, datetime(2024, 1, 1), conn=mock_conn)
 
 
 class TestDeleteRangePredicate:
+    """Validate the half-open range predicate used by delete_*_partition_data.
+
+    These tests use in-process DuckDB ($N parameter binding) to verify the SQL
+    logic independently of the psycopg→duckgres connection path. The production
+    code uses psycopg %s bindings; the date-range predicate itself is binding-
+    agnostic and should behave identically through either binding layer.
+    """
+
     @parameterized.expand(
         [
             # (timestamps_to_insert, target_date, expected_deleted, expected_remaining)
@@ -552,187 +608,6 @@ class TestDeleteRangePredicate:
             conn.close()
 
 
-class TestIsTransactionConflict:
-    @parameterized.expand(
-        [
-            (duckdb.TransactionException("Transaction conflict: write-write"), True),
-            (duckdb.TransactionException("Transaction conflict on table"), True),
-            (duckdb.TransactionException("Some other transaction error"), False),
-            (duckdb.CatalogException("Table not found"), False),
-            (RuntimeError("Transaction conflict"), False),
-        ]
-    )
-    def test_identifies_conflicts(self, exc, expected):
-        assert _is_transaction_conflict(exc) == expected
-
-
-class TestDeleteEventsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (5,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 5
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-        conflict_conn.close.assert_called_once()
-        success_conn.close.assert_called_once()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_raises_non_conflict_exception(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = RuntimeError("Connection failed")
-        mock_connect.return_value = conn
-
-        with pytest.raises(RuntimeError, match="Connection failed"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == 1
-        mock_sleep.assert_not_called()
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_raises_after_max_retries(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        mock_connect.return_value = conn
-
-        with pytest.raises(duckdb.TransactionException, match="Transaction conflict"):
-            delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert mock_connect.call_count == MAX_RETRY_ATTEMPTS
-        assert mock_sleep.call_count == MAX_RETRY_ATTEMPTS - 1
-
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_returns_zero_on_catalog_exception(self, mock_config, mock_connect, mock_cross, mock_attach):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conn = MagicMock()
-        conn.execute.side_effect = duckdb.CatalogException("Table does not exist")
-        mock_connect.return_value = conn
-
-        result = delete_events_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-        assert result == 0
-
-
-class TestDeletePersonsRetry:
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_transaction_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (3,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        assert result == 3
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_retries_on_full_export_conflict(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (10,)
-        mock_connect.side_effect = [conflict_conn, success_conn]
-
-        result = delete_persons_partition_data(mock_context, mock_catalog, 1, partition_date=None)
-
-        assert result == 10
-        assert mock_connect.call_count == 2
-        mock_sleep.assert_called_once_with(4)
-
-    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
-    @patch("posthog.dags.events_backfill_to_duckling.attach_catalog")
-    @patch("posthog.dags.events_backfill_to_duckling.configure_cross_account_connection")
-    @patch("posthog.dags.events_backfill_to_duckling._connect_duckdb")
-    @patch("posthog.dags.events_backfill_to_duckling.get_team_config")
-    def test_exponential_backoff(self, mock_config, mock_connect, mock_cross, mock_attach, mock_sleep):
-        mock_config.return_value = {}
-        mock_catalog = MagicMock()
-        mock_catalog.team_id = 1
-        mock_catalog.to_cross_account_destination.return_value = MagicMock()
-        mock_context = MagicMock()
-
-        conflict_conn = MagicMock()
-        conflict_conn.execute.side_effect = duckdb.TransactionException("Transaction conflict: write-write")
-        success_conn = MagicMock()
-        success_conn.execute.return_value.fetchone.return_value = (0,)
-        # MAX_RETRY_ATTEMPTS=3: attempts 0,1 conflict and retry, attempt 2 succeeds
-        mock_connect.side_effect = [conflict_conn, conflict_conn, success_conn]
-
-        delete_persons_partition_data(mock_context, mock_catalog, 1, datetime(2024, 1, 15))
-
-        # Backoff: min(4 * 2^attempt, 60) -> 4, 8
-        assert mock_sleep.call_args_list == [
-            ((4,),),
-            ((8,),),
-        ]
-
-
 class TestFullBackfillSensorEarliestDate:
     @parameterized.expand(
         [
@@ -743,7 +618,7 @@ class TestFullBackfillSensorEarliestDate:
         ]
     )
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_earliest_date_clamped(
         self,
@@ -751,7 +626,7 @@ class TestFullBackfillSensorEarliestDate:
         earliest_dt,
         expected_first_month,
         mock_tz,
-        mock_catalog_cls,
+        mock_backfill_cls,
         mock_get_earliest,
     ):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
@@ -759,9 +634,9 @@ class TestFullBackfillSensorEarliestDate:
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = earliest_dt
 
-        catalog = MagicMock()
-        catalog.team_id = 1
-        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+        backfill = MagicMock()
+        backfill.team_id = 1
+        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -774,17 +649,17 @@ class TestFullBackfillSensorEarliestDate:
         assert first_key == f"1_{expected_first_month}"
 
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeCatalog")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
-    def test_no_events_returns_empty(self, mock_tz, mock_catalog_cls, mock_get_earliest):
+    def test_no_events_returns_empty(self, mock_tz, mock_backfill_cls, mock_get_earliest):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
 
         mock_tz.now.return_value = datetime(2025, 2, 10, 12, 0, 0)
         mock_get_earliest.return_value = None
 
-        catalog = MagicMock()
-        catalog.team_id = 1
-        mock_catalog_cls.objects.all.return_value.order_by.return_value = [catalog]
+        backfill = MagicMock()
+        backfill.team_id = 1
+        mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
         context = build_sensor_context(instance=instance)
@@ -967,3 +842,66 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
+
+
+class TestIcebergInsertByNameHivePartitioning:
+    """Regression tests for the Iceberg dual-write INSERT ... BY NAME.
+
+    read_parquet() auto-detects the Hive year=/month=/day= keys in the S3 path
+    and synthesizes year/month/day columns. INSERT ... BY NAME then tries to map
+    those into the events table, which has no such columns, producing a binder
+    error. Disabling hive_partitioning keeps read_parquet to the real data
+    columns. These reuse TestDuckLakeAddDataFilesPartitioning's catalog fixture.
+    """
+
+    ducklake_env = TestDuckLakeAddDataFilesPartitioning.ducklake_env
+
+    def _hive_partitioned_parquet(self, parquet_dir):
+        dest = os.path.join(parquet_dir, "2", "year=2026", "month=03", "day=30")
+        os.makedirs(dest, exist_ok=True)
+        path = os.path.join(dest, "run.parquet")
+        os.link(os.path.join(parquet_dir, "events.parquet"), path)
+        return path
+
+    def test_insert_by_name_default_hive_partitioning_fails(self, ducklake_env):
+        # Reproduces the production error: BY NAME can't map the inferred day column.
+        conn, parquet_dir = ducklake_env
+        path = self._hive_partitioned_parquet(parquet_dir)
+        with pytest.raises(duckdb.BinderException, match='column with name "day"'):
+            conn.execute(f"INSERT INTO test_lake.posthog.events BY NAME SELECT * FROM read_parquet('{path}')")
+
+    def test_insert_by_name_hive_partitioning_false_succeeds(self, ducklake_env):
+        conn, parquet_dir = ducklake_env
+        path = self._hive_partitioned_parquet(parquet_dir)
+        conn.execute(
+            f"INSERT INTO test_lake.posthog.events BY NAME "
+            f"SELECT * FROM read_parquet('{path}', hive_partitioning=false)"
+        )
+        result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
+        assert result[0] == 1
+
+    def test_write_partition_emits_hive_partitioning_false(self):
+        # Guards the production code path itself (the tests above only exercise
+        # hand-written SQL): write_partition_to_iceberg must emit a read_parquet
+        # that disables Hive inference, or BY NAME breaks on the path's
+        # year/month/day keys again.
+        executed: list[str] = []
+        conn = MagicMock()
+        conn.execute.side_effect = lambda stmt, *a, **k: executed.append(
+            stmt.as_string(None) if hasattr(stmt, "as_string") else str(stmt)
+        )
+
+        result = write_partition_to_iceberg(
+            MagicMock(),
+            conn,
+            "events",
+            "s3://bucket/backfill/events/2/year=2026/month=05/day=31/run.parquet",
+            2,
+            "timestamp",
+            datetime(2026, 5, 31),
+        )
+
+        assert result is True
+        insert_sql = next(s for s in executed if "read_parquet" in s)
+        assert "BY NAME" in insert_sql
+        assert "hive_partitioning=false" in insert_sql

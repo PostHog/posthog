@@ -1,6 +1,7 @@
 import {
     BreakdownType,
     ChartDisplayType,
+    FilterLogicalOperator,
     FunnelMathType,
     IntervalType,
     LifecycleToggle,
@@ -172,14 +173,17 @@ export type AssistantGroupPropertyFilter = AssistantBasePropertyFilter & {
 export interface AssistantCohortPropertyFilter {
     /**
      * Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort.
-     * Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them.
+     * Examples:
+     * - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }`
+     * - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }`
      */
     type: PropertyFilterType.Cohort
     key: 'id'
     /** The cohort ID to filter by. */
     value: integer
     /** @default in */
-    operator: PropertyOperator.In
+    operator: PropertyOperator.In | PropertyOperator.NotIn
 }
 
 export type AssistantElementPropertyFilter = AssistantBasePropertyFilter & {
@@ -369,6 +373,35 @@ export interface AssistantTrendsActionsNode extends Omit<
     math_hogql?: string
 }
 
+/**
+ * Defines a series that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here.
+ * Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties`
+ * apply only to that node, so each event can carry its own filter.
+ */
+export interface AssistantTrendsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the series. Mirror the group's `math*` on each node for
+     * UI round-trip; they're ignored at execution time.
+     * @minItems 2
+     */
+    nodes: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    /** Display name for the combined series. */
+    name?: string
+    custom_name?: string
+    /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+    math?: AssistantTrendsEventsNode['math']
+    math_property?: AssistantTrendsEventsNode['math_property']
+    math_property_type?: AssistantTrendsEventsNode['math_property_type']
+    math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
+    math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
+    /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+    math_hogql?: string
+}
+
 export interface AssistantBaseMultipleBreakdownFilter {
     /**
      * Property name from the plan to break down by.
@@ -405,9 +438,13 @@ export interface AssistantBreakdownFilter {
 export interface AssistantTrendsBreakdownFilter extends AssistantBreakdownFilter {
     /**
      * Use this field to define breakdowns.
-     * @maxLength 3
+     * @maxItems 3
      */
     breakdowns: AssistantMultipleBreakdownFilter[]
+    /**
+     * When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings.
+     */
+    breakdown_path_cleaning?: boolean
 }
 
 // Remove deprecated display types.
@@ -498,6 +535,12 @@ export interface AssistantTrendsFilter {
      */
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
 
+    /** Custom label rendered under the X axis. */
+    xAxisLabel?: TrendsFilterLegacy['x_axis_label']
+
+    /** Custom label rendered alongside the Y axis. */
+    yAxisLabel?: TrendsFilterLegacy['y_axis_label']
+
     /**
      * Whether to show alert threshold lines on the chart.
      * @default false
@@ -528,9 +571,16 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Events or actions to include. Prioritize the more popular and fresh events and actions.
+     * Events, actions, or groups of events/actions to include. Prioritize the more popular and
+     * fresh events and actions.
+     *
+     * Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line
+     * per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or
+     * actions into a single series joined by `OR` — for example, treating
+     * "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only
+     * when the user wants the events counted together, otherwise prefer separate series.
      */
-    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode)[]
+    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode)[]
 
     /**
      * Properties specific to the trends insight
@@ -597,7 +647,28 @@ export interface AssistantFunnelsActionsNode extends Omit<Node, 'response'>, Ass
     name: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode
+/**
+ * Defines a funnel step that combines multiple events or actions with OR (e.g. "Pageview OR Pageleave"
+ * counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each
+ * event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported
+ * on grouped steps.
+ */
+export interface AssistantFunnelsGroupNode {
+    kind: NodeKind.GroupNode
+    /** Only `OR` is supported. */
+    operator: FilterLogicalOperator.Or
+    /**
+     * Events and actions combined into the step. Use per-node `properties` to filter each event;
+     * there is no step-wide filter on a grouped step.
+     * @minItems 2
+     */
+    nodes: (AssistantFunnelsEventsNode | AssistantFunnelsActionsNode)[]
+    /** Display name for the combined step. */
+    name?: string
+    custom_name?: string
+}
+
+export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -817,7 +888,7 @@ export interface AssistantRetentionFilter {
      * The type of property to aggregate on (event or person). Defaults to event.
      * @default event
      */
-    aggregationPropertyType?: 'event' | 'person'
+    aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
 }
 
 export interface AssistantRetentionQuery extends AssistantInsightsQueryBase {
@@ -1146,7 +1217,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 
     /**
      * Event or action to analyze. Lifecycle insights only support a single series.
-     * @maxLength 1
+     * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]
 
@@ -1157,21 +1228,20 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
 }
 
 /**
- * Drills into an insight to list the persons behind a specific data point. Returned rows are
- * trimmed to `distinct_id`, `name`, `email`, and an optional per-actor `count`.
+ * Drills into a trends insight to list the persons behind a specific data point. Returned rows
+ * are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.
  *
- * Currently supports trends as the source; other insight kinds will be added incrementally.
  * Use the selector fields (`day`, `series`, `breakdown`, `compare`) to identify the specific
- * cell in the source insight. Omit them to get all actors for the query.
+ * cell in the source insight.
  */
-export interface AssistantInsightActorsQuery {
+export interface AssistantTrendsActorsQuery {
     kind: NodeKind.InsightActorsQuery
 
     /** The source insight query whose data point we are drilling into. */
     source: AssistantTrendsQuery
 
-    /** Bucket date for the data point. Accepts ISO date or integer offset. */
-    day?: string | integer
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
 
     /** Series index (0-based) when the source has multiple series. */
     series?: integer
@@ -1184,6 +1254,43 @@ export interface AssistantInsightActorsQuery {
 
     /** Whether to pull from the previous period when `compare` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Whether to include matched session recordings for each actor.
+     * @default true
+     */
+    includeRecordings?: boolean
+}
+
+/** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
+export type AssistantLifecycleStatus = 'new' | 'returning' | 'resurrecting' | 'dormant'
+
+/**
+ * Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows
+ * are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no
+ * per-actor `event_count` or matched recordings are projected — the underlying lifecycle
+ * runner does not surface a `matching_events` column.
+ *
+ * Use the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight
+ * is a 4-row stack (new / returning / resurrecting / dormant) per day.
+ *
+ * Note: lifecycle insights only support a single series and do not expose `compareFilter`, so
+ * `series` and `compare` selectors are intentionally omitted.
+ */
+export interface AssistantLifecycleActorsQuery {
+    kind: NodeKind.InsightActorsQuery
+
+    /** The source lifecycle insight query whose bucket we are drilling into. */
+    source: AssistantLifecycleQuery
+
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+
+    /**
+     * Lifecycle status to drill into for the given day. Must be one of the bucket names visible
+     * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
+     */
+    status: AssistantLifecycleStatus
 }
 
 /**
@@ -1336,6 +1443,7 @@ export interface AssistantRecordingsQuery {
      * - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url).
      * - `event`: Filter by properties of events in the session (e.g. $current_url, $browser).
      * - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score).
+     * - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`.
      */
     properties?: AssistantRecordingsQueryPropertyFilter[]
     /** Exclude internal and test users. Default: false. */
@@ -1350,6 +1458,8 @@ export interface AssistantRecordingsQuery {
     after?: string
     /** Filter recordings to a specific person by their UUID. */
     person_uuid?: string
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: string[]
 }
 
 export interface AssistantInsightVizNode {
@@ -1378,9 +1488,52 @@ export type AssistantDataVisualizationDisplayType =
     | ChartDisplayType.ActionsAreaGraph
     | ChartDisplayType.TwoDimensionalHeatmap
 
+export interface AssistantDataVisualizationAxisDisplaySettings {
+    /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
+    yAxisPosition?: 'left' | 'right'
+    /**
+     * Override how this individual series is rendered, independent of the chart-level `display` type.
+     * Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`.
+     * `auto` follows the chart-level display type.
+     */
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
+    trendLine?: boolean
+    /** Custom label for this series, shown in the legend and tooltips instead of the column name. */
+    label?: string
+    /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
+    color?: string
+}
+
+export interface AssistantDataVisualizationAxisFormatting {
+    /** Text prepended to each value (e.g. `$`). */
+    prefix?: string
+    /** Text appended to each value (e.g. `%` or ` ms`). */
+    suffix?: string
+    /**
+     * Number formatting style.
+     * - `none` — no formatting.
+     * - `number` — thousands separators (e.g. `1,234`).
+     * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
+     * - `percent` — render the value as a percentage.
+     */
+    style?: 'none' | 'number' | 'short' | 'percent'
+    /** Number of decimal places to display. */
+    decimalPlaces?: number
+}
+
+export interface AssistantDataVisualizationAxisSettings {
+    /** Display settings for a plotted Y series. */
+    display?: AssistantDataVisualizationAxisDisplaySettings
+    /** Number-formatting settings for the values on this axis or series. */
+    formatting?: AssistantDataVisualizationAxisFormatting
+}
+
 export interface AssistantDataVisualizationAxis {
     /** Name of a column returned by the SQL query to map onto this axis. */
     column: string
+    /** Optional series settings. Only applies to Y-axis series. */
+    settings?: AssistantDataVisualizationAxisSettings
 }
 
 export interface AssistantDataVisualizationGoalLine {
@@ -1390,11 +1543,30 @@ export interface AssistantDataVisualizationGoalLine {
     value: number
 }
 
+export interface AssistantDataVisualizationYAxisSettings {
+    /** Label rendered beside this Y axis. */
+    label?: string
+    /** Scale used for this Y axis. */
+    scale?: 'linear' | 'logarithmic'
+    /** Whether this Y axis should start at zero. */
+    startAtZero?: boolean
+    /** Show tick labels on this Y axis. */
+    showTicks?: boolean
+    /** Show grid lines for this Y axis. */
+    showGridLines?: boolean
+}
+
 export interface AssistantDataVisualizationChartSettings {
     /** Column used as the X axis. Typically a time bucket or categorical column. */
     xAxis?: AssistantDataVisualizationAxis
+    /** Label rendered under the X axis. */
+    xAxisLabel?: string
     /** One or more numeric columns plotted as Y series. */
     yAxis?: AssistantDataVisualizationAxis[]
+    /** Settings for the left Y axis. */
+    leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
+    rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
     /**
      * Column that splits a single Y series into multiple colored series — e.g. breaking down
      * a line chart by `country`. Set to `null` or omit to disable.
@@ -1406,6 +1578,8 @@ export interface AssistantDataVisualizationChartSettings {
     stackBars100?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
+    /** Render each data point's value as a label directly on the series. */
+    showValuesOnSeries?: boolean
     /** Replace null aggregation results with zero. */
     showNullsAsZero?: boolean
 }

@@ -21,17 +21,15 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-    Breakdown,
-)
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import group_node_to_expr, is_groups_math
+from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -603,9 +601,20 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self._trends_display.display_type == ChartDisplayType.WORLD_MAP:
             return 250
 
-        return (
-            self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit
-        ) or get_breakdown_limit_for_context(self.limit_context)
+        breakdown_filter = self.query.breakdownFilter
+        breakdown_limit = breakdown_filter.breakdown_limit if breakdown_filter else None
+        limit = breakdown_limit or get_breakdown_limit_for_context(self.limit_context)
+
+        # Cohorts are a user-picked, enumerable set — a smaller limit would push declared
+        # cohorts into "Other", which crashes the label lookup in `build_series_response`.
+        if (
+            breakdown_filter is not None
+            and breakdown_filter.breakdown_type == "cohort"
+            and isinstance(breakdown_filter.breakdown, list)
+        ):
+            limit = max(limit, len(breakdown_filter.breakdown))
+
+        return limit
 
     def _inner_breakdown_subquery(self, query: ast.SelectQuery, breakdown: Breakdown) -> ast.SelectQuery:
         assert self.query.breakdownFilter is not None  # type checking
@@ -685,31 +694,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                         },
                     ),
                     parse_expr(
-                        "arrayMap((max_num, min_num) -> max_num - min_num, arrayZip(max_nums, min_nums)) as diff"
-                    ),
-                    ast.Alias(
-                        alias="bins",
-                        expr=ast.Array(
-                            exprs=[
-                                ast.Constant(value=alias["histogram_bin_count"])
-                                for alias in breakdown_aliases_with_histograms
-                            ]
-                        ),
-                    ),
-                    parse_expr(
                         """
                             arrayMap(
-                                i -> arrayMap(x -> [
-                                        ((diff[i] / bins[i]) * x) + min_nums[i],
-                                        ((diff[i] / bins[i]) * (x + 1)) + min_nums[i] + if(x + 1 = bins[i], 0.01, 0)
+                                (max_num, min_num, bin_count) -> arrayMap(x -> [
+                                        (((max_num - min_num) / bin_count) * x) + min_num,
+                                        (((max_num - min_num) / bin_count) * (x + 1))
+                                            + min_num
+                                            + if(x + 1 = bin_count, 0.01, 0)
                                     ],
-                                    range(bins[i])
+                                    range(bin_count)
                                 ),
-                                range(1, {breakdown_count})
+                                max_nums,
+                                min_nums,
+                                {bin_counts}
                             ) as buckets
                         """,
                         placeholders={
-                            "breakdown_count": ast.Constant(value=len(breakdown_aliases_with_histograms) + 1),
+                            "bin_counts": ast.Array(
+                                exprs=[
+                                    ast.Constant(value=alias["histogram_bin_count"])
+                                    for alias in breakdown_aliases_with_histograms
+                                ]
+                            ),
                         },
                     ),
                 ]

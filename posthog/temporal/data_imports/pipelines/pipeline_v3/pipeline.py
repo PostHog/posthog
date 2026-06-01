@@ -7,7 +7,8 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-from posthog.models import DataWarehouseTable
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
     cdp_producer_clear_chunks,
@@ -35,20 +36,24 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     normalize_table_column_names,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
-from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
     get_rows_extracted_metric,
+)
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    PostgresProducer,
+    SyncTypeLiteral,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models import DataWarehouseTable
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
@@ -70,7 +75,7 @@ class PipelineV3(Generic[ResumableData]):
     _batcher: Batcher
     _load_id: int
     _s3_batch_writer: S3BatchWriter
-    _kafka_producer: KafkaBatchProducer
+    _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
     _batch_results: list[BatchWriteResult]
 
@@ -127,7 +132,8 @@ class PipelineV3(Generic[ResumableData]):
 
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
 
-        self._kafka_producer = KafkaBatchProducer(
+        self._pg_producer = PostgresProducer(
+            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
             team_id=self._job.team_id,
             job_id=str(self._job.id),
             schema_id=str(self._schema.id),
@@ -144,6 +150,8 @@ class PipelineV3(Generic[ResumableData]):
             partition_format=partition_format,
             partition_mode=partition_mode,
             is_first_ever_sync=is_first_ever_sync,
+            workflow_id=current_workflow_id(),
+            workflow_run_id=current_workflow_run_id(),
         )
 
         self._resumable_source_manager = resumable_source_manager
@@ -172,10 +180,20 @@ class PipelineV3(Generic[ResumableData]):
         team_id_str = str(self._job.team_id)
         schema_id_str = str(self._schema.id)
         source_type = self._source.source_type if self._source else "unknown"
-        sync_type = self._kafka_producer.sync_type
+        sync_type = self._pg_producer.sync_type
 
         start_time = time.perf_counter()
         status = "success"
+
+        await self._logger.ainfo(
+            "V3 Pipeline: Extraction starting",
+            run_uuid=self._s3_batch_writer.get_run_uuid(),
+            sync_type=sync_type,
+            is_incremental=self._is_incremental,
+            is_resume=should_resume,
+            is_first_ever_sync=self._delta_table_helper.is_first_sync,
+            reset_pipeline=self._reset_pipeline,
+        )
 
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
@@ -203,7 +221,7 @@ class PipelineV3(Generic[ResumableData]):
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                self._kafka_producer.is_first_ever_sync = True
+                self._pg_producer.is_first_ever_sync = True
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
@@ -254,6 +272,7 @@ class PipelineV3(Generic[ResumableData]):
             }
         except Exception:
             status = "error"
+            self._logger.exception("V3 Pipeline: Extraction failed")
             try:
                 self._s3_batch_writer.cleanup()
             except Exception:
@@ -282,7 +301,8 @@ class PipelineV3(Generic[ResumableData]):
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
-            del self._kafka_producer
+            self._pg_producer.close()
+            del self._pg_producer
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
@@ -303,8 +323,7 @@ class PipelineV3(Generic[ResumableData]):
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._kafka_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
-        self._kafka_producer.flush()
+        self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
@@ -351,7 +370,8 @@ class PipelineV3(Generic[ResumableData]):
         schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
 
         final_batch = self._batch_results[-1]
-        self._kafka_producer.send_batch_notification(
+
+        self._pg_producer.send_batch_notification(
             final_batch,
             is_final_batch=True,
             total_batches=total_batches,
@@ -360,8 +380,6 @@ class PipelineV3(Generic[ResumableData]):
             schema_path=schema_path,
             cumulative_row_count=row_count,
         )
-
-        self._kafka_producer.flush()
 
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "

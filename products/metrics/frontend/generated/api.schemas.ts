@@ -24,75 +24,77 @@ export interface AppMetricsTotalsResponseApi {
 }
 
 /**
- * * `numeric` - numeric
- * `currency` - currency
+ * * `sum` - sum
+ * `avg` - avg
+ * `count` - count
+ * `p95` - p95
  */
-export type GroupUsageMetricFormatEnumApi =
-    (typeof GroupUsageMetricFormatEnumApi)[keyof typeof GroupUsageMetricFormatEnumApi]
+export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
 
-export const GroupUsageMetricFormatEnumApi = {
-    Numeric: 'numeric',
-    Currency: 'currency',
+export const AggregationEnumApi = {
+    Sum: 'sum',
+    Avg: 'avg',
+    Count: 'count',
+    P95: 'p95',
 } as const
 
-/**
- * * `number` - number
- * `sparkline` - sparkline
- */
-export type GroupUsageMetricDisplayEnumApi =
-    (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
+export interface _MetricQueryBodyApi {
+    /**
+     * Exact metric name to query (e.g. 'http.server.duration').
+     * @maxLength 255
+     */
+    metricName: string
+    /** Aggregation applied per time bucket.
 
-export const GroupUsageMetricDisplayEnumApi = {
-    Number: 'number',
-    Sparkline: 'sparkline',
-} as const
+  * `sum` - sum
+  * `avg` - avg
+  * `count` - count
+  * `p95` - p95 */
+    aggregation?: AggregationEnumApi
+    /** Lower bound (inclusive) for the query range. ISO 8601. */
+    dateFrom: string
+    /** Upper bound (exclusive) for the query range. Defaults to now if omitted. */
+    dateTo?: string
+}
 
-export interface GroupUsageMetricApi {
-    readonly id: string
-    /** @maxLength 255 */
+export interface _MetricQueryRequestApi {
+    /** The metric query to execute. */
+    query: _MetricQueryBodyApi
+}
+
+export interface _MetricQueryPointApi {
+    /** Bucket start as ISO 8601 timestamp. */
+    time: string
+    /** Aggregated value for the bucket. */
+    value: number
+}
+
+export interface _MetricQueryResponseApi {
+    /** Time-bucketed points, ordered by time ascending. */
+    results: _MetricQueryPointApi[]
+}
+
+export interface _MetricNameApi {
+    /** Metric name as it appears in the team's data. */
     name: string
-    format?: GroupUsageMetricFormatEnumApi
-    /**
-     * In days
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    display?: GroupUsageMetricDisplayEnumApi
-    filters: unknown
+    /** OTel metric type (gauge, sum, histogram, summary, exponential_histogram). */
+    metric_type: string
 }
 
-export interface PaginatedGroupUsageMetricListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: GroupUsageMetricApi[]
+export interface _MetricNamesResponseApi {
+    /** Distinct metric names ordered by recent activity. */
+    results: _MetricNameApi[]
 }
 
-export interface PatchedGroupUsageMetricApi {
-    readonly id?: string
-    /** @maxLength 255 */
-    name?: string
-    format?: GroupUsageMetricFormatEnumApi
-    /**
-     * In days
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    interval?: number
-    display?: GroupUsageMetricDisplayEnumApi
-    filters?: unknown
-}
+export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown }
 
-export type GroupsTypesMetricsListParams = {
+export type MetricsValuesRetrieveParams = {
     /**
-     * Number of results to return per page.
+     * Max number of names to return. Defaults to 100, capped at 1000.
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Substring filter (case-insensitive) applied to metric names.
      */
-    offset?: number
+    value?: string
 }

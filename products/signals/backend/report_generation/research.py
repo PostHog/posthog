@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 from enum import Enum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
 
 
 class ActionabilityChoice(str, Enum):
@@ -25,7 +26,7 @@ class Priority(str, Enum):
 
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext, OutputFn
+    from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, OutputFn
 
 logger = logging.getLogger(__name__)
 
@@ -125,10 +126,10 @@ If the report already has a title that is PR-specific and still accurate after y
     summary: str = Field(
         description="""
 An Axios-style summary in four brief paragraphs:
-- A one-sentence "why it matters" tl;dr of the report.
-- '**What's happening:** …' - a brief description of the concrete facts. Reference specific signals, error types, metrics, or patterns from your research.
-- '**Root cause:** …' - explain the root cause as if explaining to engineer owning this part of the product (or hypotheses, if not fully confident in the root cause).
-- '**How to resolve:** …' - a plan for the actionable code-level fix. If you can see two or more viable paths, propose up to two as subpoints "Option A" and "Option B".
+- A one-sentence "why it matters" tl;dr of the report. Ideally start with "Users …", explaining how users are being impacted, how many, or how important they are. If users aren't impacted, but the team building the product is, describe that. Otherwise, just describe what's going on.
+- '**What's happening:** …' - a brief description of the concrete facts, expanding on the tl;dr sentence. Reference specific signals, errors, metrics, or patterns. Use available tools to do research here like a product manager would.
+- '**Root cause:** …' - dig as deep as you can into the root cause of the issue, and explain it in plain terms. Use concrete references to problematic APIs or UI elements, so that the engineer familiar with the code understands this.
+- '**How to resolve:** …' - a single, concrete action plan for the code-level fix that addresses the root cause directly. Skip if the report is not actionable.
 
 Principles:
 - Be direct and specific. Every sentence must carry information.
@@ -253,16 +254,15 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
-    from products.signals.backend.temporal.types import _render_extra_to_text
-
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
-    if signal.extra:
-        lines.extend(_render_extra_to_text(signal.extra))
     lines.append(f"- **Description:** {signal.content}")
+    if signal.extra:
+        lines.append("#### Extras")
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 
@@ -279,7 +279,9 @@ We never use the em-dash, only the en-dash (–).
 
 You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
-2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc."""
+2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
+
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 
@@ -489,12 +491,13 @@ async def run_multi_turn_research(
     summary: str | None = None,
     previous_report_id: str | None = None,
     previous_report_research: ReportResearchOutput | None = None,
-    branch: str = "master",
+    branch: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
     signal_report_id: str | None = None,
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
+    from products.tasks.backend.models import Task
     from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
 
     total = len(signals)
@@ -530,94 +533,103 @@ async def run_multi_turn_research(
         step_name="report_research",
         verbose=verbose,
         output_fn=output_fn,
-        origin_product="signal_report",
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
+        internal=True,
     )
 
-    # Record the research task relationship immediately after task creation
-    if signal_report_id:
-        from products.signals.backend.models import SignalReportTask
+    # start() returned the session, so any failure past this point must end it
+    # - otherwise an orphaned sandbox can keep running until the workflow inactivity timeout
 
-        await SignalReportTask.objects.acreate(
-            team_id=context.team_id,
-            report_id=signal_report_id,
-            task_id=str(session.task.id),
-            relationship=SignalReportTask.Relationship.RESEARCH,
-        )
+    try:
+        # Record the research task relationship immediately after task creation
+        if signal_report_id:
+            from products.signals.backend.models import SignalReportTask
 
-    first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
-    findings: list[SignalFinding] = [first_finding]
-    if output_fn:
-        output_fn(f"Signal 1/{total} done: {first_finding.signal_id}")
+            await SignalReportTask.objects.acreate(
+                team_id=context.team_id,
+                report_id=signal_report_id,
+                task_id=str(session.task.id),
+                relationship=SignalReportTask.Relationship.RESEARCH,
+            )
 
-    # Turns 2..N: one follow-up per remaining signal
-    for i, signal in enumerate(signals[1:], start=2):
+        first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
+        findings: list[SignalFinding] = [first_finding]
         if output_fn:
-            output_fn(f"Investigating signal {i}/{total}...")
-        followup_prompt = build_signal_investigation_prompt(
-            signal,
-            i,
+            output_fn(f"Signal 1/{total} done: {first_finding.signal_id}")
+
+        # Turns 2..N: one follow-up per remaining signal
+        for i, signal in enumerate(signals[1:], start=2):
+            if output_fn:
+                output_fn(f"Investigating signal {i}/{total}...")
+            followup_prompt = build_signal_investigation_prompt(
+                signal,
+                i,
+                total,
+                previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
+            )
+            finding = await session.send_followup(
+                followup_prompt,
+                SignalFinding,
+                label=f"signal_{i}_of_{total}",
+            )
+            finding = _enforce_signal_id(finding, signal.signal_id)
+            findings.append(finding)
+            if output_fn:
+                output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
+
+        # Actionability assessment
+        if output_fn:
+            output_fn("Assessing actionability...")
+        actionability_prompt = build_actionability_prompt(
             total,
-            previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
+            previous_actionability=previous_report_research.actionability if previous_report_research else None,
         )
-        finding = await session.send_followup(
-            followup_prompt,
-            SignalFinding,
-            label=f"signal_{i}_of_{total}",
+        actionability_result = await session.send_followup(
+            actionability_prompt,
+            ActionabilityAssessment,
+            label="actionability",
         )
-        finding = _enforce_signal_id(finding, signal.signal_id)
-        findings.append(finding)
         if output_fn:
-            output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
+            output_fn(f"Actionability: {actionability_result.actionability.value}")
 
-    # Actionability assessment
-    if output_fn:
-        output_fn("Assessing actionability...")
-    actionability_prompt = build_actionability_prompt(
-        total,
-        previous_actionability=previous_report_research.actionability if previous_report_research else None,
-    )
-    actionability_result = await session.send_followup(
-        actionability_prompt,
-        ActionabilityAssessment,
-        label="actionability",
-    )
-    if output_fn:
-        output_fn(f"Actionability: {actionability_result.actionability.value}")
+        # Priority assessment (only when actionable)
+        priority_result: PriorityAssessment | None = None
+        if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+            if output_fn:
+                output_fn("Assessing priority...")
+            priority_prompt = build_priority_prompt(
+                total,
+                previous_priority=previous_report_research.priority if previous_report_research else None,
+            )
+            priority_result = await session.send_followup(
+                priority_prompt,
+                PriorityAssessment,
+                label="priority",
+            )
+            if output_fn:
+                output_fn(f"Priority: {priority_result.priority.value}")
 
-    # Priority assessment (only when actionable)
-    priority_result: PriorityAssessment | None = None
-    if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
         if output_fn:
-            output_fn("Assessing priority...")
-        priority_prompt = build_priority_prompt(
+            output_fn("Generating title and summary...")
+        presentation_prompt = build_report_presentation_prompt(
             total,
-            previous_priority=previous_report_research.priority if previous_report_research else None,
+            previous_title=title or (previous_report_research.title if previous_report_research else None),
+            previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
         )
-        priority_result = await session.send_followup(
-            priority_prompt,
-            PriorityAssessment,
-            label="priority",
+        presentation_result = await session.send_followup(
+            presentation_prompt,
+            ReportPresentationOutput,
+            label="presentation",
         )
         if output_fn:
-            output_fn(f"Priority: {priority_result.priority.value}")
+            output_fn(f"Report title: {presentation_result.title}")
 
-    if output_fn:
-        output_fn("Generating title and summary...")
-    presentation_prompt = build_report_presentation_prompt(
-        total,
-        previous_title=title or (previous_report_research.title if previous_report_research else None),
-        previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
-    )
-    presentation_result = await session.send_followup(
-        presentation_prompt,
-        ReportPresentationOutput,
-        label="presentation",
-    )
-    if output_fn:
-        output_fn(f"Report title: {presentation_result.title}")
-
-    await session.end()
+        await session.end()
+    except (Exception, asyncio.CancelledError) as e:
+        # Shield so the session ending cannot itself be canceled - must complete
+        await asyncio.shield(session.end(status="failed", error=str(e)))
+        raise
 
     logger.info("multi_turn_research: completed with %d findings", len(findings))
     return ReportResearchOutput(

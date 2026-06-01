@@ -15,6 +15,7 @@ use super::error::StorageError;
 pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_ms";
 pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
 pub(crate) const DB_ROWS_RETURNED: &str = "personhog_replica_db_rows_returned";
+pub(crate) const DB_BULK_CHUNKS: &str = "personhog_replica_db_bulk_chunks";
 
 /// Consistency level for read operations
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -27,29 +28,38 @@ pub enum ConsistencyLevel {
 }
 
 /// Postgres implementation of storage traits with dual-pool support
-/// for primary (strong consistency) and replica (eventual consistency) databases.
+/// for primary (strong consistency) and replica (eventual consistency) databases,
+/// plus dedicated bulk pools for heavy batch operations.
 pub struct PostgresStorage {
     /// Connection pool for the primary database (writes + strong consistency reads)
     pub primary_pool: PgPool,
     /// Connection pool for the replica database (eventual consistency reads)
     pub replica_pool: PgPool,
+    /// Bulk pool for the primary database (heavy deletes, batch writes)
+    pub bulk_primary_pool: PgPool,
+    /// Bulk pool for the replica database (large batch reads)
+    pub bulk_replica_pool: PgPool,
+    pub(crate) bulk_chunk_size: usize,
+    pub(crate) bulk_max_concurrent_chunks: usize,
 }
 
 impl PostgresStorage {
-    /// Create a new PostgresStorage with separate primary and replica pools.
-    /// For single-database setups, pass the same pool for both.
-    pub fn new(primary_pool: PgPool, replica_pool: PgPool) -> Self {
+    /// Create a new PostgresStorage with separate primary, replica, and bulk pools.
+    pub fn new(
+        primary_pool: PgPool,
+        replica_pool: PgPool,
+        bulk_primary_pool: PgPool,
+        bulk_replica_pool: PgPool,
+        bulk_chunk_size: usize,
+        bulk_max_concurrent_chunks: usize,
+    ) -> Self {
         Self {
             primary_pool,
             replica_pool,
-        }
-    }
-
-    /// Create a new PostgresStorage with a single pool used for both primary and replica.
-    pub fn new_single_pool(pool: PgPool) -> Self {
-        Self {
-            primary_pool: pool.clone(),
-            replica_pool: pool,
+            bulk_primary_pool,
+            bulk_replica_pool,
+            bulk_chunk_size,
+            bulk_max_concurrent_chunks,
         }
     }
 
@@ -60,6 +70,21 @@ impl PostgresStorage {
         match consistency {
             ConsistencyLevel::Strong => &self.primary_pool,
             ConsistencyLevel::Eventual => &self.replica_pool,
+        }
+    }
+
+    /// Get the appropriate bulk pool based on consistency level.
+    pub(crate) fn bulk_pool_for_consistency(&self, consistency: ConsistencyLevel) -> &PgPool {
+        match consistency {
+            ConsistencyLevel::Strong => &self.bulk_primary_pool,
+            ConsistencyLevel::Eventual => &self.bulk_replica_pool,
+        }
+    }
+
+    pub(crate) fn bulk_pool_label(consistency: ConsistencyLevel) -> &'static str {
+        match consistency {
+            ConsistencyLevel::Strong => "bulk_primary",
+            ConsistencyLevel::Eventual => "bulk_replica",
         }
     }
 

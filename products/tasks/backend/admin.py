@@ -1,25 +1,27 @@
 from django.contrib import admin
 
-from .models import CodeInviteRedemption
+from .models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
 
 
+@admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     list_display = ("slug", "title", "origin_product", "team", "created_by", "created_at", "deleted")
     list_filter = ("origin_product", "deleted", "created_at")
     search_fields = ("title", "description", "repository")
     readonly_fields = ("id", "slug", "task_number", "created_at", "updated_at", "deleted_at")
-    autocomplete_fields = ("team", "created_by", "github_integration")
+    autocomplete_fields = ("team", "created_by", "github_integration", "github_user_integration")
 
     fieldsets = (
         (None, {"fields": ("id", "slug", "task_number", "title", "description", "origin_product")}),
         ("Team & User", {"fields": ("team", "created_by")}),
-        ("Repository", {"fields": ("github_integration", "repository")}),
+        ("Repository", {"fields": ("github_integration", "github_user_integration", "repository")}),
         ("Schema", {"fields": ("json_schema",)}),
         ("Status", {"fields": ("deleted", "deleted_at")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
 
 
+@admin.register(TaskRun)
 class TaskRunAdmin(admin.ModelAdmin):
     list_display = ("id", "task", "status", "environment", "stage", "created_at")
     list_filter = ("status", "environment", "created_at")
@@ -35,6 +37,7 @@ class TaskRunAdmin(admin.ModelAdmin):
     )
 
 
+@admin.register(SandboxSnapshot)
 class SandboxSnapshotAdmin(admin.ModelAdmin):
     list_display = ("external_id", "status", "created_at", "updated_at")
     list_filter = ("status", "created_at")
@@ -56,6 +59,7 @@ class CodeInviteRedemptionInline(admin.TabularInline):
     readonly_fields = ("id", "user", "organization", "redeemed_at")
 
 
+@admin.register(CodeInvite)
 class CodeInviteAdmin(admin.ModelAdmin):
     list_display = (
         "code",
@@ -72,22 +76,16 @@ class CodeInviteAdmin(admin.ModelAdmin):
     autocomplete_fields = ("created_by",)
     inlines = []
 
-    def get_readonly_fields(self, request, obj=None):
-        if obj:
-            return ("id", "code", "redemption_count", "created_at")
-        return ("id", "redemption_count", "created_at")
-
     def get_fieldsets(self, request, obj=None):
         if obj:
-            # Show auto-generated code as readonly on existing records
             return (
                 (None, {"fields": ("id", "code", "description")}),
                 ("Limits", {"fields": ("is_active", "max_redemptions", "redemption_count", "expires_at")}),
                 ("Metadata", {"fields": ("created_by", "created_at")}),
             )
-        # On add, omit code — it will be auto-generated on save
+        # On add, code may be set manually or left blank to auto-generate on save
         return (
-            (None, {"fields": ("id", "description")}),
+            (None, {"fields": ("id", "code", "description")}),
             ("Limits", {"fields": ("is_active", "max_redemptions", "expires_at")}),
             ("Metadata", {"fields": ("created_by",)}),
         )
@@ -96,6 +94,7 @@ class CodeInviteAdmin(admin.ModelAdmin):
         return [CodeInviteRedemptionInline]
 
 
+@admin.register(CodeInviteRedemption)
 class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_display = ("invite_code", "user", "organization", "redeemed_at")
     list_filter = ("redeemed_at",)
