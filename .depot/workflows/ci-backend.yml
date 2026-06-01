@@ -320,7 +320,7 @@ jobs:
     turbo-tests:
         needs: [changes, turbo-discover]
         if: >-
-            always() && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
+            always() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
         timeout-minutes: 60
         name: Product tests (${{ matrix.group }})
@@ -748,6 +748,8 @@ jobs:
         # 3. OR turbo-discover itself failed (conservative: run Django on detection failure)
         if: |
             always() &&
+            (github.event.pull_request.draft != true ||
+             contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) &&
             needs.changes.outputs.backend == 'true' &&
             needs.build_django_matrix.result == 'success' &&
             (needs.changes.outputs.legacy == 'true' ||
