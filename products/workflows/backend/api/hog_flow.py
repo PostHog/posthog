@@ -534,6 +534,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                     if self.context.get("is_draft"):
                         if event_serializer.is_valid():
                             event_config["filters"] = event_serializer.validated_data
+                        elif isinstance(event_filters, dict):
+                            # Draft with invalid filters: never keep client-supplied bytecode.
+                            # Conversion isn't revalidated on a status-only activation, so stored
+                            # bytecode would activate unvalidated and the matcher would execute it.
+                            # Strip it so the filter fails closed (no bytecode = never matches).
+                            event_filters.pop("bytecode", None)
                     else:
                         event_serializer.is_valid(raise_exception=True)
                         event_config["filters"] = event_serializer.validated_data

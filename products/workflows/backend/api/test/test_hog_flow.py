@@ -650,6 +650,47 @@ class TestHogFlowAPI(APIBaseTest):
         assert "tier" in bytecode, bytecode
         assert "enterprise" in bytecode, bytecode
 
+    def test_hog_flow_draft_conversion_event_strips_client_supplied_bytecode(self):
+        # A draft with invalid conversion-event filters must not persist client-supplied
+        # bytecode: conversion is not revalidated on a status-only activation, so it would
+        # otherwise activate unvalidated and the matcher would execute it.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Draft Conversion Bytecode Injection",
+            # No status => draft, so invalid filters are tolerated rather than rejected.
+            "actions": [trigger_action],
+            "conversion": {
+                "window_minutes": 60,
+                "events": [
+                    {
+                        "filters": {
+                            # Invalid source fails serializer validation, so the draft branch
+                            # keeps the raw filters - which must not retain the injected bytecode.
+                            "source": "not-a-valid-source",
+                            "bytecode": ["_H", 1, 32, "injected"],
+                        },
+                    },
+                ],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        filters = response.json()["conversion"]["events"][0]["filters"]
+        assert "bytecode" not in filters, filters
+
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
