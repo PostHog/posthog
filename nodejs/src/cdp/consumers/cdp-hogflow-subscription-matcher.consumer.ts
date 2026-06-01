@@ -443,10 +443,6 @@ function indexBatch(invocationGlobals: HogFunctionInvocationGlobals[]): IndexedB
 
     for (const globals of invocationGlobals) {
         const teamId = globals.project.id
-        // A job is always team-scoped, so an event with no numeric team can't match one.
-        if (typeof teamId !== 'number') {
-            continue
-        }
         teamIds.add(teamId)
 
         const distinctId = globals.event.distinct_id
