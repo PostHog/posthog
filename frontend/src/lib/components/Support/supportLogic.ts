@@ -43,7 +43,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -106,14 +106,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {

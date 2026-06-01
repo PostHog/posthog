@@ -4,8 +4,6 @@ import { OrganizationBasicType, Region, TeamPublicType } from '~/types'
 
 import { getPublicSupportSnippet } from './supportLogic'
 
-jest.mock('posthog-js')
-
 describe('supportLogic snippet helpers', () => {
     const mockedGetReplayUrl = posthog.get_session_replay_url as jest.Mock
     const organization = { id: 'org-1', name: 'Test org' } as OrganizationBasicType
@@ -26,5 +24,11 @@ describe('supportLogic snippet helpers', () => {
         mockedGetReplayUrl.mockReturnValue(undefined)
         const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
         expect(snippet).not.toContain('Session:')
+    })
+
+    it('marks the admin line as internal', () => {
+        mockedGetReplayUrl.mockReturnValue(undefined)
+        const snippet = getPublicSupportSnippet(Region.US, organization, team, false)
+        expect(snippet).toContain('Admin (internal): http://go/adminOrg')
     })
 })
