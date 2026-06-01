@@ -81,6 +81,7 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -101,7 +102,6 @@ from products.dashboards.backend.widget_registry import (
     get_widget_registry_entry,
     validate_widget_config,
 )
-from products.dashboards.backend.widgets.config import MAX_WIDGETS_BATCH_SIZE
 from products.mcp_analytics.backend.dashboard_templates import get_mcp_analytics_default_template
 from products.product_analytics.backend.api.insight import (
     DashboardTileBasicSerializer,
@@ -276,7 +276,6 @@ class ReorderLayout(StrEnum):
     FULL_WIDTH = "full_width"
 
 
-DASHBOARD_GRID_COLUMN_COUNT = 12
 DEFAULT_REORDER_TILE_WIDTH = 6
 DEFAULT_REORDER_TILE_HEIGHT = 5
 

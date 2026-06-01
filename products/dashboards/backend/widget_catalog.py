@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, NotRequired, TypedDict
 
-from products.dashboards.backend.widgets.config import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, WIDGET_DATE_FROM_VALUES
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 
 

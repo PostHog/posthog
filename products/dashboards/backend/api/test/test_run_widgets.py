@@ -10,8 +10,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
-from products.dashboards.backend.widgets.config import MAX_WIDGET_RESULT_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 
 

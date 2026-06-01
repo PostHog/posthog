@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_catalog import get_default_widget_layouts
-
-# Keep in sync with frontend `BREAKPOINT_COLUMN_COUNTS.sm` and `DASHBOARD_GRID_COLUMN_COUNT`.
-DASHBOARD_GRID_COLUMN_COUNT = 12
 
 
 def _column_heights_from_sm_layouts(sm_layouts: list[dict[str, Any]]) -> list[int]:

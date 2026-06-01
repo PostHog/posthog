@@ -10,8 +10,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.config import (
-    MAX_WIDGET_RESULT_LIMIT,
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
     validate_widget_date_range,
