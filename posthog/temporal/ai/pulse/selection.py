@@ -20,8 +20,9 @@ if TYPE_CHECKING:
 
 RECENT_DAYS = 30
 MIN_VIEWERS_FOR_RECENT_INSIGHT = 3
-TOP_DASHBOARD_LIMIT = 5
-TOP_EVENT_LIMIT = 10
+TOP_DASHBOARD_LIMIT = 10
+TOP_EVENT_LIMIT = 25
+SAVED_INSIGHT_LIMIT = 15  # most recently edited saved Trends insights, independent of dashboards/views
 
 
 def _trends_query_from_insight(insight: Insight) -> dict | None:
@@ -116,6 +117,29 @@ def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_id
     return candidates
 
 
+def _select_saved_insight_candidates(team: Team, limit: int, existing_ids: set[str]) -> list[CandidateMetric]:
+    """Pick the team's most recently edited saved Trends insights, independent of dashboards or views.
+
+    The broad "watch our saved insights" net — surfaces insights even on small teams that never hit
+    the multi-viewer bar or pin a dashboard.
+    """
+    # lazy: avoid app-init circular import
+    from products.product_analytics.backend.models.insight import Insight
+
+    # Over-fetch: many saved insights aren't Trends-shaped and get dropped by _insight_to_candidate.
+    insights = Insight.objects.filter(team=team, deleted=False, saved=True).order_by("-last_modified_at")[: limit * 4]
+    candidates: list[CandidateMetric] = []
+    for insight in insights:
+        if str(insight.id) in existing_ids:
+            continue
+        candidate = _insight_to_candidate(insight, source="saved_insight")
+        if candidate:
+            candidates.append(candidate)
+            if len(candidates) >= limit:
+                break
+    return candidates
+
+
 def _select_top_event_candidates(team: Team, limit: int) -> list[CandidateMetric]:
     """Pick the team's highest-volume events as candidate metrics."""
     from posthog.models import EventDefinition
@@ -141,14 +165,20 @@ def _select_top_event_candidates(team: Team, limit: int) -> list[CandidateMetric
     ]
 
 
+def _candidate_source_ids(candidates: list[CandidateMetric]) -> set[str]:
+    return {str(c.descriptor.source_id) for c in candidates if c.descriptor.source_id is not None}
+
+
 @database_sync_to_async
 def _select_sync(team_id: int, max_candidates: int) -> list[CandidateMetric]:
     from posthog.models import Team  # lazy: avoid app-init circular import
 
     team = Team.objects.get(id=team_id)
     candidates = _select_dashboard_tile_candidates(team, TOP_DASHBOARD_LIMIT)
-    seen_ids = {str(c.descriptor.source_id) for c in candidates if c.descriptor.source_id is not None}
-    candidates.extend(_select_recent_viewed_insight_candidates(team, max_candidates // 2, seen_ids))
+    candidates.extend(
+        _select_recent_viewed_insight_candidates(team, max_candidates // 2, _candidate_source_ids(candidates))
+    )
+    candidates.extend(_select_saved_insight_candidates(team, SAVED_INSIGHT_LIMIT, _candidate_source_ids(candidates)))
     candidates.extend(_select_top_event_candidates(team, TOP_EVENT_LIMIT))
     return candidates[:max_candidates]
 
