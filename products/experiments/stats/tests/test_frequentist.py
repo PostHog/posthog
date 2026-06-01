@@ -3,9 +3,12 @@ from typing import Any, cast
 
 from unittest import TestCase
 
+from parameterized import parameterized
+
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
 from products.experiments.stats.frequentist.tests import SequentialTwoSidedTTest
 from products.experiments.stats.frequentist.utils import (
+    calculate_variance_pooled,
     sequential_interval_halfwidth,
     sequential_p_value,
     sequential_rho,
@@ -272,3 +275,80 @@ class TestSequentialTwoSidedTTest(TestCase):
     def test_invalid_tuning_parameter_raises(self):
         with self.assertRaises(StatisticError):
             SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=0)
+
+
+class TestSequentialTwoSidedTTestGoldenValues(TestCase):
+    """Golden fixtures for the two-sided sequential test.
+
+    The implementation was validated to reproduce the published reference values of
+    Waudby-Smith et al. 2023; these fixtures then lock in that behavior on our own
+    chosen inputs, guarding the end-to-end computation (point estimate, confidence
+    sequence, p-value, and the standard error the CI is built from) against drift.
+    run_test takes (treatment, control), so the higher-mean stat is passed first.
+    """
+
+    @parameterized.expand(
+        [
+            (
+                "sample_mean_tuning_1000",
+                SampleMeanStatistic(sum=2500.0, sum_squares=135000.0, n=3500),
+                SampleMeanStatistic(sum=1400.0, sum_squares=52000.0, n=3000),
+                1000,
+                0.53061,
+                (-0.53230, 1.59353),
+                0.33368,
+                1.0,
+            ),
+            (
+                "proportion_default_tuning",
+                ProportionStatistic(sum=2600, n=3500),
+                ProportionStatistic(sum=1450, n=3050),
+                5000,
+                0.56256,
+                (0.46064, 0.66448),
+                0.03354,
+                # Very strong evidence: the e-value is astronomical, so the p-value is a
+                # near-zero (~6e-56) that rounds to 0.0 at 5 decimals. The log-space form
+                # keeps the accurate tiny value instead of underflowing 1/e-value to 0.
+                0.0,
+            ),
+        ]
+    )
+    def test_matches_reference_values(self, _name, treatment, control, tuning_parameter, expected, ci, stddev, p_value):
+        result = SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=tuning_parameter).run_test(
+            treatment, control, DifferenceType.RELATIVE
+        )
+
+        self.assertAlmostEqual(result.point_estimate, expected, places=5)
+        self.assertAlmostEqual(result.confidence_interval[0], ci[0], places=5)
+        self.assertAlmostEqual(result.confidence_interval[1], ci[1], places=5)
+        self.assertAlmostEqual(result.p_value, p_value, places=5)
+
+        # Assert the standard error directly (the SE the sequential CI is built from) so a
+        # variance regression is pinpointed, not just inferred from a shifted CI.
+        standard_error = math.sqrt(calculate_variance_pooled(treatment, control, DifferenceType.RELATIVE))
+        self.assertAlmostEqual(standard_error, stddev, places=5)
+
+    def test_interval_narrowest_near_true_sample_size(self):
+        # Same stats as the sample-mean fixture; true total n = 3500 + 3000 = 6500. The
+        # confidence sequence is tightest when the tuning parameter ~ true n and widens as
+        # it badly under- (10) or over-estimates (10000) it.
+        treatment = SampleMeanStatistic(sum=2500.0, sum_squares=135000.0, n=3500)
+        control = SampleMeanStatistic(sum=1400.0, sum_squares=52000.0, n=3000)
+
+        def interval(tuning_parameter: float) -> tuple[float, float]:
+            test = SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=tuning_parameter)
+            return test.run_test(treatment, control, DifferenceType.RELATIVE).confidence_interval
+
+        below = interval(10)
+        near = interval(6500)
+        above = interval(10000)
+
+        # Under-estimating the sample size gives the widest interval.
+        self.assertLess(below[0], near[0])
+        self.assertGreater(below[1], near[1])
+        self.assertLess(below[0], above[0])
+        self.assertGreater(below[1], above[1])
+        # Over-estimating is wider than estimating well, but narrower than under-estimating.
+        self.assertLess(above[0], near[0])
+        self.assertGreater(above[1], near[1])
