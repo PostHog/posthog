@@ -2,13 +2,19 @@ import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/Vie
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
 
-import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
+import {
+    ProductIntentContext,
+    ProductKey,
+    WebAnalyticsPropertyFilters,
+    WebStatsBreakdown,
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 /**
@@ -89,9 +95,23 @@ interface ReplayButtonProps {
     date_to: string
     breakdownBy: WebStatsBreakdown
     value: string
+    /** Dashboard-level filters applied to the source web analytics query. Must be forwarded so the
+     *  recordings page narrows down to the same population the row count reflects. */
+    properties?: WebAnalyticsPropertyFilters
+    /** Web analytics filters test accounts by default; session replay doesn't. Forward it so the
+     *  recordings page matches the row count. */
+    filter_test_accounts?: boolean
 }
 
-export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayButtonProps): JSX.Element => {
+export const ReplayButton = ({
+    date_from,
+    date_to,
+    breakdownBy,
+    value,
+    properties,
+    filter_test_accounts,
+}: ReplayButtonProps): JSX.Element => {
+    const extraFilters: UniversalFiltersGroupValue[] = (properties ?? []) as UniversalFiltersGroupValue[]
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
         void addProductIntentForCrossSell({
@@ -101,11 +121,21 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         })
     }
 
-    /** If value is empty - just open session replay home page */
+    /** If value is empty - just open session replay home page, but still forward dashboard
+     *  filters so the recordings list isn't wider than what the user is looking at. */
     if (value === '') {
         const filters: Partial<RecordingUniversalFilters> = {
             date_from,
             date_to,
+            filter_test_accounts,
+            ...(extraFilters.length
+                ? {
+                      filter_group: {
+                          type: FilterLogicalOperator.And,
+                          values: [{ type: FilterLogicalOperator.And, values: extraFilters }],
+                      },
+                  }
+                : {}),
         }
         return (
             <div onClick={handleClick}>
@@ -119,6 +149,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         const filters: Partial<RecordingUniversalFilters> = {
             date_from,
             date_to,
+            filter_test_accounts,
             filter_group: {
                 type: FilterLogicalOperator.And,
                 values: [
@@ -137,6 +168,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                                 value: [value[1]],
                                 operator: PropertyOperator.Exact,
                             },
+                            ...extraFilters,
                         ],
                     },
                 ],
@@ -155,6 +187,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         const filters: Partial<RecordingUniversalFilters> = {
             date_from,
             date_to,
+            filter_test_accounts,
             filter_group: {
                 type: FilterLogicalOperator.And,
                 values: [
@@ -176,6 +209,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                                 PropertyFilterType.Session,
                                 values[2] ?? BREAKDOWN_NULL_DISPLAY
                             ),
+                            ...extraFilters,
                         ],
                     },
                 ],
@@ -194,6 +228,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         const filters: Partial<RecordingUniversalFilters> = {
             date_from,
             date_to,
+            filter_test_accounts,
             filter_group: {
                 type: FilterLogicalOperator.And,
                 values: [
@@ -206,6 +241,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
                                 value: [`^${escapedValue}($|\\?|#)`],
                                 operator: PropertyOperator.Regex,
                             },
+                            ...extraFilters,
                         ],
                     },
                 ],
@@ -229,12 +265,13 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
     const filters: Partial<RecordingUniversalFilters> = {
         date_from,
         date_to,
+        filter_test_accounts,
         filter_group: {
             type: FilterLogicalOperator.And,
             values: [
                 {
                     type: FilterLogicalOperator.And,
-                    values: [buildBreakdownPropertyFilter(key, type, value)],
+                    values: [buildBreakdownPropertyFilter(key, type, value), ...extraFilters],
                 },
             ],
         },
