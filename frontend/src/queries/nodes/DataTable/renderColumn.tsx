@@ -347,7 +347,9 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { id: value.id, distinct_id: value.distinct_id },
+            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
+            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
+            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
             displayName: value.display_name,
             noPopover,
         }

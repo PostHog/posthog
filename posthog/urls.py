@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -32,6 +33,7 @@ from posthog.api import (
     user,
 )
 from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.id_jag import IdJagViewSet
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
@@ -56,7 +58,11 @@ from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookV
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_workspace_claims_view,
+)
 from products.surveys.backend.api.survey import public_survey_page
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
@@ -387,6 +393,7 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     path("", include((oauth2_urls, "oauth2_provider"), namespace="oauth2_provider")),
+    opt_slash_path("id-jag/token", IdJagViewSet.as_view(), name="id_jag_token"),
     # ingestion
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
@@ -404,6 +411,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
@@ -470,6 +478,13 @@ if settings.TEST:
     if not settings.DEBUG:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
+
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [

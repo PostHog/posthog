@@ -3,6 +3,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
+from enum import StrEnum
 from typing import Any, Optional, cast
 
 from django.conf import settings
@@ -128,6 +129,55 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 
+def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
+    return not (
+        rect_a["x"] + rect_a["w"] <= rect_b["x"]
+        or rect_b["x"] + rect_b["w"] <= rect_a["x"]
+        or rect_a["y"] + rect_a["h"] <= rect_b["y"]
+        or rect_b["y"] + rect_b["h"] <= rect_a["y"]
+    )
+
+
+def _compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
+    """Vertically compact tile layouts in place, mirroring the dashboard grid's default
+    react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
+    independently: tiles keep their x/w/h and are pulled up to the lowest free row.
+    Returns the ids of tiles whose layouts changed.
+    """
+    for tile in tiles:
+        if isinstance(tile.layouts, str):
+            tile.layouts = json.loads(tile.layouts)
+
+    changed: set[int] = set()
+    breakpoints: set[str] = set()
+    for tile in tiles:
+        if isinstance(tile.layouts, dict):
+            breakpoints.update(tile.layouts.keys())
+
+    for breakpoint in breakpoints:
+        entries = [
+            tile for tile in tiles if isinstance(tile.layouts, dict) and isinstance(tile.layouts.get(breakpoint), dict)
+        ]
+        placed: list[dict[str, int]] = []
+        for tile in DashboardTile.sort_tiles_by_layout(entries, breakpoint):
+            layout = tile.layouts[breakpoint]
+            rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
+            # Drop the tile to the lowest free row. Jump past colliding tiles rather than
+            # scanning row-by-row, so an editor-supplied giant height can't blow up the loop.
+            new_y = 0
+            while True:
+                collisions = [pr for pr in placed if _tile_rects_overlap({**rect, "y": new_y}, pr)]
+                if not collisions:
+                    break
+                new_y = max(pr["y"] + pr["h"] for pr in collisions)
+            placed.append({**rect, "y": new_y})
+            if new_y != layout.get("y", 0):
+                layout["y"] = new_y
+                changed.add(tile.id)
+
+    return changed
+
+
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
     """
     Serialize a single tile with error handling. Returns (order, tile_data) tuple.
@@ -159,11 +209,100 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
+class ReorderLayout(StrEnum):
+    PRESERVE = "preserve"
+    TWO_COLUMN = "two_column"
+    FULL_WIDTH = "full_width"
+
+
+DASHBOARD_GRID_COLUMN_COUNT = 12
+DEFAULT_REORDER_TILE_WIDTH = 6
+DEFAULT_REORDER_TILE_HEIGHT = 5
+
+
+def _existing_sm_size(tile: DashboardTile, default_w: int, default_h: int) -> tuple[int, int]:
+    sm = (tile.layouts or {}).get("sm") if isinstance(tile.layouts, dict) else None
+    if not isinstance(sm, dict):
+        return default_w, default_h
+    w, h = sm.get("w"), sm.get("h")
+    return (
+        w if isinstance(w, int) and w > 0 else default_w,
+        h if isinstance(h, int) and h > 0 else default_h,
+    )
+
+
+def _apply_reorder_layout(
+    tile_order: list[int],
+    tile_map: dict[int, DashboardTile],
+    layout_mode: ReorderLayout,
+) -> None:
+    """Repack tiles. ``preserve`` keeps each tile's existing w/h and reuses the lowest-segment
+    greedy algorithm from ``frontend/src/scenes/dashboard/tileLayouts.ts``; the other modes overwrite w/h."""
+    if layout_mode == ReorderLayout.TWO_COLUMN:
+        for index, tile_id in enumerate(tile_order):
+            row, col = divmod(index, 2)
+            tile_map[tile_id].layouts = {
+                "sm": {
+                    "x": col * DEFAULT_REORDER_TILE_WIDTH,
+                    "y": row * DEFAULT_REORDER_TILE_HEIGHT,
+                    "w": DEFAULT_REORDER_TILE_WIDTH,
+                    "h": DEFAULT_REORDER_TILE_HEIGHT,
+                },
+                "xs": {"x": 0, "y": index * DEFAULT_REORDER_TILE_HEIGHT, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+        return
+
+    if layout_mode == ReorderLayout.FULL_WIDTH:
+        for index, tile_id in enumerate(tile_order):
+            y = index * DEFAULT_REORDER_TILE_HEIGHT
+            tile_map[tile_id].layouts = {
+                "sm": {"x": 0, "y": y, "w": DASHBOARD_GRID_COLUMN_COUNT, "h": DEFAULT_REORDER_TILE_HEIGHT},
+                "xs": {"x": 0, "y": y, "w": 1, "h": DEFAULT_REORDER_TILE_HEIGHT},
+            }
+        return
+
+    column_heights = [0] * DASHBOARD_GRID_COLUMN_COUNT
+    xs_y = 0
+    for tile_id in tile_order:
+        tile = tile_map[tile_id]
+        existing_w, existing_h = _existing_sm_size(tile, DEFAULT_REORDER_TILE_WIDTH, DEFAULT_REORDER_TILE_HEIGHT)
+        w = max(1, min(existing_w, DASHBOARD_GRID_COLUMN_COUNT))
+        h = max(1, existing_h)
+
+        # x=0 is the baseline candidate; scan the remaining start positions for a lower segment top,
+        # keeping the leftmost on ties (the loop only updates on a strictly lower top).
+        best_x = 0
+        best_y = max(column_heights[0:w])
+        for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
+            segment_top = max(column_heights[x : x + w])
+            if segment_top < best_y:
+                best_x = x
+                best_y = segment_top
+
+        tile.layouts = {
+            "sm": {"x": best_x, "y": best_y, "w": w, "h": h},
+            "xs": {"x": 0, "y": xs_y, "w": 1, "h": h},
+        }
+        for k in range(best_x, best_x + w):
+            column_heights[k] = best_y + h
+        xs_y += h
+
+
 class ReorderTilesRequestSerializer(serializers.Serializer):
     tile_order = serializers.ListField(
         child=serializers.IntegerField(),
         min_length=1,
         help_text="Array of tile IDs in the desired display order (top to bottom, left to right).",
+    )
+    layout = serializers.ChoiceField(
+        choices=[mode.value for mode in ReorderLayout],
+        default=ReorderLayout.PRESERVE.value,
+        required=False,
+        help_text=(
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height "
+            "and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per "
+            "row). 'full_width' forces each tile to span the full 12-column row at height 5."
+        ),
     )
 
 
@@ -252,6 +391,13 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="New accent color name, empty string or null to clear. Omit to leave unchanged.",
         error_messages={"max_length": "Color cannot exceed 400 characters"},
+    )
+
+
+class DeleteTileRequestSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        required=True,
+        help_text="ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.",
     )
 
 
@@ -1163,7 +1309,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ],
     ),
 )
-@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -1701,15 +1846,13 @@ class DashboardsViewSet(
         serializer = ReorderTilesRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         tile_order: list[int] = serializer.validated_data["tile_order"]
+        layout_mode = ReorderLayout(serializer.validated_data["layout"])
 
         if len(tile_order) != len(set(tile_order)):
             return Response(
                 {"detail": "tile_order must contain unique tile IDs"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        tile_width = 6
-        tile_height = 5
 
         tiles = DashboardTile.objects.filter(dashboard=dashboard, id__in=tile_order)
         tile_map = {tile.id: tile for tile in tiles}
@@ -1721,15 +1864,7 @@ class DashboardsViewSet(
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        for index, tile_id in enumerate(tile_order):
-            tile = tile_map[tile_id]
-            row = index // 2
-            col = index % 2
-            tile.layouts = {
-                "sm": {"x": col * tile_width, "y": row * tile_height, "w": tile_width, "h": tile_height},
-                # xs is single-column (full 6-col mobile grid width)
-                "xs": {"x": 0, "y": index * tile_height, "w": tile_width, "h": tile_height},
-            }
+        _apply_reorder_layout(tile_order, tile_map, layout_mode)
 
         DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
 
@@ -1823,6 +1958,51 @@ class DashboardsViewSet(
 
         tile.refresh_from_db()
         return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        operation_id="dashboards_delete_tile",
+        request=DeleteTileRequestSerializer,
+        responses={204: None},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def delete_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Soft-delete a single tile from a dashboard.
+
+        Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+        object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+        use the dashboard delete endpoint instead.
+        """
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = DeleteTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tile_id = serializer.validated_data["tile_id"]
+
+        tile = get_object_or_404(
+            DashboardTile,
+            id=tile_id,
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
+        # (react-grid-layout compacts upward on render but never persists it).
+        with transaction.atomic():
+            tile.deleted = True
+            tile.save(update_fields=["deleted"])
+
+            remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
+            changed_ids = _compact_tile_layouts(remaining)
+            if changed_ids:
+                DashboardTile.objects.bulk_update(
+                    [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
+                    ["layouts"],
+                )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         parameters=[

@@ -27,6 +27,7 @@ from django.utils.timezone import now
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
+from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
@@ -35,14 +36,14 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Plugin, Team
+from posthog.models import Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
@@ -62,6 +63,7 @@ from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -1457,7 +1459,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_active_hog_destinations_and_transformations_per_team(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
         self._setup_teams()
 
@@ -1709,6 +1711,83 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
                 "survey_count": 2,
             },
         )
+
+
+class TestTrimOversizeUsageReportPayload(TestCase):
+    @parameterized.expand(
+        [
+            ("under_limit", 2, False),
+            ("over_limit", 600, True),
+        ]
+    )
+    def test_trims_teams_only_when_over_limit(self, _name: str, team_count: int, expect_trimmed: bool) -> None:
+        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, _trim_oversize_usage_report_payload
+
+        # `team_count` drives the serialized size across the threshold; the org-level totals stay realistic.
+        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
+        teams = {str(team_id): per_team_counters for team_id in range(team_count)}
+        report = {
+            "team_count": team_count,
+            "event_count_in_period": 7_777,
+            "organization_name": "Big Customer",
+            "teams": teams,
+        }
+        assert (len(json.dumps(report, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES) is expect_trimmed
+
+        result = _trim_oversize_usage_report_payload(report)
+
+        if not expect_trimmed:
+            assert result is report
+            return
+
+        assert result is not report  # Original kept intact for the SQS path.
+        assert report["teams"] == teams
+        assert result["teams"] == {}
+        assert result["teams_omitted_due_to_size"] is True
+        assert result["team_count"] == team_count
+        assert result["event_count_in_period"] == 7_777
+        assert result["organization_name"] == "Big Customer"
+        assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+
+@freeze_time("2022-01-10T00:01:00Z")
+class TestCaptureReportTrimsOversizePayload(TestCase):
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    def test_capture_report_drops_teams_when_payload_too_large(self, mock_client: MagicMock) -> None:
+        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, capture_report
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        org = Organization.objects.create(name="Big Customer")
+
+        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
+        teams = {str(team_id): per_team_counters for team_id in range(600)}
+        full_report_dict = {
+            "team_count": len(teams),
+            "event_count_in_period": 7_777,
+            "organization_user_count": 1,
+            "dashboard_count": 0,
+            "ff_count": 0,
+            "survey_count": 0,
+            "teams": teams,
+        }
+        assert len(json.dumps(full_report_dict, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
+
+        capture_report(organization_id=str(org.id), full_report_dict=full_report_dict)
+
+        capture_calls = [
+            call
+            for call in mock_posthog.capture.call_args_list
+            if call.kwargs.get("event") == "organization usage report"
+        ]
+        assert len(capture_calls) == 1
+        captured_properties = capture_calls[0].kwargs["properties"]
+        assert captured_properties["teams"] == {}
+        assert captured_properties["teams_omitted_due_to_size"] is True
+        assert captured_properties["team_count"] == len(teams)
+        assert captured_properties["event_count_in_period"] == 7_777
+        assert len(json.dumps(captured_properties, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -2758,7 +2837,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # is pre-filtered to those team_ids to stay under the Logs cluster scan-bytes limit.
         org_1_team_3 = Team.objects.create(pk=5, organization=self.org_1, name="Team 3 org 1")
 
-        sync_execute("TRUNCATE TABLE IF EXISTS logs32")
+        # Truncate the actual local shard the schema defines (not a hardcoded name) so the test
+        # stays clean across re-runs even if the shard is renamed in a future logs migration.
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_LOCAL_TABLE}")
 
         for team in (self.org_1_team_1, self.org_1_team_2):
             create_app_metric2(
@@ -2769,7 +2850,6 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             )
 
         lines = ""
-        lines += self._logs_records_json(self.org_1_team_1.id, "web", 3)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
@@ -2778,7 +2858,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
         # Team 3 has log records but no app_metrics2 row, so the pre-filter excludes it entirely.
         lines += self._logs_records_json(org_1_team_3.id, "posthog-ios", 9)
-        sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{lines}")
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
         period_start, period_end = period
@@ -2792,10 +2872,10 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # telemetry.sdk.name are not counted; flutter ships no logs yet; team 5 has log records but
         # no app_metrics2 row, so the pre-filter drops it entirely.
         expected_counts: dict[str, tuple[dict, dict[str, int]]] = {
-            "org": (org_1_report, {"web": 3, "ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
-            "team 3": (org_1_report["teams"]["3"], {"web": 3, "ios": 2, "android": 1, "react_native": 0}),
-            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "web": 0, "ios": 0}),
-            "team 5": (org_1_report["teams"]["5"], {"ios": 0, "web": 0}),
+            "org": (org_1_report, {"ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
+            "team 3": (org_1_report["teams"]["3"], {"ios": 2, "android": 1, "react_native": 0}),
+            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "ios": 0}),
+            "team 5": (org_1_report["teams"]["5"], {"ios": 0}),
         }
         for scope, (counters, per_sdk) in expected_counts.items():
             for sdk, expected in per_sdk.items():

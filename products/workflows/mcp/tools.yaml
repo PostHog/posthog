@@ -107,6 +107,32 @@ tools:
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
         enabled: false
+    internal-hog-flows-process-due-schedules-create:
+        operation: internal_hog_flows_process_due_schedules_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-create:
+        operation: internal_hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-user-blast-radius-persons-create:
+        operation: internal_hog_flows_user_blast_radius_persons_create
+        enabled: false
+    workflows-create:
+        operation: hog_flows_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: hog-{id}
+        title: Create workflow
+        description: >
+            Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type:
+            event|webhook|manual|batch|schedule|tracking_pixel). Other action types:
+            function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch,
+            wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.
+        ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -137,3 +163,34 @@ tools:
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
         ui_app: workflow-list
+    workflows-run:
+        operation: hog_flows_invocations_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Test-run workflow
+        description: >
+            Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async
+            actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects.
+            Optional current_action_id starts from a specific node. Returns the execution trace.
+        exclude_params:
+            - configuration
+    workflows-update:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: hog-{id}
+        title: Update workflow
+        description: Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.
+        exclude_params:
+            - status
+        ui_app: workflow
