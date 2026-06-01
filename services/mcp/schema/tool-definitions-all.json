@@ -4270,7 +4270,7 @@
         }
     },
     "notebooks-create": {
-        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
+        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create notebook",
@@ -6488,6 +6488,66 @@
             "readOnlyHint": true
         }
     },
+    "workflows-archive": {
+        "description": "Archive a draft or disabled workflow.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Archive workflow",
+        "title": "Archive workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-create": {
+        "description": "Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type: event|webhook|manual|batch|schedule|tracking_pixel). Other action types: function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch, wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create workflow",
+        "title": "Create workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-disable": {
+        "description": "Disable / deactivate a live workflow and stop processing events. Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Disable workflow",
+        "title": "Disable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-enable": {
+        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Enable workflow",
+        "title": "Enable workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-get": {
         "description": "Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit condition, and variables.",
         "category": "Workflows",
@@ -6516,6 +6576,36 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-run": {
+        "description": "Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects. Optional current_action_id starts from a specific node. Returns the execution trace.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Test-run workflow",
+        "title": "Test-run workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-update": {
+        "description": "Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Update workflow",
+        "title": "Update workflow",
+        "required_scopes": ["hog_flow:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     }
 }

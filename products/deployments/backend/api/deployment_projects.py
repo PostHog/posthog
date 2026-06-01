@@ -230,7 +230,6 @@ def _refresh_project_repository_state(
     )
 
 
-@extend_schema(tags=["deployments"])
 class DeploymentProjectViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

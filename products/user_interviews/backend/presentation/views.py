@@ -26,7 +26,7 @@ from rest_framework.parsers import JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import EmbeddingModelName, ProductKey
+from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -330,7 +330,6 @@ class UserInterviewSearchResultSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the interview row was created.")
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
@@ -805,7 +804,6 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Planned user interview topics: who we want to target and what we want to ask about."""
 
@@ -1222,7 +1220,6 @@ class BulkIntervieweeContextResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[ProductKey.USER_INTERVIEWS])
 class IntervieweeContextViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """Per-interviewee extra context for a user interview topic. At most one row per (topic, interviewee_identifier)."""
 

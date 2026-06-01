@@ -40,6 +40,21 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getHeatmapScreenshotsContentRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/heatmap_screenshots/${id}/content/`
+}
+
+export const heatmapScreenshotsContentRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getHeatmapScreenshotsContentRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHeatmapsListUrl = (projectId: string, params?: HeatmapsListParams) => {
     const normalizedParams = new URLSearchParams()
 
