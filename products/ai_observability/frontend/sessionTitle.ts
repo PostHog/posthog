@@ -76,6 +76,9 @@ function sortByCreatedAt(events: LLMTraceEvent[] | undefined): LLMTraceEvent[] {
  * `normalizeMessages` understands — including `{messages: [...]}` wrappers used
  * by LangGraph/Claude Agent SDK input_state. Role mapping (`human` → `user`,
  * `type` → `role`, etc.) is delegated entirely to `normalizeMessages`.
+ *
+ * We default to role `user` following the convention in the codebase
+ * (e.g. pickFirstInputMessage and sentiment/extraction.py)
  */
 function firstUserText(inputPayload: unknown): string | null {
     const messages = Array.isArray(inputPayload)
@@ -85,7 +88,7 @@ function firstUserText(inputPayload: unknown): string | null {
             Array.isArray((inputPayload as { messages?: unknown }).messages)
           ? (inputPayload as { messages: unknown[] }).messages
           : inputPayload
-    const normalized = normalizeMessages(messages, '')
+    const normalized = normalizeMessages(messages, 'user')
     for (const message of normalized) {
         if (message.role !== 'user') {
             continue

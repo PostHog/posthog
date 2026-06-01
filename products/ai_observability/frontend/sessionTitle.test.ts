@@ -132,82 +132,77 @@ describe('resolveSessionTitle', () => {
         expect(resolveSessionTitle(trace)).toBe('earlier span')
     })
 
-    it('collapses whitespace in the title', () => {
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [
-                    {
-                        role: 'user',
-                        content: 'multi\nline\n\nmessage   with   spaces',
-                    },
-                ],
-            },
-        })
-        expect(resolveSessionTitle(trace)).toBe('multi line message with spaces')
+    it.each([
+        {
+            desc: 'collapses whitespace',
+            messages: [{ role: 'user', content: 'multi\nline\n\nmessage   with   spaces' }],
+            expected: 'multi line message with spaces',
+        },
+        {
+            desc: 'does not truncate short titles',
+            messages: [{ role: 'user', content: 'short message' }],
+            expected: 'short message',
+        },
+        {
+            desc: 'extracts text from array-shaped content (Anthropic typed parts)',
+            messages: [
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: 'Look at this image' },
+                        { type: 'image', url: 'https://example.com/a.png' },
+                    ],
+                },
+            ],
+            expected: 'Look at this image',
+        },
+        {
+            desc: 'skips messages with empty content and uses the next user message',
+            messages: [
+                { role: 'user', content: '' },
+                { role: 'user', content: 'actual question' },
+            ],
+            expected: 'actual question',
+        },
+    ])('extracts title content: $desc', ({ messages, expected }) => {
+        const trace = makeTrace([], { inputState: { messages } })
+        expect(resolveSessionTitle(trace)).toBe(expected)
     })
 
-    it('truncates long titles at a word boundary with an ellipsis', () => {
-        const longMessage =
-            "We've just released SpicyCam - I want to know what the initial user engagement and intent is like - are the users enjoying the new feature?"
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [{ role: 'user', content: longMessage }],
-            },
-        })
-        const result = resolveSessionTitle(trace)
+    it.each([
+        {
+            desc: 'truncates long titles at a word boundary with an ellipsis',
+            content:
+                "We've just released SpicyCam - I want to know what the initial user engagement and intent is like - are the users enjoying the new feature?",
+            maxLength: undefined,
+            maxOut: 121, // 120 + ellipsis
+            // Word-boundary backoff: should not include the mid-word fragment "enjoyi".
+            notContain: 'enjoyi…',
+        },
+        {
+            desc: 'accepts a custom maxLength',
+            content: 'this is a moderately long sentence that should be cut',
+            maxLength: 20,
+            maxOut: 21,
+        },
+    ])('$desc', ({ content, maxLength, maxOut, notContain }) => {
+        const trace = makeTrace([], { inputState: { messages: [{ role: 'user', content }] } })
+        const result = maxLength === undefined ? resolveSessionTitle(trace) : resolveSessionTitle(trace, maxLength)
         expect(result).toBeTruthy()
-        expect(result!.length).toBeLessThanOrEqual(121) // 120 + ellipsis
+        expect(result!.length).toBeLessThanOrEqual(maxOut)
         expect(result!.endsWith('…')).toBe(true)
-        // Word-boundary backoff: should not include the mid-word fragment "enjoyi".
-        expect(result).not.toContain('enjoyi…')
+        if (notContain) {
+            expect(result).not.toContain(notContain)
+        }
     })
 
-    it('does not truncate short titles', () => {
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [{ role: 'user', content: 'short message' }],
-            },
+    it.each([
+        { desc: 'a bare-string $ai_input', input: 'how do I add a feature flag?' },
+        { desc: 'a role-less message object in $ai_input', input: [{ content: 'how do I add a feature flag?' }] },
+    ])('treats role-less generation input as the user prompt: $desc', ({ input }) => {
+        const trace = makeTrace([makeEvent('g1', '$ai_generation', '2026-05-29T00:00:00.000Z', { $ai_input: input })], {
+            traceName: 'LangGraph',
         })
-        expect(resolveSessionTitle(trace)).toBe('short message')
-    })
-
-    it('extracts text from array-shaped content (Anthropic typed parts)', () => {
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [
-                    {
-                        role: 'user',
-                        content: [
-                            { type: 'text', text: 'Look at this image' },
-                            { type: 'image', url: 'https://example.com/a.png' },
-                        ],
-                    },
-                ],
-            },
-        })
-        expect(resolveSessionTitle(trace)).toBe('Look at this image')
-    })
-
-    it('skips messages with empty content and uses the next user message', () => {
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [
-                    { role: 'user', content: '' },
-                    { role: 'user', content: 'actual question' },
-                ],
-            },
-        })
-        expect(resolveSessionTitle(trace)).toBe('actual question')
-    })
-
-    it('accepts a custom maxLength', () => {
-        const trace = makeTrace([], {
-            inputState: {
-                messages: [{ role: 'user', content: 'this is a moderately long sentence that should be cut' }],
-            },
-        })
-        const result = resolveSessionTitle(trace, 20)
-        expect(result).toBeTruthy()
-        expect(result!.length).toBeLessThanOrEqual(21)
+        expect(resolveSessionTitle(trace)).toBe('how do I add a feature flag?')
     })
 })
