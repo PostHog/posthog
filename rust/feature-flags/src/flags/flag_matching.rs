@@ -1025,6 +1025,7 @@ impl FeatureFlagMatcher {
                         flag_match,
                         true,
                         merged_person_props.as_ref(),
+                        &self.flag_evaluation_state.flag_evaluation_results,
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)

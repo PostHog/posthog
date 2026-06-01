@@ -1,7 +1,8 @@
 use crate::api::errors::FlagError;
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching::FeatureFlagMatch;
-use crate::flags::flag_models::FeatureFlag;
+use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
+use crate::flags::flag_models::{FeatureFlag, FeatureFlagId};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -455,6 +456,7 @@ pub trait FromFeatureAndMatch {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -462,7 +464,7 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false, None)
+        Self::create_with_analysis(flag, flag_match, false, None, &HashMap::new())
     }
 
     fn create_with_analysis(
@@ -470,6 +472,7 @@ impl FromFeatureAndMatch for FlagDetails {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
+        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -492,6 +495,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     flag,
                     flag_match,
                     property_values,
+                    flag_evaluation_results,
                 ))
             } else {
                 None
@@ -553,6 +557,7 @@ impl FlagDetails {
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
+        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -588,6 +593,39 @@ impl FlagDetails {
                         crate::properties::property_models::PropertyType::Flag => "flag",
                     }
                     .to_string();
+
+                    // Flag-dependency filters don't evaluate against person/group properties — they
+                    // resolve against the result of the flag they depend on. Running them through
+                    // match_property() (which rejects the FlagEvaluatesTo operator and returns Err)
+                    // would always report matched=false, contradicting the condition-level outcome.
+                    // Resolve them against the actual flag evaluation results instead.
+                    if property.depends_on_feature_flag() {
+                        let property_matched =
+                            match_flag_value_to_flag_filter(property, flag_evaluation_results);
+                        let actual_value = property
+                            .get_feature_flag_id()
+                            .and_then(|id| flag_evaluation_results.get(&id))
+                            .map(|v| serde_json::to_value(v).unwrap_or(Value::Null));
+                        let expected = property.value.clone().unwrap_or(Value::Null);
+                        let explanation = if property_matched {
+                            format!("Flag dependency '{}' evaluated to {}", property.key, expected)
+                        } else {
+                            format!(
+                                "Flag dependency '{}' did not evaluate to {}",
+                                property.key, expected
+                            )
+                        };
+                        property_analyses.push(PropertyAnalysis {
+                            key: property.key.clone(),
+                            operator: operator_str,
+                            value: expected,
+                            r#type: type_str,
+                            actual_value,
+                            matched: property_matched,
+                            explanation,
+                        });
+                        continue;
+                    }
 
                     // Generate explanation placeholder - will be updated after we know if property matched
                     let explanation_placeholder = match property.operator {
@@ -1190,8 +1228,12 @@ mod tests {
         property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
 
         // Build condition analysis
-        let analysis =
-            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values));
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            &HashMap::new(),
+        );
 
         // Verify we have analysis for both conditions
         assert_eq!(analysis.len(), 2);
@@ -1221,6 +1263,101 @@ mod tests {
         assert!(
             !analysis[1].rollout_excluded,
             "Condition 1 should not be rollout_excluded"
+        );
+    }
+
+    #[test]
+    fn test_condition_analysis_resolves_flag_dependencies_against_flag_results() {
+        use crate::flags::flag_models::FeatureFlag;
+        use std::collections::HashMap;
+
+        // A flag with a single condition that depends on flag id 42 evaluating to true.
+        let flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": 1,
+                "name": "dependent-flag",
+                "key": "dependent-flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "42",
+                                    "value": true,
+                                    "type": "flag",
+                                    "operator": "flag_evaluates_to"
+                                }
+                            ],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Case 1: the dependency flag matched → the tested flag matched via condition 0.
+        let flag_match = FeatureFlagMatch {
+            matches: true,
+            variant: None,
+            reason: FeatureFlagMatchReason::ConditionMatch,
+            condition_index: Some(0),
+            payload: None,
+        };
+        let mut flag_results = HashMap::new();
+        flag_results.insert(42, FlagValue::Boolean(true));
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            &flag_results,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert!(analysis[0].matched, "Condition should be the winner");
+        assert!(
+            analysis[0].properties_matched,
+            "Flag dependency matched, so properties_matched must be true"
+        );
+        assert!(
+            analysis[0].properties[0].matched,
+            "Flag dependency property must report matched=true"
+        );
+        assert_eq!(
+            analysis[0].properties[0].actual_value,
+            serde_json::json!(true)
+        );
+
+        // Case 2: the dependency flag did NOT match → the tested flag did not match.
+        let flag_match = FeatureFlagMatch {
+            matches: false,
+            variant: None,
+            reason: FeatureFlagMatchReason::NoConditionMatch,
+            condition_index: None,
+            payload: None,
+        };
+        let mut flag_results = HashMap::new();
+        flag_results.insert(42, FlagValue::Boolean(false));
+
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&HashMap::new()),
+            &flag_results,
+        );
+
+        assert_eq!(analysis.len(), 1);
+        assert!(!analysis[0].matched, "Condition should not be the winner");
+        assert!(
+            !analysis[0].properties_matched,
+            "Flag dependency did not match, so properties_matched must be false"
+        );
+        assert!(
+            !analysis[0].properties[0].matched,
+            "Flag dependency property must report matched=false"
         );
     }
 }

@@ -201,6 +201,24 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
+    describe('hasValidPerson selector', () => {
+        it('is true when distinct_id is set (e.g. selected from the recent tab)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTestFormData({ distinct_id: 'user-123' })
+            }).toMatchValues({ hasValidPerson: true })
+        })
+
+        it('is true when only person_id is set', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTestFormData({ person_id: 'uuid-abc' })
+            }).toMatchValues({ hasValidPerson: true })
+        })
+
+        it('is false when neither distinct_id nor person_id is set', () => {
+            expect(logic.values.hasValidPerson).toBe(false)
+        })
+    })
+
     describe('errorDisplay selector', () => {
         const errorTestCases = [
             {
@@ -279,7 +297,7 @@ describe('featureFlagTestingLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.testFlagEvaluation({
                     flagId: 1,
-                    formData: { person_id: 'p1', timestamp: '', groups },
+                    formData: { person_id: 'p1', distinct_id: '', timestamp: '', groups },
                 })
             }).toFinishAllListeners()
 
