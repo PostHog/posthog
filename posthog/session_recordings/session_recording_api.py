@@ -696,6 +696,22 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
         return listing_rates()
 
 
+def get_replay_listing_throttle_error(request, view) -> str | None:
+    """Return a client-facing error when replay listing throttles would block this request."""
+    auth_type = _request_auth_type(request)
+    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
+        throttle = throttle_cls()
+        if throttle.allow_request(request, view):
+            continue
+        wait = throttle.wait()
+        scope = throttle.scope or "listing"
+        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        if wait:
+            return f"Rate limit exceeded. Expected available in {wait} seconds."
+        return "Rate limit exceeded. Try again later."
+    return None
+
+
 class SharingTokenReplayThrottle(SimpleRateThrottle):
     """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
 

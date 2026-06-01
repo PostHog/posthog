@@ -3,7 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from products.dashboards.backend.constants import (
-    DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
+    DEFAULT_WIDGET_LIST_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     WIDGET_DATE_FROM_VALUES,
 )
@@ -32,7 +32,7 @@ class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1,
         max_value=MAX_WIDGET_RESULT_LIMIT,
-        default=DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
+        default=DEFAULT_WIDGET_LIST_LIMIT,
         required=False,
         help_text="Maximum number of issues to return.",
     )

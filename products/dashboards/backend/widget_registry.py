@@ -34,11 +34,6 @@ from products.dashboards.backend.widgets.session_replay_list import (
 EXPECTED_WIDGET_TYPES = frozenset({"error_tracking_list", "session_replay_list"})
 
 DashboardWidgetType = Literal["error_tracking_list", "session_replay_list"]
-DashboardWidgetTypeInput = Literal["error_tracking_list", "error_tracking", "session_replay_list"]
-
-WIDGET_TYPE_ALIASES: dict[str, str] = {
-    "error_tracking": "error_tracking_list",
-}
 
 
 class WidgetRegistryEntry(TypedDict):

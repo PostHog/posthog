@@ -10,7 +10,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.dashboards.backend.constants import DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT, MAX_WIDGET_RESULT_LIMIT
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.config import (
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
@@ -34,7 +34,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
-    limit = config.get("limit", DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT)
+    limit = config.get("limit", DEFAULT_WIDGET_LIST_LIMIT)
     if not isinstance(limit, int) or limit < 1 or limit > MAX_WIDGET_RESULT_LIMIT:
         raise DRFValidationError({"config": f"limit must be an integer between 1 and {MAX_WIDGET_RESULT_LIMIT}."})
 

@@ -3,8 +3,7 @@ from __future__ import annotations
 from typing import Any, NotRequired, TypedDict
 
 from products.dashboards.backend.constants import (
-    DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
-    DEFAULT_SESSION_REPLAY_LIST_WIDGET_LIMIT,
+    DEFAULT_WIDGET_LIST_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     WIDGET_DATE_FROM_VALUES,
 )
@@ -37,7 +36,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                 "type": "integer",
                 "min": 1,
                 "max": MAX_WIDGET_RESULT_LIMIT,
-                "default": DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
+                "default": DEFAULT_WIDGET_LIST_LIMIT,
             },
             "orderBy": {
                 "type": "string",
@@ -82,7 +81,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                 "type": "integer",
                 "min": 1,
                 "max": MAX_WIDGET_RESULT_LIMIT,
-                "default": DEFAULT_SESSION_REPLAY_LIST_WIDGET_LIMIT,
+                "default": DEFAULT_WIDGET_LIST_LIMIT,
             },
             "orderBy": {
                 "type": "string",

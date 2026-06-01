@@ -1,54 +1,51 @@
-import type { ZodError } from 'zod'
+import { z, type ZodError } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
-import { sessionReplayWidgetConfigSchema } from '../../widget_types/configSchemas'
+import {
+    sessionReplayWidgetConfigSchema,
+    type SessionReplayWidgetConfig,
+    widgetDateFromSchema,
+    widgetLimitFieldSchema,
+} from '../../widget_types/configSchemas'
 
-export type SessionReplayWidgetFieldErrors = {
-    limit?: string
-    orderBy?: string
-    dateFrom?: string
+export type SessionReplayWidgetFieldErrors = Partial<Record<keyof SessionReplayWidgetFormInput, string>>
+
+export const sessionReplayWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: sessionReplayWidgetConfigSchema.shape.orderBy,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+})
+
+export type SessionReplayWidgetFormInput = z.infer<typeof sessionReplayWidgetFormSchema>
+
+function fieldErrorsFromZodError(error: ZodError): SessionReplayWidgetFieldErrors {
+    const { fieldErrors } = z.flattenError(error)
+
+    return Object.fromEntries(
+        Object.entries(fieldErrors).flatMap(([field, messages]) =>
+            messages.length > 0 ? [[field, messages[0] as string]] : []
+        )
+    )
 }
 
-function zodIssuesToFieldErrors(error: ZodError): SessionReplayWidgetFieldErrors {
-    const fieldErrors: SessionReplayWidgetFieldErrors = {}
-
-    for (const issue of error.issues) {
-        if (issue.path[0] === 'dateRange' && issue.path[1] === 'date_from') {
-            fieldErrors.dateFrom ??= issue.message
-            continue
-        }
-
-        if (issue.path[0] === 'limit') {
-            fieldErrors.limit ??= issue.message
-        } else if (issue.path[0] === 'orderBy') {
-            fieldErrors.orderBy ??= issue.message
-        }
-    }
-
-    return fieldErrors
+export function parseSessionReplayWidgetConfig(config: Record<string, unknown>): SessionReplayWidgetConfig {
+    const parsed = sessionReplayWidgetConfigSchema.safeParse(config)
+    return parsed.success ? parsed.data : sessionReplayWidgetConfigSchema.parse({})
 }
 
-export function buildSessionReplayWidgetConfigInput({
-    limit,
-    orderBy,
-    dateFrom,
-    filterTestAccounts,
-    baseConfig,
-}: {
-    limit: number
-    orderBy: string
-    dateFrom: string
-    filterTestAccounts: boolean
-    baseConfig: Record<string, unknown>
-}): Record<string, unknown> {
-    return {
+export function buildSessionReplayWidgetConfig(
+    formInput: SessionReplayWidgetFormInput,
+    baseConfig: SessionReplayWidgetConfig
+): SessionReplayWidgetConfig {
+    return sessionReplayWidgetConfigSchema.parse({
         ...baseConfig,
-        limit,
-        orderBy,
-        filterTestAccounts,
-        dateRange: { date_from: dateFrom },
-    }
+        limit: formInput.limit,
+        orderBy: formInput.orderBy,
+        filterTestAccounts: formInput.filterTestAccounts,
+        dateRange: { date_from: formInput.dateFrom },
+    })
 }
 
 export function validateSessionReplayWidgetConfigInput(input: {
@@ -56,17 +53,25 @@ export function validateSessionReplayWidgetConfigInput(input: {
     orderBy: string
     dateFrom: string
     filterTestAccounts: boolean
-    baseConfig: Record<string, unknown>
+    baseConfig: SessionReplayWidgetConfig
 }):
-    | { success: true; config: Record<string, unknown> }
+    | { success: true; config: SessionReplayWidgetConfig }
     | { success: false; fieldErrors: SessionReplayWidgetFieldErrors } {
-    const parsed = sessionReplayWidgetConfigSchema.safeParse(buildSessionReplayWidgetConfigInput(input))
+    const parsed = sessionReplayWidgetFormSchema.safeParse({
+        limit: input.limit,
+        orderBy: input.orderBy,
+        dateFrom: input.dateFrom,
+        filterTestAccounts: input.filterTestAccounts,
+    })
 
-    if (parsed.success) {
-        return { success: true, config: parsed.data as Record<string, unknown> }
+    if (!parsed.success) {
+        return { success: false, fieldErrors: fieldErrorsFromZodError(parsed.error) }
     }
 
-    return { success: false, fieldErrors: zodIssuesToFieldErrors(parsed.error) }
+    return {
+        success: true,
+        config: buildSessionReplayWidgetConfig(parsed.data, input.baseConfig),
+    }
 }
 
 export function parseSessionReplayWidgetConfigApiError(
@@ -77,10 +82,21 @@ export function parseSessionReplayWidgetConfigApiError(
         return null
     }
 
-    const parsed = sessionReplayWidgetConfigSchema.safeParse(config)
-    if (!parsed.success) {
-        return zodIssuesToFieldErrors(parsed.error)
+    const parsedConfig = sessionReplayWidgetConfigSchema.safeParse(config)
+    if (parsedConfig.success) {
+        return null
     }
 
-    return null
+    const formInput: SessionReplayWidgetFormInput = {
+        limit: (config.limit as number) ?? 0,
+        orderBy: (config.orderBy as SessionReplayWidgetFormInput['orderBy']) ?? 'start_time',
+        dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
+        filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
+    }
+    const parsedForm = sessionReplayWidgetFormSchema.safeParse(formInput)
+    if (!parsedForm.success) {
+        return fieldErrorsFromZodError(parsedForm.error)
+    }
+
+    return fieldErrorsFromZodError(parsedConfig.error)
 }

@@ -1,7 +1,7 @@
-import { DEFAULT_RECORDING_FILTERS_ORDER_BY } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-
 import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
+
+import { sessionReplayWidgetConfigSchema } from '../../widget_types/configSchemas'
 
 export type SessionReplayWidgetResult = {
     results?: SessionRecordingType[]
@@ -21,12 +21,6 @@ export const SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS = [
 ] as const
 
 export function getWidgetRecordingOrder(config: Record<string, unknown>): RecordingsQuery['order'] {
-    const orderBy = config.orderBy
-    if (
-        typeof orderBy === 'string' &&
-        SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS.some((option) => option.value === orderBy)
-    ) {
-        return orderBy as RecordingsQuery['order']
-    }
-    return DEFAULT_RECORDING_FILTERS_ORDER_BY
+    const parsed = sessionReplayWidgetConfigSchema.safeParse(config)
+    return parsed.success ? parsed.data.orderBy : 'start_time'
 }

@@ -10,11 +10,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
-from products.dashboards.backend.constants import (
-    DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT,
-    DEFAULT_SESSION_REPLAY_LIST_WIDGET_LIMIT,
-    MAX_WIDGETS_BATCH_SIZE,
-)
+from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 from products.dashboards.backend.widgets.session_replay_list import (
@@ -40,7 +36,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
-        assert validated["limit"] == DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT
+        assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
         assert validated["orderBy"] == "occurrences"
         assert "filterTestAccounts" not in validated
 
@@ -69,7 +65,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_session_replay_list_config_defaults(self) -> None:
         validated = validate_session_replay_list_config({})
-        assert validated["limit"] == DEFAULT_SESSION_REPLAY_LIST_WIDGET_LIMIT
+        assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
         assert validated["orderBy"] == "start_time"
         assert "filterTestAccounts" not in validated
 
@@ -168,6 +164,33 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_list_recordings.assert_called_once()
         self.assertEqual(mock_list_recordings.call_args.kwargs["user"], self.user)
+
+    @patch(
+        "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request", return_value=True
+    )
+    @patch(
+        "posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.allow_request", return_value=False
+    )
+    @patch("posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.wait", return_value=30)
+    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    def test_run_widgets_applies_replay_listing_throttles(
+        self,
+        mock_list_recordings: MagicMock,
+        _mock_wait: MagicMock,
+        _mock_burst_allow: MagicMock,
+        _mock_sustained_allow: MagicMock,
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(
+            dashboard_id, widget_type="session_replay_list", config={"limit": 10}
+        )
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        body = self._run(dashboard_id, [tile_id])
+
+        self.assertEqual(body["results"][0]["error"], "Rate limit exceeded. Expected available in 30 seconds.")
+        mock_list_recordings.assert_not_called()
 
     @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
     def test_session_replay_widget_tags_queries_in_debug_mode(self, mock_list_recordings: MagicMock) -> None:

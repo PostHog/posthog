@@ -72,6 +72,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -476,13 +477,12 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text=WIDGET_TYPE_API_HELP,
     )
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = serializers.JSONField(
         required=False,
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for other types. "
-            f"For error_tracking_list, use the schema below (currently the only supported type: "
-            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "see dashboard-widget-catalog-list for config_schema_hints. "
+            f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
     name = serializers.CharField(
@@ -500,12 +500,11 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
 
 
 class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
-    config = ErrorTrackingListWidgetConfigSerializer(
+    config = serializers.JSONField(
         help_text=(
             "Widget-specific configuration. Shape depends on widget_type; "
-            "see dashboard-widget-catalog-list for other types. "
-            f"For error_tracking_list, use the schema below (currently the only supported type: "
-            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "see dashboard-widget-catalog-list for config_schema_hints. "
+            f"Supported types: {', '.join(sorted(EXPECTED_WIDGET_TYPES))}."
         ),
     )
     layouts = TileLayoutsSerializer(
@@ -2637,6 +2636,17 @@ class DashboardsViewSet(
                     "error": scope_error,
                 }
                 continue
+
+            if widget.widget_type == "session_replay_list":
+                throttle_error = get_replay_listing_throttle_error(request, self)
+                if throttle_error:
+                    results_by_id[tile_id] = {
+                        "tile_id": tile_id,
+                        "widget_type": widget.widget_type,
+                        "result": None,
+                        "error": throttle_error,
+                    }
+                    continue
 
             query_work_items.append(
                 {
