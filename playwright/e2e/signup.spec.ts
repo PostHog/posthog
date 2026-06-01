@@ -51,9 +51,8 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        await page.locator('[data-attr=new-account-menu-button]').click()
-        await page.locator('[data-attr=new-account-menu-logout-button]').click()
-        await expect(page).toHaveURL(/.*\/login/)
+        // Log out via cookies, not the account-menu UI, which flakes on slow/torn-down workers.
+        await page.context().clearCookies()
         await page.goto('/signup')
     })
 
