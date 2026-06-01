@@ -60,10 +60,7 @@ from .serializers import (
     UpdateRepoInputSerializer,
 )
 
-VISUAL_REVIEW_TAG = "visual_review"
 
-
-@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Projects for visual review.
@@ -263,7 +260,6 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(BaselineOverviewSerializer(instance=result).data)
 
 
-@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Snapshot identities under a repo, keyed by (run_type, identifier).
 
@@ -309,7 +305,6 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
 
-@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Listing/aggregation of runs scoped to a single repo.
 
@@ -347,7 +342,6 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
 
 
-@extend_schema(tags=[VISUAL_REVIEW_TAG])
 class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     Visual review runs.
@@ -356,7 +350,15 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "complete", "approve", "auto_approve", "add_snapshots", "recompute"]
+    scope_object_write_actions = [
+        "create",
+        "complete",
+        "approve",
+        "auto_approve",
+        "add_snapshots",
+        "recompute",
+        "mark_tolerated",
+    ]
     scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
     serializer_class = RunSerializer
 

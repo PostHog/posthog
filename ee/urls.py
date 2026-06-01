@@ -43,7 +43,7 @@ def extend_api_router() -> None:
         environments_router,
         legacy_project_dashboards_router,
         organizations_router,
-        register_grandfathered_environment_nested_viewset,
+        register_legacy_dual_route_team_nested_viewset,
         router as root_router,
     )
 
@@ -64,7 +64,7 @@ def extend_api_router() -> None:
         "organization_role_memberships",
         ["organization_id", "role_id"],
     )
-    register_grandfathered_environment_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
+    register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
     environment_dashboards_router.register(
         r"collaborators",
@@ -79,7 +79,7 @@ def extend_api_router() -> None:
         ["project_id", "dashboard_id"],
     )
 
-    env_subscriptions_router, _ = register_grandfathered_environment_nested_viewset(
+    _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
     )
     env_subscriptions_router.register(

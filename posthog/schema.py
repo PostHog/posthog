@@ -750,6 +750,7 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
+    SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
 
 
 class AssistantToolCall(BaseModel):
@@ -4619,6 +4620,7 @@ class SignalSourceProduct(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
+    SIGNALS_SCOUT = "signals_scout"
 
 
 class SignalSourceType(StrEnum):
@@ -4632,6 +4634,76 @@ class SignalSourceType(StrEnum):
     ISSUE_REOPENED = "issue_reopened"
     ISSUE_SPIKING = "issue_spiking"
     ENDPOINT_EXECUTION_FAILED = "endpoint_execution_failed"
+    CROSS_SOURCE_ISSUE = "cross_source_issue"
+
+
+class SignalsScoutEvidenceEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    entity_id: str | None = Field(
+        default=None,
+        description=("Optional entity id within that product, e.g. an issue id or session id."),
+    )
+    source_product: str = Field(
+        ...,
+        description=("The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'."),
+    )
+    summary: str = Field(..., description="One-line summary of the evidence the scout used.")
+
+
+class Severity(StrEnum):
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
+class TimeRange(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date_from: str
+    date_to: str
+
+
+class SignalsScoutSignalExtra(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence: float = Field(
+        ...,
+        description=("Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`."),
+    )
+    dedupe_keys: list[str] | None = Field(
+        default=None,
+        description="Free-form short keys the harness can use for cross-run dedupe.",
+    )
+    evidence: list[SignalsScoutEvidenceEntry]
+    finding_id: str
+    hypothesis: str | None = None
+    mcp_trace_id: str | None = Field(
+        default=None,
+        description=("Trace id from the LLM analytics span for the scout run, when available."),
+    )
+    scout_run_id: str
+    severity: Severity | None = None
+    skill_name: str
+    skill_version: float
+    time_range: TimeRange | None = Field(default=None, description="Optional time window the finding refers to.")
+
+
+class SignalsScoutSignalInput(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str
+    extra: SignalsScoutSignalExtra
+    source_id: str
+    source_product: Literal["signals_scout"] = "signals_scout"
+    source_type: Literal["cross_source_issue"] = "cross_source_issue"
+    weight: float
 
 
 class SimilarIssue(BaseModel):
@@ -8740,6 +8812,7 @@ class SignalInput(
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
     ]
 ):
     root: (
@@ -8753,6 +8826,7 @@ class SignalInput(
         | ErrorTrackingSignalInput
         | EndpointExecutionFailedSignalInput
         | PgAnalyzeIssueSignalInput
+        | SignalsScoutSignalInput
     )
 
 
@@ -24934,35 +25008,6 @@ class QueryResponseAlternative74(BaseModel):
     ]
 
 
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | DataVisualizationNode
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantStickinessQuery
-        | AssistantPathsQuery
-        | AssistantLifecycleQuery
-        | AssistantHogQLQuery
-    ) = Field(
-        ...,
-        description="The query to render (same as VisualizationArtifactContent.query)",
-    )
-    title: str | None = Field(default=None, description="Optional title for the visualization")
-    type: Literal["visualization"] = "visualization"
-
-
 class CachedExperimentFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25181,21 +25226,6 @@ class LegacyExperimentQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class NotebookArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
-        ..., description="Structured blocks for the notebook content"
-    )
-    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
-    is_saved: bool | None = Field(
-        default=None,
-        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
-    )
-    title: str | None = Field(default=None, description="Title for the notebook")
 
 
 class PathsQuery(BaseModel):
@@ -25480,6 +25510,38 @@ class QueryResponseAlternative(
     )
 
 
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | StickinessQuery
+        | PathsQuery
+        | LifecycleQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | DataVisualizationNode
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantStickinessQuery
+        | AssistantPathsQuery
+        | AssistantLifecycleQuery
+        | AssistantHogQLQuery
+    ) = Field(
+        ...,
+        description="The query to render (same as VisualizationArtifactContent.query)",
+    )
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25672,13 +25734,6 @@ class DatabaseSchemaQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class DocumentArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
-
-
 class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25789,6 +25844,21 @@ class MultiVisualizationMessage(BaseModel):
     visualizations: list[VisualizationItem]
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock] = Field(
+        ..., description="Structured blocks for the notebook content"
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+    is_saved: bool | None = Field(
+        default=None,
+        description=("Whether this notebook has been saved to the database (not stored, set during enrichment)"),
+    )
+    title: str | None = Field(default=None, description="Title for the notebook")
+
+
 class WebVitalsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25848,6 +25918,13 @@ class IsExperimentFunnelsQuery(BaseModel):
 
 class IsExperimentTrendsQuery(BaseModel):
     namedArgs: NamedArgs2 | None = None
+
+
+class DocumentArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    blocks: list[MarkdownBlock | VisualizationBlock | SessionReplayBlock | LoadingBlock | ErrorBlock]
 
 
 class ExperimentActorsQuery(BaseModel):

@@ -14,6 +14,8 @@ from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
 
 if TYPE_CHECKING:
     import aiohttp
+    from anthropic import Anthropic
+    from stripe import StripeClient
 
 from django.conf import settings
 from django.db import models, transaction
@@ -22,7 +24,6 @@ from django.utils import timezone
 
 import requests
 import structlog
-from anthropic import Anthropic, APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
 from google.auth.transport.requests import Request as GoogleRequest
@@ -35,7 +36,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
-from stripe import StripeClient
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -919,6 +919,8 @@ class OauthIntegration:
         # Stripe OAuth returns stripe_user_id but no account name — fetch it from the Accounts API
         if kind == "stripe" and integration_id:
             try:
+                from stripe import StripeClient  # noqa: PLC0415
+
                 stripe_client = StripeClient(oauth_config.client_secret)
                 account = stripe_client.accounts.retrieve(str(integration_id))
                 business_profile = getattr(account, "business_profile", None)
@@ -2970,15 +2972,17 @@ class AnthropicIntegrationError(Exception):
     """Raised when the AnthropicIntegration is constructed with an invalid Integration row."""
 
 
-def _build_anthropic_client(api_key: str) -> Anthropic:
+def _build_anthropic_client(api_key: str) -> "Anthropic":
     # Tight timeouts and no SDK-side retries: we don't want a slow upstream to
     # multiply request time by 3 (default `max_retries=2`) inside a Django worker.
+    from anthropic import Anthropic  # noqa: PLC0415
+
     return Anthropic(api_key=api_key, timeout=ANTHROPIC_CLIENT_TIMEOUT_SECONDS, max_retries=0)
 
 
 class AnthropicIntegration:
     integration: Integration
-    _client: Anthropic
+    _client: "Anthropic"
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != Integration.IntegrationKind.ANTHROPIC.value:
@@ -2996,6 +3000,13 @@ class AnthropicIntegration:
     def validate_key(api_key: str) -> None:
         # Validate by hitting the actual managed-agents surface so a key without
         # beta access fails at create time instead of silently failing later.
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         try:
             client = _build_anthropic_client(api_key)
             client.get(
@@ -3335,11 +3346,13 @@ class StripeIntegration:
     def is_sandbox(self) -> bool:
         return _stripe_integration_is_sandbox(self.integration)
 
-    def _stripe_client(self) -> StripeClient | None:
+    def _stripe_client(self) -> "StripeClient | None":
         # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
         # Apps Secret Store and account-scoped API calls must authenticate with the matching
         # developer secret. Returns None when the required env vars are missing so callers
         # can skip Stripe API calls without raising past their per-secret error handling.
+        from stripe import StripeClient  # noqa: PLC0415
+
         try:
             oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
         except NotImplementedError as e:

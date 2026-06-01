@@ -29,6 +29,7 @@ import {
 } from '../../core/scales'
 import type {
     BarChartConfig,
+    BarsConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartScales,
@@ -91,7 +92,7 @@ const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
 // Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
 const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
-function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
+function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
     if (barShadow === true) {
         return DEFAULT_BAR_SHADOW
     }
@@ -124,16 +125,18 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        barCornerRadius = 0,
-        barTrack = false,
         axisOrientation = 'vertical',
         xTickFormatter,
+    } = config ?? {}
+    const {
+        cornerRadius: barCornerRadius = 0,
+        track: barTrack = false,
+        shadow: barShadow,
         divergingStack = false,
         maxBandRange,
         bandPadding,
-        barShadow,
         minBandSize,
-    } = config ?? {}
+    } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
