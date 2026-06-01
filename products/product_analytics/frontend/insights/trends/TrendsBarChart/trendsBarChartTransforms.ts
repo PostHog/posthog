@@ -18,7 +18,7 @@ export interface TrendsBarResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number } | null
+    action?: { order?: number; custom_name?: string | null } | null
     // Formula rows carry a top-level `order` instead of `action.order`.
     order?: number | null
     breakdown_value?: unknown
@@ -112,7 +112,9 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
     const displayLabels = visible.map((r) => {
-        const base = r.label ?? ''
+        // Custom name wins over the event name, but a breakdown keeps its value (carried in `r.label`).
+        const hasBreakdown = r.breakdown_value !== undefined && r.breakdown_value !== null
+        const base = !hasBreakdown && r.action?.custom_name ? r.action.custom_name : (r.label ?? '')
         return r.compare_label ? `${base} - ${r.compare_label}` : base
     })
     // Suffix the band key with the series identity so duplicate display labels from

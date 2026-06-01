@@ -169,6 +169,67 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(new Set(labels).size).toBe(labels.length)
     })
 
+    it.each([
+        {
+            name: 'prefers the series custom name over the event name when no breakdown',
+            results: [
+                { id: 'a', label: 'Job Created', action: { order: 0, custom_name: 'Articles' }, aggregated_value: 1 },
+                { id: 'b', label: 'Job Created', action: { order: 1, custom_name: 'Products' }, aggregated_value: 2 },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Articles', 'Products'],
+            distinctBands: 2,
+        },
+        {
+            name: 'appends compare_label to the custom name',
+            results: [
+                {
+                    id: 'a',
+                    label: 'Job Created',
+                    action: { order: 0, custom_name: 'Articles' },
+                    compare_label: 'current',
+                    aggregated_value: 1,
+                },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Articles - current'],
+            distinctBands: 1,
+        },
+        {
+            name: 'falls back to the event label when no custom name is set',
+            results: [
+                { id: 'a', label: 'Job Created', action: { order: 0 }, aggregated_value: 1 },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Job Created'],
+            distinctBands: 1,
+        },
+        {
+            name: 'keeps the breakdown value when a custom name and a breakdown coexist (bands stay distinct)',
+            results: [
+                {
+                    id: 'a',
+                    label: 'Chrome',
+                    breakdown_value: 'Chrome',
+                    action: { order: 0, custom_name: 'Job Created' },
+                    aggregated_value: 1,
+                },
+                {
+                    id: 'b',
+                    label: 'Safari',
+                    breakdown_value: 'Safari',
+                    action: { order: 0, custom_name: 'Job Created' },
+                    aggregated_value: 2,
+                },
+            ] satisfies Partial<TrendsBarResultLike>[],
+            expected: ['Chrome', 'Safari'],
+            distinctBands: 2,
+        },
+    ])('$name', ({ results, expected, distinctBands }) => {
+        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results.map(mkResult), {
+            getColor: () => RED,
+        })
+        expect(displayLabels).toEqual(expected)
+        expect(new Set(labels).size).toBe(distinctBands)
+    })
+
     it('drops hidden results so visible bars are densely packed', () => {
         const results = [
             mkResult({ id: 'a', label: 'A', aggregated_value: 1 }),
