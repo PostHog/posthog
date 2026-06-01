@@ -75,7 +75,7 @@ describe('sharedMetricModalLogic', () => {
             logic.actions.loadSharedMetrics()
         }).toFinishAllListeners()
         await expectLogic(logic, () => {
-            logic.actions.loadNextSharedMetrics()
+            logic.actions.loadNextSharedMetrics(null)
         }).toFinishAllListeners()
         await expectLogic(logic).toMatchValues({
             compatibleSharedMetrics: [expect.objectContaining({ id: 1 }), expect.objectContaining({ id: 3 })],
