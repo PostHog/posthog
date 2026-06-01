@@ -79,6 +79,8 @@ import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import type { McpToolCallMessage } from './maxTypes'
+import { lookupMcpToolRenderer } from './mcpToolRegistry'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
@@ -90,6 +92,7 @@ import {
     isRenderableUIPayloadTool,
 } from './messages/UIPayloadAnswer'
 import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
+import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
@@ -114,9 +117,74 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
+/** Maps a merged `ToolInvocation` into the flat `McpToolCallMessage` the registry renderers read. */
+function toolInvocationToMessage(
+    invocation: ReturnType<typeof sandboxStreamLogic.values.toolInvocations.get>
+): McpToolCallMessage | null {
+    if (!invocation) {
+        return null
+    }
+    return {
+        id: invocation.toolCallId,
+        resolvedKey: invocation.resolvedKey,
+        rawServerName: invocation.rawServerName,
+        rawToolName: invocation.rawToolName,
+        innerToolName: invocation.innerToolName,
+        rawInput: invocation.input,
+        innerInput: invocation.innerInput,
+        rawOutput: invocation.output,
+        content: invocation.contentBlocks,
+        status: invocation.status,
+        title: invocation.title,
+        kind: invocation.kind,
+    }
+}
+
+/**
+ * Sandbox-runtime thread renderer. Reads `sandboxStreamLogic.values.threadItems` (assistant text,
+ * tool-invocation references, run separators, inline errors) and dispatches tool cards through
+ * `mcpToolRegistry`. Coexistence sibling to the LangGraph thread render path; selected by
+ * `conversation.agent_runtime === 'sandbox'`. See docs/internal/posthog-ai-migration/02_CORE.md
+ * § 7.3 and 03_RICH_UI.md § 2.3.
+ */
+function SandboxThread(): JSX.Element {
+    const { threadItems, toolInvocations } = useValues(sandboxStreamLogic)
+
+    return (
+        <>
+            {threadItems.map((item) => {
+                if (item.type === 'assistant_message') {
+                    return (
+                        <MessageTemplate key={item.id} type="ai">
+                            <MarkdownMessage content={item.text ?? ''} id={item.id} />
+                        </MessageTemplate>
+                    )
+                }
+                if (item.type === 'tool_invocation' && item.toolCallId) {
+                    const message = toolInvocationToMessage(toolInvocations.get(item.toolCallId))
+                    if (!message) {
+                        return null
+                    }
+                    const entry = lookupMcpToolRenderer(message.resolvedKey)
+                    return <entry.Renderer key={item.id} message={message} isLastInGroup />
+                }
+                if (item.type === 'error') {
+                    return (
+                        <MessageTemplate key={item.id} type="ai" boxClassName="text-danger">
+                            {item.errorMessage}
+                        </MessageTemplate>
+                    )
+                }
+                return null
+            })}
+        </>
+    )
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries, conversation } = useValues(maxThreadLogic)
+    const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
@@ -129,6 +197,19 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         () => getTicketSummaryData(threadGrouped, streamingActive),
         [threadGrouped, streamingActive]
     )
+
+    if (isSandboxRuntime) {
+        return (
+            <div
+                className={cn(
+                    '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
+                    className
+                )}
+            >
+                <SandboxThread />
+            </div>
+        )
+    }
 
     return (
         <div

@@ -246,7 +246,7 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import type { MaxUIContext } from '../scenes/max/maxTypes'
+import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
@@ -6492,6 +6492,29 @@ const api = {
             options?: ApiMethodOptions
         ): Promise<Response> {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
+        },
+
+        /**
+         * Sandbox-runtime message routing endpoint (`agent_runtime === 'sandbox'`). Non-streaming:
+         * wraps + dedupes context, creates/continues the backing products/tasks Run, and returns the
+         * IDs the frontend needs to open SSE directly against the products/tasks stream endpoint.
+         * See docs/internal/posthog-ai-migration/02_CORE.md § 4.
+         */
+        sandbox(
+            conversationId: string,
+            data: {
+                content: string
+                trace_id: string
+                attached_context?: AttachedContext[]
+            }
+        ): Promise<{
+            task_id: string
+            run_id: string
+            trace_id: string
+            run_status: 'queued' | 'in_progress'
+            just_created_run: boolean
+        }> {
+            return new ApiRequest().conversation(conversationId).withAction('sandbox').create({ data })
         },
 
         cancel(conversationId: string): Promise<void> {
