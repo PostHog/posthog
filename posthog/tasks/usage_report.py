@@ -1092,26 +1092,38 @@ CLOUD_REGION_TO_URL = {
 }
 
 
-SIGNALS_AI_PRODUCT = "signals"
+# ai_product values that roll into PostHog AI (Max) billing credits.
+POSTHOG_AI_PRODUCTS = ["posthog_ai", "slack_app", "subscriptions"]
 
-AiProductFilter = Literal["exclude_signals", "only_signals"]
+# ai_product values billed as signals credits.
+SIGNALS_AI_PRODUCTS = ["signals"]
+
+# Products that emit a paired $ai_trace and are billed only on a completed, billable trace — we
+# only charge for completed traces (a billable trace marks the turn complete; free tool-only turns,
+# e.g. docs-search/summarize-sessions, are excluded). Products not listed here emit no $ai_trace and
+# are billed per-generation via the empty-trace fallback.
+AI_PRODUCTS_REQUIRING_TRACES = ["posthog_ai"]
 
 
-def _get_teams_with_ai_credits_for_product(
+def _get_teams_with_ai_credits_for_products(
     begin: datetime,
     end: datetime,
     *,
-    ai_product_filter: AiProductFilter,
+    ai_products: list[str],
     usage_report_tag: str,
 ) -> list[tuple[int, int]]:
     """
-    Shared implementation for AI billing credit aggregation, parameterized on
-    the `ai_product` event property.
+    Shared implementation for AI billing credit aggregation, whitelisting on the
+    `ai_product` event property — only generations tagged with an `ai_products` value are billed.
 
-    Billing is performed at the trace level. Traces are billable only if they contain
-    tool calls that include at least one non-excluded tool. Free (non-billable) traces:
+    Products in `AI_PRODUCTS_REQUIRING_TRACES` emit a paired $ai_trace and are billed only on a
+    completed, billable trace — we only charge for completed traces. Traces are billable only if they
+    contain tool calls that include at least one non-excluded tool. Free (non-billable) traces:
         - Traces that only contain 'summarize_sessions' tool calls
         - Traces that only contain 'search' tool calls with kind='docs'
+
+    Products NOT in `AI_PRODUCTS_REQUIRING_TRACES` (e.g. signals, slack_app) emit no $ai_trace, so the
+    LEFT JOIN never matches; they are billed per-generation via the empty-trace fallback.
 
     We are also performing additional filtering to maintain current trace tool calls and not all messages
     in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
@@ -1140,25 +1152,11 @@ def _get_teams_with_ai_credits_for_product(
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
-    # Max AI generations always emit a paired $ai_trace and are billed only when that trace is
-    # flagged billable — this preserves existing PostHog AI billing exactly. Signals generations
-    # never emit a $ai_trace, so the LEFT JOIN never matches; we bill them on the empty-trace
-    # fallback instead (ClickHouse join_use_nulls=0 yields '' — not NULL — for the unmatched
-    # trace_id column, so check empty(), not IS NULL). Scoping the fallback to signals avoids
-    # retroactively changing what counts toward existing PostHog AI credits.
-    if ai_product_filter == "only_signals":
-        ai_product_clause = "AND JSONExtractString(properties, 'ai_product') = %(ai_product)s"
-        billable_clause = "t.is_billable = 1 OR empty(t.trace_id)"
-    else:
-        ai_product_clause = "AND JSONExtractString(properties, 'ai_product') != %(ai_product)s"
-        billable_clause = "t.is_billable = 1"
-
     with tags_context(
         product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
-        # nosemgrep: clickhouse-fstring-param-audit - ai_product_clause/billable_clause are hardcoded SQL fragments selected by the internal AiProductFilter literal; the ai_product value is bound via the %(ai_product)s parameter, not interpolated
         results = sync_execute(
-            f"""
+            """
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1219,11 +1217,13 @@ def _get_teams_with_ai_credits_for_product(
                 SELECT
                     customer_team_id,
                     trace_id,
+                    ai_product,
                     cost_usd
                 FROM (
                     SELECT
                         JSONExtractInt(properties, 'team_id') AS customer_team_id,
                         JSONExtractString(properties, '$ai_trace_id') AS trace_id,
+                        JSONExtractString(properties, 'ai_product') AS ai_product,
                         toDecimal32OrNull(
                             JSONExtractString(properties, '$ai_total_cost_usd'),
                             5
@@ -1237,7 +1237,7 @@ def _get_teams_with_ai_credits_for_product(
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
-                        {ai_product_clause}
+                        AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
                 )
                 WHERE
                     ai_billable = 1
@@ -1253,7 +1253,14 @@ def _get_teams_with_ai_credits_for_product(
             FROM costs c
             LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
             WHERE
-                {billable_clause}
+                -- Trace-required products (e.g. posthog_ai) keep the exact pre-existing predicate:
+                -- bill on a billable $ai_trace (free tool-only turns are excluded). `t.trace_id IS
+                -- NULL` is dead under join_use_nulls=0 (unmatched join yields '', not NULL) but is
+                -- preserved verbatim so this path is byte-identical to the pre-whitelist billing.
+                -- Every other whitelisted product emits no $ai_trace and is billed purely on
+                -- $ai_billable (already enforced in the costs CTE), so the trace join is ignored.
+                c.ai_product NOT IN %(trace_required_products)s
+                OR (t.is_billable = 1 OR t.trace_id IS NULL)
             GROUP BY
                 c.customer_team_id
             HAVING
@@ -1268,7 +1275,8 @@ def _get_teams_with_ai_credits_for_product(
                 "end": end,
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
-                "ai_product": SIGNALS_AI_PRODUCT,
+                "ai_products": tuple(ai_products),
+                "trace_required_products": tuple(AI_PRODUCTS_REQUIRING_TRACES),
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
@@ -1284,11 +1292,11 @@ def get_teams_with_ai_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """PostHog AI (Max) billing credits — excludes events tagged with ai_product='signals'."""
-    return _get_teams_with_ai_credits_for_product(
+    """PostHog AI (Max) billing credits — events tagged with an ai_product in POSTHOG_AI_PRODUCTS."""
+    return _get_teams_with_ai_credits_for_products(
         begin,
         end,
-        ai_product_filter="exclude_signals",
+        ai_products=POSTHOG_AI_PRODUCTS,
         usage_report_tag="ai_credits",
     )
 
@@ -1300,10 +1308,10 @@ def get_teams_with_signals_credits_used_in_period(
     end: datetime,
 ) -> list[tuple[int, int]]:
     """Signals billing credits — only events tagged with ai_product='signals'."""
-    return _get_teams_with_ai_credits_for_product(
+    return _get_teams_with_ai_credits_for_products(
         begin,
         end,
-        ai_product_filter="only_signals",
+        ai_products=SIGNALS_AI_PRODUCTS,
         usage_report_tag="signals_credits",
     )
 
