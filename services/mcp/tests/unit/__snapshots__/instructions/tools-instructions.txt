@@ -56,6 +56,8 @@ Write focused patterns that match 1-5 tools. The regex matches against tool name
 
 Only fall back to `tools` if you have no idea which domain to search, or if `search` returns no results.
 
+If `search` reports `scope_gated_matches`, the tools exist but your PostHog API key is missing the listed scope(s). Tell the user to add those scopes to their personal API key — do not conclude the tool is unavailable.
+
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
 - dashboard
