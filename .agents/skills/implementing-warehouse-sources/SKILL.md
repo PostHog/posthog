@@ -437,7 +437,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 - Incremental sync misbehaving: wrong field name/type or wrong sort assumptions.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
-- Webhook rows not landing: feature flag `warehouse-source-webhooks` disabled, or schema `is_webhook=False`, or `initial_sync_complete=False`.
+- Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
 - Silent truncation risk: page caps hit without logs/metrics.
 - Drift from refactors: unused function params/helpers left behind after endpoint behavior changes.

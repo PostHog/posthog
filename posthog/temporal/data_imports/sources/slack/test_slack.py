@@ -373,10 +373,6 @@ class TestSlackSourceGetSchemasForceRefresh:
                 "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
                 side_effect=[[{"id": "C1", "name": "general"}], [{"id": "C2", "name": "renamed"}]],
             ) as mock_fetch,
-            patch(
-                "posthog.temporal.data_imports.sources.slack.source.is_webhook_feature_flag_enabled",
-                return_value=False,
-            ),
         ):
             first = source.get_schemas(config, team_id=1)
             cached = source.get_schemas(config, team_id=1)
