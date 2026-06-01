@@ -444,6 +444,22 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
             assert getattr(probe_auth, attr) == expected, f"{attr} mismatch"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_registers_credential_for_redaction(self, mock_session):
+        # The secret must be handed to the tracked session as a redact value so
+        # it's masked from logs/samples even when injected into a query param
+        # whose name the denylist scrubber can't anticipate.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "api_key", "name": "subscription-key", "location": "query"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_live_leaky")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("sk_live_leaky",)
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_returns_false_on_network_error(self, mock_session):
         # A connection-level failure (DNS, TLS, timeout) must surface as a
         # credential validation error pointing at the offending resource.

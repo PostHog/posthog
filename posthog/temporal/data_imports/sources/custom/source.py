@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 from posthog.temporal.data_imports.sources.common.mixins import _is_host_safe
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
+from posthog.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
 from posthog.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CustomSourceConfig
@@ -305,7 +306,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
-        session = make_tracked_session(headers=headers)
+        # Register the credential values so they're redacted from the probe's
+        # request logs/samples even when injected under a manifest-chosen
+        # query-param or header name the denylist scrubber can't anticipate.
+        session = make_tracked_session(headers=headers, redact_values=auth_secret_values(probe_auth))
 
         for resource in manifest["resources"]:
             endpoint = resource.get("endpoint", {})
