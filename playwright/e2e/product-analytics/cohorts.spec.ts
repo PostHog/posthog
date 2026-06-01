@@ -58,10 +58,19 @@ test.describe('Cohorts', () => {
         await staticItem.click()
         await page.locator('.Toastify__toast-body').getByRole('button', { name: 'View cohort' }).click()
 
+        // Wait until we've actually landed on the static-copy page before deleting —
+        // otherwise cohort-delete fires on the still-mounted dynamic-copy page and the
+        // static copy survives the deletion.
+        await expect(page.locator('[data-attr="scene-name"]')).toContainText(name + ' (dynamic copy) (static copy)')
+
         await page.locator('[data-attr="cohort-delete"]').click()
         const deleteDialog = page.locator('.LemonModal__layout').filter({ hasText: 'Delete cohort?' })
         await expect(deleteDialog).toBeVisible()
         await deleteDialog.getByRole('button', { name: 'Delete' }).click()
+
+        // The delete redirects back to the cohorts list once the request resolves, so
+        // waiting for it guarantees the deletion committed before we reload and assert.
+        await expect(page).toHaveURL(/\/cohorts$/)
 
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
