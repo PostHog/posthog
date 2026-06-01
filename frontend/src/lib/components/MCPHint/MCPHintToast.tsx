@@ -1,4 +1,4 @@
-import { useValues } from 'node_modules/kea/lib'
+import { useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 
