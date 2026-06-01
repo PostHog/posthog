@@ -606,3 +606,54 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert "bracket notation" in error_msg
         else:
             compile_hog(hog_code, "destination")
+
+    def test_non_failure_status_codes_schema_type_is_valid(self):
+        inputs_schema = [
+            {
+                "key": "non_failure_status_codes",
+                "type": "non_failure_status_codes",
+                "label": "Ignored response codes",
+                "required": False,
+            }
+        ]
+        validated = validate_inputs_schema(inputs_schema)
+        assert validated[0]["type"] == "non_failure_status_codes"
+        assert validated[0]["key"] == "non_failure_status_codes"
+
+    @parameterized.expand(
+        [
+            ("exact_numbers", [400, 429]),
+            ("wildcards", ["4xx", "5xx"]),
+            ("mixed", ["4xx", 500]),
+            ("single_number", [400]),
+            ("single_wildcard", ["4xx"]),
+            ("empty_list", []),
+        ]
+    )
+    def test_validate_non_failure_status_codes_accepts_valid_values(self, _name, value):
+        inputs_schema = [{"key": "non_failure_status_codes", "type": "non_failure_status_codes", "required": False}]
+        inputs = {"non_failure_status_codes": {"value": value}}
+        validated = validate_inputs(inputs_schema, inputs)
+        # Empty list short-circuits (falsy value path), but anything truthy round-trips intact
+        if value:
+            assert validated["non_failure_status_codes"]["value"] == value
+
+    @parameterized.expand(
+        [
+            ("non_list_string", "4xx"),
+            ("non_list_number", 400),
+            ("non_list_dict", {"foo": "bar"}),
+            ("invalid_wildcard", ["9xx"]),
+            ("invalid_string", ["foo"]),
+            ("out_of_range_low", [-1]),
+            ("out_of_range_high", [1000]),
+            ("mixed_invalid", [400, "9xx"]),
+            ("float_value", [400.5]),
+            ("bool_value", [True]),
+        ]
+    )
+    def test_validate_non_failure_status_codes_rejects_invalid_values(self, _name, value):
+        inputs_schema = [{"key": "non_failure_status_codes", "type": "non_failure_status_codes", "required": False}]
+        inputs = {"non_failure_status_codes": {"value": value}}
+        with self.assertRaises(ValidationError):
+            validate_inputs(inputs_schema, inputs)

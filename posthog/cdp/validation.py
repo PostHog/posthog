@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from typing import Any, Optional
@@ -221,6 +222,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_assignee",
             "posthog_ticket_tags",
             "posthog_business_hours",
+            "non_failure_status_codes",
         ]
     )
     key = serializers.CharField()
@@ -312,6 +314,22 @@ class InputsItemSerializer(serializers.Serializer):
 
             if not value.get("text") and not value.get("html"):
                 raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+        elif item_type == "non_failure_status_codes":
+            if not isinstance(value, list):
+                raise serializers.ValidationError({"input": "Value must be a list of status codes."})
+            for entry in value:
+                if isinstance(entry, bool) or not isinstance(entry, int | str):
+                    raise serializers.ValidationError(
+                        {"input": "Entries must be integers between 100 and 599 or wildcards like '4xx'."}
+                    )
+                if isinstance(entry, int):
+                    if not (100 <= entry <= 599):
+                        raise serializers.ValidationError({"input": "Status code numbers must be between 100 and 599."})
+                else:
+                    if not re.fullmatch(r"[1-5]xx", entry, re.IGNORECASE):
+                        raise serializers.ValidationError(
+                            {"input": "Wildcards must match the pattern Nxx where N is 1-5."}
+                        )
 
         try:
             if value and schema.get("templating", True):
