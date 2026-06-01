@@ -70,7 +70,7 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
         pipelineFactory: PipelineFactory<S>
     ) {
         const consumerName = this.name
-        this.innerScope = extend(scope, 'common-consumer', (container, builder) => {
+        this.innerScope = extend(scope, `${consumerName}-consumer`, (container, builder) => {
             const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
             return builder.add(
