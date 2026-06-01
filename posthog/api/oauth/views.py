@@ -46,7 +46,7 @@ from posthog.api.oauth.cimd import (
 )
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.security.url_validation import has_authority_bypass_chars
@@ -110,6 +110,66 @@ def _impersonator_id_for_request(request) -> int | None:
         return None
     original_user = get_original_user_from_session(request)
     return original_user.pk if original_user else None
+
+
+def _scoped_organization_ids(
+    user: User,
+    access_level: str | None,
+    scoped_organization_ids: list[str] | None,
+    scoped_team_ids: list[int] | None,
+) -> set[uuid.UUID]:
+    """Resolve the set of organizations a grant with this access scope would reach.
+
+    `all` access (or any unscoped grant) reaches every organization the user belongs to;
+    `organization` access is the listed organizations; `team` access is the organizations
+    owning the listed teams.
+    """
+    if access_level == OAuthApplicationAccessLevel.ORGANIZATION.value and scoped_organization_ids:
+        return {uuid.UUID(str(org_id)) for org_id in scoped_organization_ids}
+    if access_level == OAuthApplicationAccessLevel.TEAM.value and scoped_team_ids:
+        return set(Team.objects.filter(pk__in=scoped_team_ids).values_list("organization_id", flat=True))
+    return set(user.organizations.values_list("id", flat=True))
+
+
+def _impersonation_ai_processing_block(
+    request,
+    *,
+    access_level: str | None = None,
+    scoped_organization_ids: list[str] | None = None,
+    scoped_team_ids: list[int] | None = None,
+) -> Response | None:
+    """Block OAuth during impersonation when an in-scope organization has disabled AI data processing.
+
+    Some organizations explicitly opt out of AI processing of their data
+    (`Organization.is_ai_data_processing_approved`). A staff member impersonating a customer
+    must not be able to grant an OAuth client access to that data in that case (the MCP being
+    the motivating case). This does not apply to customers authorizing a client themselves —
+    they have already consented for their own data.
+
+    Mirrors the fail-closed check used elsewhere for AI features: only an explicit `True`
+    counts as approved, so a null/unset value is treated as not approved. Returns a 403
+    `Response` to short-circuit with, or `None` to proceed.
+    """
+    if not is_impersonated_session(request):
+        return None
+
+    organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    if not organization_ids:
+        return None
+
+    has_disabled_org = (
+        Organization.objects.filter(id__in=organization_ids).exclude(is_ai_data_processing_approved=True).exists()
+    )
+    if not has_disabled_org:
+        return None
+
+    return Response(
+        {
+            "error": "access_denied",
+            "error_description": "This organization has disabled AI data processing, so it cannot be authorized for an OAuth client while impersonating.",
+        },
+        status=status.HTTP_403_FORBIDDEN,
+    )
 
 
 class OAuthAuthorizationContext(TypedDict):
@@ -606,6 +666,8 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         # First-party apps skip consent screen entirely
         if application.is_first_party:
+            if block := _impersonation_ai_processing_block(request):
+                return block
             try:
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
@@ -629,6 +691,13 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
                     if token.allow_scopes(scope_str.split()):
+                        # Conservative fallback: check every org the impersonated user belongs to,
+                        # not just the existing token's scope. Auto-approval during impersonation
+                        # is a near-dead path (those tokens are short-lived, refresh-less, and
+                        # revoked on logout), so the broader check isn't worth threading the
+                        # matched token's scope through — the precise check lives in the POST path.
+                        if block := _impersonation_ai_processing_block(request):
+                            return block
                         uri, headers, body, status_code = self.create_authorization_response(
                             request=request, scopes=scope_str, credentials=credentials, allow=True
                         )
@@ -681,6 +750,15 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         scopes = serializer.validated_data.get("scope", "")
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
+
+        if serializer.validated_data["allow"]:
+            if block := _impersonation_ai_processing_block(
+                request,
+                access_level=serializer.validated_data.get("access_level"),
+                scoped_organization_ids=serializer.validated_data.get("scoped_organizations"),
+                scoped_team_ids=serializer.validated_data.get("scoped_teams"),
+            ):
+                return block
 
         try:
             uri, headers, body, status_code = self.create_authorization_response(

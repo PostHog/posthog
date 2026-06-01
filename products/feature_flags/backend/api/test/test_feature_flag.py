@@ -640,6 +640,124 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            ("true", True),
+            ("false", False),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": f"Early exit {_name}",
+                "key": f"early-exit-{_name}",
+                "filters": {
+                    "early_exit": value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
+        self.assertEqual(flag.filters["early_exit"], value)
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit gated",
+                "key": "early-exit-gated",
+                "filters": {
+                    "early_exit": True,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("early_exit is not available", response.json()["detail"])
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit off",
+                "key": "early-exit-off",
+                "filters": {
+                    "early_exit": False,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
+        # A flag created while the feature was enabled keeps working if access is later revoked,
+        # as long as the PATCH doesn't newly turn early_exit on.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="early-exit-existing",
+            filters={"early_exit": True, "groups": [{"rollout_percentage": 100}]},
+        )
+        mock_feature_enabled.return_value = False
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            data={"filters": {"early_exit": True, "groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_null_early_exit_accepted(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit null",
+                "key": "early-exit-null",
+                "filters": {
+                    "early_exit": None,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("int", 1, "int"),
+            ("string_true", "true", "str"),
+            ("string_false", "false", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_boolean_early_exit_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": f"Bad early_exit {_name}",
+                "key": f"bad-early-exit-{_name}",
+                "filters": {
+                    "early_exit": bad_value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("early_exit must be a boolean", response.json()["detail"])
+        self.assertIn(expected_type, response.json()["detail"])
+
+    @parameterized.expand(
+        [
             ("string_int", "100"),
             ("bool_false", False),
             ("string_nan", "NaN"),
@@ -13729,6 +13847,44 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_filters_feature_enrollment_property(self, mock_get_flags):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="enroll-flag",
+            filters={"feature_enrollment": True, "groups": [{"properties": []}]},
+        )
+        enrollment_key = f"$feature_enrollment/{flag.key}"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test-user"],
+            properties={enrollment_key: True, "email": "x@y.com"},
+        )
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "enroll-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "super_condition_value"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # enrollment key is kept; unrelated 'email' is filtered out
+        self.assertEqual(data["person_properties"], {enrollment_key: True})
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
