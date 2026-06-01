@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
@@ -328,6 +329,15 @@ class TestCollectThreadMessages:
         result = _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
 
         assert [m["user"] for m in result] == ["PostHog", "andy"]
+
+    def test_registers_rate_limit_retry_handler(self, mock_get_user_info):
+        self.slack.client.retry_handlers = []
+        self._set_thread([{"user": "U_ANDY", "text": "hi"}])
+        mock_get_user_info.return_value = {"user": {"profile": {"display_name": "andy"}}}
+
+        _collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+        assert any(isinstance(h, RateLimitErrorRetryHandler) for h in self.slack.client.retry_handlers)
 
     def test_block_extraction_failure_does_not_break_collection(self, mock_get_user_info):
         # If block flattening blows up for one message, the rest of the thread still flows.
