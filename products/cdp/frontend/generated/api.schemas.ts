@@ -285,6 +285,7 @@ export interface InputsSchemaItemApi {
     key: string
     label?: string
     choices?: InputsSchemaItemApiChoicesItem[]
+    searchable?: boolean
     required?: boolean
     default?: unknown
     secret?: boolean
@@ -560,6 +561,57 @@ export interface PatchedHogFunctionRearrangeApi {
     orders?: PatchedHogFunctionRearrangeApiOrders
 }
 
+/**
+ * * `SYSTEM` - SYSTEM
+ * `PLUGIN` - PLUGIN
+ * `CONSOLE` - CONSOLE
+ */
+export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
+
+export const PluginLogEntrySourceEnumApi = {
+    System: 'SYSTEM',
+    Plugin: 'PLUGIN',
+    Console: 'CONSOLE',
+} as const
+
+/**
+ * * `DEBUG` - DEBUG
+ * `LOG` - LOG
+ * `INFO` - INFO
+ * `WARN` - WARN
+ * `ERROR` - ERROR
+ */
+export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
+
+export const PluginLogEntryTypeEnumApi = {
+    Debug: 'DEBUG',
+    Log: 'LOG',
+    Info: 'INFO',
+    Warn: 'WARN',
+    Error: 'ERROR',
+} as const
+
+export interface PluginLogEntryApi {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySourceEnumApi
+    type: PluginLogEntryTypeEnumApi
+    message: string
+    instance_id: string
+}
+
+export interface PaginatedPluginLogEntryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PluginLogEntryApi[]
+}
+
 export type HogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -758,6 +810,17 @@ export const HogFunctionsMetricsTotalsRetrieveInterval = {
     Day: 'day',
     Week: 'week',
 } as const
+
+export type PluginConfigsLogsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type PublicHogFunctionTemplatesListParams = {
     /**

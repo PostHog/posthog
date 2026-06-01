@@ -3,7 +3,7 @@ mod integration_utils;
 use integration_utils::{
     base64_payload, execute_test, form_data_base64_payload, form_lz64_urlencoded_payload,
     form_urlencoded_payload, gzipped_payload, lz64_payload, plain_json_payload, Method, TestCase,
-    BATCH_EVENTS_JSON, DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
+    BATCH_EVENTS_JSON, BATCH_EVENTS_WITH_HEATMAP_JSON, DEFAULT_TEST_TIME, SINGLE_EVENT_JSON,
 };
 
 use axum::http::StatusCode;
@@ -334,6 +334,21 @@ fn post_cases() -> Vec<TestCase> {
             "application/x-www-form-urlencoded",
             StatusCode::OK,
             Box::new(form_lz64_urlencoded_payload),
+        ),
+        // batch payload where one event carries heatmap-trigger properties:
+        // capture must produce a $$heatmap redirect alongside the originals.
+        TestCase::new(
+            "new_post-simple-batch-with-heatmap-payload".to_string(),
+            DEFAULT_TEST_TIME,
+            CaptureMode::Events,
+            "",
+            BATCH_EVENTS_WITH_HEATMAP_JSON,
+            Method::Post,
+            None,
+            None,
+            "application/json",
+            StatusCode::OK,
+            Box::new(plain_json_payload),
         ),
     ];
 

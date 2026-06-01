@@ -2,7 +2,7 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -11,8 +11,13 @@ import type {
     ApiRedactedPersonalApiKey,
     ApiUser,
 } from '@/schema/api'
-import type { Experiment, ExperimentExposureQuery, ExperimentExposureQueryResponse } from '@/schema/experiments'
-import { ExperimentExposureQuerySchema } from '@/schema/experiments'
+import type {
+    Experiment,
+    ExperimentExposureQuery,
+    ExperimentExposureQueryResponse,
+    ResolvedMetricEntry,
+} from '@/schema/experiments'
+import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/experiments'
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
@@ -63,6 +68,23 @@ export interface SearchResponse {
 }
 
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
+
+export interface DataWarehouseSyncWarning {
+    table_name: string
+    schema_name: string
+    source_type: string
+    status: string
+    message: string
+}
+
+export interface QueryEndpointResponse {
+    results: unknown
+    columns?: unknown
+    formatted_results?: string
+    // null (not just absent) when the query response carries no warnings — the backend
+    // serializes the field explicitly rather than omitting it.
+    warnings?: DataWarehouseSyncWarning[] | null
+}
 
 export interface ApiConfig {
     apiToken: string
@@ -182,9 +204,13 @@ export class ApiClient {
             const response = await this.fetch(url, fetchOptions)
             if (!response.ok) {
                 const errorText = await response.text()
-                throw new Error(
-                    `Request failed:\nURL: ${opts.method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                )
+                throw new PostHogApiError({
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: errorText,
+                    url,
+                    method: opts.method,
+                })
             }
             return (await response.text()) as T
         }
@@ -381,9 +407,13 @@ export class ApiClient {
                     }
 
                     console.error(`[API] Request failed on ${method} ${url}: ${response.status} ${response.statusText}`)
-                    throw new Error(
-                        `Request failed:\nURL: ${method} ${url}\nStatus Code: ${response.status} (${response.statusText})\nError Message: ${errorText}`
-                    )
+                    throw new PostHogApiError({
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorText,
+                        url,
+                        method,
+                    })
                 }
 
                 const rawText = await response.text()
@@ -713,6 +743,8 @@ export class ApiClient {
             }): Promise<
                 Result<{
                     experiment: Experiment
+                    primaryMetricEntries: ResolvedMetricEntry[]
+                    secondaryMetricEntries: ResolvedMetricEntry[]
                     primaryMetricsResults: any[]
                     secondaryMetricsResults: any[]
                     exposures: ExperimentExposureQueryResponse
@@ -758,20 +790,15 @@ export class ApiClient {
 
                 const { exposures } = experimentExposure.data
 
-                // Prepare metrics queries
-                const sharedPrimaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'primary')
-                    .map(({ query }: any) => query)
-                const allPrimaryMetrics = [...(experiment.metrics || []), ...sharedPrimaryMetrics]
-
-                const sharedSecondaryMetrics = (experiment.saved_metrics || [])
-                    .filter(({ metadata }: any) => metadata.type === 'secondary')
-                    .map(({ query }: any) => query)
-                const allSecondaryMetrics = [...(experiment.metrics_secondary || []), ...sharedSecondaryMetrics]
+                // Build the per-position metric entries. Each entry knows whether the metric
+                // was defined inline on the experiment or attached via a shared saved metric, so
+                // the result row can be self-describing to MCP callers.
+                const primaryMetricEntries = buildMetricEntries(experiment, 'primary')
+                const secondaryMetricEntries = buildMetricEntries(experiment, 'secondary')
 
                 // Execute queries for primary metrics
                 const primaryResults = await Promise.all(
-                    allPrimaryMetrics.map(async (metric) => {
+                    primaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -801,7 +828,7 @@ export class ApiClient {
 
                 // Execute queries for secondary metrics
                 const secondaryResults = await Promise.all(
-                    allSecondaryMetrics.map(async (metric) => {
+                    secondaryMetricEntries.map(async ({ metric }) => {
                         try {
                             const queryBody = {
                                 kind: 'ExperimentQuery',
@@ -833,6 +860,8 @@ export class ApiClient {
                     success: true,
                     data: {
                         experiment,
+                        primaryMetricEntries,
+                        secondaryMetricEntries,
                         primaryMetricsResults: primaryResults,
                         secondaryMetricsResults: secondaryResults,
                         exposures,
@@ -970,14 +999,10 @@ export class ApiClient {
                 }
             },
 
-            query: async ({
-                query,
-            }: {
-                query: Record<string, any>
-            }): Promise<Result<{ results: unknown; columns?: unknown; formatted_results?: string }>> => {
+            query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<{ results: unknown; columns?: unknown; formatted_results?: string }>(url, {
+                return this.fetchJson<QueryEndpointResponse>(url, {
                     method: 'POST',
                     body: JSON.stringify({ query }),
                 })

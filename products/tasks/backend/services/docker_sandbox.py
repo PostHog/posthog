@@ -50,6 +50,7 @@ from .sandbox import (
     SandboxTemplate,
     build_agent_runtime_env_prefix,
     parse_sandbox_repo_mount_map,
+    redact_sandbox_command,
     wait_for_health_check,
 )
 
@@ -97,7 +98,7 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _run(args: list[str], check: bool = False, timeout: int | None = None) -> subprocess.CompletedProcess:
         """Run a subprocess command with logging."""
-        logger.debug(f"Running: {' '.join(args)}")
+        logger.debug(f"Running: {redact_sandbox_command(' '.join(args))}")
         result = subprocess.run(args, capture_output=True, text=True, check=check, timeout=timeout)
         if result.stdout:
             logger.debug(f"stdout: {result.stdout[:500]}")
@@ -428,7 +429,8 @@ class DockerSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
-            logger.debug(f"Executing in sandbox {self.id}: {command[:100]}...")
+            redacted_command = redact_sandbox_command(command)
+            logger.debug(f"Executing in sandbox {self.id}: {redacted_command[:100]}...")
             result = DockerSandbox._run(
                 ["docker", "exec", self._container_id, "bash", "-c", command],
                 timeout=timeout_seconds,
@@ -451,7 +453,7 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to execute command: {e}")
             raise SandboxExecutionError(
                 "Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
 
@@ -471,7 +473,8 @@ class DockerSandbox(SandboxBase):
             timeout_seconds = self.config.default_execution_timeout_seconds
 
         try:
-            logger.debug(f"Streaming execution in sandbox {self.id}: {command[:100]}...")
+            redacted_command = redact_sandbox_command(command)
+            logger.debug(f"Streaming execution in sandbox {self.id}: {redacted_command[:100]}...")
             process = subprocess.Popen(
                 ["docker", "exec", self._container_id, "bash", "-c", command],
                 stdout=subprocess.PIPE,
@@ -483,7 +486,7 @@ class DockerSandbox(SandboxBase):
             logger.exception(f"Failed to start streaming command: {e}")
             raise SandboxExecutionError(
                 "Failed to execute command",
-                {"sandbox_id": self.id, "command": command, "error": str(e)},
+                {"sandbox_id": self.id, "command": redacted_command, "error": str(e)},
                 cause=e,
             )
 
@@ -637,6 +640,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -644,6 +648,7 @@ class DockerSandbox(SandboxBase):
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,
+            event_ingest_token=event_ingest_token,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -655,7 +660,14 @@ class DockerSandbox(SandboxBase):
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
-        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
+        # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
+        # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
+        # per-session port can go stale and cause ECONNREFUSED on otherwise-valid local URLs,
+        # so route host.docker.internal traffic (llm-gateway, MCP) around the proxy.
+        no_proxy_export = (
+            'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
+        )
+        inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
 
         if allowed_domains is not None:
             return (
@@ -691,6 +703,7 @@ class DockerSandbox(SandboxBase):
         reasoning_effort: str | None = None,
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
+        event_ingest_token: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -730,6 +743,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort,
             mcp_servers_arg,
             allowed_domains=allowed_domains,
+            event_ingest_token=event_ingest_token,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -762,6 +776,7 @@ class DockerSandbox(SandboxBase):
                 reasoning_effort=reasoning_effort,
                 mcp_servers_arg=mcp_servers_arg,
                 allowed_domains=allowed_domains,
+                event_ingest_token=event_ingest_token,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")

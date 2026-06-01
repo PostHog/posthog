@@ -46,6 +46,22 @@ OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
 OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
 OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
 
+_KNOWN_LITELLM_PROVIDER_PREFIXES = (
+    "anthropic/",
+    "bedrock/",
+    "fireworks_ai/",
+    "openai/",
+    "openrouter/",
+)
+
+
+def normalize_litellm_model_name(model: str, provider: str) -> str:
+    """Add an explicit LiteLLM provider prefix when a provider endpoint receives a bare model ID."""
+    if model.startswith(_KNOWN_LITELLM_PROVIDER_PREFIXES):
+        return model
+    return f"{provider}/{model}"
+
+
 # Google providers require litellm[google], which we don't install. Reject these
 # at the edge so litellm doesn't crash deep in vertex_llm_base with an ImportError.
 # Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names

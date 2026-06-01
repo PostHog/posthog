@@ -43,6 +43,74 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
     is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
 })
 
+export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
+export const dashboardTemplatesPartialUpdateBodyTemplateNameMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
+
+export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
+
+export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
+
+export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 255
+
+export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    template_name: zod.string().max(dashboardTemplatesPartialUpdateBodyTemplateNameMax).nullish(),
+    dashboard_description: zod.string().max(dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax).nullish(),
+    dashboard_filters: zod.unknown().optional(),
+    tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
+    tiles: zod.unknown().optional(),
+    variables: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+    image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
+    scope: zod
+        .union([
+            zod
+                .enum(['team', 'global', 'feature_flag'])
+                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
+            zod.enum(['']),
+            zod.null(),
+        ])
+        .optional(),
+    availability_contexts: zod
+        .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
+        .nullish(),
+    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+})
+
 /**
  * Creates a new team-scoped template in the **target** project (URL) from a **team-scoped** source template in the same organization. Global and feature-flag templates return 400. Cross-organization or inaccessible sources return 404. Source and destination projects must differ (400 if equal). Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …
  * @summary Copy a team template to this project
@@ -100,21 +168,6 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
             '\* `21` - Everyone in the project can edit\n\* `37` - Only those invited to this dashboard can edit'
         ),
     user_uuid: zod.uuid(),
-})
-
-/**
- * Create a new password for the sharing configuration.
- */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
 })
 
 export const dashboardsUpdateBodyNameMax = 400
@@ -243,6 +296,56 @@ export const DashboardsCopyTileCreateBody = /* @__PURE__ */ zod.object({
     tileId: zod.number().describe('Dashboard tile id to copy.'),
 })
 
+/**
+ * Add a markdown text tile to a dashboard.
+
+Text tiles render as markdown blocks on the dashboard — useful as section headings, dividers,
+or annotations between insight tiles to give the dashboard structure.
+ */
+export const dashboardsCreateTextTileCreateBodyBodyMax = 4000
+
+export const dashboardsCreateTextTileCreateBodyColorMax = 400
+
+export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
+    body: zod
+        .string()
+        .min(1)
+        .max(dashboardsCreateTextTileCreateBodyBodyMax)
+        .describe(
+            'Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.'
+        ),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe(
+            'Optional grid layout per breakpoint. If omitted, the tile is placed at the bottom of the dashboard using the default size. Text tiles typically use a thin full-width banner (e.g. w=12, h=1).'
+        ),
+    color: zod
+        .string()
+        .max(dashboardsCreateTextTileCreateBodyColorMax)
+        .nullish()
+        .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
+})
+
 export const dashboardsMoveTilePartialUpdateBodyNameMax = 400
 
 export const dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault = false
@@ -281,11 +384,20 @@ export const DashboardsMoveTilePartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
+
 export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
+    layout: zod
+        .enum(['preserve', 'two_column', 'full_width'])
+        .describe('\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width')
+        .default(dashboardsReorderTilesCreateBodyLayoutDefault)
+        .describe(
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n\* `preserve` - preserve\n\* `two_column` - two_column\n\* `full_width` - full_width"
+        ),
 })
 
 /**
@@ -331,7 +443,60 @@ export const DashboardsSnapshotCreateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
+ * Update the markdown body, layout, or color of an existing text tile on a dashboard.
+ */
+export const dashboardsUpdateTextTileCreateBodyBodyMax = 4000
+
+export const dashboardsUpdateTextTileCreateBodyColorMax = 400
+
+export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
+    body: zod
+        .string()
+        .min(1)
+        .max(dashboardsUpdateTextTileCreateBodyBodyMax)
+        .optional()
+        .describe('New markdown body for the text tile. Omit to leave the body unchanged. Max 4000 characters.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
+    color: zod
+        .string()
+        .max(dashboardsUpdateTextTileCreateBodyColorMax)
+        .nullish()
+        .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
+})
+
+/**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}

@@ -378,9 +378,7 @@ export const OrganizationsProjectsCreateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Replace a project and its settings. Prefer the PATCH endpoint for partial updates — PUT requires every writable field to be provided.
@@ -570,9 +568,7 @@ export const OrganizationsProjectsUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Update one or more of a project's settings. Only the fields included in the request body are changed.
@@ -764,9 +760,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -970,9 +964,7 @@ export const OrganizationsProjectsAddProductIntentPartialUpdateBody = /* @__PURE
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -1168,9 +1160,7 @@ export const OrganizationsProjectsChangeOrganizationCreateBody = /* @__PURE__ */
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -1386,9 +1376,7 @@ export const OrganizationsProjectsCompleteProductOnboardingPartialUpdateBody = /
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -1600,9 +1588,7 @@ export const OrganizationsProjectsDeleteSecretTokenBackupPartialUpdateBody = /* 
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -1818,9 +1804,7 @@ export const OrganizationsProjectsGenerateConversationsPublicTokenCreateBody = /
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -2012,9 +1996,7 @@ export const OrganizationsProjectsResetTokenPartialUpdateBody = /* @__PURE__ */ 
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
 /**
  * Projects for the current organization.
@@ -2218,76 +2200,21 @@ export const OrganizationsProjectsRotateSecretTokenPartialUpdateBody = /* @__PUR
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
     })
-    .describe(
-        'Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of\npassthrough fields. This allows the meaning of `Team` to change from \"project\" to \"environment\" without breaking\nbackward compatibility of the REST API.\nDo not use this in greenfield endpoints!'
-    )
+    .describe('Mixin for serializers to add user access control fields')
 
-export const dashboardTemplatesUpdateBodyTemplateNameMax = 400
-
-export const dashboardTemplatesUpdateBodyDashboardDescriptionMax = 400
-
-export const dashboardTemplatesUpdateBodyTagsItemMax = 255
-
-export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
-
-export const dashboardTemplatesUpdateBodyAvailabilityContextsItemMax = 255
-
-export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
-    template_name: zod.string().max(dashboardTemplatesUpdateBodyTemplateNameMax).nullish(),
-    dashboard_description: zod.string().max(dashboardTemplatesUpdateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().optional(),
-    tags: zod.array(zod.string().max(dashboardTemplatesUpdateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().optional(),
-    variables: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-    image_url: zod.string().max(dashboardTemplatesUpdateBodyImageUrlMax).nullish(),
-    scope: zod
-        .union([
-            zod
-                .enum(['team', 'global', 'feature_flag'])
-                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    availability_contexts: zod
-        .array(zod.string().max(dashboardTemplatesUpdateBodyAvailabilityContextsItemMax))
-        .nullish(),
-    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+/**
+ * Create a new password for the sharing configuration.
+ */
+export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
 })
 
-export const dashboardTemplatesPartialUpdateBodyTemplateNameMax = 400
-
-export const dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax = 400
-
-export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
-
-export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
-
-export const dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax = 255
-
-export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    template_name: zod.string().max(dashboardTemplatesPartialUpdateBodyTemplateNameMax).nullish(),
-    dashboard_description: zod.string().max(dashboardTemplatesPartialUpdateBodyDashboardDescriptionMax).nullish(),
-    dashboard_filters: zod.unknown().optional(),
-    tags: zod.array(zod.string().max(dashboardTemplatesPartialUpdateBodyTagsItemMax)).nullish(),
-    tiles: zod.unknown().optional(),
-    variables: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-    image_url: zod.string().max(dashboardTemplatesPartialUpdateBodyImageUrlMax).nullish(),
-    scope: zod
-        .union([
-            zod
-                .enum(['team', 'global', 'feature_flag'])
-                .describe('\* `team` - Only team\n\* `global` - Global\n\* `feature_flag` - Feature Flag'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    availability_contexts: zod
-        .array(zod.string().max(dashboardTemplatesPartialUpdateBodyAvailabilityContextsItemMax))
-        .nullish(),
-    is_featured: zod.boolean().optional().describe('Manually curated; used to highlight templates in the UI.'),
+export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
 })
 
 export const ExportsCreateBody = /* @__PURE__ */ zod
@@ -2450,6 +2377,21 @@ export const InsightsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     password_required: zod.boolean().optional(),
 })
 
+/**
+ * Create a new password for the sharing configuration.
+ */
+export const NotebooksSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
+})
+
+export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
+    enabled: zod.boolean().optional(),
+    settings: zod.unknown().optional(),
+    password_required: zod.boolean().optional(),
+})
+
 export const projectSecretApiKeysCreateBodyLabelMax = 40
 
 export const ProjectSecretApiKeysCreateBody = /* @__PURE__ */ zod.object({
@@ -2513,6 +2455,14 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * Bulk update tags on multiple objects.
+
+PAT access: this action has no ``required_scopes=`` on the decorator —
+inheriting viewsets must add ``"bulk_update_tags"`` to their
+``scope_object_write_actions`` list to accept personal API keys.
+Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+"This action does not support personal API key access". Done per-viewset
+so granting ``<scope>:write`` for one resource doesn't leak access to
+sibling resources that share this mixin.
 
 Accepts:
 - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
@@ -2954,6 +2904,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 /**
@@ -3033,6 +2989,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -3109,6 +3071,45 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+})
+
+/**
+ * Start GitHub linking: either full App install or OAuth-only (user-to-server).
+
+``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
+``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
+under projects).
+
+Usually returns ``install_url`` pointing at ``/installations/new`` so the
+user can pick any GitHub org (new or already connected).  GitHub's install
+page handles both cases: orgs where the app is installed show "Configure"
+(no admin needed), orgs where it isn't show "Install" (needs admin).
+
+**OAuth fast path:** when the current project already has a team-level
+GitHub installation, and the user has no ``UserIntegration`` for that
+installation yet, we skip the org picker and redirect straight to
+``/login/oauth/authorize`` so the user only authorizes themselves.
+``connect_from`` is preserved for first-party clients so they return to
+the originating client immediately.
+
+In both cases the response key is ``install_url`` for compatibility with callers.
+ * @summary Start GitHub personal integration linking
+ */
+export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
+    team_id: zod
+        .number()
+        .nullish()
+        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
+    connect_from: zod
+        .string()
+        .optional()
+        .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
 })
 
 /**
@@ -3246,6 +3247,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 /**
@@ -3324,6 +3331,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })
 
@@ -3404,6 +3417,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -3479,6 +3498,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })
 
@@ -3556,6 +3581,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -3631,6 +3662,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })
 
@@ -3708,6 +3745,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
         ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -3783,5 +3826,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.'
+        ),
+    hide_mcp_hints: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
 })

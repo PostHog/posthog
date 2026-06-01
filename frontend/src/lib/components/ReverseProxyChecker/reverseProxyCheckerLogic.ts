@@ -1,5 +1,6 @@
 import { afterMount, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
@@ -34,11 +35,27 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         LIMIT 10`
 
                     const currentScene = sceneLogic.findMounted()?.values.activeSceneId ?? 'Onboarding'
-                    const res = await api.queryHogQL(query, {
-                        scene: currentScene,
-                        productKey: 'platform_and_support',
-                    })
-                    return !!res.results?.find((x) => !!x[0])
+                    try {
+                        const res = await api.queryHogQL(query, {
+                            scene: currentScene,
+                            productKey: 'platform_and_support',
+                        })
+                        return !!res.results?.find((x) => !!x[0])
+                    } catch (error) {
+                        // This check is advisory (used only to auto-complete a setup task).
+                        // Swallow errors so kea-loaders does not surface a user-visible toast
+                        // on every scene that mounts ProductSetupButton.
+                        //
+                        // Capturing the original `error` directly (rather than wrapping it
+                        // in `new Error('...', { cause })`) keeps the error type at the top
+                        // of `$exception_list`, so the central `before_send` filter in
+                        // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
+                        // assuming posthog-js serialises the cause chain.
+                        posthog.captureException(error, {
+                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                        })
+                        return values.hasReverseProxy
+                    }
                 },
             },
         ],

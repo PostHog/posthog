@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -31,12 +32,12 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.github_callback.personal_finish import github_link_complete
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
 from posthog.api.query import progress
 from posthog.api.sdk_doctor import sdk_doctor
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.user_integration import github_link_complete
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
@@ -47,6 +48,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
@@ -55,9 +57,13 @@ from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookV
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_workspace_claims_view,
+)
 from products.surveys.backend.api.survey import public_survey_page
-from products.user_interviews.backend.webhooks import (
+from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
@@ -403,6 +409,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
@@ -410,6 +417,20 @@ urlpatterns = [
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),
 ]
+
+# Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
+# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
+# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
+# the catch-all matches first and the redirect is unreachable.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    urlpatterns.insert(
+        0,
+        path(
+            "api/llm_analytics/@me/spend/",
+            personal_spend_eu_redirect,
+            name="personal_spend_eu_redirect",
+        ),
+    )
 
 if settings.DEBUG:
     # If we have DEBUG=1 set, then let's expose the metrics for debugging. Note
@@ -456,6 +477,13 @@ if settings.TEST:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
+
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [
     "preflight",
@@ -467,6 +495,7 @@ frontend_unauthenticated_routes = [
     "login",
     "unsubscribe",
     "verify_email",
+    r"agentic/account-mismatch",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))

@@ -424,6 +424,45 @@ class AIResearchBurstRateThrottle(_AIThrottleBase):
     action_name = "ai research burst rate limited"
 
 
+# Hands-free throttles are split per-action so a burst on /token/ (e.g. a flapping
+# mobile network triggering the reconnect path) can't lock the user out of /synthesize/
+# and vice versa. Each action's burst/sustained bucket caps a different cost surface:
+# token mints bound Scribe (STT) spend; synthesize calls bound ElevenLabs TTS spend.
+class MaxHandsFreeTokenBurstRateThrottle(_AIThrottleBase):
+    # 10/min covers normal reconnects (network blip, tab refocus) and stays well below
+    # any plausible legitimate flow. Dev gets a far larger ceiling for the dev loop.
+    scope = "max_hands_free_token_burst"
+    rate = "1000/minute" if settings.DEBUG else "10/minute"
+    action_name = "max hands-free token burst rate limited"
+
+
+class MaxHandsFreeTokenSustainedRateThrottle(_AIThrottleBase):
+    # Each token grants ~15 min of Scribe usage. A 2-hour gym session is ~8 tokens at
+    # minimum plus reconnects, call it 15. 60/day covers several long sessions a day
+    # with headroom and bounds worst-case Scribe spend per compromised account.
+    scope = "max_hands_free_token_sustained"
+    rate = "10000/day" if settings.DEBUG else "60/day"
+    action_name = "max hands-free token sustained rate limited"
+
+
+class MaxHandsFreeSynthesizeBurstRateThrottle(_AIThrottleBase):
+    # TTS calls fire once per assistant turn so the burst rate has to keep pace with
+    # rapid back-and-forth. 20/min still well above any natural conversation cadence
+    # but tight enough to slow a runaway client looping on synthesize.
+    scope = "max_hands_free_synthesize_burst"
+    rate = "1000/minute" if settings.DEBUG else "20/minute"
+    action_name = "max hands-free synthesize burst rate limited"
+
+
+class MaxHandsFreeSynthesizeSustainedRateThrottle(_AIThrottleBase):
+    # Bounds TTS spend per account per day. 150 calls * 2000 chars max ~= 300k chars
+    # ceiling/day — comfortable for power users, hard cap on a compromised account's
+    # daily ElevenLabs bill until the broader char-budget kill switch lands.
+    scope = "max_hands_free_synthesize_sustained"
+    rate = "10000/day" if settings.DEBUG else "150/day"
+    action_name = "max hands-free synthesize sustained rate limited"
+
+
 class AIResearchSustainedRateThrottle(_AIThrottleBase):
     scope = "ai_research_sustained"
     rate = "10/day"
@@ -502,62 +541,82 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "2400/hour"
 
 
-class LLMAnalyticsTextReprBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTextReprBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_burst"
     rate = "120/minute"
 
 
-class LLMAnalyticsTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_sustained"
     rate = "600/hour"
 
 
-class LLMAnalyticsTranslationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_translation_burst"
     rate = "30/minute"
 
 
-class LLMAnalyticsTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_translation_sustained"
     rate = "200/hour"
 
 
-class LLMAnalyticsTranslationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilityTranslationDailyThrottle(PersonalApiKeyRateThrottle):
     # Daily cap for LLM-powered translation endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_translation_daily"
     rate = "500/day"
 
 
-class LLMAnalyticsSentimentBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySentimentBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_burst"
     rate = "60/minute"
 
 
-class LLMAnalyticsSentimentSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySentimentSustainedThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_sentiment_sustained"
     rate = "600/hour"
 
 
-class LLMAnalyticsSummarizationBurstThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationBurstThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_burst"
     rate = "50/minute"
 
 
-class LLMAnalyticsSummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationSustainedThrottle(PersonalApiKeyRateThrottle):
     # Rate limit for LLM-powered summarization endpoint
     # Conservative limits to control OpenAI API costs
     scope = "llm_analytics_summarization_sustained"
     rate = "200/hour"
 
 
-class LLMAnalyticsSummarizationDailyThrottle(PersonalApiKeyRateThrottle):
+class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyRateThrottle):
     # Daily cap for LLM-powered summarization endpoint
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
+
+
+class PersonalSpendBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Burst limit for the personal LLM spend analysis endpoint.
+    # ClickHouse-bound; protects against impatient refresh-spamming.
+    # Applies to session-auth users too — they are the primary callers.
+    scope = "personal_spend_burst"
+    rate = "10/minute"
+
+
+class PersonalSpendSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Sustained limit for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_sustained"
+    rate = "60/hour"
+
+
+class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Daily cap for the personal LLM spend analysis endpoint.
+    scope = "personal_spend_daily"
+    rate = "200/day"
 
 
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):

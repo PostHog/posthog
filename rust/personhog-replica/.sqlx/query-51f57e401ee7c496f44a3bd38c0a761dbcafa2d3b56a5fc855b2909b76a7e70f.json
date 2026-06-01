@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT g.id::bigint as \"id!\", g.team_id::bigint as \"team_id!\",\n                   g.group_type_index, g.group_key,\n                   CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as \"group_properties?\",\n                   g.created_at,\n                   CASE WHEN $4::boolean THEN g.properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                   CASE WHEN $4::boolean THEN g.properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                   g.version\n            FROM posthog_group g\n            INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)\n                ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key\n            WHERE g.team_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_type_index",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_key",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "group_properties?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "properties_last_updated_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "properties_last_operation?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int4Array",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      false,
+      false,
+      null,
+      false,
+      null,
+      null,
+      false
+    ]
+  },
+  "hash": "51f57e401ee7c496f44a3bd38c0a761dbcafa2d3b56a5fc855b2909b76a7e70f"
+}

@@ -1,6 +1,7 @@
 use core::str;
 use std::collections::HashMap;
 
+use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
@@ -391,6 +392,14 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
                 // No needles matched: return 0 (numeric)
                 Ok(HogLiteral::Number(0i64.into()).into())
+            }),
+        ),
+        (
+            "randomFloat",
+            native_func(|_vm, args| {
+                assert_argc(&args, 0, "randomFloat")?;
+                let value: f64 = rand::thread_rng().gen_range(0.0..1.0);
+                Ok(HogLiteral::Number(Num::Float(value)).into())
             }),
         ),
     ]

@@ -20,9 +20,10 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
-from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
+
+from products.feature_flags.backend.types import PropertyFilterType
 
 # Path parameters that are resolved at runtime by TeamAndOrgViewSetMixin and
 # therefore cannot be derived from any model field.  We pre-supply their
@@ -525,11 +526,6 @@ class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
         required=False,
         help_text="Optional payload values keyed by variant key.",
     )
-    super_groups = serializers.ListField(
-        child=serializers.DictField(),
-        required=False,
-        help_text="Additional super condition groups used by experiments.",
-    )
     feature_enrollment = serializers.BooleanField(
         required=False,
         allow_null=True,
@@ -673,6 +669,9 @@ _PROJECTS_PREFIX_RE = re.compile(r"^/api/projects/\{parent_lookup_\w+\}/")
 _ENVIRONMENTS_PREFIX_RE = re.compile(r"^/api/environments/\{parent_lookup_\w+\}/")
 _ORG_PREFIX_RE = re.compile(r"^/api/organizations/\{parent_lookup_\w+\}/")
 
+_OPERATION_ID_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_HTTP_METHODS = frozenset({"get", "put", "post", "delete", "options", "head", "patch", "trace"})
+
 # Match finalized paths (after {parent_lookup_*} substitution) for postprocessing.
 _ORG_PROJECTS_FINAL_RE = re.compile(r"^/api/organizations/[^/]+/projects/")
 _PROJECT_ENVS_FINAL_RE = re.compile(r"^/api/projects/[^/]+/environments/")
@@ -765,7 +764,8 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         # Track product folder for auto-tagging
         product = _get_product_from_module(callback.cls.__module__)
         if product:
-            _endpoint_product_mapping[(path, method)] = product
+            # Normalize {pk} → {id} so postprocessing lookup matches drf-spectacular's emission.
+            _endpoint_product_mapping[(path.replace("{pk}", "{id}"), method)] = product
 
         result.append((path, path_regex, method, callback))
     return result
@@ -1034,6 +1034,29 @@ def lint_spec_consistency_hook(result, generator, request, public):
                 walk(v, f"{path}[{i}]")
 
     walk(result, "$")
+
+    # operationId must be a valid identifier — drf-spectacular auto-derives it from the
+    # URL path, so segments like `@me` produce `..._@me_..._list` which (a) breaks the
+    # MCP YAML scaffolder, whose keys can't contain `@`, and (b) is rejected by any
+    # OpenAPI-typed-client codegen that maps it to a function name. The fix is to set
+    # `operation_id="..."` explicitly on `@extend_schema` — surface it here so CI catches
+    # it the same day it lands instead of breaking the MCP build downstream.
+    paths = result.get("paths") or {}
+    for url_path, methods in paths.items():
+        if not isinstance(methods, dict):
+            continue
+        for method, op in methods.items():
+            if method not in _HTTP_METHODS or not isinstance(op, dict):
+                continue
+            op_id = op.get("operationId")
+            if isinstance(op_id, str) and not _OPERATION_ID_RE.match(op_id):
+                spectacular_warn(
+                    f"spec consistency: operationId {op_id!r} contains non-identifier "
+                    f"characters (must match {_OPERATION_ID_RE.pattern}) at "
+                    f"{method.upper()} {url_path}. Set `operation_id=` explicitly on "
+                    f"`@extend_schema(...)` to override the URL-derived default."
+                )
+
     return result
 
 
@@ -1049,22 +1072,41 @@ def custom_postprocessing_hook(result, generator, request, public):
             if is_deprecated_env:
                 definition["deprecated"] = True
 
-            # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
-            # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
-            explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
+            # Resolve x-product for codegen routing.
+            #
+            # Priority (highest first):
+            #   1. Explicit ``@extend_schema(extensions={"x-product": ...})`` — authoritative.
+            #      Accepts a string, enum-like (e.g. ``ProductKey.X``, stringified), or a list.
+            #      Kebab values are normalized to snake_case so output matches folder names.
+            #      When present, NOTHING else is added — the dev intent wins. Use this to send
+            #      an endpoint to the core bucket from inside ``products/<X>/backend/`` (e.g.
+            #      ``extensions={"x-product": "core"}``).
+            #   2. ``@extend_schema(tags=[...])`` values matching a product folder — supported
+            #      for legacy call sites; the explicit form above is preferred for new code.
+            #      Non-folder tag values are dropped here (tags=[...] is for display, not routing).
+            #   3. Module-path auto-attribution: ViewSet in ``products/<name>/backend/`` → ``<name>``.
+            #
+            # The resulting list is read by ``generate-openapi-types.mjs`` and
+            # ``services/mcp/scripts/scaffold-yaml.ts``.
+            x_product_override = definition.pop("x-product", None)
+            if x_product_override is not None and not isinstance(x_product_override, list):
+                x_product_override = [x_product_override]
 
-            # Auto-add product tag for ViewSets in products/*/backend/
-            product = _endpoint_product_mapping.get((path, method.upper()))
-            if product and product not in explicit_tags:
-                explicit_tags.append(product)
+            if x_product_override:
+                x_product = [str(v).replace("-", "_") for v in x_product_override]
+            else:
+                x_product = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
+                module_product = _endpoint_product_mapping.get((path, method.upper()))
+                if module_product and module_product not in x_product:
+                    x_product.append(module_product)
 
-            definition["x-explicit-tags"] = explicit_tags
+            definition["x-product"] = x_product
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
 
             # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
             # use that as the sole display tag instead of appending the URL-derived one.
-            # This controls Swagger UI grouping without affecting x-explicit-tags (used for codegen).
+            # This controls Swagger UI grouping without affecting x-product (used for codegen).
             swagger_tag = definition.pop("x-swagger-tag", None)
             if swagger_tag:
                 definition["tags"] = [swagger_tag]

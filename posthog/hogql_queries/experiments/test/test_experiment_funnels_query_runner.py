@@ -30,10 +30,10 @@ from posthog.schema import (
 
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):

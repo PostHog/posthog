@@ -10,11 +10,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.action.action import Action
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
 
+from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
@@ -243,6 +243,45 @@ class TestRemoteConfig(_RemoteConfigBase):
             self.sync_remote_config()
             assert self.remote_config.config["sessionRecording"]["scriptConfig"] == expected_script_config
 
+    def test_build_config_bypass_recordings_quota_cache_reads_fresh_redis(self):
+        """Pairs the bypass-True / bypass-False paths against a stale in-process cache so a
+        regression that drops the kwarg (and reverts to cache-on-by-default in prod) fails
+        the bypass-True case."""
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            list_limited_team_attributes,
+            replace_limited_team_tokens,
+        )
+
+        list_limited_team_attributes.clear_cache()
+
+        replace_limited_team_tokens(QuotaResource.RECORDINGS, {}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        # Force-prime the cache: `cache_for` defaults `use_cache=not TEST`, so without an
+        # explicit `use_cache=True` the call would bypass caching in tests and the assertion
+        # below would lose its meaning.
+        primed = list_limited_team_attributes(
+            QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY, use_cache=True
+        )
+        assert primed == []
+
+        future_ts = int(timezone.now().timestamp()) + 10_000
+        replace_limited_team_tokens(
+            QuotaResource.RECORDINGS,
+            {self.team.api_token: future_ts},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+        cached_config = self.remote_config.build_config(bypass_recordings_quota_cache=False)
+        assert cached_config.get("quotaLimited") is None
+        assert cached_config["sessionRecording"] is not False
+
+        fresh_config = self.remote_config.build_config(bypass_recordings_quota_cache=True)
+        assert fresh_config["quotaLimited"] == ["recordings"]
+        assert fresh_config["sessionRecording"] is False
+
+        list_limited_team_attributes.clear_cache()
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -351,6 +390,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_flags.id),
@@ -378,6 +418,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
                 {
                     "id": str(survey_with_actions.id),
@@ -426,6 +467,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                     "current_iteration_start_date": None,
                     "schedule": "once",
                     "enable_partial_responses": False,
+                    "base_language": "en",
                 },
             ],
             key=lambda s: str(s["id"]),  # type: ignore

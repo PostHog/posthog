@@ -1,3 +1,5 @@
+import uuid
+
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from parameterized import parameterized
@@ -11,44 +13,50 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
-    Action,
     Annotation,
     Cohort,
     ExportedAsset,
-    FeatureFlag,
     Group,
     GroupTypeMapping,
     GroupUsageMetric,
-    Insight,
-    InsightVariable,
     Organization,
+    Tag,
     Team,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
+from posthog.models.scoping import team_scope
 
+from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.conversations.backend.models import Ticket
+from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
-from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
-from products.llm_analytics.backend.models.score_definitions import ScoreDefinition
-from products.llm_analytics.backend.models.trace_reviews import TraceReview, TraceReviewScore
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -56,6 +64,9 @@ ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 TEAM_ID_FILTER_PATTERNS = {
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
+    # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
+    "_account_resource_notebooks": "system__accounts.team_id",
+    "_account_tagged_items": "system__accounts.team_id",
 }
 
 
@@ -84,6 +95,10 @@ class TestSystemTablesTeamScoping(BaseTest):
             # ingestion_warnings is a ClickHouse-native table (not backed by PostgreSQL),
             # so it can't be tested with Django model factories.
             "ingestion_warnings",
+            # Hidden junction tables that exist only to back the system.accounts lazy joins;
+            # isolation is covered by TestSystemAccountsLazyJoins.
+            "_account_resource_notebooks",
+            "_account_tagged_items",
         }
 
         untested = all_tables - tested_tables - excluded_tables
@@ -127,6 +142,10 @@ def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
 
 
+def _create_account(team: Team, label: str) -> Account:
+    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
+
+
 def _create_action(team: Team, label: str) -> Action:
     return Action.objects.create(team=team, name=f"action_{label}")
 
@@ -146,6 +165,12 @@ def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculat
 
 def _create_dashboard(team: Team, label: str) -> Dashboard:
     return Dashboard.objects.create(team=team, name=f"dashboard_{label}")
+
+
+def _create_dashboard_tile(team: Team, label: str) -> DashboardTile:
+    dashboard = Dashboard.objects.create(team=team, name=f"dashboard_for_tile_{label}")
+    insight = Insight.objects.create(team=team, short_id=f"tile_{label}"[:12], name=f"insight_{label}")
+    return DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
 
 def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
@@ -497,6 +522,10 @@ def _create_sandbox_environment(team: Team, label: str):
     return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
 
 
+def _create_tag(team: Team, label: str) -> Tag:
+    return Tag.objects.create(team=team, name=f"tag_{label}")
+
+
 def _create_team(team: Team, label: str) -> Team:
     return team
 
@@ -510,16 +539,57 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     )
 
 
+def _create_business_knowledge_source(team: Team, label: str):
+    with team_scope(team.pk):
+        return KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+
+
+def _create_business_knowledge_document(team: Team, label: str):
+    with team_scope(team.pk):
+        source = KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_for_doc_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+        return KnowledgeDocument.objects.create(
+            team=team, source=source, stable_id=f"stable_{label}", content=f"content_{label}"
+        )
+
+
+def _create_business_knowledge_chunk(team: Team, label: str):
+    with team_scope(team.pk):
+        source = KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_for_chunk_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+        doc = KnowledgeDocument.objects.create(
+            team=team, source=source, stable_id=f"stable_chunk_{label}", content=f"content_{label}"
+        )
+        return KnowledgeChunk.objects.create(
+            id=uuid.uuid4(),
+            team=team,
+            source=source,
+            document=doc,
+            ordinal=0,
+            content=f"chunk_content_{label}",
+            char_count=len(f"chunk_content_{label}"),
+        )
+
+
 SYSTEM_TABLE_FACTORIES = [
+    ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_exports", _create_batch_export),
+    ("business_knowledge_chunks", _create_business_knowledge_chunk),
+    ("business_knowledge_documents", _create_business_knowledge_document),
+    ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
+    ("dashboard_tiles", _create_dashboard_tile),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -558,6 +628,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("tags", _create_tag),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
     ("teams", _create_team),
@@ -681,3 +752,57 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
+    """Verify the `accounts.tags.names` and `accounts.notebooks.count` lazy joins."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_tags_lazy_join_returns_tag_names_array(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        billing = Tag.objects.create(name="billing", team=self.team)
+        urgent = Tag.objects.create(name="urgent", team=self.team)
+        account.tagged_items.create(tag=billing)
+        account.tagged_items.create(tag=urgent)
+        Account.objects.unscoped().create(team=self.team, name="B")  # untagged
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert sorted(rows_by_id[str(account.id)]) == ["billing", "urgent"]
+
+    def test_tags_lazy_join_isolated_per_team(self):
+        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_tag = Tag.objects.create(name="billing", team=self.other_team)
+        other_account.tagged_items.create(tag=other_tag)
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts",
+            team=self.team,
+        )
+        assert response.results == []
+
+    def test_notebooks_lazy_join_returns_count(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        for label in ("n1", "n2", "n3"):
+            notebook = Notebook.objects.create(team=self.team, title=label)
+            ResourceNotebook.objects.create(notebook=notebook, account=account)
+        Account.objects.unscoped().create(team=self.team, name="B")  # no notebooks
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.notebooks.count FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert rows_by_id[str(account.id)] == 3

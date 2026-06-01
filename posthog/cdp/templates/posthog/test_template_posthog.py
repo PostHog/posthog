@@ -5,7 +5,8 @@ from posthog.cdp.templates.posthog.template_posthog import (
     TemplatePostHogMigrator,
     template as template_posthog,
 )
-from posthog.models import PluginConfig
+
+from products.cdp.backend.models.plugin import PluginConfig
 
 
 class TestTemplatePosthog(BaseHogFunctionTemplateTest):

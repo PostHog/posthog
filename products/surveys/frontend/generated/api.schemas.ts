@@ -261,7 +261,7 @@ export interface SurveyApi {
 
           Translations: Each question can include inline translations.
           - `translations`: Object mapping language codes to translated fields.
-          - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+          - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
           - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
           Example with translations:
@@ -345,6 +345,11 @@ export interface SurveyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    /**
+     * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+     * @maxLength 20
+     */
+    base_language?: string
     translations?: unknown
     /**
      * The effective access level the user has for this object
@@ -773,8 +778,6 @@ export interface FeatureFlagMultivariateSchemaApi {
  */
 export type FeatureFlagFiltersSchemaApiPayloads = { [key: string]: string }
 
-export type FeatureFlagFiltersSchemaApiSuperGroupsItem = { [key: string]: unknown }
-
 export interface FeatureFlagFiltersSchemaApi {
     /** Release condition groups for the feature flag. */
     groups?: FeatureFlagConditionGroupSchemaApi[]
@@ -787,8 +790,6 @@ export interface FeatureFlagFiltersSchemaApi {
     aggregation_group_type_index?: number | null
     /** Optional payload values keyed by variant key. */
     payloads?: FeatureFlagFiltersSchemaApiPayloads
-    /** Additional super condition groups used by experiments. */
-    super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
     /**
      * Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.
      * @nullable
@@ -1339,7 +1340,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
 
           Translations: Each question can include inline translations.
           - `translations`: Object mapping language codes to translated fields.
-          - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+          - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
           - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
           Example with translations:
@@ -1436,6 +1437,11 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    /**
+     * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+     * @maxLength 20
+     */
+    base_language?: string
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
@@ -1548,7 +1554,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
 
           Translations: Each question can include inline translations.
           - `translations`: Object mapping language codes to translated fields.
-          - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+          - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
           - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
           Example with translations:
@@ -1630,6 +1636,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    /**
+     * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+     * @maxLength 20
+     */
+    base_language?: string
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
@@ -1766,7 +1777,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
 
           Translations: Each question can include inline translations.
           - `translations`: Object mapping language codes to translated fields.
-          - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+          - Language codes: Canonical BCP-47-ish strings (e.g., "es", "es-MX", "zh-CN"). Aliases like "english" or "default" are rejected. The survey's `base_language` (default "en") declares the language of the untranslated text and cannot also appear as a translation key.
           - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
 
           Example with translations:
@@ -1863,6 +1874,11 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     enable_partial_responses?: boolean | null
     /** @nullable */
     enable_iframe_embedding?: boolean | null
+    /**
+     * BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.
+     * @maxLength 20
+     */
+    base_language?: string
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
@@ -1876,7 +1892,7 @@ export type GenerateSurveyTranslationsRequestApiSurvey = { [key: string]: unknow
 export interface GenerateSurveyTranslationsRequestApi {
     /** Language code to generate translations for, for example pt-BR. */
     target_language: string
-    /** Source language code for the existing survey copy. */
+    /** Optional override for the source language code. Defaults to the survey's `base_language` (or 'en' if unset). */
     source_language?: string
     /** Whether to overwrite existing translations for this language. */
     overwrite?: boolean
