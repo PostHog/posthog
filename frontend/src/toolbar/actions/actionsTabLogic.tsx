@@ -237,6 +237,26 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     }
                     if (!res.ok) {
                         const errorData = await res.json().catch(() => ({}))
+                        if (res.status === 400 && errorData.code === 'unique') {
+                            // Expected validation, not an exception — surface a toast pointing to the
+                            // existing action without capturing. Mirrors actionEditLogic.tsx; `detail` is
+                            // "This project already has an action with this name, ID ${id}".
+                            const dupeId = errorData.detail?.split(' ').pop()
+                            lemonToast.error('An action with this name already exists', {
+                                button: dupeId
+                                    ? {
+                                          label: 'Edit it here',
+                                          action: () =>
+                                              window.open(
+                                                  joinWithUiHost(values.uiHost, urls.action(dupeId)),
+                                                  '_blank'
+                                              ),
+                                      }
+                                    : undefined,
+                            })
+                            actions.submitActionFormFailure(new Error(errorData.detail), {})
+                            return
+                        }
                         throw new Error(errorData.detail || `Request failed: ${res.status}`)
                     }
                     const response: ActionType = await res.json()
