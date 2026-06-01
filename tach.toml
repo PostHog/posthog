@@ -349,6 +349,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.cdp",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -458,12 +459,6 @@ depends_on = [
     "posthog",
     "products.feature_flags",
     "products.surveys",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.query_performance_ai"
-depends_on = ["products.tasks",
 ]
 layer = "modules"
 

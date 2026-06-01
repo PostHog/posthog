@@ -26,6 +26,7 @@ import type {
     DashboardsCreateParams,
     DashboardsCreateTextTileCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
+    DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
@@ -39,6 +40,7 @@ import type {
     DashboardsUpdateTextTileCreateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
+    DeleteTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
@@ -558,6 +560,44 @@ export const dashboardsCreateTextTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(createTextTileRequestApi),
+    })
+}
+
+export const getDashboardsDeleteTileUrl = (projectId: string, id: number, params?: DashboardsDeleteTileParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/delete_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/delete_tile/`
+}
+
+/**
+ * Soft-delete a single tile from a dashboard.
+
+Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+use the dashboard delete endpoint instead.
+ */
+export const dashboardsDeleteTile = async (
+    projectId: string,
+    id: number,
+    deleteTileRequestApi: DeleteTileRequestApi,
+    params?: DashboardsDeleteTileParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardsDeleteTileUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(deleteTileRequestApi),
     })
 }
 

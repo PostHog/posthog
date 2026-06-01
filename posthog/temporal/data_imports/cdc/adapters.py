@@ -76,6 +76,50 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...
 
+    def setup_resources(
+        self,
+        source: ExternalDataSource,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], str | None]:
+        """Provision engine-side CDC resources for the source.
+
+        Reads management mode, identifiers (slot/publication, binlog channel, …),
+        and any engine-specific knobs from ``payload``. Returns either
+        ``(resource_dict, None)`` where ``resource_dict`` contains the CDC
+        identifiers + metadata to merge into ``source.job_inputs`` (already keyed
+        with ``cdc_*`` prefixes), or ``({}, error_message)`` describing what
+        failed. On failure the adapter best-effort rolls back partial state.
+        """
+        ...
+
+    def cleanup_resources(self, source: ExternalDataSource) -> None:
+        """Drop engine-side CDC resources owned by PostHog for the source.
+
+        Best-effort: logs and continues on errors. Must NOT touch resources owned
+        by the customer (e.g. self-managed publications). No-op when the source
+        has no CDC config or no PostHog-owned resources to drop.
+        """
+        ...
+
+    def get_status(self, source: ExternalDataSource) -> dict[str, Any]:
+        """Live engine-side CDC health for the source, read from the source DB.
+
+        Opens a short management connection and returns at minimum
+        ``{"slot_exists": bool, "publication_exists": bool, "lag_bytes": int | None}``.
+        Engines may add extra fields. Raises on connection failure — the caller
+        surfaces that as a 400 / unreachable state.
+        """
+        ...
+
+    def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        """Best-effort include a table in the change-capture set (PG: ALTER PUBLICATION ADD TABLE).
+        No-op when PostHog doesn't own the capture definition (e.g. self-managed)."""
+        ...
+
+    def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        """Best-effort exclude a table from the change-capture set. Inverse of ``add_table``."""
+        ...
+
 
 def get_cdc_adapter(source: ExternalDataSource) -> CDCSourceAdapter[CDCConfig]:
     """Return the CDC adapter for the given source's type.
