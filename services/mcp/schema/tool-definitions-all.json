@@ -38,7 +38,71 @@
         "summary": "List accounts",
         "title": "List accounts",
         "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-create": {
+        "description": "Create a notebook attached to a Customer Analytics account. Use for persisting investigations, call notes, and other free-form context. Provide `title` and the note body as Markdown via `text_content` — the server converts it into a formatted notebook (headings `#` through `######`, bullet lists `-`, ordered lists `1.`, fenced code blocks, `**bold**`, `*italic*`, `` `code` ``, and `[label](url)` links). Pass `content` (ProseMirror JSON) only if you already have a structured document; in most cases leave it unset and write Markdown in `text_content`. The notebook is created with internal visibility so it does not appear in the global notebooks list.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create account notebook",
+        "title": "Create account notebook",
+        "required_scopes": ["account:write"],
         "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-destroy": {
+        "description": "Permanently delete an account notebook by its `short_id`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete account notebook",
+        "title": "Delete account notebook",
+        "required_scopes": ["account:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-list": {
+        "description": "List notebooks attached to a Customer Analytics account, ordered by most recently modified. Each result includes the notebook `short_id`, `title`, `content`, and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account notebooks",
+        "title": "List account notebooks",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-notebooks-retrieve": {
+        "description": "Fetch a single account notebook by its `short_id`. Returns the full notebook including `content` (ProseMirror JSON document structure) and authorship metadata.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get account notebook",
+        "title": "Get account notebook",
+        "required_scopes": ["account:read"],
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -70,7 +134,7 @@
         "summary": "Get account",
         "title": "Get account",
         "required_scopes": ["account:read"],
-        "new_mcp": true,
+        "new_mcp": false,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1002,6 +1066,21 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-create-text-tile": {
+        "description": "Add a markdown text tile to a dashboard. Text tiles render as markdown blocks — useful as section headings, dividers, or annotations between insight tiles to give a dashboard structure. The desktop grid is 12 columns wide; a typical heading uses a thin full-width banner (e.g. `layouts.sm = {x: 0, y: 0, w: 12, h: 1}`). If `layouts` is omitted, the tile is placed using the default layout — use dashboard-reorder-tiles afterwards if you need precise placement.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard text tile",
+        "title": "Create dashboard text tile",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-delete": {
         "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
         "category": "Dashboards",
@@ -1048,7 +1127,7 @@
         }
     },
     "dashboard-reorder-tiles": {
-        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. First, use dashboard-get to see current tile IDs. By default existing tile widths and heights are preserved; see the layout parameter to force a 2-column or full-width grid instead.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Reorder dashboard tiles",
@@ -1068,6 +1147,21 @@
         "feature": "dashboards",
         "summary": "Update dashboard",
         "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-update-text-tile": {
+        "description": "Update the markdown body, layout, or color of an existing text tile on a dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard text tile",
+        "title": "Update dashboard text tile",
         "required_scopes": ["dashboard:write"],
         "new_mcp": true,
         "annotations": {
@@ -2215,6 +2309,21 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-connections-list": {
+        "description": "List external data sources that can be used as a connectionId when running execute-sql against an external source (direct-query Postgres connections). Returns a lightweight id, prefix, and engine for each — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this to discover valid connectionId values.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List direct-query connections",
+        "title": "List direct-query connections",
+        "required_scopes": ["external_data_source:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "external-data-sources-create": {
         "description": "Create a new external data source connection. Before calling this, use 'external-data-sources-wizard' to discover source types and 'external-data-sources-db-schema' to validate credentials and discover available tables. Present the db-schema results to the user showing each table's available sync methods, incremental fields, detected primary keys, and columns so they can configure before creation. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns from the db-schema response.",
         "category": "Data warehouse",
@@ -2483,6 +2592,51 @@
             "readOnlyHint": true
         }
     },
+    "feature-flags-bulk-delete-create": {
+        "description": "Soft-delete multiple feature flags in one call. Provide either `ids` (explicit list of flag IDs) OR `filters` (same shape as the list endpoint, e.g., search, active, type, tags), but not both. WARNING: `filters` can match an unbounded number of flags. Preview matches via the list endpoint before calling this with `filters`, and prefer explicit `ids` whenever the user has named specific flags. Flags linked to active experiments, early access features, or that other flags depend on are skipped and reported in `errors`. Returns `deleted` (with each flag's rollout state at deletion time) and `errors` arrays.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk delete feature flags",
+        "title": "Bulk delete feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flags-bulk-keys-create": {
+        "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Look up feature flag keys by ID",
+        "title": "Look up feature flag keys by ID",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flags-bulk-update-tags-create": {
+        "description": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Bulk update tags on feature flags",
+        "title": "Bulk update tags on feature flags",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "feature-flags-copy-flags-create": {
         "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Returns lists of successful and failed copies.",
         "category": "Feature flags",
@@ -2580,6 +2734,51 @@
         "summary": "Get user blast radius",
         "title": "Get user blast radius",
         "required_scopes": ["feature_flag:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "file-download-batch-exports-cancel-create": {
+        "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Cancel a running file download export",
+        "title": "Cancel a running file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-create": {
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Start file download export",
+        "title": "Start file download export",
+        "required_scopes": ["batch_export:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "file-download-batch-exports-retrieve": {
+        "description": "Get the status of an on-demand file download export. Returns Starting or Running while the export is in progress, Completed with file IDs when files are ready, or a failed status with an error message. When status is Completed, use the downloading-batch-export-files skill to download each file through the existing REST download endpoint; the generated MCP download operation is intentionally not enabled because it is a redirect to the file body.",
+        "category": "Data pipelines",
+        "feature": "batch_exports",
+        "summary": "Get file download export status",
+        "title": "Get file download export status",
+        "required_scopes": ["batch_export:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -3205,12 +3404,12 @@
         }
     },
     "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. Pass `product` (e.g. `posthog_code`, `background_agents`) to scope the tool / model / trace breakdowns to a single product; `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
         "title": "Get my LLM spend analysis",
-        "required_scopes": ["llm_analytics:read"],
+        "required_scopes": ["user:read"],
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
@@ -4054,6 +4253,22 @@
             "readOnlyHint": true
         }
     },
+    "notebook-edit": {
+        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Edit part of a notebook's content.",
+        "title": "Edit notebook",
+        "required_scopes": ["notebook:write"],
+        "new_mcp": true,
+        "feature_flag": "notebooks-collaboration",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-create": {
         "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.",
         "category": "Notebooks",
@@ -4112,7 +4327,9 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
+        },
+        "feature_flag": "notebooks-collaboration",
+        "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
         "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
@@ -4605,7 +4822,7 @@
         "system_prompt_hint": "LLM/AI trace listing and inspection"
     },
     "query-logs": {
-        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Filtering logs by a PostHog person\n\nWhen the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via a `log_attribute` filter. The attribute key is configurable per project (it defaults to `distinct_id`); read `logs_distinct_id_attribute_key` from the team config (returned on `projects-retrieve` / `environments-retrieve`, or via the `/api/projects/:id/logs_config/` endpoint) and use that as the filter `key`.\n\nIf the team has not configured a custom key, use `distinct_id`. If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them).\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [\n      {\n        \"key\": \"distinct_id\",\n        \"operator\": \"exact\",\n        \"type\": \"log_attribute\",\n        \"value\": [\"<distinct_id_1>\", \"<distinct_id_2>\"]\n      }\n    ]\n  }\n}\n```\n\nDo not invent a different attribute key based on what looks plausible — use the configured key. If the configured key returns zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Query logs",
@@ -4668,7 +4885,7 @@
         }
     },
     "query-session-recordings-list": {
-        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
+        "description": "List session recordings in the project. Returns recording metadata including duration, activity counts, console errors, start URL, and interaction metrics. Use this tool to find, filter, and explore session recordings.\n\nUse 'read-data-schema' to discover available person, session, and event properties for filtering.\n\nExamples of use cases include:\n\n- Find recordings with console errors in the last week\n- Show me recordings from users in a specific country\n- List the longest recordings from today\n- Find recordings where users visited a specific page\n- Show recordings with high activity scores\n- Find recordings for a specific person\n\nCRITICAL: Be minimalist. Only include filters and settings essential to answer the user's question. Default settings are usually sufficient.\n\n# Property filters\n\nUse property filters to narrow results. Only include filters directly relevant to the user's question.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the user's query.**\n- **Ensure the correct filter type.** Types: `person`, `session`, `event`, `recording`, `cohort`.\n- **Use `read-data-schema` to discover property names and values** before creating filters.\n\n## Common properties\n\n**Recording** (type: `recording`): `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `activity_score`. These are built-in metrics, not events.\n\n**Session** (type: `session`): `$session_duration`, `$channel_type`, `$entry_current_url`, `$entry_pathname`, `$is_bounce`, `$pageview_count`.\n\n**Person** (type: `person`): `$geoip_country_code`, `$geoip_city_name`, `email`, and custom person properties.\n\n**Event** (type: `event`): `$current_url`, `$pathname`, `$browser`, `$os`, `$device_type`, `$screen_width`.\n\n**Cohort** (type: `cohort`): scope recordings to persons belonging to a cohort. `key` is always `\"id\"`, `value` is the cohort ID, operator is `in` (or `not_in` to exclude). Example: `{ \"type\": \"cohort\", \"key\": \"id\", \"value\": 42, \"operator\": \"in\" }`. Use `cohorts-list` to find cohort IDs.\n\n## Operators\n\n**String**: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`, `is_set`, `is_not_set`\n**Numeric**: `exact`, `is_not`, `gt`, `gte`, `lt`, `lte`, `is_set`, `is_not_set`\n**DateTime**: `is_date_exact`, `is_date_before`, `is_date_after`, `is_set`, `is_not_set`\n**Boolean**: `exact`, `is_not`, `is_set`, `is_not_set`\n\n`exact` and `is_not` accept arrays of values. Use `icontains` for URLs, `exact` for enumerated values, `gt`/`lt` for counts.\n\n# Ordering\n\nSort recordings by: `start_time` (default), `duration`, `activity_score`, `console_error_count`, `click_count`, `keypress_count`, `mouse_activity_count`, `active_seconds`, `inactive_seconds`.\n\nDefault direction is `DESC` (newest/highest first).\n\n# Date range\n\n- `date_from`: Relative (`-7d`, `-24h`) or absolute (`2025-01-15`). Default: `-3d`.\n- `date_to`: Relative or absolute. Default: now.\n\nDo not use property filters for time-based filtering. Use the `date_from`/`date_to` fields instead.\n\n# Pagination\n\nUse `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.\n\n# Response shape\n\nEach recording in results contains:\n\n- `id` — session recording ID\n- `distinct_id` — the person's distinct ID\n- `start_time` / `end_time` — recording time range (ISO 8601)\n- `recording_duration` — length in seconds\n- `active_seconds` / `inactive_seconds` — activity breakdown\n- `click_count`, `keypress_count`, `mouse_activity_count` — interaction counts\n- `console_log_count`, `console_warn_count`, `console_error_count` — console output counts\n- `start_url` — first page URL visited\n- `activity_score` — engagement score (higher = more active)\n- `ongoing` — whether the session is still active\n\n# Deep links to specific recordings\n\nTo link a user to a specific recording, build the URL as `{posthog_base_url}/replay/{id}` using the `id` returned in each result row.\n\nDo not use `/replay/home?sessionRecordingId={id}` — that path takes the user to the replay list with the default filter applied and does not open the recording.\n\n# Examples\n\n## Recent recordings with console errors\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"console_error_count\", \"operator\": \"gt\", \"type\": \"recording\", \"value\": 0 }],\n  \"order\": \"console_error_count\"\n}\n```\n\n## Longest recordings today\n\n```json\n{\n  \"date_from\": \"-1d\",\n  \"filter_test_accounts\": true,\n  \"order\": \"duration\",\n  \"limit\": 10\n}\n```\n\n## Recordings for a specific person\n\n```json\n{\n  \"date_from\": \"-30d\",\n  \"person_uuid\": \"01234567-89ab-cdef-0123-456789abcdef\",\n  \"filter_test_accounts\": true\n}\n```\n\n## Recordings from mobile users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"$device_type\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"Mobile\"] }]\n}\n```\n\n## Recordings from a cohort of users\n\n```json\n{\n  \"date_from\": \"-7d\",\n  \"filter_test_accounts\": true,\n  \"properties\": [{ \"key\": \"id\", \"operator\": \"in\", \"type\": \"cohort\", \"value\": 42 }]\n}\n```\n\n## Fetch specific recordings by session ID\n\nWhen you have known `$session_id` values (e.g., from `$exception` events or other event data), use the `session_ids` parameter to fetch those recordings directly:\n\n```json\n{\n  \"session_ids\": [\"session-id-1\", \"session-id-2\", \"session-id-3\"]\n}\n```\n\n# Reminders\n\n- Use `filter_test_accounts: true` by default to exclude internal users.\n- Only include property filters directly relevant to the user's question.\n- Default time range is last 3 days. Adjust based on the user's needs.\n- Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.\n- For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.\n- **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "List session recordings",
@@ -5011,6 +5228,111 @@
         "new_mcp": true,
         "requires_ai_consent": true,
         "feature_flag": "replay-video-based-summarization",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-emit-signal": {
+        "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Emit a finding for a run",
+        "title": "Emit a finding for a run",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-project-profile-get": {
+        "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `llma-skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get the project profile",
+        "title": "Get the project profile",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-list": {
+        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent scout runs",
+        "title": "List recent scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-retrieve": {
+        "description": "Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`. Status, timestamps, and error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id = run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another team returns 404.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get a scout run by ID",
+        "title": "Get a scout run by ID",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-scratchpad-forget": {
+        "description": "Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Forget a scratchpad entry by key",
+        "title": "Forget a scratchpad entry by key",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-remember": {
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Remember a scratchpad entry",
+        "title": "Remember a scratchpad entry",
+        "required_scopes": ["signal_scout_internal:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-scratchpad-search": {
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Results capped at 100.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search the scout scratchpad",
+        "title": "Search the scout scratchpad",
+        "required_scopes": ["signal_scout:read"],
+        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5566,6 +5888,22 @@
         },
         "feature_flag": "user-interviews"
     },
+    "user-interview-topics-links-csv": {
+        "description": "Same materialization as `user-interview-topics-generate-links` but returns the per-interviewee links as a downloadable CSV with columns `interviewee_identifier`, `interviewee_email`, `user_name`, `interview_url`. Use this when the human plans to mail-merge the links into their own email tooling rather than letting PostHog send the invites.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Export interview links for a topic as CSV",
+        "title": "Export interview links for a topic as CSV",
+        "required_scopes": ["user_interview:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "user-interviews"
+    },
     "user-interview-topics-list": {
         "description": "List planned user interview topics in the current project, newest first. Each result includes the topic, targeting (interviewee_emails, interviewee_distinct_ids), and the voice agent setup (agent_context, questions). Supports `search` for substring match against the topic, and `limit`/`offset` for pagination.",
         "category": "User interview topics",
@@ -5844,6 +6182,137 @@
             "readOnlyHint": false
         }
     },
+    "vision-scanners-create": {
+        "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary with optional facet embeddings via `emits_embeddings`) — and fill `scanner_config` to match: all types need a `prompt`; classifiers also need `tags`; scorers also need `scale`; summarizers optionally set `length` and `emits_embeddings`. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample applied after the query matches (default 1.0). `model` chooses the LLM. Names must be unique within the team.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Create replay vision scanner",
+        "title": "Create replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-delete": {
+        "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Delete replay vision scanner",
+        "title": "Delete replay vision scanner",
+        "required_scopes": ["replay_scanner:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-get": {
+        "description": "Get a single replay vision scanner by ID. Returns the full configuration including `scanner_config` (the type-specific prompt and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get replay vision scanner",
+        "title": "Get replay vision scanner",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-list": {
+        "description": "List all replay vision scanners in the current project. A scanner watches a slice of session recordings (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, optionally with facet embeddings for downstream search). Each scanner returns its current configuration, enabled state, sampling rate, and `last_swept_at` timestamp.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List replay vision scanners",
+        "title": "List replay vision scanners",
+        "required_scopes": ["replay_scanner:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-get": {
+        "description": "Get a single scanner observation by ID. Returns the full `scanner_snapshot` (the scanner's configuration as it was at run time, for reproducibility across `scanner_version` bumps) and the full `scanner_result` including any event citations linking the LLM output back to specific events in the originating session. Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying recording.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get scanner observation",
+        "title": "Get scanner observation",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-observations-list": {
+        "description": "List the observations recorded by a single scanner. Each observation is one scan of one session and includes its `status` (pending/running/succeeded/failed), `triggered_by` (`schedule` or `on_demand`), `workflow_id`, the `scanner_result` (the LLM output validated against the scanner's response schema for that scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has found over time.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "List scanner observations",
+        "title": "List scanner observations",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-scan-session": {
+        "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Run scanner against a session now",
+        "title": "Run scanner against a session now",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
+    "vision-scanners-update": {
+        "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Update replay vision scanner",
+        "title": "Update replay vision scanner",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true,
+        "feature_flag": "replay-vision"
+    },
     "visual-review-repos-list": {
         "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
         "category": "Visual review",
@@ -5873,6 +6342,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-approve-create": {
+        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Approve visual review snapshots",
+        "title": "Approve visual review snapshots",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },
@@ -5941,7 +6426,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Paginated.",
+        "description": "List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -5953,6 +6438,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-tolerate-create": {
+        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline image.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Tolerate visual review snapshot",
+        "title": "Tolerate visual review snapshot",
+        "required_scopes": ["visual_review:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

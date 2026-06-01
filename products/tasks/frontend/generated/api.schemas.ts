@@ -199,6 +199,7 @@ export interface PaginatedTaskAutomationListApi {
  * `support_queue` - Support Queue
  * `session_summaries` - Session Summaries
  * `signal_report` - Signal Report
+ * `signals_scout` - Signals Scout
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -211,6 +212,7 @@ export const OriginProductEnumApi = {
     SupportQueue: 'support_queue',
     SessionSummaries: 'session_summaries',
     SignalReport: 'signal_report',
+    SignalsScout: 'signals_scout',
 } as const
 
 /**
@@ -344,6 +346,21 @@ export interface PatchedTaskApi {
      * @nullable
      */
     ci_prompt?: string | null
+}
+
+/**
+ * Request body for the presence beacon and beacon-leave endpoints.
+
+`device_id` is the UUID of the caller's `UserPushToken` row, which the
+client received when it registered for push via `/api/users/@me/push_tokens/`.
+The client is expected to use the same identifier on the beacon and leave
+calls; if the user has unregistered the underlying push token, the value
+won't resolve and the call returns 404 — at which point pushes were
+already not going there anyway.
+ */
+export interface TaskPresenceBeaconRequestApi {
+    /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
+    device_id: string
 }
 
 /**
@@ -1427,6 +1444,159 @@ export interface RepositoryReadinessResponseApi {
     scan?: ScanEvidenceApi
 }
 
+/**
+ * Slack-side identifiers and the mapping metadata for a thread → task lookup.
+ */
+export interface SlackThreadContextThreadApi {
+    /** Echoed input URL. */
+    url: string
+    /** Slack channel id parsed from the URL (e.g. C0ACRAMJUAG). */
+    channel: string
+    /** Slack thread_ts (e.g. 1779956938.619299). */
+    thread_ts: string
+    /**
+     * Slack workspace id (e.g. T…). Null when no mapping exists yet.
+     * @nullable
+     */
+    slack_workspace_id: string | null
+    /**
+     * The Slack user who triggered the task. Null when no mapping exists yet.
+     * @nullable
+     */
+    mentioning_slack_user_id: string | null
+}
+
+/**
+ * The PostHog Task linked to the Slack thread.
+ */
+export interface SlackThreadContextTaskApi {
+    /** UUID of the Task row. */
+    id: string
+    /** Team that owns the task. */
+    team_id: number
+    /** Task title (typically the first ~255 chars of the Slack ask). */
+    title: string
+    /**
+     * Resolved repository in `org/repo` form, or null if the run started without a repo.
+     * @nullable
+     */
+    repository: string | null
+    /** `Task.OriginProduct` (`slack` for slack-originated tasks). */
+    origin_product: string
+    /** When the task was created (server-side timestamp). */
+    created_at: string
+    /** Absolute URL to the task detail page in the PostHog app. */
+    url: string
+}
+
+/**
+ * The internal sandbox run the discovery agent used to pick this run's repo.
+
+Only present when the originating mention was ambiguous (multiple candidate
+repos, no explicit mention) — that's the only path that spins up a research
+sandbox. Null otherwise.
+ */
+export interface SlackThreadContextRepoResearchApi {
+    /** UUID of the internal repo-research Task. */
+    task_id: string
+    /** UUID of the internal repo-research TaskRun. */
+    run_id: string
+    /**
+     * Research run status, or null if the run row could not be loaded.
+     * @nullable
+     */
+    status: string | null
+    /** Temporal workflow id for the research sandbox run (`task-processing-<task_id>-<run_id>`). */
+    task_processing_workflow_id: string
+    /**
+     * Full Temporal Web UI URL for the research workflow; null when `TEMPORAL_UI_HOST` is unset.
+     * @nullable
+     */
+    task_processing_workflow_url: string | null
+    /**
+     * Live sandbox tunnel URL for the research run, when one was attached.
+     * @nullable
+     */
+    sandbox_url: string | null
+    /** Absolute URL to the research task detail page (carries `?ph_debug=true`). */
+    task_view_url: string
+    /**
+     * Presigned S3 URL for the research run's JSONL log transcript (valid ~1 hour).
+     * @nullable
+     */
+    log_url: string | null
+}
+
+/**
+ * One TaskRun and its associated Temporal workflow handles.
+ */
+export interface SlackThreadContextRunApi {
+    /** UUID of the TaskRun row. */
+    id: string
+    /** Run status (queued/in_progress/completed/failed/…). */
+    status: string
+    /** When the run was created. */
+    created_at: string
+    /**
+     * When the run reached a terminal state, or null while still running.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Live sandbox tunnel URL, when one was attached.
+     * @nullable
+     */
+    sandbox_url: string | null
+    /**
+     * PR URL produced by the run, when one was opened.
+     * @nullable
+     */
+    pr_url: string | null
+    /**
+     * Error captured on terminal failure, or null on success.
+     * @nullable
+     */
+    error_message: string | null
+    /** Temporal workflow id for the sandbox/agent run (`task-processing-<task_id>-<run_id>`). */
+    task_processing_workflow_id: string
+    /**
+     * Full Temporal Web UI URL for the task-processing workflow; null when `TEMPORAL_UI_HOST` is unset.
+     * @nullable
+     */
+    task_processing_workflow_url: string | null
+    /**
+     * Temporal workflow id of the Slack mention that dispatched this run (`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
+     * @nullable
+     */
+    mention_workflow_id: string | null
+    /**
+     * Full Temporal Web UI URL for the mention dispatch workflow; null when unavailable.
+     * @nullable
+     */
+    mention_workflow_url: string | null
+    /** Absolute URL to the task detail page focused on this run. */
+    task_view_url: string
+    /**
+     * Presigned S3 URL for the run's full JSONL log transcript (valid ~1 hour).
+     * @nullable
+     */
+    log_url: string | null
+    /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
+    repo_research: SlackThreadContextRepoResearchApi | null
+}
+
+/**
+ * Top-level response for the slack-thread debug endpoint.
+ */
+export interface SlackThreadContextResponseApi {
+    /** Slack-side identifiers and the mapping metadata. */
+    thread: SlackThreadContextThreadApi
+    /** Linked PostHog Task. Null when no mapping was found for the thread. */
+    task: SlackThreadContextTaskApi | null
+    /** All runs on the task, oldest first. Empty when no mapping was found. */
+    runs: SlackThreadContextRunApi[]
+}
+
 export interface TaskSummariesRequestApi {
     /**
      * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.
@@ -1615,6 +1785,14 @@ export type TasksRepositoryReadinessRetrieveParams = {
      * @maximum 30
      */
     window_days?: number
+}
+
+export type TasksSlackThreadContextRetrieveParams = {
+    /**
+     * Full Slack permalink to any message in the thread (e.g. https://posthog.slack.com/archives/C…/p1779956938619299). Replies inside the thread are accepted too — the `thread_ts` query param (when present) takes precedence over the in-path message ts.
+     * @minLength 1
+     */
+    url: string
 }
 
 export type TasksSummariesCreateParams = {

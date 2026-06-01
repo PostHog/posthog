@@ -75,18 +75,10 @@ posthog/tasks/exports/** @PostHog/team-analytics-platform
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-web-analytics
 products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-web-analytics
 
-# Feature Flags platform (the `/flags` endpoint + associated utils) - owned by @PostHog/team-flags-platform
-rust/feature-flags/ @PostHog/team-flags-platform
-posthog/models/feature_flag/flag_matching.py @PostHog/team-flags-platform
-
-# Feature Flags CRUD operations - owned by @PostHog/team-feature-flags and @PostHog/team-flags-platform
-posthog/models/feature_flag/ @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/api/feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/api/test/test_feature_flag_dependency_deletion.py @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/api/test/test_feature_flag_utils.py @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/api/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags @PostHog/team-flags-platform
-posthog/test/test_feature_flag.py @PostHog/team-feature-flags @PostHog/team-flags-platform
+# Feature Flags (Rust evaluator + remaining monolith tests) - owned by @PostHog/team-feature-flags
+# Note: the Django models and API moved to products/feature_flags/ (covered by products/feature_flags/product.yaml).
+rust/feature-flags/ @PostHog/team-feature-flags
+posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
 
 # Cohorts - owned by @PostHog/team-feature-flags
 posthog/api/cohort.py @PostHog/team-feature-flags
@@ -145,35 +137,38 @@ posthog/temporal/weekly-digest @PostHog/team-growth
 
 # AI observability - owned by @PostHog/team-ai-observability
 Dockerfile.llm-analytics @PostHog/team-ai-observability
-docs/onboarding/llm-analytics/** @PostHog/team-ai-observability
-frontend/src/scenes/onboarding/sdks/llm-analytics/ @PostHog/team-ai-observability
+docs/onboarding/ai-observability/** @PostHog/team-ai-observability
+frontend/src/scenes/onboarding/sdks/ai-observability/ @PostHog/team-ai-observability
 nodejs/src/ingestion/ai/ @PostHog/team-ai-observability
-nodejs/src/llm-analytics/ @PostHog/team-ai-observability
+nodejs/src/ai-observability/ @PostHog/team-ai-observability
 posthog/hogql/database/schema/ai_events.py @PostHog/team-ai-observability
 posthog/hogql_queries/ai/ @PostHog/team-ai-observability
 posthog/models/ai_events/ @PostHog/team-ai-observability
-posthog/tasks/llm_analytics_usage_report.py @PostHog/team-ai-observability
-posthog/tasks/test/test_llm_analytics_usage_report.py @PostHog/team-ai-observability
-posthog/templates/email/llm_analytics_*.html @PostHog/team-ai-observability
-posthog/temporal/llm_analytics/ @PostHog/team-ai-observability
-products/llm_analytics/** @PostHog/team-ai-observability
-services/mcp/src/generated/llm_analytics/ @PostHog/team-ai-observability
-services/mcp/src/tools/generated/llm_analytics.ts @PostHog/team-ai-observability
-services/mcp/src/tools/llmAnalytics/ @PostHog/team-ai-observability
+posthog/tasks/ai_observability_usage_report.py @PostHog/team-ai-observability
+posthog/tasks/test/test_ai_observability_usage_report.py @PostHog/team-ai-observability
+posthog/templates/email/ai_observability_*.html @PostHog/team-ai-observability
+posthog/temporal/ai_observability/ @PostHog/team-ai-observability
+products/ai_observability/** @PostHog/team-ai-observability
+products/llm_analytics/backend/migrations/** @PostHog/team-ai-observability
+services/mcp/src/generated/ai_observability/ @PostHog/team-ai-observability
+services/mcp/src/tools/generated/ai_observability.ts @PostHog/team-ai-observability
+services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
-# LLM Gateway - owned by @PostHog/team-llm-gateway
-nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-llm-gateway
-products/llm_analytics/backend/api/proxy.py @PostHog/team-llm-gateway
-products/llm_analytics/backend/api/test/test_proxy.py @PostHog/team-llm-gateway
-products/llm_analytics/frontend/playground/ @PostHog/team-llm-gateway
-services/llm-gateway/ @PostHog/team-llm-gateway
+# LLM Gateway - owned by @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
+products/ai_observability/backend/api/proxy.py @PostHog/team-ai-gateway
+products/ai_observability/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
+products/ai_observability/frontend/playground/ @PostHog/team-ai-gateway
+services/llm-gateway/ @PostHog/team-ai-gateway
 
 # DevEx-adjacent files - owned by @PostHog/team-devex
 .github/workflows/** @PostHog/team-devex
-.github/workflows/ci-llm-gateway.yml @PostHog/team-devex @PostHog/team-llm-gateway
-.github/workflows/llm-gateway-cd.yml @PostHog/team-devex @PostHog/team-llm-gateway
-.github/workflows/update-ai-costs.yml @PostHog/team-devex @PostHog/team-llm-gateway
+.github/workflows/ci-llm-gateway.yml @PostHog/team-devex @PostHog/team-ai-gateway
+.github/workflows/llm-gateway-cd.yml @PostHog/team-devex @PostHog/team-ai-gateway
+.github/workflows/update-ai-costs.yml @PostHog/team-devex @PostHog/team-ai-gateway
 .github/workflows/cd-llm-analytics-image.yml @PostHog/team-devex @PostHog/team-ai-observability
 .github/actions/** @PostHog/team-devex
 .github/dependabot.yml @PostHog/team-devex
@@ -188,7 +183,7 @@ tools/hogli-commands/ @PostHog/team-devex
 hogli.yaml @PostHog/team-devex
 tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex
-bin/start-llm-gateway @PostHog/team-devex @PostHog/team-llm-gateway
+bin/start-llm-gateway @PostHog/team-devex @PostHog/team-ai-gateway
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
 CLAUDE.md @PostHog/team-devex
@@ -202,6 +197,9 @@ tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
+
+# User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
+products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 
 # OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
 posthog/api/documentation.py @PostHog/team-devex

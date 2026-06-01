@@ -1525,7 +1525,7 @@ class TestUserAPI(APIBaseTest):
         """Test that prepare_toolbar_preloaded_flags creates a cache entry with feature flags"""
         from django.core.cache import cache
 
-        from posthog.models import FeatureFlag
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
         patched_token.return_value = "test-cache-key-123"
 
@@ -1697,6 +1697,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1716,6 +1717,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,
                 "organization_member_join_email_disabled": {},
                 "realtime_notifications_disabled": {},
+                "pipeline_notifications_disabled": {},
             },
         )
 
@@ -1892,6 +1894,45 @@ class TestUserAPI(APIBaseTest):
                 f"Patching {patched_key!r} clobbered {unrelated_key!r}"
             )
 
+    def test_pipeline_notifications_rejects_malformed_pipeline_ids(self):
+        for bad_key in [
+            "<script>alert(1)</script>",
+            "random_garbage_key",
+            "hog_function:",
+            "hog_function:not a uuid",
+            "unknown_type:abc",
+            "",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {bad_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, f"key {bad_key!r} was accepted")
+            self.assertEqual(response.json()["code"], "invalid_input")
+
+    def test_pipeline_notifications_accepts_valid_pipeline_ids(self):
+        for good_key in [
+            "hog_function:019dcf05-db1d-0000-682a-935c8e1ad2c9",
+            "batch_export:019dcf05-dac4-0000-07d4-cf53026deba6",
+            "plugin_config:42",
+        ]:
+            response = self.client.patch(
+                "/api/users/@me/",
+                {"notification_settings": {"pipeline_notifications_disabled": {good_key: True}}},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, f"key {good_key!r} was rejected")
+
+    def test_pipeline_notifications_caps_total_entries(self):
+        from posthog.api.user import MAX_PIPELINE_NOTIFICATIONS
+
+        too_many = {f"hog_function:fake-{i}": True for i in range(MAX_PIPELINE_NOTIFICATIONS + 1)}
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"notification_settings": {"pipeline_notifications_disabled": too_many}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("more than", response.json()["detail"])
+
     def test_invalid_notification_settings_returns_error(self):
         response = self.client.patch("/api/users/@me/", {"notification_settings": {"invalid_key": True}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -1944,6 +1985,7 @@ class TestUserAPI(APIBaseTest):
                 "web_analytics_weekly_digest": True,  # Default value
                 "organization_member_join_email_disabled": {},  # Default value
                 "realtime_notifications_disabled": {},  # Default value
+                "pipeline_notifications_disabled": {},  # Default value
             },
         )
 
@@ -2614,6 +2656,51 @@ class TestUserTwoFactor(APIBaseTest):
                 "passkeys_enabled_for_2fa": False,
             },
         )
+
+    @parameterized.expand(
+        [
+            # name, has_totp, passkey_state, passkeys_enabled_for_2fa, expected_is_2fa_enabled
+            ("no_factor", False, None, False, False),
+            ("totp_only", True, None, False, True),
+            ("passkey_enabled_for_2fa", False, "verified", True, True),
+            ("passkey_present_but_disabled_for_2fa", False, "verified", False, False),
+            ("unverified_passkey_enabled_for_2fa", False, "unverified", True, False),
+        ]
+    )
+    def test_user_me_is_2fa_enabled(
+        self,
+        _name: str,
+        has_totp: bool,
+        passkey_state: str | None,
+        passkeys_enabled_for_2fa: bool,
+        expected_is_2fa_enabled: bool,
+    ):
+        """
+        /api/users/@me/.is_2fa_enabled must reflect passkey-2FA, not only TOTP — otherwise the
+        frontend keeps reopening the enforce-2FA setup modal even after the user has a passkey
+        configured as their second factor.
+        """
+        from posthog.models.webauthn_credential import WebauthnCredential
+
+        if has_totp:
+            TOTPDevice.objects.create(user=self.user, name="default", confirmed=True)
+        if passkey_state is not None:
+            WebauthnCredential.objects.create(
+                user=self.user,
+                credential_id=b"cred",
+                label="Test Passkey",
+                public_key=b"pk",
+                algorithm=-7,
+                counter=0,
+                transports=["internal"],
+                verified=(passkey_state == "verified"),
+            )
+        self.user.passkeys_enabled_for_2fa = passkeys_enabled_for_2fa
+        self.user.save(update_fields=["passkeys_enabled_for_2fa"])
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["is_2fa_enabled"], expected_is_2fa_enabled)
 
     @patch("posthog.api.user.default_device")
     def test_two_factor_backup_codes_generation(self, mock_default_device):

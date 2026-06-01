@@ -20,7 +20,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException

@@ -5,6 +5,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import User
+
 from products.conversations.backend.events import (
     EVENT_SOURCE,
     capture_message_received,
@@ -215,7 +218,6 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("identified_person", True, True, True),
             ("anonymous_person", True, False, False),
             ("no_person", False, False, False),
             ("empty_distinct_id", False, False, False),
@@ -252,13 +254,51 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is expect_groups
-        if expect_groups:
-            groups = call_kwargs["properties"]["$groups"]
-            assert groups["organization"] == str(self.team.organization_id)
-            assert groups["project"] == str(self.team.uuid)
-            assert "instance" in groups
-        else:
-            assert "$groups" not in call_kwargs["properties"]
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_groups_from_person_org(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Person Org")
+        person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == str(person_org.id)
+        assert groups["project"] == str(self.team.uuid)
+        assert "instance" in groups
+
+    @parameterized.expand(
+        [
+            ("user_not_found", False, False),
+            ("user_has_no_membership", True, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_no_groups_when(
+        self, _name, create_user, create_membership, mock_get_persons, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        if create_user:
+            User.objects.create(email="lonely@example.com", distinct_id="customer-123")
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
 
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))

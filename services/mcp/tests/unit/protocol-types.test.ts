@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { MCPClientProfile } from '@/lib/client-detection'
 import { resolveModeAndVersion } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
 
 describe('resolveModeAndVersion', () => {
     function profile(overrides: Partial<ConstructorParameters<typeof MCPClientProfile>[0]> = {}): MCPClientProfile {
@@ -10,55 +10,51 @@ describe('resolveModeAndVersion', () => {
 
     const base = {
         mode: undefined as undefined,
-        singleExecFlagOn: false,
         clientProfile: profile(),
         flagVersion: undefined as number | undefined,
         clientVersion: undefined as number | undefined,
     }
 
     it('defaults to version 1, no single exec', () => {
-        expect(resolveModeAndVersion(base)).toEqual({ useSingleExec: false, version: 1 })
+        expect(resolveModeAndVersion(base)).toEqual({ mode: 'tools', useSingleExec: false, version: 1 })
     })
 
     it('explicit mode=cli forces single exec and version 2', () => {
         expect(resolveModeAndVersion({ ...base, mode: 'cli' })).toEqual({
+            mode: 'cli',
             useSingleExec: true,
             version: 2,
         })
     })
 
-    it('explicit mode=tools disables single exec even when flag is on for a coding agent', () => {
+    it('explicit mode=tools disables single exec even for a coding agent', () => {
         const result = resolveModeAndVersion({
             ...base,
             mode: 'tools',
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('coding agent with flag on activates single exec', () => {
+    it('coding agent activates single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'claude-code' }),
         })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true, version: 2 })
     })
 
-    it('non-coding agent with flag on does NOT activate single exec', () => {
+    it('non-coding agent does NOT activate single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ clientName: 'some-dashboard-client' }),
         })
         expect(result.useSingleExec).toBe(false)
     })
 
-    it('flag on + PostHog code consumer activates single exec', () => {
+    it('PostHog code consumer activates single exec', () => {
         const result = resolveModeAndVersion({
             ...base,
-            singleExecFlagOn: true,
             clientProfile: profile({ consumer: 'posthog-code' }),
         })
         expect(result.useSingleExec).toBe(true)
@@ -66,12 +62,12 @@ describe('resolveModeAndVersion', () => {
 
     it('uses flagVersion when not in single exec mode', () => {
         const result = resolveModeAndVersion({ ...base, flagVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
+        expect(result).toEqual({ mode: 'tools', useSingleExec: false, version: 2 })
     })
 
     it('clientVersion overrides default when no flagVersion', () => {
         const result = resolveModeAndVersion({ ...base, clientVersion: 2 })
-        expect(result).toEqual({ useSingleExec: false, version: 2 })
+        expect(result).toEqual({ mode: 'tools', useSingleExec: false, version: 2 })
     })
 
     it('flagVersion takes precedence over clientVersion', () => {
@@ -81,6 +77,6 @@ describe('resolveModeAndVersion', () => {
 
     it('single exec always forces version 2 regardless of flagVersion', () => {
         const result = resolveModeAndVersion({ ...base, mode: 'cli', flagVersion: 1 })
-        expect(result).toEqual({ useSingleExec: true, version: 2 })
+        expect(result).toEqual({ mode: 'cli', useSingleExec: true, version: 2 })
     })
 })

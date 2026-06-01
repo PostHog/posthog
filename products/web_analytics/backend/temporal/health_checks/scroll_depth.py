@@ -1,7 +1,7 @@
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -24,6 +24,14 @@ class ScrollDepthCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 1 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        return AlertContent(
+            title="Scroll-depth tracking disabled",
+            summary=issue.payload.get("reason", "$pageleave events have no scroll-depth metadata"),
+            link="/web/health",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

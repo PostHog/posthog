@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from rest_framework.test import APIClient
 
@@ -41,9 +41,9 @@ class TestPostHogCodeInteractivityHandler(TestCase):
         response = self.client.get("/slack/interactivity-callback/")
         assert response.status_code == 405
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_invalid_signature_returns_403(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
         response = self._post_interactivity({"type": "block_suggestion"})
         assert response.status_code == 403
 
@@ -60,7 +60,7 @@ class TestRepoPickerOptions(TestCase):
         OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
@@ -96,9 +96,9 @@ class TestRepoPickerOptions(TestCase):
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_returns_filtered_repos(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js", "posthog/hogvm"]
 
         payload = {
@@ -115,9 +115,9 @@ class TestRepoPickerOptions(TestCase):
         assert options[0]["value"] == "posthog/posthog-js"
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_empty_query_returns_all(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
 
         payload = {
@@ -131,9 +131,9 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert len(response.json()["options"]) == 2
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_wrong_user_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_suggestion",
@@ -146,9 +146,9 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         assert response.json()["options"] == []
 
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_expired_token_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         cache.delete(f"posthog_code_repo_picker_ctx:{self.context_token}")
 
         payload = {
@@ -165,11 +165,11 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_signals_temporal_workflow(
         self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
     ):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_webclient_class.return_value = MagicMock()
         self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
         cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
@@ -199,11 +199,11 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_no_repo_button_signals_temporal_workflow(
         self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
     ):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_webclient_class.return_value = MagicMock()
         self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
         cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
@@ -233,9 +233,9 @@ class TestRepoPickerOptions(TestCase):
         assert "without a repository" in update_call["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         self.context_payload.pop("workflow_id", None)
@@ -263,7 +263,7 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_signal_failure_posts_expired(
         self,
         mock_config,
@@ -271,7 +271,7 @@ class TestRepoPickerOptions(TestCase):
         mock_asyncio_run,
         mock_webclient_class,
     ):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
@@ -300,9 +300,9 @@ class TestRepoPickerOptions(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_terminate_action_starts_temporal_workflow(self, mock_config, mock_sync_connect, mock_asyncio_run):
-        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_actions",
@@ -527,3 +527,238 @@ class TestRepoPickerOptions(TestCase):
 
         mock_sync_connect.assert_not_called()
         mock_slack_client.chat_postMessage.assert_not_called()
+
+
+@override_settings(DEBUG=False)
+class TestInteractivityRegionRouting(TestCase):
+    """Region-aware proxying for /slack/interactivity-callback.
+
+    The handler accepts interactivity from whichever region Slack delivers to and either handles
+    locally or forwards once to the other region. Unlike event-callback, no cross-region lookup
+    is involved — the payload's integration_id uniquely identifies the owning row.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.client = APIClient()
+        self.signing_secret = "posthog-code-test-secret"
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.posthog_code_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack-posthog-code",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-posthog-code-test"},
+        )
+
+    def _post(self, payload: dict, *, host: str = "us.posthog.com", **extra_headers) -> Any:
+        payload = {"team": {"id": "T12345"}, **payload}
+        body_str = f"payload={json.dumps(payload)}"
+        body = body_str.encode()
+        signature, ts = sign_slack_request(body, self.signing_secret)
+        return self.client.post(
+            "/slack/interactivity-callback/",
+            data=body_str,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_HOST=host,
+            HTTP_X_SLACK_SIGNATURE=signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            **extra_headers,
+        )
+
+    def _local_picker_payload(self) -> dict:
+        # block_id "posthog_code_repo_picker_v1:<token>" + a cached context that points at our
+        # local integration is the simplest way to drive the "local" branch in the handler.
+        token = "ctx-local-1"
+        cache.set(
+            f"posthog_code_repo_picker_ctx:{token}",
+            {
+                "integration_id": self.posthog_code_integration.id,
+                "channel": "C001",
+                "thread_ts": "1234.5678",
+                "user_message_ts": "1234.5678",
+                "mentioning_slack_user_id": "U123",
+                "event_text": "fix the bug",
+                "created_at": int(time.time()),
+            },
+            timeout=900,
+        )
+        return {
+            "type": "block_suggestion",
+            "action_id": "posthog_code_repo_select",
+            "value": "",
+            "user": {"id": "U123"},
+            "block_id": f"posthog_code_repo_picker_v1:{token}",
+        }
+
+    def _foreign_picker_payload(self) -> dict:
+        # Hints/context point at an integration that is NOT in this DB, so the local check misses.
+        return {
+            "type": "block_suggestion",
+            "action_id": "posthog_code_repo_select",
+            "value": "",
+            "user": {"id": "U999"},
+            "block_id": "posthog_code_repo_picker_v1:no-such-token",
+        }
+
+    def _foreign_action_payload(self) -> dict:
+        return {
+            "type": "block_actions",
+            "user": {"id": "U999"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_repo_select",
+                    "block_id": "posthog_code_repo_picker_v1:no-such-token",
+                    "selected_option": {"value": "posthog/posthog"},
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "message": {"ts": "1234.9999"},
+        }
+
+    @staticmethod
+    def _proxy_response(status_code: int, content: bytes = b"", content_type: str = "application/json") -> MagicMock:
+        upstream = MagicMock()
+        upstream.status_code = status_code
+        upstream.content = content
+        upstream.headers = {"Content-Type": content_type}
+        return upstream
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api._get_full_repo_names", return_value=["posthog/posthog"])
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_local_match_handles_without_proxy(self, mock_config, _mock_repos, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        response = self._post(self._local_picker_payload(), host="us.posthog.com")
+        assert response.status_code == 200
+        mock_proxy.assert_not_called()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_us_no_local_proxies_to_eu(self, mock_config, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = self._proxy_response(200, b'{"forwarded": true}')
+
+        response = self._post(self._foreign_picker_payload(), host="us.posthog.com")
+
+        assert response.status_code == 200
+        assert response.content == b'{"forwarded": true}'
+        mock_proxy.assert_called_once()
+        assert mock_proxy.call_args.args[1] == "eu.posthog.com"
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_eu_no_local_proxies_to_us(self, mock_config, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = self._proxy_response(200, b'{"forwarded": true}')
+
+        response = self._post(self._foreign_picker_payload(), host="eu.posthog.com")
+
+        assert response.status_code == 200
+        mock_proxy.assert_called_once()
+        assert mock_proxy.call_args.args[1] == "us.posthog.com"
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_loop_header_skips_proxy_block_suggestion_returns_empty_options(self, mock_config, mock_proxy):
+        # The loop header is what guarantees at-most-one hop. If we receive a payload that we
+        # don't own AND the header is set, the other region already deferred — there is no
+        # second region to try, so we must return Slack-safe defaults instead of proxying.
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+
+        response = self._post(
+            self._foreign_picker_payload(),
+            host="eu.posthog.com",
+            headers={"x-posthog-region-proxied": "1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"options": []}
+        mock_proxy.assert_not_called()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_loop_header_skips_proxy_block_actions_returns_200(self, mock_config, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+
+        response = self._post(
+            self._foreign_action_payload(),
+            host="eu.posthog.com",
+            headers={"x-posthog-region-proxied": "1"},
+        )
+
+        assert response.status_code == 200
+        mock_proxy.assert_not_called()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_proxy_failure_returns_502_for_actions(self, mock_config, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = None
+
+        response = self._post(self._foreign_action_payload(), host="us.posthog.com")
+
+        assert response.status_code == 502
+        mock_proxy.assert_called_once()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_proxy_failure_returns_empty_options_for_suggestion(self, mock_config, mock_proxy):
+        # block_suggestion has a tight render budget on Slack's side; a 502 would surface as a
+        # spinner-then-error in the dropdown. Empty options keeps the UI responsive instead.
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = None
+
+        response = self._post(self._foreign_picker_payload(), host="us.posthog.com")
+
+        assert response.status_code == 200
+        assert response.json() == {"options": []}
+        mock_proxy.assert_called_once()
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_proxy_relays_content_type_verbatim(self, mock_config, mock_proxy):
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        mock_proxy.return_value = self._proxy_response(201, b"<xml/>", content_type="application/xml")
+
+        response = self._post(self._foreign_picker_payload(), host="us.posthog.com")
+
+        assert response.status_code == 201
+        assert response["Content-Type"] == "application/xml"
+        assert response.content == b"<xml/>"
+
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
+    def test_terminate_hints_local_handles(self, mock_config, mock_sync_connect, _mock_asyncio_run, mock_proxy):
+        # Terminate buttons embed integration_id in the action value (not context_token). When
+        # the value points at a row in this DB, we must handle locally without consulting the
+        # other region — even when the loop header is absent.
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_terminate_task",
+                    "value": json.dumps(
+                        {
+                            "run_id": "run-1",
+                            "integration_id": self.posthog_code_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+
+        response = self._post(payload, host="us.posthog.com")
+
+        assert response.status_code == 200
+        mock_proxy.assert_not_called()
+        mock_sync_connect.assert_called_once()
+        mock_sync_connect.return_value.start_workflow.assert_called_once()

@@ -98,10 +98,11 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'support_queue',
             'session_summaries',
             'signal_report',
+            'signals_scout',
         ])
         .optional()
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
         ),
     repository: zod.string().max(tasksCreateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
@@ -152,10 +153,11 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'support_queue',
             'session_summaries',
             'signal_report',
+            'signals_scout',
         ])
         .optional()
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
         ),
     repository: zod.string().max(tasksUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
@@ -206,10 +208,11 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'support_queue',
             'session_summaries',
             'signal_report',
+            'signals_scout',
         ])
         .optional()
         .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report'
+            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout'
         ),
     repository: zod.string().max(tasksPartialUpdateBodyRepositoryMax).nullish(),
     github_integration: zod.number().nullish().describe('GitHub integration for this task'),
@@ -238,6 +241,22 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
     ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
 })
+
+/**
+ * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
+ * @summary Beacon presence for a device watching this task
+ */
+export const TasksPresenceCreateBody = /* @__PURE__ */ zod
+    .object({
+        device_id: zod
+            .uuid()
+            .describe(
+                "UUID of the caller's UserPushToken (returned by `\/api\/users\/@me\/push_tokens\/` on register)."
+            ),
+    })
+    .describe(
+        "Request body for the presence beacon and beacon-leave endpoints.\n\n`device_id` is the UUID of the caller's `UserPushToken` row, which the\nclient received when it registered for push via `\/api\/users\/@me\/push_tokens\/`.\nThe client is expected to use the same identifier on the beacon and leave\ncalls; if the user has unregistered the underlying push token, the value\nwon't resolve and the call returns 404 — at which point pushes were\nalready not going there anyway."
+    )
 
 /**
  * Create a new task run and kick off the workflow.

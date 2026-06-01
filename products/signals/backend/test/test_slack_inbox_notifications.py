@@ -89,7 +89,7 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert "Inbox" in context_text
     button = blocks[3]["elements"][0]
     assert button["text"]["text"] == "Open in PostHog Code"
-    assert button["url"] == "posthog-code-dev://inbox/report-uuid"
+    assert button["url"] == "posthog-code://inbox/report-uuid"
     assert text == "Inbox for Marcus Twix (P1): Checkout errors spiked"
 
 
@@ -285,7 +285,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert "Inbox for Reviewer Bot (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Inbox for <@U_REVIEWER> · P1"
-    assert blocks[3]["elements"][0]["url"] == f"posthog-code-dev://inbox/{report.id}"
+    assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
 
 
 @pytest.mark.django_db

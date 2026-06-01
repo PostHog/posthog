@@ -43,7 +43,7 @@ import {
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { llmAnalyticsColumnRenderers } from 'products/llm_analytics/frontend/llmAnalyticsColumnRenderers'
+import { aiObservabilityColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityColumnRenderers'
 
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
@@ -52,7 +52,7 @@ export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen
 // Registry for product-specific column renderers
 // Products can add their custom column renderers here to have them automatically applied across all DataTable instances
 const productColumnRenderers: Record<string, QueryContextColumn> = {
-    ...llmAnalyticsColumnRenderers,
+    ...aiObservabilityColumnRenderers,
     ...sessionColumnRenderers,
 }
 
@@ -347,7 +347,9 @@ export function renderColumn(
         const noPopover = isActorsQuery(query.source)
         const displayProps: PersonDisplayProps = {
             withIcon: true,
-            person: { id: value.id, distinct_id: value.distinct_id },
+            // `properties: {}` marks this row as an identified profile so PersonDisplay still renders the link;
+            // the server-side `person_display_name` column omits `properties` even though these rows are profiled.
+            person: { id: value.id, distinct_id: value.distinct_id, properties: {} },
             displayName: value.display_name,
             noPopover,
         }

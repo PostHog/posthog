@@ -31,7 +31,7 @@
         "@types/jest-image-snapshot": "^6.4.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
-        "@vitejs/plugin-react": "^4.3.4",
+        "@vitejs/plugin-react": "^4.7.0",
         "jest-image-snapshot": "^6.4.0",
         "storybook": "^7.6.21",
         "storybook-addon-pseudo-states": "2.1.2",
