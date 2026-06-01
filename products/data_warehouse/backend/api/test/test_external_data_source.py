@@ -1,3 +1,4 @@
+import json
 import uuid
 import typing as t
 from typing import cast
@@ -579,6 +580,149 @@ class TestExternalDataSource(APIBaseTest):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
+
+    def _make_external_data_source(
+        self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix=prefix,
+            deleted=deleted,
+            job_inputs={},
+        )
+
+    @parameterized.expand(
+        [
+            # (description, existing_sources, requested_prefix, expected_status, expected_message)
+            ("empty team allows no prefix", [], "", 200, None),
+            ("empty team allows any prefix", [], "foo_", 200, None),
+            (
+                "only prefixed sources allow new no-prefix source",
+                [("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "only prefixed sources allow new distinct prefix",
+                [("foo_", False)],
+                "baz_",
+                200,
+                None,
+            ),
+            (
+                "duplicate prefix is rejected",
+                [("foo_", False)],
+                "foo_",
+                400,
+                "Prefix already exists",
+            ),
+            (
+                "no-prefix source (null) blocks another no-prefix",
+                [(None, False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source (empty string) blocks another no-prefix",
+                [("", False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source still allows a prefixed source",
+                [(None, False)],
+                "foo_",
+                200,
+                None,
+            ),
+            (
+                # Regression: GitHub issue #60559
+                "soft-deleted no-prefix source does not block recreation",
+                [(None, True), ("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "soft-deleted prefix does not block reuse",
+                [("foo_", True)],
+                "foo_",
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_source_prefix_validation(
+        self,
+        _description: str,
+        existing_sources: list[tuple[t.Optional[str], bool]],
+        requested_prefix: str,
+        expected_status: int,
+        expected_message: t.Optional[str],
+    ) -> None:
+        for prefix, deleted in existing_sources:
+            self._make_external_data_source(source_type="Postgres", prefix=prefix, deleted=deleted)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={"source_type": "Postgres", "prefix": requested_prefix},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_message is not None:
+            self.assertEqual(response.json(), {"message": expected_message})
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_can_recreate_no_prefix_source_after_deletion(self, _mock_validate):
+        # Regression for GitHub #60559: deleting the only no-prefix source of a
+        # type must allow recreating one with the same (empty) prefix, even when
+        # other prefixed sources of the same type still exist.
+        self._make_external_data_source(source_type="Stripe", prefix="foo_")
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.json())
+        source_id = create_response.json()["id"]
+
+        delete_response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source_id}")
+        self.assertEqual(delete_response.status_code, 204)
+
+        recreate_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(recreate_response.status_code, 201, recreate_response.json())
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -1242,11 +1386,15 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
+        "products.data_warehouse.backend.api.external_data_source.bulk_delete_external_data_schedules",
+        return_value=[("schema-id", Exception("Schema schedule delete failed"))],
+    )
+    @patch(
         "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
         side_effect=Exception("External delete failed"),
     )
     def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
-        self, _mock_delete_schedule, mock_capture_exception
+        self, _mock_delete_schedule, _mock_bulk_delete, mock_capture_exception
     ):
         source = self._create_external_data_source()
         table = DataWarehouseTable.objects.create(
@@ -3744,6 +3892,191 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    def _custom_source(self, base_url: str, resource_paths: list[str] | None = None) -> ExternalDataSource:
+        paths = resource_paths if resource_paths is not None else ["/users"]
+        manifest = {
+            "client": {"base_url": base_url, "auth": {"type": "api_key", "name": "key", "location": "query"}},
+            "resources": [{"name": f"resource_{i}", "endpoint": {"path": p}} for i, p in enumerate(paths)],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_src",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_api_key": "sk_existing"},
+        )
+
+    @parameterized.expand([("without_credentials", {}, 400), ("with_credentials", {"auth_api_key": "sk_new"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_manifest_host_change(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The custom source's host lives inside the manifest. Retargeting it to a new host requires
+        # re-supplying the secret; without it the preserved credential would reach a server the editor
+        # chose, so the change is rejected and nothing is persisted.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        persisted_host = "attacker.example.net" if expected_status == 200 else "api.example.com"
+        assert persisted_host in source.job_inputs["manifest_json"]
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_ambiguous_authority_host_change_is_rejected(self, mock_validate_credentials):
+        # `https://attacker\@api.example.com/` connects to `attacker` (urllib3/WHATWG) but parses as
+        # `api.example.com` under naive urlparse — the guard must see the real host and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net\\@api.example.com/",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_same_host_manifest_edit_keeps_credentials(self, mock_validate_credentials):
+        # Editing a manifest without introducing a new host (e.g. tweaking a path) must not force
+        # the user to re-enter the credential — the destination is unchanged.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/v2/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_path_param_host_injection_is_rejected(self, mock_validate_credentials):
+        # The new host is hidden in a path-param value (resolved into the path at sync time), not the
+        # literal path — the guard must still detect it and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {
+                    "name": "users",
+                    "endpoint": {"path": "{target}", "params": {"target": "https://attacker.example.net/"}},
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_adding_cross_host_resource_is_rejected(self, mock_validate_credentials):
+        # base_url is unchanged, but a resource now points at a brand-new host — the credential would
+        # reach a destination it wasn't going to before, so re-entry is still required.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {"name": "users", "endpoint": {"path": "/users"}},
+                {"name": "leak", "endpoint": {"path": "https://attacker.example.net/data"}},
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_removing_host_does_not_require_credentials(self, mock_validate_credentials):
+        # Dropping a resource removes a destination host. That can't leak the credential anywhere new,
+        # so it must not force the user to re-enter it.
+        source = self._custom_source("https://api.example.com", resource_paths=["/users", "https://cdn.other.net/data"])
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
@@ -5040,6 +5373,36 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    def test_create_custom_source_rejected_when_team_ineligible(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "custom_",
+                "payload": {"manifest_json": "{}"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Custom REST source is not available for this team."
+
+    def test_create_custom_source_allowed_when_team_eligible(self):
+        with patch(
+            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
+            return_value=True,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Custom",
+                    "prefix": "custom_",
+                    "payload": {"manifest_json": "{}"},
+                },
+            )
+        # Past the team gate, the request fails later on the (empty) manifest rather
+        # than on availability — i.e. the eligibility check no longer blocks it.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] != "Custom REST source is not available for this team."
 
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""

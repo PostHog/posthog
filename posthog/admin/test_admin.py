@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,14 +6,19 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
-from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides
+from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
-from posthog.admin.admins.user_admin import UserAdmin
+from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
 from posthog.models import User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 
 from products.cdp.backend.admin.plugin_attachment_inline import PluginAttachmentInline
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
 class TestOAuthSidebarRegrouping(BaseTest):
@@ -111,6 +117,14 @@ class TestUserAdmin(BaseTest):
 
         assert self.search_user_ids("missing-distinct-id") == []
 
+    def test_clean_passkeys_enabled_for_2fa_rejects_when_user_has_no_verified_passkey(self) -> None:
+        from django.core.exceptions import ValidationError
+
+        form = UserChangeForm(instance=self.user)
+        form.cleaned_data = {"passkeys_enabled_for_2fa": True}
+        with self.assertRaises(ValidationError):
+            form.clean_passkeys_enabled_for_2fa()
+
 
 class TestPluginAttachmentInline(BaseTest):
     def test_parsed_json_escapes_html_in_values(self):
@@ -162,6 +176,23 @@ class TestEventIngestionRestrictionConfigAdminConfig:
         admin_instance = EventIngestionRestrictionConfigAdmin(EventIngestionRestrictionConfig, AdminSite())
         assert "display_team_id" in admin_instance.list_display
         assert "display_team_id" in admin_instance.readonly_fields
+
+
+class TestProductAdminRegistration:
+    # Regression guard: these models live in product apps (`products/cdp`,
+    # `products/workflows`) whose admin classes are split across submodules of an
+    # `admin/` package. `autodiscover_modules("admin")` only imports the package's
+    # `__init__`, so it must import those submodules for the `@admin.register`
+    # decorators to fire — otherwise the models silently vanish from Django admin.
+    @pytest.mark.parametrize(
+        "model",
+        [HogFlow, HogFlowTemplate, HogFlowBatchJob, HogFunction, Plugin, PluginConfig],
+        ids=lambda m: m.__name__,
+    )
+    def test_moved_product_models_are_registered(self, model):
+        # Tests skip the lazy admin registry, so trigger registration explicitly.
+        register_all_admin()
+        assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"
 
 
 class TestOrganizationMemberInlineConfig(BaseTest):

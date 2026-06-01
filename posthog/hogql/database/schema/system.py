@@ -15,6 +15,12 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.account_aggregates import (
+    _account_resource_notebooks,
+    _account_tagged_items,
+    account_notebooks_lazy_join,
+    account_tags_lazy_join,
+)
 from posthog.hogql.parser import parse_expr
 
 
@@ -145,9 +151,27 @@ accounts: PostgresTable = PostgresTable(
             name="zendesk_id",
             expr=parse_expr("JSONExtractString(properties, 'zendesk_id')"),
         ),
+        "csm": ExpressionField(
+            name="csm",
+            expr=parse_expr("JSONExtract(properties, 'csm', 'Tuple(id Nullable(Int64), email Nullable(String))')"),
+        ),
+        "account_executive": ExpressionField(
+            name="account_executive",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_executive', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
+        "account_owner": ExpressionField(
+            name="account_owner",
+            expr=parse_expr(
+                "JSONExtract(properties, 'account_owner', 'Tuple(id Nullable(Int64), email Nullable(String))')"
+            ),
+        ),
         "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at", nullable=True),
+        "tags": account_tags_lazy_join,
+        "notebooks": account_notebooks_lazy_join,
     },
 )
 
@@ -1146,17 +1170,92 @@ sandbox_environments: PostgresTable = PostgresTable(
     },
 )
 
+business_knowledge_sources: PostgresTable = PostgresTable(
+    name="business_knowledge_sources",
+    postgres_table_name="posthog_business_knowledge_knowledgesource",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message"),
+        "source_url": StringDatabaseField(name="source_url"),
+        "crawl_mode": StringDatabaseField(name="crawl_mode"),
+        "original_filename": StringDatabaseField(name="original_filename"),
+        "file_content_type": StringDatabaseField(name="file_content_type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_documents: PostgresTable = PostgresTable(
+    name="business_knowledge_documents",
+    postgres_table_name="posthog_business_knowledge_knowledgedocument",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "stable_id": StringDatabaseField(name="stable_id"),
+        "title": StringDatabaseField(name="title"),
+        "url": StringDatabaseField(name="url"),
+        "content_hash": StringDatabaseField(name="content_hash"),
+        "tombstoned_at": DateTimeDatabaseField(name="tombstoned_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_chunks: PostgresTable = PostgresTable(
+    name="business_knowledge_chunks",
+    postgres_table_name="posthog_business_knowledge_knowledgechunk",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "document_id": StringDatabaseField(name="document_id"),
+        "heading_path": StringDatabaseField(name="heading_path"),
+        "ordinal": IntegerDatabaseField(name="ordinal"),
+        "content": StringDatabaseField(name="content"),
+        "char_count": IntegerDatabaseField(name="char_count"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
+
+tags: PostgresTable = PostgresTable(
+    name="tags",
+    postgres_table_name="posthog_tag",
+    fields={
+        "id": UUIDDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
+        "_account_tagged_items": TableNode(name="_account_tagged_items", table=_account_tagged_items, hidden=True),
+        "_account_resource_notebooks": TableNode(
+            name="_account_resource_notebooks", table=_account_resource_notebooks, hidden=True
+        ),
         "activity_logs": TableNode(name="activity_logs", table=activity_logs),
         "actions": TableNode(name="actions", table=actions),
         "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
+        "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
+        "business_knowledge_documents": TableNode(
+            name="business_knowledge_documents", table=business_knowledge_documents
+        ),
+        "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
@@ -1211,6 +1310,7 @@ class SystemTables(TableNode):
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),
+        "tags": TableNode(name="tags", table=tags),
         "tasks": TableNode(name="tasks", table=tasks),
         "teams": TableNode(name="teams", table=teams),
         "trace_review_scores": TableNode(name="trace_review_scores", table=trace_review_scores),

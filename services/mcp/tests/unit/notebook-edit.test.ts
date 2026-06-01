@@ -105,7 +105,11 @@ describe('editHandler subtree replacement compatibility', () => {
             new_value: { type: 'text', text: 'First paragraph EDITED.' },
         })
 
-        expect(result).toEqual(updatedNotebook)
+        expect(result).toEqual({
+            ...updatedNotebook,
+            applied_edits: 1,
+            _posthogUrl: 'https://app.posthog.com/project/42/notebooks/aBcD1234',
+        })
         expect(state.saveCalls).toHaveLength(1)
         expect(state.saveCalls[0]!.body.version).toBe(7)
         expect(JSON.stringify(state.saveCalls[0]!.body.content)).toContain('First paragraph EDITED.')
