@@ -74,7 +74,7 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         report,
         priority="P1",
         source_products=["error_tracking"],
-        recipient=recipient,
+        recipients=[recipient],
     )
 
     assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
@@ -95,6 +95,23 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert text == "Inbox for Marcus Twix (P1): Checkout errors spiked"
 
 
+def test_build_message_blocks_names_all_recipients_when_channel_shared() -> None:
+    report = SignalReport(id="report-uuid", title="Shared channel report")
+    recipients = [
+        _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix"),
+        _RecipientPresentation(slack_mention=None, plain_name="Dana Snickers"),
+    ]
+    blocks, text = _build_message_blocks(
+        report,
+        priority="P2",
+        source_products=[],
+        recipients=recipients,
+    )
+
+    assert blocks[1]["text"]["text"].startswith("*❗ P2 • Matched to <@U123>, Dana Snickers per code*")
+    assert text == "Inbox for Marcus Twix, Dana Snickers (P2): Shared channel report"
+
+
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
@@ -108,7 +125,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
         report,
         priority="P1",
         source_products=["error_tracking"],
-        recipient=recipient,
+        recipients=[recipient],
         implementation_pr_url=pr_url,
     )
 
@@ -126,7 +143,7 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         report,
         priority=None,
         source_products=[],
-        recipient=recipient,
+        recipients=[recipient],
         implementation_pr_url=None,
     )
 
@@ -151,7 +168,7 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         report,
         priority=priority,
         source_products=[],
-        recipient=recipient,
+        recipients=[recipient],
     )
 
     assert blocks[1]["text"]["text"] == f"*{expected_priority_label} • Matched to <@U123> per code*"
@@ -390,6 +407,80 @@ def test_dispatch_ignores_slack_config_from_another_team(org_and_team):
 
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_team):
+    org, team = org_and_team
+    user1 = _make_reviewer_user(org, "shared1@example.com", "shared-login-1")
+    user2 = _make_reviewer_user(org, "shared2@example.com", "shared-login-2")
+    integration = _make_slack_integration(team, user1)
+    # Both reviewers point at the same channel — the display label differs but the id is identical.
+    SignalUserAutonomyConfig.objects.create(
+        user=user1,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    SignalUserAutonomyConfig.objects.create(
+        user=user2,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox-alias",
+    )
+    report = _make_ready_report(team, suggested_logins=["shared-login-1", "shared-login-2"])
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_count == 1
+    call_kwargs = fake_client.chat_postMessage.call_args.kwargs
+    assert call_kwargs["channel"] == "C123"
+    # Both reviewers are named in the single message that lands in the shared channel.
+    section_text = call_kwargs["blocks"][1]["text"]["text"]
+    assert "Reviewer Bot, Reviewer Bot" in section_text
+
+
+@pytest.mark.django_db
+def test_dispatch_sends_to_distinct_channels_separately(org_and_team):
+    org, team = org_and_team
+    user1 = _make_reviewer_user(org, "distinct1@example.com", "distinct-login-1")
+    user2 = _make_reviewer_user(org, "distinct2@example.com", "distinct-login-2")
+    integration = _make_slack_integration(team, user1)
+    SignalUserAutonomyConfig.objects.create(
+        user=user1,
+        slack_notification_integration=integration,
+        slack_notification_channel="C1|#a",
+    )
+    SignalUserAutonomyConfig.objects.create(
+        user=user2,
+        slack_notification_integration=integration,
+        slack_notification_channel="C2|#b",
+    )
+    report = _make_ready_report(team, suggested_logins=["distinct-login-1", "distinct-login-2"])
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 2
+    assert fake_client.chat_postMessage.call_count == 2
+    channels = {call.kwargs["channel"] for call in fake_client.chat_postMessage.call_args_list}
+    assert channels == {"C1", "C2"}
 
 
 @pytest.mark.django_db
