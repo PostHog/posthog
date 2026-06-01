@@ -136,3 +136,18 @@ class TestTemplateMetaAds(BaseHogFunctionTemplateTest):
         assert custom_data["currency"] == "EUR"
         assert custom_data["value"] == 99.8
         assert custom_data["quantity"] == 2
+
+    def test_unsupported_currency_falls_back_to_usd(self):
+        self.mock_fetch_response = lambda *args: {"status": 200, "body": {"ok": True}}  # type: ignore
+        self.run_function(
+            self._inputs(
+                customData={
+                    "currency": "XYZ",
+                    "price": 80,
+                    "price_usd": 100,
+                }
+            )
+        )
+        custom_data = self.get_mock_fetch_calls()[0][1]["body"]["data"][0]["custom_data"]
+        assert custom_data["currency"] == "USD"
+        assert custom_data["price"] == 100

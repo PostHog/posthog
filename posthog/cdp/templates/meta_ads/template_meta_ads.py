@@ -11,6 +11,29 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     category=["Advertisement"],
     code_language="hog",
     code="""
+let META_CURRENCIES := [
+  'AED','AFN','ALL','AMD','ANG','AOA','ARS','AUD','AWG','AZN','BAM','BBD','BDT','BGN','BHD',
+  'BIF','BMD','BND','BOB','BRL','BSD','BTN','BWP','BZD','CAD','CDF','CHF','CLP','CNY','COP',
+  'CRC','CVE','CZK','DJF','DKK','DOP','DZD','EGP','ERN','ETB','EUR','FJD','GBP','GEL','GHS',
+  'GMD','GNF','GTQ','GYD','HKD','HNL','HRK','HTG','HUF','IDR','ILS','INR','IQD','IRR','ISK',
+  'JMD','JOD','JPY','KES','KGS','KHR','KMF','KRW','KWD','KYD','KZT','LAK','LBP','LKR','LRD',
+  'LSL','LYD','MAD','MDL','MGA','MKD','MMK','MNT','MOP','MRU','MUR','MVR','MWK','MXN','MYR',
+  'MZN','NAD','NGN','NIO','NOK','NPR','NZD','OMR','PAB','PEN','PGK','PHP','PKR','PLN','PYG',
+  'QAR','RON','RSD','RUB','RWF','SAR','SBD','SCR','SDG','SEK','SGD','SHP','SLL','SOS','SRD',
+  'SSP','STN','SYP','SZL','THB','TJS','TND','TOP','TRY','TTD','TWD','TZS','UAH','UGX','UYU',
+  'UZS','VES','VND','VUV','WST','XAF','XCD','XOF','XPF','YER','ZAR','ZMW','ZWL','USD'
+]
+
+/* ---------- 1. Work out the value / currency with fallback ---------- */
+let txCurrency := upper(inputs.customData.currency ?? 'USD')
+let txPrice    := inputs.customData.price
+let usdBackup  := inputs.customData.price_usd ?? txPrice
+
+if (not has(META_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+    txPrice := usdBackup
+}
+
 let body := {
     'data': [
         {
@@ -19,7 +42,10 @@ let body := {
             'event_time': inputs.eventTime,
             'action_source': inputs.actionSource,
             'user_data': {},
-            'custom_data': {}
+            'custom_data': {
+                'currency': txCurrency,
+                'price': txPrice
+            }
         }
     ],
     'access_token': inputs.accessToken
@@ -55,7 +81,7 @@ for (let key, value in inputs.userData) {
 }
 
 for (let key, value in inputs.customData) {
-    if (not empty(value)) {
+    if (key != 'price' and key != 'currency' and key != 'price_usd' and not empty(value)) {
         body.data.1.custom_data[key] := parseValueIfArray(value)
     }
 }
