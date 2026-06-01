@@ -1296,9 +1296,49 @@
         "AssistantDataVisualizationAxisDisplaySettings": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                    "type": "string"
+                },
+                "displayType": {
+                    "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                    "enum": ["auto", "line", "bar", "area"],
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                    "type": "string"
+                },
+                "trendLine": {
+                    "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "yAxisPosition": {
                     "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
                     "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "decimalPlaces": {
+                    "description": "Number of decimal places to display.",
+                    "type": "number"
+                },
+                "prefix": {
+                    "description": "Text prepended to each value (e.g. `$`).",
+                    "type": "string"
+                },
+                "style": {
+                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                    "enum": ["none", "number", "short", "percent"],
+                    "type": "string"
+                },
+                "suffix": {
+                    "description": "Text appended to each value (e.g. `%` or ` ms`).",
                     "type": "string"
                 }
             },
@@ -1310,6 +1350,10 @@
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
                     "description": "Display settings for a plotted Y series."
+                },
+                "formatting": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
+                    "description": "Number-formatting settings for the values on this axis or series."
                 }
             },
             "type": "object"
@@ -1342,6 +1386,10 @@
                 },
                 "showNullsAsZero": {
                     "description": "Replace null aggregation results with zero.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
                 },
                 "stackBars100": {
