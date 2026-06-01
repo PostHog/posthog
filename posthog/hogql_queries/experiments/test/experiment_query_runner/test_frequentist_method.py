@@ -146,6 +146,7 @@ class TestFrequentistMethod(ExperimentQueryRunnerBaseTest):
         fixed_result = self._run_metric(experiment_fixed)
         seq_result = self._run_metric(experiment_seq)
 
+        assert fixed_result.variant_results is not None and seq_result.variant_results is not None
         fixed_variant = cast(ExperimentVariantResultFrequentist, fixed_result.variant_results[0])
         seq_variant = cast(ExperimentVariantResultFrequentist, seq_result.variant_results[0])
 

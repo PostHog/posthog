@@ -424,6 +424,7 @@ class TestSequentialStatsConfig(APIBaseTest):
             stats_config={"frequentist": {"sequential_testing_enabled": True}},
         )
 
+        assert fixed_result.variant_results is not None and seq_result.variant_results is not None
         fixed_variant = cast(ExperimentVariantResultFrequentist, fixed_result.variant_results[0])
         seq_variant = cast(ExperimentVariantResultFrequentist, seq_result.variant_results[0])
         assert fixed_variant.confidence_interval is not None and seq_variant.confidence_interval is not None
@@ -444,6 +445,7 @@ class TestSequentialStatsConfig(APIBaseTest):
             team_default_sequential_testing_enabled=True,
         )
 
+        assert baseline.variant_results is not None and with_team_default.variant_results is not None
         baseline_v = cast(ExperimentVariantResultFrequentist, baseline.variant_results[0])
         team_v = cast(ExperimentVariantResultFrequentist, with_team_default.variant_results[0])
         assert baseline_v.confidence_interval is not None and team_v.confidence_interval is not None
@@ -466,6 +468,7 @@ class TestSequentialStatsConfig(APIBaseTest):
             team_default_sequential_testing_enabled=True,
         )
 
+        assert baseline.variant_results is not None and overridden.variant_results is not None
         baseline_v = cast(ExperimentVariantResultFrequentist, baseline.variant_results[0])
         overridden_v = cast(ExperimentVariantResultFrequentist, overridden.variant_results[0])
         assert baseline_v.confidence_interval is not None and overridden_v.confidence_interval is not None
@@ -488,6 +491,7 @@ class TestSequentialStatsConfig(APIBaseTest):
                 }
             },
         )
+        assert result.variant_results is not None
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         assert variant.confidence_interval is not None
         self.assertEqual(len(variant.confidence_interval), 2)
