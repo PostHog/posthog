@@ -314,7 +314,7 @@ def list_custom_object_definitions(secret_token: str, region: str, subdomain: Op
         "get",
         url=f"{get_base_url(region, subdomain)}resources/customObjects",
         params={"limit": 100},
-        headers={"Authorization": f"Basic {basic_token}:"},
+        headers={"Authorization": f"Basic {basic_token}"},
     )
 
     results: list[dict[str, Any]] = []

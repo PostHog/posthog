@@ -45,37 +45,36 @@ OPPORTUNITY_DEFINITION = {
 
 
 class TestListCustomObjectDefinitions:
+    @pytest.mark.parametrize(
+        "pages,expected_defs,expected_call_count",
+        [
+            pytest.param(
+                [{"results": [FEATURE_REQUEST_DEFINITION], "next": None}],
+                [FEATURE_REQUEST_DEFINITION],
+                1,
+                id="single_page",
+            ),
+            pytest.param(
+                [
+                    {"results": [FEATURE_REQUEST_DEFINITION], "next": "cursor-2"},
+                    {"results": [OPPORTUNITY_DEFINITION], "next": None},
+                ],
+                [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION],
+                2,
+                id="paginates_until_next_is_null",
+            ),
+            pytest.param([{"results": [], "next": None}], [], 1, id="empty_results"),
+        ],
+    )
     @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_returns_results_from_single_page(self, mock_session_factory):
-        session = _make_session([_make_response({"results": [FEATURE_REQUEST_DEFINITION], "next": None})])
+    def test_returns_definitions(self, mock_session_factory, pages, expected_defs, expected_call_count):
+        session = _make_session([_make_response(page) for page in pages])
         mock_session_factory.return_value = session
 
         defs = list_custom_object_definitions("secret", "EU", None)
 
-        assert defs == [FEATURE_REQUEST_DEFINITION]
-        assert session.send.call_count == 1
-
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_paginates_until_next_is_null(self, mock_session_factory):
-        session = _make_session(
-            [
-                _make_response({"results": [FEATURE_REQUEST_DEFINITION], "next": "cursor-2"}),
-                _make_response({"results": [OPPORTUNITY_DEFINITION], "next": None}),
-            ]
-        )
-        mock_session_factory.return_value = session
-
-        defs = list_custom_object_definitions("secret", "EU", None)
-
-        assert defs == [FEATURE_REQUEST_DEFINITION, OPPORTUNITY_DEFINITION]
-        assert session.send.call_count == 2
-
-    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
-    def test_empty_results_returns_empty_list(self, mock_session_factory):
-        session = _make_session([_make_response({"results": [], "next": None})])
-        mock_session_factory.return_value = session
-
-        assert list_custom_object_definitions("secret", "EU", None) == []
+        assert defs == expected_defs
+        assert session.send.call_count == expected_call_count
 
     @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
     def test_raises_on_http_error(self, mock_session_factory):
@@ -88,26 +87,28 @@ class TestListCustomObjectDefinitions:
 
 
 class TestGetCustomObjectRecordsResource:
-    def test_path_uses_custom_object_id(self):
-        resource = get_custom_object_records_resource("featureRequest", "f5dcbbd6", should_use_incremental_field=False)
+    @pytest.mark.parametrize("should_use_incremental_field", [False, True])
+    def test_builds_resource(self, should_use_incremental_field):
+        resource = get_custom_object_records_resource(
+            "featureRequest", "f5dcbbd6", should_use_incremental_field=should_use_incremental_field
+        )
         endpoint = cast(dict[str, Any], resource["endpoint"])
 
         assert endpoint["path"] == "/resources/customObjects/f5dcbbd6/instances"
         assert resource["name"] == f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"
         assert resource["table_name"] == "custom_object_featurerequest"
-        assert resource["write_disposition"] == "replace"
 
-    def test_incremental_field_enables_upsert_and_cursor(self):
-        resource = get_custom_object_records_resource("featureRequest", "abc", should_use_incremental_field=True)
-        endpoint = cast(dict[str, Any], resource["endpoint"])
-
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
         params = cast(dict[str, Any], endpoint["params"])
-        assert params["sortBy"] == "updatedAt"
-        updated_at_config = params["updatedAt"]
-        assert isinstance(updated_at_config, dict)
-        assert updated_at_config["type"] == "incremental"
-        assert updated_at_config["cursor_path"] == "updatedAt"
+        if should_use_incremental_field:
+            assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
+            assert params["sortBy"] == "updatedAt"
+            updated_at_config = params["updatedAt"]
+            assert isinstance(updated_at_config, dict)
+            assert updated_at_config["type"] == "incremental"
+            assert updated_at_config["cursor_path"] == "updatedAt"
+        else:
+            assert resource["write_disposition"] == "replace"
+            assert params["updatedAt"] is None
 
 
 class TestVitallySourceCustomObjectRouting:
@@ -217,3 +218,20 @@ class TestVitallySourceGetSchemas:
         )
 
         assert {s.name for s in schemas} == {"Accounts", f"{CUSTOM_OBJECT_SCHEMA_PREFIX}featureRequest"}
+
+    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    def test_skips_discovery_when_only_static_schemas_requested(self, mock_list):
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1, names=["Accounts", "Conversations"])
+
+        mock_list.assert_not_called()
+        assert {s.name for s in schemas} == {"Accounts", "Conversations"}
+
+    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    def test_static_schemas_survive_discovery_failure(self, mock_list):
+        mock_list.side_effect = RuntimeError("Vitally API unavailable")
+
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
