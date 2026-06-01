@@ -1015,7 +1015,6 @@
         "summary": "Delete dashboard tile",
         "title": "Delete dashboard tile",
         "required_scopes": ["dashboard:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": false,
