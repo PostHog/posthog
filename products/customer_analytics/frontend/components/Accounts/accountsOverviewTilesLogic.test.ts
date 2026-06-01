@@ -7,6 +7,7 @@ import {
     numericColumnOptions,
     parseTileValues,
     stripHogqlAlias,
+    tileFilterFor,
     tileMetricExpression,
     tileToRowFilter,
 } from './accountsOverviewTilesLogic'
@@ -121,6 +122,28 @@ describe('tileToRowFilter / isTileClickable', () => {
         const countTile: AccountsOverviewTile = { id: 'a', label: 'Accounts', metric: { type: 'count' } }
         expect(tileToRowFilter(countTile)).toBeNull()
         expect(isTileClickable(countTile)).toBe(false)
+    })
+})
+
+describe('tileFilterFor', () => {
+    it('maps a threshold tile to its active filter descriptor', () => {
+        expect(
+            tileFilterFor({
+                id: 'b',
+                label: 'At risk',
+                metric: {
+                    type: 'count_threshold',
+                    columnExpression: 'health_score',
+                    columnLabel: 'Health score',
+                    operator: '<',
+                    value: 6,
+                },
+            })
+        ).toEqual({ tileId: 'b', expression: 'health_score < 6' })
+    })
+
+    it('returns null when the tile is not a row-level predicate', () => {
+        expect(tileFilterFor({ id: 'a', label: 'Accounts', metric: { type: 'count' } })).toBeNull()
     })
 })
 

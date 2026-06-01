@@ -100,6 +100,11 @@ export function isTileClickable(tile: AccountsOverviewTile): boolean {
     return tileToRowFilter(tile) !== null
 }
 
+export function tileFilterFor(tile: AccountsOverviewTile): TileFilter | null {
+    const expression = tileToRowFilter(tile)
+    return expression ? { tileId: tile.id, expression } : null
+}
+
 function readNumeric(raw: unknown): number | null {
     if (raw === null || raw === undefined) {
         return null
@@ -234,16 +239,18 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
                 actions.setTileFilter(null)
             }
         },
-        toggleTileSelection: ({ tile }) => {
-            const expression = tileToRowFilter(tile)
-            if (!expression) {
+        updateTile: ({ id, tile }) => {
+            if (values.tileFilter?.tileId !== id) {
                 return
             }
-            if (values.tileFilter?.tileId === tile.id) {
-                actions.setTileFilter(null)
-            } else {
-                actions.setTileFilter({ tileId: tile.id, expression })
+            actions.setTileFilter(tileFilterFor({ ...tile, id }))
+        },
+        toggleTileSelection: ({ tile }) => {
+            const next = tileFilterFor(tile)
+            if (!next) {
+                return
             }
+            actions.setTileFilter(values.tileFilter?.tileId === tile.id ? null : next)
         },
     })),
 ])
