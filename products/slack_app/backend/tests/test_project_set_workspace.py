@@ -102,7 +102,7 @@ class TestHandleProjectSetWorkspace:
 
         rows = SlackSettings.objects.filter(slack_workspace_id="T_WS", slack_user_id__isnull=True)
         assert rows.count() == 1
-        assert rows.first().default_integration_id == self.integration.id
+        assert rows.get().default_integration_id == self.integration.id
 
 
 class TestHandleHelp:
