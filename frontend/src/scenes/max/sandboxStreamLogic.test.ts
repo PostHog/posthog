@@ -183,6 +183,20 @@ describe('sandboxStreamLogic', () => {
             expect(logic.values.currentMode).toEqual('plan')
         })
 
+        it('sets currentProgress on a _posthog/progress frame and clears it on turn complete', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/progress', { label: 'Querying events' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toEqual('Querying events')
+
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentProgress).toBeNull()
+        })
+
         it('drives terminal status off handleTerminalStatus', async () => {
             await expectLogic(logic, () => {
                 logic.actions.handleTerminalStatus({ status: 'completed' })
@@ -848,6 +862,7 @@ describe('sandboxStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.pendingPermissionRequest).toBeNull()
+            expect(logic.values.respondingToPermission).toEqual(false)
             expect(permissionSpy).toHaveBeenCalledWith('conv-1', {
                 requestId: 'req-1',
                 optionId: 'allow_once',
@@ -870,6 +885,8 @@ describe('sandboxStreamLogic', () => {
 
             expect(logic.values.pendingPermissionRequest?.requestId).toEqual('req-1')
             expect(logic.values.sseStatus).toEqual('error')
+            // The in-flight flag resets so the surviving card's buttons re-enable for a retry.
+            expect(logic.values.respondingToPermission).toEqual(false)
             expect(exceptionSpy).toHaveBeenCalled()
         })
 

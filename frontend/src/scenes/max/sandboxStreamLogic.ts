@@ -500,6 +500,19 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 reset: () => new Set<string>(),
             },
         ],
+        // In-flight state for the approval reply POST — drives the input card's loading/disabled
+        // props. Cleared on resolution (success) and on stream error (a failure keeps the card
+        // pending, so the buttons must re-enable for retry).
+        respondingToPermission: [
+            false,
+            {
+                respondToPermission: () => true,
+                markPermissionRequestResolved: () => false,
+                clearPermissionRequest: () => false,
+                handleStreamError: () => false,
+                reset: () => false,
+            },
+        ],
         currentMode: [
             null as string | null,
             {
