@@ -41,12 +41,17 @@ For the consolidated, sequenced view of how these plans relate, see
 New bullets land here as freeform reminders; move them into their own plan
 file (and out of this list) once the design lands.
 
-- [x] ~~**Cron trigger scheduler**~~ — see
+- [ ] **Cron trigger scheduler** (Dylan — picking up after runtime-mcps
+      PR 7) — see
       [`cron-trigger-scheduler.md`](cron-trigger-scheduler.md).
       Janitor runs `cronTick()` alongside its sweep; catch-up modes
       (`all` / `most_recent` / `skip`) bound the outage-recovery blast
       radius; `agent_cron_firing` table dedups across replicas; firings
       coalesce into long-running sessions via `external_key_reuse`.
+      Plan was checked off prematurely — the most recent commit on the
+      plan file is `078ce5bb89 wip — cron plan, auth refresh, hogli
+    ai-gateway slot`; no `cronTick` or `agent_cron_firing` exist in
+      the codebase yet.
 
 - [x] ~~**Streaming deltas + unified reasoning knob**~~ — see
       [`streaming-and-reasoning.md`](streaming-and-reasoning.md).
@@ -213,39 +218,27 @@ message, session_id? })` tool, sessions exposed as MCP
       refuses non-live invokes without it. Draft's own
       `spec.auth.mode` is unchanged — this is a layer above it.
 
-- [ ] **Bundle manifest schema — what's allowed in a bundle.** Today
-      the janitor accepts any `{path → text}` record on its write
-      paths, so dev-only files (`spec.json`, `README.md`,
-      `scripts/seed.py`) end up in live bundles — confirmed in the
-      shipped concierge fixture. Want a single source of truth for
-      "what counts as a bundle file." Working model: **allowed iff
-      referenced by spec** — `spec.entrypoint` + each
-      `spec.skills[i].path` + each custom-tool `spec.tools[i].path` +
-      `/compiled.js` + `/schema.json`. Anything not in the
-      spec-derived set → reject at write time with a structured 422
-      that lists the rejections. Path-shape allowlist (my first
-      sketch) doesn't work — `entrypoint` and `tool.path` are
-      `z.string()` (author-defined), so the contract has to be
-      "referenced", not "matches a regex". Coupled work: drop
-      `tests/*.json` from the runtime bundle entirely (the seed
-      script currently uploads them but `validate-spec.ts` doesn't
-      read them — they're harness-side fixtures, not runtime); a
-      one-off `scrub_bundle_paths` management command to clean live
-      offenders before the hard fail lands; mirror the same check
-      client-side in the console file-explorer so the UX matches.
-      Validation primitive likely belongs in
-      `services/agent-shared/src/spec/` next to `AgentSpecSchema` so
-      the runner + janitor + console + future authoring tools all
-      agree.
+- [ ] **Bundle manifest schema** — see
+      [`bundle-manifest-schema.md`](bundle-manifest-schema.md).
+      Spec-derived allowlist for what counts as a valid bundle file;
+      reject everything else at write time with a structured 422.
+      Coupled work: drop `tests/*.json` from the runtime bundle, a
+      one-off `scrub_bundle_paths` command to clean live offenders
+      before the hard fail lands, console file-explorer mirror.
+      Validation primitive belongs in
+      `services/agent-shared/src/spec/` next to `AgentSpecSchema`.
 
-- [ ] **Persistent agent memory** — see
-      [`agent-memory.md`](agent-memory.md). Cross-session KV store
-      keyed by `(agent, scope, key)` with `agent` / `user:<id>` /
-      `team` / `session` scopes; surfaced by the cross-cutting gap
-      in [`_APP_IDEAS.md`](_APP_IDEAS.md) (10 of 13 candidate
-      apps want it). Plan is in options-mode — 12 design
-      dimensions each have a menu; pick per dimension before
-      coding.
+- [x] ~~**Persistent agent memory**~~ (Danilo for the Mnemion slice +
+      v1) — see [`agent-memory.md`](agent-memory.md). Cross-session
+      KV store keyed by `(agent, scope, key)` with `agent` /
+      `user:<id>` / `team` / `session` scopes; surfaced by the
+      cross-cutting gap in [`_APP_IDEAS.md`](_APP_IDEAS.md) (10 of 13
+      candidate apps want it). **v0 (`MemoryStore` interface +
+      `S3MemoryStore` impl + six `@posthog/memory-*` tools +
+      MiniSearch BM25 backing `@posthog/memory-search`) ✅ shipped
+      via `85c0bad0f3`.** Next round — Mnemion-adapted write
+      semantics + compaction — tracked separately in
+      [`agent-memory-mnemion-slice.md`](agent-memory-mnemion-slice.md).
 
 - [x] ~~**Agent console website**~~ — see
       [`agent-console-website.md`](agent-console-website.md). A
@@ -264,10 +257,11 @@ message, session_id? })` tool, sessions exposed as MCP
       tools (referencing well-known `@posthog/ui/*` contracts or
       bespoke ids), and a connecting client lists which ones it can
       fulfill via `client.handles[]`; the runner surfaces only the
-      intersection to the model. First well-known tools are
-      `@posthog/ui/focus` (navigate the read panel to whatever the
-      agent is working on) and `@posthog/ui/toast`. User can toggle
-      "Follow the agent" off without losing the agent's narration.
+      intersection to the model. Client tools shipped to date:
+      `focus_tab`, `focus_file`, `focus_revision`, `focus_session`,
+      `focus_spec_section`, `get_context`, `set_secret`, `toast`.
+      User can toggle "Follow the agent" off without losing the
+      agent's narration.
 
 - [ ] **MCP tool approval gating — unresolved schema alignment.**
       [`runtime-mcps.md`](runtime-mcps.md) PRs 1-6 shipped the

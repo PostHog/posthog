@@ -96,6 +96,15 @@ spec shape it introduces.
 - No new state, no new columns, no compaction, no runner rehydrate
   for v0. Those land later if real usage demands it.
 
+- [`session-restart-and-state-machine.md`](session-restart-and-state-machine.md)
+  — **Ben** — the load-bearing state machine
+  `queued → running → completed → closed` (plus `cancelled`,
+  `failed`) every trigger and resume path consumes. **v0 ✅ shipped:**
+  state diagram codified, `meta-end-session` as the hard-close path,
+  `allow_restart` on chat / MCP triggers reopens a closed session to a
+  fresh user turn. Sits in §A because the rest of the platform builds
+  on the contract.
+
 ## B. Trust & control — **Dylan**
 
 Three plans that, together, establish "who can do what" on a session.
@@ -165,6 +174,24 @@ revision's auth. Django mints a short-lived HS256 JWT bound to
 missing / invalid token. **v1 (fail-closed enforcement) ✅ shipped;
 v0 advisory mode skipped; v2 activity-log pending.**
 
+### B.6 Per-session credentials + multi-mode auth — **Ben** — ✅ shipped
+
+Per-session credential broker (`PgCredentialBroker`, encrypted column)
+populated by ingress at /run + /send; multi-mode `spec.auth.modes[]`
+schema accepting `public` / `pat` / `oauth` / `jwt` / `shared_secret`
+/ `posthog_internal` in any combination on a single revision. The
+credential broker is what lets PostHog-API native tools
+(`@posthog/agent-applications-*`) execute against the asking user's
+auth materials rather than a stored team-level token — resolved via
+`ctx.credentials.resolve(target)` at dispatch time. **v0 (broker +
+PG-backed encrypted column + multi-mode auth verifier + all native
+tools routing through `credentials.resolve`) ✅ shipped via
+`24e9577e17` (per-session credentials + encryption + auth modes) and
+the `auth-modes.test.ts` e2e coverage.** No standalone plan file —
+design lives in the `spec.auth` + credential-broker inline doc
+comments. Worth a dedicated plan if a richer per-mode surface (OAuth
+flows, JIT credential mint, token refresh) lands.
+
 **Shared cross-cut introduced by this layer:**
 
 - _Activity-log integration._ Introduced by **B.1**; both **B.2**
@@ -206,11 +233,17 @@ tool approval gating — unresolved schema alignment" for the full
 context. Couples with B.2's deferred `session_principal` approver
 scope, which PR 7 needs to pull forward.
 
-### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** / next epoch (library UI **Ben**)
+### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** (library UI **Ben**)
 
 `SkillTemplate` + `CustomToolTemplate` library design (TODO C5).
 Independent of **C.1** and **C.2**; can ship in parallel. Useful
-input for the authoring layer.
+input for the authoring layer. **v0 (registry backend models +
+migrations + freeze-time resolution + `registry_api.py` viewset +
+console `/registry` frontend with native / skills / tools detail
+pages + concierge skill seeding) ✅ shipped — `e79a69e407` (registry
+backend), `04f055e9ca` (platform tooling + generated artefacts),
+`81728125ee` (concierge fixture + viewset wiring).** v1 (versioning
+UX + cross-team sharing) pending.
 
 ### C.4 [`resumable-conversations.md`](resumable-conversations.md) — **Danilo** / next epoch (log rendering **Ben**)
 
@@ -254,6 +287,50 @@ PiClient + FauxPiClient) + v1 (runner consumes stream, emits
 delta events) ✅ shipped; v2 (opt-in delta filtering on /listen)
 pending.**
 
+### C.9 [`agent-memory.md`](agent-memory.md) — **Danilo** (Mnemion adapter **Danilo**)
+
+Persistent KV store for agents — cross-session reads + writes keyed
+by `(agent, scope, key)` with `agent` / `user:<id>` / `team` /
+`session` scopes. Surfaced as a load-bearing gap in
+[`_APP_IDEAS.md`](_APP_IDEAS.md) (10 of 13 candidate apps want it).
+**v0 (`MemoryStore` interface + `S3MemoryStore` impl using markdown +
+YAML frontmatter file format, MiniSearch BM25 backing the
+`@posthog/memory-search` tool, six `@posthog/memory-*` native tools
+wired through `ToolContext.memoryStore`) ✅ shipped via
+`85c0bad0f3`.** Mnemion-adapted slice
+([`agent-memory-mnemion-slice.md`](agent-memory-mnemion-slice.md))
+covers the next round of write semantics + compaction; v1 picks up
+from there.
+
+### C.10 [`ai-gateway-integration.md`](ai-gateway-integration.md) — **Ben**
+
+PostHog's ai-gateway as the billing source of truth for all
+agent-platform LLM calls. Covers runner-side header injection
+(`X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, per-turn
+`Idempotency-Key`), settled-cost fetch via `GET /v1/usage/<request_id>`
+after every assistant turn, and the team `phc_` bearer plumbed
+through the runner per-session. Companion plan
+[`ai-gateway-introspection.md`](ai-gateway-introspection.md) covers
+the read plane + console Billing tab. **v0 (local docker integration,
+runner streams through gateway with cost merge, `llm-gateway →
+ai-gateway` rename throughout) ✅ shipped via `6b3039cc8e` +
+`d87155e2bd` + `19577c0cbc` + `1b9bcabd48` + `922f8e4417`; v1
+(production wallet path, signed `$ai_origin` marker for platform-
+internal exclusion) pending — couples with **D.2** §11 v1.**
+
+### C.11 [`framework-system-prompt.md`](framework-system-prompt.md) — **Ben** — ✅ shipped
+
+Framework-injected system-prompt preamble that lands ahead of the
+author's `agent.md`: meta-tool decision rules, state contract, tool
+failure handling, reasoning hint. Author opt-outs via
+`spec.framework_prompt.omit[]` (typed escape hatch — see plan §7.4)
+and version pinning via `framework_prompt.version_pin` for revision
+reproducibility across platform upgrades. **v0 (preamble assembly +
+sections catalogue + omit / version_pin validated at freeze time +
+runner injects per-revision at session start) ✅ shipped. Preview
+MCP tool that renders the assembled prompt for a given revision —
+pending.**
+
 **Shared cross-cut introduced by this layer:**
 
 - _Artifact channel._ Introduced by **C.1** §7. Once a generalized
@@ -283,6 +360,18 @@ An agent that introspects its own historical sessions via LLM
 analytics (`ai_events`, not `agent_session` JSONB), stratified-samples
 real traffic, drafts a revision, runs it through the **D.1** test +
 judge infrastructure, and lands a draft for human review.
+
+### D.3 [`agent-concierge.md`](agent-concierge.md) — **Ben** (authoring AI **Ben**)
+
+The agent-stack authoring AI. Sits at the seam between **D.1**
+(authoring flow) and **E.1** (console): the concierge is the chat
+dock's default agent and is itself authored as a deployed bundle in
+`services/agent-tests/src/examples/agent-concierge/`. Its
+forward-looking spec depends on **C.2** runtime-mcps PR 7 (per-MCP-
+tool approval gating) — until that lands, `scripts/seed.py`
+mechanically strips `mcps[]` before push. **Status:** bundle authored,
+skills + client-tool surface live; full deploy pending the C.2 + B.2
+work tracked in [`_TODO.md`](_TODO.md) "MCP tool approval gating."
 
 **Shared cross-cut introduced by this layer:**
 
