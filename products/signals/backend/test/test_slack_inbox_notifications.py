@@ -77,12 +77,12 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         recipient=recipient,
     )
 
-    assert blocks[0]["text"]["text"] == "Inbox for Marcus Twix · P1"
+    assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
     section_text = blocks[1]["text"]["text"]
     assert "Suggested for" not in section_text
     # Mention belongs in the mrkdwn section so Slack actually pings the user.
-    assert "<@U123>" in section_text
-    assert "*Checkout errors spiked*" in section_text
+    assert section_text.startswith("P1 • For <@U123>")
+    assert "*Checkout errors spiked*" not in section_text
     assert "Error rate rose after deploy." in section_text
     assert "Ignored second line." not in section_text
     context_text = blocks[2]["elements"][0]["text"]
@@ -130,6 +130,7 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         implementation_pr_url=None,
     )
 
+    assert blocks[1]["text"]["text"] == "For Marcus Twix"
     assert len(blocks[3]["elements"]) == 1
 
 
@@ -287,8 +288,8 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert call_kwargs["channel"] == "C123"
     assert "Inbox for Reviewer Bot (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
-    assert blocks[0]["text"]["text"] == "Inbox for Reviewer Bot · P1"
-    assert "<@U_REVIEWER>" in blocks[1]["text"]["text"]
+    assert blocks[0]["text"]["text"] == "📬 Test report"
+    assert blocks[1]["text"]["text"].startswith("P1 • For <@U_REVIEWER>")
     assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
 
 

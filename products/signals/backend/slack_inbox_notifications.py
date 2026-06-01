@@ -259,19 +259,16 @@ def _build_message_blocks(
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"Inbox for {recipient.plain_name}"
-    if priority:
-        header_text = f"{header_text} · {priority}"
+    header_text = f"📬 {title_line}"
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    # Mention goes in the mrkdwn section, not the header — header blocks are
-    # plain_text only, so `<@U…>` would render as literal text and the user
-    # wouldn't get pinged.
-    body_parts: list[str] = []
-    if recipient.slack_mention:
-        body_parts.append(recipient.slack_mention)
-    body_parts.append(f"*{title_line}*")
+    recipient_label = recipient.slack_mention or recipient.plain_name
+    metadata_parts = [f"For {recipient_label}"]
+    if priority:
+        metadata_parts.insert(0, priority)
+
+    body_parts: list[str] = [" • ".join(metadata_parts)]
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
         body_parts.append(summary_text)
