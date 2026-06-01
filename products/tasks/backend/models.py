@@ -20,6 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -593,6 +594,9 @@ class TaskRun(models.Model):
     class Meta:
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(KeyTransform("pr_url", "output"), name="task_run_output_pr_url_idx"),
+        ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
