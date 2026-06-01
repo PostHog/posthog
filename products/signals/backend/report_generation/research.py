@@ -539,7 +539,8 @@ async def run_multi_turn_research(
     )
 
     # start() returned the session, so any failure past this point must end it
-    # - otherwisea an orphaned sandbox can keep running until the workflow inactivity timeout
+    # - otherwise an orphaned sandbox can keep running until the workflow inactivity timeout
+
     try:
         # Record the research task relationship immediately after task creation
         if signal_report_id:
