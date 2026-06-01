@@ -4,6 +4,8 @@ import { OrganizationBasicType, Region, TeamPublicType } from '~/types'
 
 import { getPublicSupportSnippet } from './supportLogic'
 
+jest.mock('posthog-js')
+
 describe('supportLogic snippet helpers', () => {
     const mockedGetReplayUrl = posthog.get_session_replay_url as jest.Mock
     const organization = { id: 'org-1', name: 'Test org' } as OrganizationBasicType
