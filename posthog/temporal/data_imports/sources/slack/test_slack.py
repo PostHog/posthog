@@ -1,6 +1,6 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache as django_cache
 
@@ -442,3 +442,44 @@ class TestSlackSourceChannelsEndpoint:
 
         assert items == sample
         mock_fetch.assert_called_once_with("token", authed_user)
+
+
+class TestSlackSourceChannelMessagesWebhookOnly:
+    def _build_channel_source(self, webhook_manager: Any) -> Any:
+        return slack_source(
+            access_token="token",
+            integration_id=42,
+            endpoint="C123",
+            team_id=1,
+            job_id="job-1",
+            webhook_source_manager=webhook_manager,
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            channel_id="C123",
+        )
+
+    def test_reads_webhook_items_and_skips_backfill_when_webhook_enabled(self) -> None:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = AsyncMock(return_value=True)
+        manager.get_items.return_value = ["webhook-item"]
+
+        with patch("posthog.temporal.data_imports.sources.slack.slack._channel_messages_generator") as mock_backfill:
+            response = self._build_channel_source(manager)
+            items = response.items()
+
+        # Webhook mode is activated from the first sync (skip the initial-sync-complete gate).
+        manager.webhook_enabled.assert_awaited_once_with(True)
+        assert items == ["webhook-item"]
+        mock_backfill.assert_not_called()
+
+    def test_returns_empty_and_never_backfills_when_webhook_not_enabled(self) -> None:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = AsyncMock(return_value=False)
+
+        with patch("posthog.temporal.data_imports.sources.slack.slack._channel_messages_generator") as mock_backfill:
+            response = self._build_channel_source(manager)
+            items = list(response.items())
+
+        # No historical backfill: the table stays empty until webhook events arrive.
+        assert items == []
+        manager.get_items.assert_not_called()
+        mock_backfill.assert_not_called()
