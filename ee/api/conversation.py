@@ -58,6 +58,7 @@ from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, Que
 from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
+from ee.hogai.utils.feature_flags import has_sandbox_mode_feature_flag
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
 from ee.models.assistant import Conversation
@@ -362,12 +363,19 @@ class ConversationViewSet(
             # Mark conversation as internal if created during an impersonated session (support agents)
             is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_research else Conversation.Type.ASSISTANT
+            # Stamp the runtime once at create time from the flag; it's never re-evaluated.
+            agent_runtime = (
+                Conversation.AgentRuntime.SANDBOX
+                if has_sandbox_mode_feature_flag(self.team, cast(User, request.user))
+                else Conversation.AgentRuntime.LANGGRAPH
+            )
             conversation = Conversation.objects.create(
                 user=cast(User, request.user),
                 team=self.team,
                 id=conversation_id,
                 type=conversation_type,
                 is_internal=is_impersonated,
+                agent_runtime=agent_runtime,
             )
             is_new_conversation = True
 
