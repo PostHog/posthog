@@ -245,7 +245,7 @@ describe('Metric', () => {
                 <Metric title="Revenue" value={8800} change={{ value: -4.2, label: '-4.2%' }} />
             )
             const chevron = container.querySelector('.rounded-full svg')
-            expect(chevron?.className.baseVal ?? chevron?.getAttribute('class')).toContain('rotate-180')
+            expect(chevron?.getAttribute('class')).toContain('rotate-180')
         })
 
         it('applies dataAttr to the root', () => {
