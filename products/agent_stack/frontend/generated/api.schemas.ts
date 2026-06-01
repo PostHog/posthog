@@ -1351,7 +1351,7 @@ export interface SkillTemplateDuplicateApi {
      */
     name: string
     /**
-     * Description for the new template. Defaults to the source's description.
+     * Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description.
      * @maxLength 1024
      */
     description?: string

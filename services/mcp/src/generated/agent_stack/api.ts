@@ -1767,7 +1767,7 @@ export const AgentSkillTemplatesNameDuplicateCreateBody = /* @__PURE__ */ zod.ob
         .string()
         .max(agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax)
         .optional()
-        .describe("Description for the new template. Defaults to the source's description."),
+        .describe("Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description."),
 })
 
 /**
