@@ -1,13 +1,15 @@
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
+from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import Count, QuerySet
 
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -16,8 +18,11 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription
-from posthog.models.pulse import DetectionMode, PulseFindingFeedback
+from posthog.models.pulse import DetectionMode, PulseFindingFeedback, PulseSubscriptionFrequency
+from posthog.temporal.ai.pulse.period import period_bounds, period_key
 from posthog.temporal.ai.pulse.selection import select_candidates
+from posthog.temporal.ai.pulse.workflow import PulseScanInputs
+from posthog.temporal.common.client import async_connect
 
 MAX_PULSE_FLAG = "max-pulse"
 WATCHED_MAX_CANDIDATES = 50
@@ -259,6 +264,46 @@ class PulseDigestViewSet(
         elif self.action == "retrieve":
             qs = qs.prefetch_related("findings")
         return qs
+
+    @extend_schema(
+        request=None,
+        responses={202: OpenApiResponse(description="Scan triggered; returns the Temporal workflow id.")},
+    )
+    @action(detail=False, methods=["post"])
+    def trigger_scan(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Kick off a one-off Pulse scan for this team now, without waiting for the schedule.
+
+        Staff-only for now (404 hides it from non-staff); the gate can be relaxed to expose it to users later.
+        """
+        if not request.user.is_staff:
+            raise NotFound()
+
+        team = self.team
+        subscription = PulseSubscription.objects.unscoped().filter(team_id=team.id).first()
+        frequency = subscription.frequency if subscription else PulseSubscriptionFrequency.WEEKLY
+        now = datetime.now(UTC)
+        period_from, period_to = period_bounds(now, frequency)
+        inputs = PulseScanInputs(
+            team_id=team.id,
+            period_key=period_key(now, frequency),
+            period_start=period_from.isoformat(),
+            period_end=period_to.isoformat(),
+            user_id=request.user.id,
+        )
+        # Unique id (vs the scheduler's deterministic id) so a manual run never collides with a scheduled one.
+        workflow_id = f"pulse-scan-manual-{team.id}-{uuid4()}"
+
+        async def _start() -> None:
+            client = await async_connect()
+            await client.start_workflow(
+                "pulse-scan",
+                inputs,
+                id=workflow_id,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
+        return Response({"workflow_id": workflow_id}, status=status.HTTP_202_ACCEPTED)
 
 
 class PulseFindingViewSet(

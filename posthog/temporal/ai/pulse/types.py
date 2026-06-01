@@ -91,3 +91,5 @@ class SynthesizeDigestInputs(BaseModel):
     digest_id: str
     user_id: int | None = None
     findings: list[EnrichedFinding]
+    period_start: str = ""
+    period_end: str = ""

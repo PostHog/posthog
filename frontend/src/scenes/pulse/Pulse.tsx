@@ -23,6 +23,7 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -335,8 +336,10 @@ export function Pulse(): JSX.Element {
         findingsForLatest,
         digestsError,
         findingsError,
+        scanTriggerLoading,
     } = useValues(pulseLogic)
-    const { loadDigests, loadFindings, loadSubscription, loadWatched } = useActions(pulseLogic)
+    const { loadDigests, loadFindings, loadSubscription, loadWatched, triggerScan } = useActions(pulseLogic)
+    const { user } = useValues(userLogic)
 
     const flagEnabled = !!featureFlags[FEATURE_FLAGS.MAX_PULSE]
 
@@ -376,18 +379,32 @@ export function Pulse(): JSX.Element {
                 description="Max scans your metrics and surfaces changes worth investigating."
                 resourceType={{ type: 'project', forceIcon: <IconPulse /> }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconRefresh />}
-                        onClick={() => {
-                            loadDigests()
-                            loadFindings()
-                        }}
-                        loading={digestsLoading || findingsLoading}
-                    >
-                        Refresh
-                    </LemonButton>
+                    <>
+                        {user?.is_staff && (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconPulse />}
+                                onClick={() => triggerScan()}
+                                loading={scanTriggerLoading}
+                                tooltip="Staff only: run a Pulse scan for this project now"
+                            >
+                                Run scan now
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconRefresh />}
+                            onClick={() => {
+                                loadDigests()
+                                loadFindings()
+                            }}
+                            loading={digestsLoading || findingsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </>
                 }
             />
 

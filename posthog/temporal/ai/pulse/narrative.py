@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+from datetime import datetime
 from typing import Any
 
 import structlog
@@ -9,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.annotation import Annotation
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.types import EnrichedFinding, Finding, run_trends_query_sync
 
@@ -245,38 +247,62 @@ SYNTHESIS_MAX_TOKENS = 320
 
 SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
 
-You are given several findings (metric, % change, optional attribution segment). Write a short paragraph, 2-4 sentences:
+You are given several findings (metric, % change, optional attribution segment) and optionally annotations (dated events the team logged — deploys, launches, incidents). Write a short paragraph, 2-4 sentences:
 - If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
 - Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
+- If a change lines up with an annotation, note it as a possible explanation to verify — e.g. "the signup rise lines up with your 'pricing v2' note on the 20th." A coincidence to check, never proven cause.
 - Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
 
 If the findings share no obvious pattern, say that briefly rather than forcing a connection.""".strip()
 
 
-async def synthesize_digest(team_id: int, user_id: int | None, findings: list[EnrichedFinding]) -> str:
+async def synthesize_digest(
+    team_id: int,
+    user_id: int | None,
+    findings: list[EnrichedFinding],
+    period_start: str = "",
+    period_end: str = "",
+) -> str:
     """Digest-level "big picture" across ALL findings — co-movement hypotheses, not per-metric prose.
 
-    Runs once per digest (vs _generate_narrative, which is per-finding). Returns "" when there is too
-    little to synthesize across or the call fails — the summary is additive, never load-bearing.
+    Runs once per digest (vs _generate_narrative, which is per-finding). Pulls in any team annotations
+    in the period as known-event context. Returns "" when there is too little to synthesize across or
+    the call fails — the summary is additive, never load-bearing.
     """
     if len(findings) < 2:
         return ""
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User]:
+    def _resolve() -> tuple[Team, User, list[dict[str, str]]]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
-        return team, user
+        annotations: list[dict[str, str]] = []
+        if period_start and period_end:
+            rows = (
+                Annotation.objects.filter(
+                    team_id=team_id,
+                    deleted=False,
+                    date_marker__gte=datetime.fromisoformat(period_start),
+                    date_marker__lte=datetime.fromisoformat(period_end),
+                )
+                .order_by("date_marker")
+                .values_list("date_marker", "content")[:20]
+            )
+            annotations = [{"date": dm.date().isoformat(), "note": content} for dm, content in rows if content]
+        return team, user, annotations
 
-    team, user = await _resolve()
-    facts = [
-        {
-            "metric": f.descriptor.label,
-            "change_pct": round(f.change_pct, 3),
-            "attribution": f.attribution_breakdown,
-        }
-        for f in findings
-    ]
+    team, user, annotations = await _resolve()
+    facts = {
+        "findings": [
+            {
+                "metric": f.descriptor.label,
+                "change_pct": round(f.change_pct, 3),
+                "attribution": f.attribution_breakdown,
+            }
+            for f in findings
+        ],
+        "annotations": annotations,
+    }
 
     llm = MaxChatOpenAI(
         model=NARRATIVE_MODEL,
@@ -295,7 +321,7 @@ async def synthesize_digest(team_id: int, user_id: int | None, findings: list[En
     chain = llm | StrOutputParser()
     messages = [
         SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),
-        HumanMessage(content=f"This period's findings:\n{json.dumps(facts, default=str)}"),
+        HumanMessage(content=f"This period's findings and annotations:\n{json.dumps(facts, default=str)}"),
     ]
     try:
         result = await chain.ainvoke(messages)

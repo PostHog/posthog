@@ -125,6 +125,8 @@ async def synthesize_digest_activity(inputs: SynthesizeDigestInputs) -> None:
         team_id=inputs.team_id,
         user_id=inputs.user_id,
         findings=inputs.findings,
+        period_start=inputs.period_start,
+        period_end=inputs.period_end,
     )
     if not summary:
         return
@@ -307,6 +309,8 @@ class PulseScanWorkflow(PostHogWorkflow):
                     digest_id=digest_id,
                     user_id=inputs.user_id,
                     findings=enriched,
+                    period_start=inputs.period_start,
+                    period_end=inputs.period_end,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=retry_policy,

@@ -110,6 +110,12 @@ export const pulseLogic = kea<pulseLogicType>([
                 },
             },
         ],
+        scanTrigger: [
+            null as { workflow_id: string } | null,
+            {
+                triggerScan: async () => await api.pulse.triggerScan(),
+            },
+        ],
     })),
     reducers({
         expandedDigestId: [
@@ -177,6 +183,12 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         submitFeedbackFailure: () => {
             lemonToast.error('Failed to record feedback')
+        },
+        triggerScanSuccess: () => {
+            lemonToast.success('Pulse scan started — new findings will appear here shortly.')
+        },
+        triggerScanFailure: () => {
+            lemonToast.error('Failed to start Pulse scan.')
         },
     })),
     selectors({

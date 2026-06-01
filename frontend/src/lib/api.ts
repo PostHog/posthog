@@ -2782,6 +2782,9 @@ const api = {
         async getDigest(id: string): Promise<PulseDigestDetail> {
             return new ApiRequest().pulseDigest(id).get()
         },
+        async triggerScan(): Promise<{ workflow_id: string }> {
+            return new ApiRequest().pulseDigests().withAction('trigger_scan').create({ data: {} })
+        },
         async listFindings(digestId?: string): Promise<{ results: PulseFindingType[]; count: number }> {
             const req = new ApiRequest().pulseFindings()
             return digestId ? req.withQueryString({ digest: digestId }).get() : req.get()
