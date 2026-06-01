@@ -652,13 +652,7 @@ def _handle_new_user(
             status=500,
         )
 
-    _capture_provisioning_event(
-        "account_request",
-        "new_user",
-        region=region,
-        team_id=team.id,
-        partner_id=str(partner.id) if partner else None,
-    )
+    _capture_provisioning_event("account_request", "new_user", region=region)
 
     try:
         reset_token = password_reset_token_generator.make_token(user)

@@ -1,9 +1,8 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
 
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
-from posthog.tasks.remote_config import sync_all_remote_configs, update_team_remote_config
+from posthog.tasks.remote_config import sync_all_remote_configs
 
 
 class TestRemoteConfig(BaseTest):
@@ -62,13 +61,3 @@ class TestRemoteConfig(BaseTest):
         assert RemoteConfig.objects.get(team=self.other_team_1).synced_at > remote_config_1_synced_at  # type: ignore
         # This one is unchanged so should not be synced
         assert RemoteConfig.objects.get(team=self.other_team_2).synced_at == remote_config_2_synced_at
-
-    @patch.object(RemoteConfig, "sync")
-    def test_update_team_remote_config_forwards_bypass_recordings_quota_cache(self, mock_sync: MagicMock) -> None:
-        """End-to-end coverage that the task forwards the bypass kwarg to `RemoteConfig.sync`."""
-        update_team_remote_config(self.team.id, bypass_recordings_quota_cache=True)
-        mock_sync.assert_called_once_with(bypass_recordings_quota_cache=True)
-
-        mock_sync.reset_mock()
-        update_team_remote_config(self.team.id)
-        mock_sync.assert_called_once_with(bypass_recordings_quota_cache=False)

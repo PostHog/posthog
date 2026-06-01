@@ -764,8 +764,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
         # Track product folder for auto-tagging
         product = _get_product_from_module(callback.cls.__module__)
         if product:
-            # Normalize {pk} → {id} so postprocessing lookup matches drf-spectacular's emission.
-            _endpoint_product_mapping[(path.replace("{pk}", "{id}"), method)] = product
+            _endpoint_product_mapping[(path, method)] = product
 
         result.append((path, path_regex, method, callback))
     return result
@@ -1072,41 +1071,22 @@ def custom_postprocessing_hook(result, generator, request, public):
             if is_deprecated_env:
                 definition["deprecated"] = True
 
-            # Resolve x-product for codegen routing.
-            #
-            # Priority (highest first):
-            #   1. Explicit ``@extend_schema(extensions={"x-product": ...})`` — authoritative.
-            #      Accepts a string, enum-like (e.g. ``ProductKey.X``, stringified), or a list.
-            #      Kebab values are normalized to snake_case so output matches folder names.
-            #      When present, NOTHING else is added — the dev intent wins. Use this to send
-            #      an endpoint to the core bucket from inside ``products/<X>/backend/`` (e.g.
-            #      ``extensions={"x-product": "core"}``).
-            #   2. ``@extend_schema(tags=[...])`` values matching a product folder — supported
-            #      for legacy call sites; the explicit form above is preferred for new code.
-            #      Non-folder tag values are dropped here (tags=[...] is for display, not routing).
-            #   3. Module-path auto-attribution: ViewSet in ``products/<name>/backend/`` → ``<name>``.
-            #
-            # The resulting list is read by ``generate-openapi-types.mjs`` and
-            # ``services/mcp/scripts/scaffold-yaml.ts``.
-            x_product_override = definition.pop("x-product", None)
-            if x_product_override is not None and not isinstance(x_product_override, list):
-                x_product_override = [x_product_override]
+            # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
+            # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
+            explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
 
-            if x_product_override:
-                x_product = [str(v).replace("-", "_") for v in x_product_override]
-            else:
-                x_product = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
-                module_product = _endpoint_product_mapping.get((path, method.upper()))
-                if module_product and module_product not in x_product:
-                    x_product.append(module_product)
+            # Auto-add product tag for ViewSets in products/*/backend/
+            product = _endpoint_product_mapping.get((path, method.upper()))
+            if product and product not in explicit_tags:
+                explicit_tags.append(product)
 
-            definition["x-product"] = x_product
+            definition["x-explicit-tags"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects", "environments"]]
 
             # If a ViewSet sets x-swagger-tag via @extend_schema(extensions={"x-swagger-tag": "..."}),
             # use that as the sole display tag instead of appending the URL-derived one.
-            # This controls Swagger UI grouping without affecting x-product (used for codegen).
+            # This controls Swagger UI grouping without affecting x-explicit-tags (used for codegen).
             swagger_tag = definition.pop("x-swagger-tag", None)
             if swagger_tag:
                 definition["tags"] = [swagger_tag]

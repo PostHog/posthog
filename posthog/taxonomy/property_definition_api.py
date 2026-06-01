@@ -551,7 +551,7 @@ class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
         return list(queryset)
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class PropertyDefinitionViewSet(
     TeamAndOrgViewSetMixin,
     TaggedItemViewSetMixin,

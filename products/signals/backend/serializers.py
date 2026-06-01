@@ -146,23 +146,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalTeamConfig
-        fields = [
-            "id",
-            "default_autostart_priority",
-            "default_slack_notification_channel",
-            "created_at",
-            "updated_at",
-        ]
+        fields = ["id", "default_autostart_priority", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
-        extra_kwargs = {
-            "default_slack_notification_channel": {
-                "help_text": (
-                    "Default Slack channel for this team's signal inbox notifications, in the same "
-                    "`channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). "
-                    "Null means no team-level default; per-user channels still apply."
-                )
-            },
-        }
 
 
 class _UserSerializer(serializers.ModelSerializer):

@@ -118,7 +118,7 @@ describe('RecipientPreferencesService', () => {
                                     email: to,
                                 },
                                 from: {
-                                    integrationId: 1,
+                                    email: 'from@example.com',
                                 },
                                 subject: 'Test Subject',
                                 text: 'Test Text',

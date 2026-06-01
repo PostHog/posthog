@@ -660,14 +660,7 @@ class DockerSandbox(SandboxBase):
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
         )
 
-        # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
-        # (Node fetch) honors it for local-host traffic unless NO_PROXY says otherwise. The
-        # per-session port can go stale and cause ECONNREFUSED on otherwise-valid local URLs,
-        # so route host.docker.internal traffic (llm-gateway, MCP) around the proxy.
-        no_proxy_export = (
-            'export NO_PROXY="host.docker.internal,${NO_PROXY:-localhost,127.0.0.1}"; export no_proxy="$NO_PROXY"; '
-        )
-        inner = f"cd /scripts && {no_proxy_export}{server_cmd} > /tmp/agent-server.log 2>&1"
+        inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
 
         if allowed_domains is not None:
             return (

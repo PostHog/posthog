@@ -232,7 +232,12 @@ function NativeEmailIntegrationChoice({
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        onChange({ integrationId })
+        const integration = integrationsOfKind?.find((x) => x.id === integrationId)
+        onChange({
+            integrationId,
+            email: integration?.config?.email_address ?? 'default@example.com', // TODO: Remove this default later
+            // name: integration?.config?.name, // TODO: Add support for the name?
+        })
     }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {

@@ -37,7 +37,7 @@ class TestGetFullRepoNames:
 
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )
@@ -160,7 +160,7 @@ class TestGetFullRepoNamesCache:
         self.team = Team.objects.create(organization=self.organization, name="Cache Team")
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_CACHE",
             sensitive_config={"access_token": "xoxb-cache"},
         )
@@ -203,7 +203,7 @@ class TestGetFullRepoNamesCache:
         team_b = Team.objects.create(organization=org_b, name="Other Team")
         slack_b = Integration.objects.create(
             team=team_b,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_OTHER",
             sensitive_config={"access_token": "xoxb-other"},
         )
@@ -320,7 +320,7 @@ class TestPostRepoPickerPrewarm:
         self.team = Team.objects.create(organization=self.organization, name="Prewarm Team")
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_PREWARM",
             sensitive_config={"access_token": "xoxb-prewarm"},
         )
@@ -474,7 +474,7 @@ class TestHandleRulesCommandActivity:
 
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )

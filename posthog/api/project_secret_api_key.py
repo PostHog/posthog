@@ -136,7 +136,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         return project_secret_api_key
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     lookup_field = "id"

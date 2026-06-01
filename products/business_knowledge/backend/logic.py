@@ -1317,7 +1317,6 @@ class KnowledgeSearchResult:
     source_id: UUID
     source_name: str
     source_type: str
-    document_id: UUID
     document_title: str
     heading_path: str
     ordinal: int
@@ -1335,12 +1334,8 @@ def search_knowledge(
     Word-level ILIKE search over chunks belonging to READY sources.
 
     Splits the query into words (>=2 chars) and matches chunks containing
-    ANY of them (OR). Uses the GIN trigram index for performance. The top
-    `limit` matches (shortest, most focused chunks first) anchor the result;
-    each anchor is expanded to its ordinal-adjacent neighbours (ordinal n-1,
-    n, n+1 within the same document) so the agent gets continuous context
-    instead of isolated fragments. `ordinal` is document-global and
-    contiguous, so neighbours never cross into a different document.
+    ANY of them (OR). Uses the GIN trigram index for performance. Results
+    are ordered by char_count ascending (shorter, more focused chunks first).
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
@@ -1350,37 +1345,9 @@ def search_knowledge(
 
     word_filters = reduce(or_, (Q(content__icontains=w) for w in words))
 
-    anchors = list(
-        KnowledgeChunk.objects.filter(
-            word_filters,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-        )
-        .only("id", "document_id", "ordinal", "char_count")
-        .order_by("char_count")[:limit]
-    )
-    if not anchors:
-        return []
-
-    # Preserve relevance ranking at the document level (first anchor wins) and
-    # collect the ordinal window we want to fetch for each document.
-    doc_rank: dict[UUID, int] = {}
-    wanted_ordinals: dict[UUID, set[int]] = {}
-    for rank, anchor in enumerate(anchors):
-        doc_rank.setdefault(anchor.document_id, rank)
-        wanted_ordinals.setdefault(anchor.document_id, set()).update(
-            (anchor.ordinal - 1, anchor.ordinal, anchor.ordinal + 1)
-        )
-
-    window_filter = reduce(
-        or_,
-        (Q(document_id=doc_id, ordinal__in=sorted(ords)) for doc_id, ords in wanted_ordinals.items()),
-    )
-
     chunks = (
         KnowledgeChunk.objects.filter(
-            window_filter,
+            word_filters,
             team_id=team_id,
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
@@ -1397,10 +1364,8 @@ def search_knowledge(
             "source__source_type",
             "document__title",
         )
+        .order_by("char_count")[:limit]
     )
-
-    # Order by document relevance, then ordinal so neighbours stay contiguous.
-    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchors)), c.ordinal))
 
     return [
         KnowledgeSearchResult(
@@ -1408,11 +1373,10 @@ def search_knowledge(
             source_id=c.source_id,
             source_name=c.source.name,
             source_type=c.source.source_type,
-            document_id=c.document_id,
             document_title=c.document.title,
             heading_path=c.heading_path,
             ordinal=c.ordinal,
             content=c.content,
         )
-        for c in ordered
+        for c in chunks
     ]

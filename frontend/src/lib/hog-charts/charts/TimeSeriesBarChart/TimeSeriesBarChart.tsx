@@ -111,10 +111,11 @@ export function TimeSeriesBarChart<Meta = unknown>({
         yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         barLayout,
+        barCornerRadius,
         axisOrientation,
         showCrosshair,
         tooltip: tooltipConfig,
-        bars: { cornerRadius: barCornerRadius, divergingStack },
+        divergingStack,
     }
 
     return (

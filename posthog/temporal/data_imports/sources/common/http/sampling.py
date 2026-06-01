@@ -42,11 +42,7 @@ from django.conf import settings
 from posthog.redis import get_client
 from posthog.storage import object_storage
 from posthog.temporal.data_imports.sources.common.http.context import JobContext
-from posthog.temporal.data_imports.sources.common.http.url_utils import (
-    _REDACT_PARAM_NAMES,
-    redact_literal_values,
-    scrub_url,
-)
+from posthog.temporal.data_imports.sources.common.http.url_utils import _REDACT_PARAM_NAMES, scrub_url
 
 if TYPE_CHECKING:
     from requests import PreparedRequest, Response
@@ -220,13 +216,8 @@ def maybe_capture(
     response: Response | None,
     record: RequestRecord,
     ctx: JobContext,
-    redact_values: tuple[str, ...] = (),
 ) -> None:
-    """Entry point used by the observer. No-op when no rule matches.
-
-    `redact_values` are credential strings masked from the captured sample on
-    top of the name-based header/URL/body scrubbers.
-    """
+    """Entry point used by the observer. No-op when no rule matches."""
     if response is None:
         return
 
@@ -249,11 +240,6 @@ def maybe_capture(
         return
 
     payload = _build_sample_payload(request=request, response=response, record=record, ctx=ctx)
-    if redact_values:
-        # Final value-based pass over the fully serialized sample: catches the
-        # credential wherever it landed (query param, custom header, cookie,
-        # body) regardless of the name-based scrubbers above.
-        payload = redact_literal_values(payload, redact_values)
     sequence = _next_sequence(config.capture_id, ctx.source_type)
     key = _sample_object_key(config.capture_id, ctx.source_type, sequence)
     bucket = settings.OBJECT_STORAGE_BUCKET

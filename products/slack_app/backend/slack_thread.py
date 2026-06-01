@@ -1,4 +1,5 @@
 import re
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,102 @@ UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
 UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+
+# Legacy fixed ack emoji. Tasks ack'd before the deterministic pool landed used
+# `:seedling:` exclusively; cleanup still tries to remove it so in-flight tasks
+# at deploy time don't end up with a stale reaction. Can be dropped a release
+# cycle after this lands.
+_LEGACY_ACK_EMOJI = "seedling"
+
+# Pool of fun, universally-available Slack emoji names used to acknowledge a mention
+# before the bot starts the longer-running work. Anything in this pool is treated as
+# an in-progress signal by `update_reaction` / `_set_followup_done_reaction` and is
+# cleaned up when the bot reaches a terminal state. Keep these distinct from the
+# stage-specific reactions (:mag: for searching, :hedgehog: for done, :x: for failed)
+# and from "eyes" (the follow-up ack), so the cleanup pool stays unambiguous.
+RANDOM_ACK_EMOJIS: tuple[str, ...] = (
+    # Friendly greetings & thinking
+    "seedling",
+    "wave",
+    "robot_face",
+    "thinking_face",
+    "nerd_face",
+    "sunglasses",
+    # Energy & magic
+    "sparkles",
+    "rocket",
+    "zap",
+    "crystal_ball",
+    "mage",
+    "star2",
+    "dizzy",
+    "rainbow",
+    # Working / tinkering
+    "hammer_and_wrench",
+    "gear",
+    "coffee",
+    "keyboard",
+    "telescope",
+    "brain",
+    "bulb",
+    "compass",
+    # Nature & luck
+    "four_leaf_clover",
+    "cherry_blossom",
+    "sunflower",
+    "herb",
+    # Animal companions
+    "owl",
+    "otter",
+    "penguin",
+    "fox_face",
+    "bee",
+    "butterfly",
+    "unicorn_face",
+    "turtle",
+    "panda_face",
+    "koala",
+    "hamster",
+    # Play & whimsy
+    "art",
+    "balloon",
+    "game_die",
+    # Characters
+    "ninja",
+    "alien",
+    "space_invader",
+)
+
+
+def ack_emoji_for(message_ts: str) -> str:
+    """Pick an emoji from the ack pool deterministically per Slack message ts.
+
+    `create_posthog_code_task_for_repo_activity` retries up to 3 times. With a
+    truly random pick, each retry could choose a different emoji and bypass
+    `_safe_react`'s `already_reacted` short-circuit, piling extra reactions on
+    the user's mention. Keying the choice on the message ts keeps every replay
+    landing on the same emoji. `hashlib` (not `hash()`) is used so the choice
+    is stable across worker processes — PYTHONHASHSEED randomization would
+    otherwise diverge per replay.
+    """
+    digest = hashlib.sha256(message_ts.encode("utf-8")).digest()
+    return RANDOM_ACK_EMOJIS[int.from_bytes(digest[:4], "big") % len(RANDOM_ACK_EMOJIS)]
+
+
+def stale_ack_emojis_for(message_ts: str) -> tuple[str, ...]:
+    """Reactions a cleanup pass should try to remove from `message_ts`.
+
+    `eyes` is the follow-up ack, the deterministic pool pick is the initial
+    ack, and `_LEGACY_ACK_EMOJI` covers tasks ack'd before this pool landed.
+    Keeping the set small (vs. iterating the full pool) avoids burning the
+    `reactions.remove` rate limit on guaranteed-`no_reaction` calls. The
+    legacy emoji is also a pool member, so we dedupe when the deterministic
+    pick coincidentally lands on it.
+    """
+    emojis = ["eyes", ack_emoji_for(message_ts)]
+    if _LEGACY_ACK_EMOJI not in emojis:
+        emojis.append(_LEGACY_ACK_EMOJI)
+    return tuple(emojis)
 
 
 def _format_task_error(error: str) -> str:
@@ -117,7 +214,7 @@ class SlackThreadHandler:
         target_ts = self.context.user_message_ts or self.context.thread_ts
         try:
             client = self._get_client()
-            for stale in ("seedling", "eyes"):
+            for stale in stale_ack_emojis_for(target_ts):
                 try:
                     client.reactions_remove(channel=self.context.channel, timestamp=target_ts, name=stale)
                 except Exception:

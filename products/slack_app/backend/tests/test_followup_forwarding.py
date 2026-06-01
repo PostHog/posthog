@@ -51,7 +51,9 @@ class TestSlackThreadTaskMapping(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
         self.task = self.Task.objects.create(
             team=self.team,
             title="Test task",
@@ -147,7 +149,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com", distinct_id="user-1")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
@@ -537,7 +541,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
         self.task = self.Task.objects.create(
             team=self.team,
             title="Test task",
@@ -874,7 +880,9 @@ class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):
     def setUp(self):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
-        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
 
     @patch("posthog.models.integration.SlackIntegration")
     @patch("ee.billing.quota_limiting.is_team_limited", return_value=True)

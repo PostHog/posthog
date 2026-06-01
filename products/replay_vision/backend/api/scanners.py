@@ -26,6 +26,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
+from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
@@ -62,12 +63,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
+        help_text="What the scanner does: monitor, classifier, scorer, summarizer, or indexer.",
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, "
-            "scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag."
+            "Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; "
+            "classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -224,7 +225,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
     scanner_type = django_filters.ChoiceFilter(
         field_name="scanner_type",
         choices=ScannerType.choices,
-        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer).",
+        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).",
     )
     emits_signals = django_filters.BooleanFilter(
         field_name="emits_signals",
@@ -313,6 +314,7 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=[VISION_TAG])
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 

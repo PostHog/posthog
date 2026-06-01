@@ -27,7 +27,7 @@ class OrganizationOAuthApplicationSerializer(serializers.ModelSerializer):
         return instance.redirect_uris.split() if instance.redirect_uris else []
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class OrganizationOAuthApplicationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

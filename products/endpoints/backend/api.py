@@ -32,6 +32,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    ProductKey,
     PropertyOperator,
     QueryRequest,
     QueryStatus,
@@ -140,6 +141,7 @@ DATA_FRESHNESS_BUCKETS: dict[int, str] = {
 }
 VALID_DATA_FRESHNESS_SECONDS: frozenset[int] = frozenset(DATA_FRESHNESS_BUCKETS)
 DEFAULT_DATA_FRESHNESS_SECONDS = 86400
+
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
 
@@ -388,6 +390,7 @@ class MaterializationPreviewRequestSerializer(serializers.Serializer):
         description="Update an existing endpoint.",
     ),
 )
+@extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemViewSetMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"

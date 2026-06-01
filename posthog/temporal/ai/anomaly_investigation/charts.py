@@ -20,9 +20,10 @@ from typing import Any
 # is Agg. Set MPLBACKEND via env var before the first matplotlib import so we
 # pick the backend the canonical way and avoid post-import `matplotlib.use(...)`
 # mutations to library-global state. `setdefault` leaves an explicit override
-# from the environment intact. Set at module load so it's in place before the
-# deferred import inside render_series_chart runs.
+# from the environment intact.
 os.environ.setdefault("MPLBACKEND", "Agg")
+
+import matplotlib.pyplot as plt  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +49,6 @@ def render_series_chart(
     """
     if not dates or not values or len(dates) != len(values):
         return None
-
-    # Deferred import: matplotlib is heavy (~0.35s) and only the temporal worker
-    # rendering a chart needs it — not every process that imports this module.
-    import matplotlib.pyplot as plt
 
     try:
         fig, ax = plt.subplots(figsize=(CHART_WIDTH_IN, CHART_HEIGHT_IN), dpi=CHART_DPI)

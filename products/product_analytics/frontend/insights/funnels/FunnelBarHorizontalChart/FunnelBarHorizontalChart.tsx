@@ -78,12 +78,13 @@ export function FunnelBarHorizontalChart({
     const chartConfig = useMemo<BarChartConfig>(
         () => ({
             barLayout: 'stacked',
-            bars: { cornerRadius: 4, bandPadding: BAR_PADDING },
+            barCornerRadius: 4,
             axisOrientation: 'horizontal',
             hideXAxis: true,
             hideYAxis: true,
             showGrid: false,
             animateHover: true,
+            bandPadding: BAR_PADDING,
             margins: { top: 0, right: 0, bottom: 0, left: GLYPH_COLUMN_WIDTH_PX },
             tooltip: { placement: 'top' },
         }),

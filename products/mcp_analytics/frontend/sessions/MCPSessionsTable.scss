@@ -17,14 +17,5 @@
 
         // Sit above the body rows (including the highlighted selected row) as they scroll under it.
         z-index: 2;
-
-        th {
-            white-space: nowrap;
-        }
-    }
-
-    .LemonTable__content > table {
-        width: 100%;
-        table-layout: fixed;
     }
 }

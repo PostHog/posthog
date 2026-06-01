@@ -25,7 +25,6 @@ from posthog.temporal.ai_observability.metrics import (
     increment_tokens,
 )
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.scoped import scoped_temporal
 
 from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
@@ -528,7 +527,6 @@ def _build_errored_trace_result(allows_na: bool) -> LLMJudgeResult:
 
 
 @temporalio.activity.defn
-@scoped_temporal()
 async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeResult:
     """Execute LLM judge to evaluate the target event.
 
@@ -591,7 +589,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
                 return key
             # Active key exists but is invalid - fail, don't fall back to trial
             raise ApplicationError(
-                f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
+                f"Your API key is {key.state}. Please fix or replace it.",
                 {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                 non_retryable=True,
             )
@@ -613,7 +611,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> LLMJudgeR
             key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
             if key.state != LLMProviderKey.State.OK:
                 raise ApplicationError(
-                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
+                    f"Your API key is {key.state}. Please fix or replace it.",
                     {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
                     non_retryable=True,
                 )

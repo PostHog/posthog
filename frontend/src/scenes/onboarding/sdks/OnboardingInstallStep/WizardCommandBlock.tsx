@@ -1,45 +1,30 @@
 import './WizardCommandBlock.scss'
 
-import { ComponentType, useState } from 'react'
+import { useState } from 'react'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { cn } from 'lib/utils/css-classes'
 
-import androidImage from '../logos/android.svg'
-import angularImage from '../logos/angular.svg'
-import { AstroLogo } from '../logos/AstroLogo'
-import djangoImage from '../logos/django.svg'
-import flaskImage from '../logos/flask.svg'
-import { IOSLogo } from '../logos/IOSLogo'
-import laravelImage from '../logos/laravel.svg'
-import nextjsImage from '../logos/nextjs.svg'
-import nuxtImage from '../logos/nuxt.svg'
-import pythonImage from '../logos/python.svg'
-import railsImage from '../logos/rails.svg'
-import reactImage from '../logos/react.svg'
-import { ReactRouterLogo } from '../logos/ReactRouterLogo'
-import svelteImage from '../logos/svelte.svg'
-import vueImage from '../logos/vue.svg'
 import { useWizardCommand } from '../sdk-install-instructions/components/SetupWizardBanner'
 
 // Supported wizard frameworks for display
-const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
-    { name: 'Next.js', icon: nextjsImage },
-    { name: 'React', icon: reactImage },
-    { name: 'Angular', icon: angularImage },
-    { name: 'Vue', icon: vueImage },
-    { name: 'Nuxt', icon: nuxtImage },
-    { name: 'Astro', icon: AstroLogo },
-    { name: 'SvelteKit', icon: svelteImage },
-    { name: 'Django', icon: djangoImage },
-    { name: 'Flask', icon: flaskImage },
-    { name: 'Laravel', icon: laravelImage },
-    { name: 'React Native', icon: reactImage },
-    { name: 'iOS', icon: IOSLogo },
-    { name: 'Android', icon: androidImage },
-    { name: 'Ruby on Rails', icon: railsImage },
-    { name: 'React Router', icon: ReactRouterLogo },
-    { name: 'Python', icon: pythonImage },
+const WIZARD_FRAMEWORKS = [
+    'Next.js',
+    'React',
+    'Angular',
+    'Vue',
+    'Nuxt',
+    'Astro',
+    'SvelteKit',
+    'Django',
+    'Flask',
+    'Laravel',
+    'React Native',
+    'iOS',
+    'Android',
+    'Ruby on Rails',
+    'React Router',
+    'Python',
 ]
 
 const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
@@ -82,21 +67,14 @@ export function WizardCommandBlock(): JSX.Element {
                         Auto-detects your framework, installs the SDK, and sets up event capture.
                     </p>
 
-                    <div className="flex flex-wrap gap-1.5 items-center">
+                    <div className="flex flex-wrap gap-1.5">
                         <span className="text-xs text-muted">Supports:</span>
                         {WIZARD_FRAMEWORKS.map((fw) => (
                             <span
-                                key={fw.name}
-                                className="inline-flex items-center gap-1 text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
+                                key={fw}
+                                className="text-xs text-muted bg-bg-light border border-border rounded px-1.5 py-0.5"
                             >
-                                {typeof fw.icon === 'string' ? (
-                                    <img src={fw.icon} alt="" className="w-3 h-3 shrink-0" />
-                                ) : (
-                                    <span className="inline-flex w-3 h-3 shrink-0 [&_svg]:!w-3 [&_svg]:!h-3">
-                                        <fw.icon />
-                                    </span>
-                                )}
-                                {fw.name}
+                                {fw}
                             </span>
                         ))}
                     </div>

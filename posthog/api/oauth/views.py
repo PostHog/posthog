@@ -8,7 +8,6 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
-from django.db import OperationalError
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -80,23 +79,6 @@ def get_region_info() -> dict | None:
         region = cloud.lower()
         return {"posthog_region": region, "posthog_base_url": settings.SITE_URL}
     return None
-
-
-def _temporarily_unavailable_response(retry_after_seconds: int = 1) -> JsonResponse:
-    """RFC 6749 `temporarily_unavailable` response with HTTP 503 and Retry-After.
-
-    Use for transient failures (e.g. database connection-pool saturation) so OAuth
-    clients back off and retry instead of treating the request as permanently failed.
-    """
-    response = JsonResponse(
-        {
-            "error": "temporarily_unavailable",
-            "error_description": "The authorization server is temporarily unable to handle the request. Please retry.",
-        },
-        status=503,
-    )
-    response["Retry-After"] = str(retry_after_seconds)
-    return response
 
 
 def _impersonator_id_for_request(request) -> int | None:
@@ -820,20 +802,6 @@ class OAuthTokenView(TokenView):
                 },
                 status=400,
             )
-        except OperationalError as e:
-            # PgBouncer kills queries that wait too long for a backend connection with
-            # `query_wait_timeout`. The resulting OperationalError otherwise bubbles up
-            # as an unhandled 500 — translate it into a retryable response.
-            if "query_wait_timeout" not in str(e):
-                raise
-            logger.warning(
-                "oauth_token_db_pool_pressure",
-                grant_type=grant_type,
-                client_id_prefix=client_id_prefix,
-                redirect_uri=redirect_uri,
-                error=str(e),
-            )
-            return _temporarily_unavailable_response()
 
         logger.info(
             "oauth_token_response",

@@ -53,8 +53,8 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/observations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/observations/`
+        ? `/api/environments/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/vision/observations/`
 }
 
 /**
@@ -72,7 +72,7 @@ export const visionObservationsList = async (
 }
 
 export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/observations/${id}/`
+    return `/api/environments/${projectId}/vision/observations/${id}/`
 }
 
 /**
@@ -90,7 +90,7 @@ export const visionObservationsRetrieve = async (
 }
 
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/quota/`
+    return `/api/environments/${projectId}/vision/quota/`
 }
 
 export const environmentVisionQuotaRetrieve = async (
@@ -115,8 +115,8 @@ export const getVisionScannersListUrl = (projectId: string, params?: VisionScann
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/`
+        ? `/api/environments/${projectId}/vision/scanners/?${stringifiedParams}`
+        : `/api/environments/${projectId}/vision/scanners/`
 }
 
 /**
@@ -134,7 +134,7 @@ export const visionScannersList = async (
 }
 
 export const getVisionScannersCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/`
+    return `/api/environments/${projectId}/vision/scanners/`
 }
 
 /**
@@ -154,7 +154,7 @@ export const visionScannersCreate = async (
 }
 
 export const getVisionScannersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${id}/`
+    return `/api/environments/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -172,7 +172,7 @@ export const visionScannersRetrieve = async (
 }
 
 export const getVisionScannersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${id}/`
+    return `/api/environments/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -193,7 +193,7 @@ export const visionScannersPartialUpdate = async (
 }
 
 export const getVisionScannersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${id}/`
+    return `/api/environments/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -207,7 +207,7 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
 }
 
 export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
+    return `/api/environments/${projectId}/vision/scanners/${id}/observe/`
 }
 
 /**
@@ -243,8 +243,8 @@ export const getVisionScannersObservationsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/`
+        ? `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
+        : `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/`
 }
 
 /**
@@ -266,7 +266,7 @@ export const visionScannersObservationsList = async (
 }
 
 export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
+    return `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
@@ -285,7 +285,7 @@ export const visionScannersObservationsRetrieve = async (
 }
 
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/estimate/`
+    return `/api/environments/${projectId}/vision/scanners/estimate/`
 }
 
 /**

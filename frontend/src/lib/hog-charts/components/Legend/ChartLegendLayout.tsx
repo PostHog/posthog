@@ -29,8 +29,7 @@ export function ChartLegendLayout({
     const isRow = position === 'left' || position === 'right'
     const legendFirst = position === 'top' || position === 'left'
     const legendSlot = legend ? <div className="flex-none shrink-0">{legend}</div> : null
-    // `flex flex-col` so the inner chart's `flex: 1` resolves; `self-stretch` so the chart fills the cross axis regardless of `align` (which then only affects the legend).
-    const chartSlot = <div className="flex flex-col flex-1 min-w-0 min-h-0 self-stretch">{children}</div>
+    const chartSlot = <div className="flex-1 min-w-0 min-h-0">{children}</div>
     return (
         <div
             className={`flex min-w-0 min-h-0 ${isRow ? 'flex-row' : 'flex-col'} ${ALIGN_CLASS[align]} ${className ?? ''}`}

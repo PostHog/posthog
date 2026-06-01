@@ -194,13 +194,6 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-              with:
-                  shared-key: 'v2-rust-ci'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
-
             - name: Run cargo build
               env:
                   # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
@@ -374,13 +367,6 @@ jobs:
             - name: Install sccache
               uses: ./.github/actions/setup-sccache
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-              with:
-                  shared-key: 'v2-rust-ci'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' && !matrix.is_shadow }}
-
             - name: Check format
               run: cargo fmt -- --check
 
@@ -400,11 +386,7 @@ jobs:
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
-              # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
-              # (which records cargo-shear as installed) but not the binary itself, so
-              # without --force binstall short-circuits ("already installed") and the
-              # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              run: cargo binstall --no-confirm cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear

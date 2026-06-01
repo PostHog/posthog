@@ -90,14 +90,14 @@ export class EmailService {
                 throw new Error('Email integration not found')
             }
 
-            const from = this.resolveFromSender(integration)
+            this.validateEmailDomain(integration, params)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
-                    await this.sendEmailWithMaildev(result, params, from)
+                    await this.sendEmailWithMaildev(result, params)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from)
+                    await this.sendEmailWithSES(result, params)
                     break
 
                 case 'unsupported':
@@ -129,7 +129,12 @@ export class EmailService {
         return result
     }
 
-    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
+    private validateEmailDomain(
+        integration: IntegrationType,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): void {
+        // Currently we enforce using the name and email set on the integration
+
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -138,18 +143,18 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        return { email: integration.config.email, name: integration.config.name }
+        params.from.email = integration.config.email
+        params.from.name = integration.config.name
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)
     private async sendEmailWithMaildev(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            from: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
@@ -177,8 +182,7 @@ export class EmailService {
 
     private async sendEmailWithSES(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
-        params: CyclotronInvocationQueueParametersEmailType,
-        from: { email: string; name: string }
+        params: CyclotronInvocationQueueParametersEmailType
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -198,7 +202,7 @@ export class EmailService {
             : {}
 
         const sendEmailParams: SendEmailCommandInput = {
-            FromEmailAddress: from.name ? `"${from.name}" <${from.email}>` : from.email,
+            FromEmailAddress: params.from.name ? `"${params.from.name}" <${params.from.email}>` : params.from.email,
             Destination: {
                 ToAddresses: [params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email],
             },
@@ -219,7 +223,7 @@ export class EmailService {
             },
             ConfigurationSetName: 'posthog-messaging',
             EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
-            FeedbackForwardingEmailAddress: from.email,
+            FeedbackForwardingEmailAddress: params.from.email,
         }
 
         const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'

@@ -1,5 +1,4 @@
-import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
@@ -7,22 +6,21 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
+import { QueryContext, QueryContextColumn } from '~/queries/types'
 
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
+import {
+    ACCOUNTS_HOGQL_COLUMN_NAMES,
+    ACCOUNTS_HOGQL_DATA_NODE_KEY,
+    AccountRoleKey,
+    accountsLogic,
+} from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
-
-// Shape the backend emits for the `name` column — see accounts_query_runner._calculate.
-type AccountNameCell = { name: string; external_id: string | null; id: string }
 
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
     csm: 'CSM',
@@ -39,26 +37,26 @@ const COLUMN_WIDTHS = {
     account_owner: '220px',
 } as const
 
-function getCellAt(record: unknown, names: string[], column: string): unknown {
+// Maps logical column names used by the cell renderers to the actual column
+// names in the HogQL response. `id` and `external_id` come back under the
+// `context.columns.X` prefix so DataTable's existing hidden-flag path filters
+// them out of the visible columns — we still need them in the row tuple for
+// the row-expand id and the Account cell's external_id rendering.
+const COLUMN_KEY_OVERRIDES: Record<string, string> = {
+    id: 'context.columns.id',
+    external_id: 'context.columns.external_id',
+}
+
+function columnIndex(name: string): number {
+    return ACCOUNTS_HOGQL_COLUMN_NAMES.indexOf(COLUMN_KEY_OVERRIDES[name] ?? name)
+}
+
+function getCell(record: unknown, column: string): unknown {
     if (!Array.isArray(record)) {
         return undefined
     }
-    const index = names.indexOf(column)
+    const index = columnIndex(column)
     return index >= 0 ? record[index] : undefined
-}
-
-function useGetCell(): (record: unknown, column: string) => unknown {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    return (record, column) => getCellAt(record, visibleColumnNames, column)
-}
-
-function getNameCell(record: unknown, visibleColumnNames: string[]): AccountNameCell | undefined {
-    const value = getCellAt(record, visibleColumnNames, ACCOUNTS_NAME_COLUMN)
-    if (!value || typeof value !== 'object') {
-        return undefined
-    }
-    const cell = value as Partial<AccountNameCell>
-    return typeof cell.id === 'string' && typeof cell.name === 'string' ? (cell as AccountNameCell) : undefined
 }
 
 function tupleToAssignment(value: unknown): AccountAssignment {
@@ -77,14 +75,12 @@ function tupleToAssignment(value: unknown): AccountAssignment {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    const cell = getNameCell(record, visibleColumnNames)
-    const name = cell?.name ?? ''
-    const externalId = cell?.external_id ?? ''
+    const name = String(getCell(record, 'name') ?? '')
+    const externalId = getCell(record, 'external_id')
     return (
         <div className="flex flex-col min-w-40">
             <span className="font-medium">{name}</span>
-            {externalId ? (
+            {typeof externalId === 'string' && externalId ? (
                 <CopyToClipboardInline
                     explicitValue={externalId}
                     iconStyle={{ color: 'var(--color-accent)' }}
@@ -98,24 +94,20 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 }
 
 function TagsCell({ record }: { record: unknown }): JSX.Element {
-    const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const tags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
     return tags.length > 0 ? <ObjectTags tags={tags} staticOnly /> : <span className="text-muted">—</span>
 }
 
 function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
-    const getCell = useGetCell()
     const count = Number(getCell(record, 'notebook_count')) || 0
     return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
 }
 
 function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
     const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { updateAccountRole } = useActions(accountsLogic)
-    const getCell = useGetCell()
-    const accountId = getNameCell(record, visibleColumnNames)?.id ?? ''
+    const accountId = String(getCell(record, 'id') ?? '')
     const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
     const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
     const assignment: AccountAssignment =
@@ -155,103 +147,50 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
     )
 }
 
-function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
-    const { sortOrder } = useValues(accountsLogic)
-    const { toggleSort } = useActions(accountsLogic)
-    const order = sortOrder?.column === column ? (sortOrder.direction === 'asc' ? 1 : -1) : null
-    return (
-        <span
-            role="button"
-            tabIndex={0}
-            className="inline-flex items-center cursor-pointer select-none"
-            onClick={() => toggleSort(column)}
-            onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    toggleSort(column)
-                }
-            }}
-            data-attr={`accounts-hogql-sort-${column}`}
-        >
-            {label}
-            <SortingIndicator order={order} />
-        </span>
-    )
-}
+const HIDDEN_COLUMN: QueryContextColumn = { hidden: true }
 
-// Per-column overrides for known visible columns. The `label` becomes the
-// header text (rendered inside `SortableColumnHeader`), `width` pins the
-// column width, and `render` provides the cell renderer. Any visible column
-// not in this map falls back to a sortable header with the raw column name
-// and DataTable's default cell rendering.
-type KnownColumnTemplate = {
-    label?: string
-    width?: string
-    render?: QueryContextColumnComponent
-}
-
-const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
-    name: {
-        label: 'Account',
-        width: COLUMN_WIDTHS.name,
-        render: ({ record }) => <NameCell record={record} />,
+const CONTEXT: QueryContext<DataTableNode> = {
+    columns: {
+        id: HIDDEN_COLUMN,
+        external_id: HIDDEN_COLUMN,
+        name: {
+            title: 'Account',
+            width: COLUMN_WIDTHS.name,
+            render: ({ record }) => <NameCell record={record} />,
+        },
+        tag_names: {
+            title: 'Tags',
+            width: COLUMN_WIDTHS.tag_names,
+            render: ({ record }) => <TagsCell record={record} />,
+        },
+        notebook_count: {
+            title: 'Notes',
+            width: COLUMN_WIDTHS.notebook_count,
+            render: ({ record }) => <NotebookCountCell record={record} />,
+        },
+        csm: {
+            title: ROLE_LABELS.csm,
+            width: COLUMN_WIDTHS.csm,
+            render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
+        },
+        account_executive: {
+            title: ROLE_LABELS.account_executive,
+            width: COLUMN_WIDTHS.account_executive,
+            render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
+        },
+        account_owner: {
+            title: ROLE_LABELS.account_owner,
+            width: COLUMN_WIDTHS.account_owner,
+            render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
+        },
     },
-    tag_names: {
-        label: 'Tags',
-        width: COLUMN_WIDTHS.tag_names,
-        render: ({ record }) => <TagsCell record={record} />,
+    expandable: {
+        noIndent: true,
+        expandedRowRender: ({ result }) => {
+            const accountId = Array.isArray(result) ? String(result[columnIndex('id')] ?? '') : ''
+            return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
+        },
     },
-    notebook_count: {
-        label: 'Notes',
-        width: COLUMN_WIDTHS.notebook_count,
-        render: ({ record }) => <NotebookCountCell record={record} />,
-    },
-    csm: {
-        label: ROLE_LABELS.csm,
-        width: COLUMN_WIDTHS.csm,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="csm" />,
-    },
-    account_executive: {
-        label: ROLE_LABELS.account_executive,
-        width: COLUMN_WIDTHS.account_executive,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="account_executive" />,
-    },
-    account_owner: {
-        label: ROLE_LABELS.account_owner,
-        width: COLUMN_WIDTHS.account_owner,
-        render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
-    },
-}
-
-function useContextColumns(): Record<string, QueryContextColumn> {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    return useMemo(() => {
-        const columns: Record<string, QueryContextColumn> = {}
-        for (const key of visibleColumnNames) {
-            const template = KNOWN_COLUMN_TEMPLATES[key]
-            const label = template?.label ?? key
-            columns[key] = {
-                renderTitle: () => <SortableColumnHeader column={key} label={label} />,
-                width: template?.width,
-                render: template?.render,
-            }
-        }
-        return columns
-    }, [visibleColumnNames])
-}
-
-function useExpandable(): QueryContext<DataTableNode>['expandable'] {
-    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    return useMemo(
-        () => ({
-            noIndent: true,
-            expandedRowRender: ({ result }) => {
-                const accountId = getNameCell(result, visibleColumnNames)?.id
-                return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
-            },
-        }),
-        [visibleColumnNames]
-    )
 }
 
 const SKELETON_ROW_COUNT = 5
@@ -312,8 +251,6 @@ function AccountsHogQLSkeleton(): JSX.Element {
 
 function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
     const { responseLoading, response } = useValues(dataNodeLogic)
-    const contextColumns = useContextColumns()
-    const expandable = useExpandable()
     if (responseLoading && !response) {
         return <AccountsHogQLSkeleton />
     }
@@ -324,13 +261,7 @@ function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Elemen
             setQuery={() => {
                 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
             }}
-            context={{
-                columns: contextColumns,
-                expandable,
-                dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                emptyStateHeading: 'There are no matching accounts for this query',
-                emptyStateDetail: 'Try adjusting the filters or refreshing',
-            }}
+            context={{ ...CONTEXT, dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY }}
             readOnly
         />
     )
@@ -340,11 +271,14 @@ export function AccountsHogQLTable(): JSX.Element {
     const { hogqlQuery } = useValues(accountsLogic)
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
-                <AccountsColumnConfigurator />
-            </div>
+        <BindLogic
+            logic={dataNodeLogic}
+            props={{
+                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                query: hogqlQuery.source,
+            }}
+        >
             <AccountsHogQLDataTable query={hogqlQuery} />
-        </div>
+        </BindLogic>
     )
 }

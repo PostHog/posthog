@@ -57,13 +57,6 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
-# Override the delay before the first in-sandbox credential refresh (default 20
-# minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
-# quickly instead of waiting out the GitHub token's lifetime.
-TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
-    "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
-)
-
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 

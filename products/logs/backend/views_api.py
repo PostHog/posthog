@@ -1,5 +1,6 @@
 from typing import Any
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -44,6 +45,7 @@ class LogsViewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+@extend_schema(tags=["logs"])
 class LogsViewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsView.objects.all().order_by("-created_at")

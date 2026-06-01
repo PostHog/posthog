@@ -217,17 +217,5 @@ describe('DropAndPasteHandlerExtension', () => {
             expect(result[0].type).toBe('codeBlock')
             expect(result[0].content?.[0].text).toBe('const x = 1')
         })
-
-        it('parses a flattened table whose rows were joined on a single line', () => {
-            const result = parseMarkdownToTipTap('| a | b | |---|---| | 1 | 2 | | 3 | 4 |')
-
-            expect(result[0].type).toBe('table')
-            expect(result[0].content).toHaveLength(3)
-            const headerRow = result[0].content?.[0]
-            expect(headerRow?.content?.[0].type).toBe('tableHeader')
-            expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('a')
-            const lastRow = result[0].content?.[2]
-            expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('4')
-        })
     })
 })

@@ -221,7 +221,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-@extend_schema(extensions={"x-product": "feature_flags"})
+@extend_schema(tags=["feature_flags"])
 class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, read, update and delete scheduled changes.

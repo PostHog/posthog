@@ -6,7 +6,6 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 
 import { actionsModel } from '~/models/actionsModel'
 
-import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../types'
 import { TaxonomicFilterHeadless } from './index'
 
@@ -35,10 +34,6 @@ interface ContainerArgs {
 }
 
 function Container({ taxonomicGroupTypes, initialSearchQuery, suggestedFiltersLabel }: ContainerArgs): JSX.Element {
-    useState(() => {
-        __clearTaxonomicResourceCache()
-        return null
-    })
     useMountedLogic(actionsModel)
     const [lastPick, setLastPick] = useState<{
         group: string

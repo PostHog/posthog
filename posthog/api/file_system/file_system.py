@@ -149,7 +149,7 @@ def tokenize_search(search: str) -> list[str]:
             return search.split()
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")

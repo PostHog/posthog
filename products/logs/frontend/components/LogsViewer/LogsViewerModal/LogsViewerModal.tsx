@@ -7,7 +7,6 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer'
-import { useKeepMountedWhileOpen } from 'products/logs/frontend/hooks/useKeepMountedWhileOpen'
 
 import { logsViewerModalLogic } from './logsViewerModalLogic'
 
@@ -16,11 +15,6 @@ export function LogsViewerModal(): JSX.Element | null {
     const { closeLogsViewerModal } = useActions(logsViewerModalLogic)
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
     const floatingContainerRef = useCallback((el: HTMLDivElement | null) => setFloatingContainer(el), [])
-    const shouldRender = useKeepMountedWhileOpen(isOpen)
-
-    if (!shouldRender) {
-        return null
-    }
 
     return (
         <LemonModal

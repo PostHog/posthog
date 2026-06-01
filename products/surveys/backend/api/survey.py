@@ -266,6 +266,7 @@ CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
     "deviceTypesMatchType",
 ]
 
+
 if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
@@ -1850,6 +1851,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         }
 
 
+@extend_schema(tags=[ProductKey.SURVEYS])
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),

@@ -25,13 +25,6 @@ export const manifest: ProductManifest = {
             activityScope: ActivityScope.LOG,
             layout: 'app-container',
         },
-        LogsAlertNotificationDetail: {
-            import: () => import('./frontend/scenes/LogsAlertNotificationDetailScene/LogsAlertNotificationDetailScene'),
-            projectBased: true,
-            name: 'Destination',
-            activityScope: ActivityScope.LOG,
-            layout: 'app-container',
-        },
         LogsSamplingNew: {
             import: () => import('./frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
             projectBased: true,
@@ -50,7 +43,6 @@ export const manifest: ProductManifest = {
     routes: {
         '/logs': ['Logs', 'logs'],
         '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
-        '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
         '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
         '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     },
@@ -64,8 +56,6 @@ export const manifest: ProductManifest = {
         logs: (): string => '/logs',
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
-        logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
-            `/logs/alerts/${alertId}/notifications/${hogFunctionId}`,
         logsSamplingNew: (): string => '/logs/drop-rules/new',
         logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     },

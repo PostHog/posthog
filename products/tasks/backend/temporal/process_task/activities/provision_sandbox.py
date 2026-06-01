@@ -16,7 +16,6 @@ from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
     get_git_identity_env_vars,
     get_sandbox_api_url,
@@ -504,14 +503,34 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
         sandbox = Sandbox.get_by_id(input.sandbox_id)
 
-        if github_token and input.repository:
-            set_git_remote_token(sandbox, input.repository, github_token)
+        if input.repository and github_token:
+            org, repo = input.repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            # Guard on .git existing so we don't fail when the snapshot was
+            # taken before the repository was cloned (or was repo-less).
+            update_remote = (
+                f"if [ -d {shlex.quote(repo_path + '/.git')} ]; then "
+                f"cd {shlex.quote(repo_path)} && "
+                f"git remote set-url origin "
+                f"https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(input.repository)}.git; "
+                f"fi"
+            )
+            remote_result = sandbox.execute(update_remote, timeout_seconds=30)
+            if remote_result.exit_code != 0:
+                logger.warning(
+                    "Failed to refresh git remote URL on resume",
+                    extra={
+                        "sandbox_id": input.sandbox_id,
+                        "repository": input.repository,
+                        "stderr": remote_result.stderr,
+                    },
+                )
 
-        # Pre-seed the agentsh env file so any wrapped command that runs between
-        # resume and start_agent_server (diagnostics, branch checkout) sees the
-        # fresh tokens instead of the stale snapshot values. start_agent_server
-        # re-dumps the full process env over this, so a partial overwrite is fine
-        # here (unlike the mid-run refresh, which must preserve the live env).
+        # start_agent_server rewrites ENV_FILE from the live process env before
+        # launching the agent. Pre-seeding it here means any agentsh-wrapped
+        # command that runs between sandbox resume and start_agent_server
+        # (diagnostics, branch checkout) sees the fresh tokens instead of the
+        # stale snapshot values.
         fresh_env_vars: dict[str, str] = {}
         if github_token:
             fresh_env_vars["GITHUB_TOKEN"] = github_token

@@ -60,8 +60,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const execute = async (member: OrganizationMemberType | undefined): Promise<void> => {
-        if (editor && member) {
+    const execute = async (member: OrganizationMemberType): Promise<void> => {
+        if (editor) {
             editor
                 .chain()
                 .focus()
@@ -80,31 +80,15 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         }
     }
 
-    const onPressEnter = (): boolean => {
+    const onPressEnter = async (): Promise<void> => {
         const member = filteredMembers[selectedIndex]
-        // No match (e.g. members still loading or no results) — let the editor
-        // handle Enter normally instead of swallowing it.
-        if (!member) {
-            return false
-        }
-        void execute(member)
-        return true
+        await execute(member)
     }
-    const onPressUp = (): boolean => {
-        const count = filteredMembers.length
-        if (count === 0) {
-            return true
-        }
-        setSelectedIndex((selectedIndex - 1 + count) % count)
-        return true
+    const onPressUp = (): void => {
+        setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
-    const onPressDown = (): boolean => {
-        const count = filteredMembers.length
-        if (count === 0) {
-            return true
-        }
-        setSelectedIndex((selectedIndex + 1) % count)
-        return true
+    const onPressDown = (): void => {
+        setSelectedIndex(Math.min(selectedIndex + 1, filteredMembers.length - 1))
     }
 
     const onKeyDown = useCallback(
@@ -116,7 +100,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             }
 
             if (isKeyOf(event.key, keyMappings)) {
-                return keyMappings[event.key]()
+                keyMappings[event.key]()
+                return true
             }
 
             return false

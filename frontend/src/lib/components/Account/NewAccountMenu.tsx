@@ -68,9 +68,9 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
 
-    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
+    const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Emoji}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
-        ? currentTeam?.name?.replace(/^\p{Extended_Pictographic}/u, '').trimStart()
+        ? currentTeam?.name?.replace(/^\p{Emoji}/u, '').trimStart()
         : currentTeam?.name
 
     return (

@@ -96,7 +96,7 @@ class TestPersonStrategyGetActors(PersonhogTestMixin, BaseTest):
             persons.append(p)
 
         strategy = _make_strategy(self.team)
-        with patch("posthog.models.person.util.PERSONHOG_BATCH_SIZE", 2):
+        with patch.object(PersonStrategy, "BATCH_SIZE", 2):
             result = strategy.get_actors([str(p.uuid) for p in persons])
 
         assert len(result) == 5

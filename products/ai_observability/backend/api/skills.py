@@ -147,6 +147,7 @@ ALLOWED_LIST_ORDERINGS = frozenset(
 )
 
 
+@extend_schema(tags=["llm_analytics"])
 class LLMSkillViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

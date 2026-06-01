@@ -14,6 +14,8 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
@@ -529,6 +531,7 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
     return dict(counts)
 
 
+@extend_schema(tags=[ProductKey.ACTIONS])
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

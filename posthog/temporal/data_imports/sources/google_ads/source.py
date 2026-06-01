@@ -50,7 +50,6 @@ class GoogleAdsSource(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
-            "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
             # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
             # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
             # Retrying cannot recover — the user must reconnect their Google Ads account.

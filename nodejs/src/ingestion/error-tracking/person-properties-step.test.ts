@@ -102,8 +102,7 @@ describe('createFetchPersonBatchStep', () => {
                 { teamId: 123, distinctId: 'user-1' },
                 { teamId: 123, distinctId: 'user-2' },
             ],
-            true, // useReadReplica
-            'error-tracking/person-properties'
+            true // useReadReplica
         )
     })
 
@@ -205,8 +204,7 @@ describe('createFetchPersonBatchStep', () => {
         // Should only query for the event with distinct_id
         expect(mockPersonRepository.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
             [{ teamId: 123, distinctId: 'user-123' }],
-            true,
-            'error-tracking/person-properties'
+            true
         )
     })
 

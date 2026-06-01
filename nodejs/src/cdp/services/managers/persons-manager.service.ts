@@ -88,9 +88,7 @@ export class PersonsManagerService {
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
-            teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
-            undefined,
-            'cdp/hogflow-person-enrichment'
+            teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id }))
         )
 
         // Map results back to the original keys
@@ -116,9 +114,7 @@ export class PersonsManagerService {
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
-            teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
-            undefined,
-            'cdp/hogflow-person-enrichment'
+            teamPersons.map(({ teamId, id }) => ({ teamId, personId: id }))
         )
 
         // Fetch one distinct_id per person so callers that need to identify the user

@@ -37,7 +37,7 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS, MAX_TARGET_WIDTHS
+from products.web_analytics.backend.api.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
 from products.web_analytics.backend.tasks.heatmap_screenshot import generate_heatmap_screenshot
 
@@ -649,14 +649,7 @@ _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
 
 class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
     widths = serializers.ListField(
-        child=serializers.IntegerField(min_value=100, max_value=3000),
-        required=False,
-        allow_empty=False,
-        max_length=MAX_TARGET_WIDTHS,
-        help_text=(
-            "Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. "
-            f"Defaults to {DEFAULT_TARGET_WIDTHS} when omitted. At most {MAX_TARGET_WIDTHS} widths."
-        ),
+        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
     )
 
     def validate_url(self, value: str) -> str:

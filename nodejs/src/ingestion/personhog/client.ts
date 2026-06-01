@@ -154,11 +154,6 @@ export interface PersonHogClientConfig {
      */
     idleConnectionTimeoutMs?: number
 
-    // -- Attribution --
-
-    /** Identifies the code path / feature area within this service (e.g., "ingestion/event-processing"). */
-    callerTag?: string
-
     // -- Observability --
 
     /**
@@ -194,15 +189,6 @@ export class PersonHogClient {
             const clientName = config.clientName
             interceptors.push((next) => async (req) => {
                 req.header.set('x-client-name', clientName)
-                return await next(req)
-            })
-        }
-        if (config.callerTag) {
-            const callerTag = config.callerTag
-            interceptors.push((next) => async (req) => {
-                if (!req.header.has('x-caller-tag')) {
-                    req.header.set('x-caller-tag', callerTag)
-                }
                 return await next(req)
             })
         }

@@ -11,7 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type { DocsSearchRequestApi, DocsSearchResponseApi, McpToolsCreate200 } from './api.schemas'
 
 export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
-    return `/api/projects/${projectId}/mcp_tools/${toolName}/`
+    return `/api/environments/${projectId}/mcp_tools/${toolName}/`
 }
 
 /**
@@ -34,7 +34,7 @@ export const mcpToolsCreate = async (
 }
 
 export const getDocsSearchUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/mcp_tools/docs_search/`
+    return `/api/environments/${projectId}/mcp_tools/docs_search/`
 }
 
 /**

@@ -1,5 +1,3 @@
-import uuid
-
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from parameterized import parameterized
@@ -26,15 +24,12 @@ from posthog.models import (
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
 from posthog.models.project import Project
-from posthog.models.scoping import team_scope
 
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
-from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.conversations.backend.models import Ticket
 from products.customer_analytics.backend.models.account import Account
@@ -539,42 +534,6 @@ def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
     )
 
 
-def _create_business_knowledge_source(team: Team, label: str):
-    with team_scope(team.pk):
-        return KnowledgeSource.objects.create(
-            team=team, name=f"bk_source_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
-        )
-
-
-def _create_business_knowledge_document(team: Team, label: str):
-    with team_scope(team.pk):
-        source = KnowledgeSource.objects.create(
-            team=team, name=f"bk_source_for_doc_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
-        )
-        return KnowledgeDocument.objects.create(
-            team=team, source=source, stable_id=f"stable_{label}", content=f"content_{label}"
-        )
-
-
-def _create_business_knowledge_chunk(team: Team, label: str):
-    with team_scope(team.pk):
-        source = KnowledgeSource.objects.create(
-            team=team, name=f"bk_source_for_chunk_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
-        )
-        doc = KnowledgeDocument.objects.create(
-            team=team, source=source, stable_id=f"stable_chunk_{label}", content=f"content_{label}"
-        )
-        return KnowledgeChunk.objects.create(
-            id=uuid.uuid4(),
-            team=team,
-            source=source,
-            document=doc,
-            ordinal=0,
-            content=f"chunk_content_{label}",
-            char_count=len(f"chunk_content_{label}"),
-        )
-
-
 SYSTEM_TABLE_FACTORIES = [
     ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
@@ -583,9 +542,6 @@ SYSTEM_TABLE_FACTORIES = [
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_exports", _create_batch_export),
-    ("business_knowledge_chunks", _create_business_knowledge_chunk),
-    ("business_knowledge_documents", _create_business_knowledge_document),
-    ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),

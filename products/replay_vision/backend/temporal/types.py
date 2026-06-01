@@ -9,12 +9,13 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerProvider, ScannerType
 from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 
 AnyScannerOutput = Annotated[
-    ClassifierOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
+    ClassifierOutput | IndexerOutput | MonitorOutput | ScorerOutput | SummarizerOutput,
     Field(discriminator="scanner_type"),
 ]
 
@@ -41,11 +42,21 @@ class ScannerSnapshot(BaseModel, frozen=True):
             ) from exc
 
 
+class EventCitation(BaseModel, frozen=True):
+    """One entry in `event_id_mapping`: enough metadata for a UI to render a deep-link to the cited event."""
+
+    uuid: str = Field(description="Real PostHog event UUID; use with `/api/.../events/{uuid}` to fetch the event.")
+    timestamp_ms: int = Field(
+        ge=0, description="Milliseconds since session start; use to seek the session replay player to the moment."
+    )
+
+
 class ScannerResult(BaseModel, frozen=True):
     """Result data of a completed observation, persisted into `ReplayObservation.scanner_result`."""
 
     model_output: AnyScannerOutput
     signals_count: int = Field(default=0, ge=0)
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class ApplyScannerInputs(BaseModel, frozen=True):
@@ -72,7 +83,6 @@ class CreateObservationOutput(BaseModel, frozen=True):
     observation_id: UUID | None
     was_created: bool
     scanner_type: ScannerType
-    emits_embeddings: bool = False
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
@@ -156,7 +166,7 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     # Reverse mappings: `url_1` -> actual URL, `window_1` -> actual window UUID.
     url_mapping: dict[str, str] = Field(default_factory=dict)
     window_mapping: dict[str, str] = Field(default_factory=dict)
-    event_timestamps: dict[str, int] = Field(default_factory=dict)
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
     metadata: SessionMetadata
 
 
@@ -190,19 +200,21 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
+    # Short event_id (LLM-facing) -> citation metadata, propagated from `ScannerLlmInputs` for downstream resolution.
+    event_id_mapping: dict[str, EventCitation] = Field(default_factory=dict)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
     gemini_file_name: str
 
 
-class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Input to the summarizer-side-effect activity that emits per-facet embedding requests."""
+class EmbedIndexerObservationInputs(BaseModel, frozen=True):
+    """Input to the indexer-side-effect activity that emits per-facet embedding requests."""
 
     team_id: int
     session_id: str
     observation_id: UUID
-    summarizer_output: SummarizerOutput
+    indexer_output: IndexerOutput
 
 
 class EmitClassifierTagsInputs(BaseModel, frozen=True):

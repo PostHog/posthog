@@ -40,16 +40,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
     `send()` is the lowest synchronous hook in the requests stack — it sees
     the fully-prepared request and the raw response, exception or not, with
     no SDK-specific framing on top.
-
-    `redact_values` are credential strings to mask wherever they appear in the
-    logged URL or captured sample — value-based masking that complements the
-    name-based denylists for auth injected under an unpredictable param/header
-    name (e.g. an API key in a query param).
     """
-
-    def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), **kwargs: Any) -> None:
-        self._redact_values = redact_values
-        super().__init__(*args, **kwargs)
 
     def send(
         self,
@@ -83,7 +74,6 @@ class TrackedHTTPAdapter(HTTPAdapter):
                     response,
                     started_at_monotonic=started,
                     exception=exception,
-                    redact_values=self._redact_values,
                 )
             except Exception:
                 # Belt-and-braces: record_request should never raise, but if
@@ -91,38 +81,31 @@ class TrackedHTTPAdapter(HTTPAdapter):
                 pass
 
 
-def make_tracked_adapter(
-    retry: Retry | None = None, redact_values: tuple[str, ...] = (), **kwargs: Any
-) -> TrackedHTTPAdapter:
+def make_tracked_adapter(retry: Retry | None = None, **kwargs: Any) -> TrackedHTTPAdapter:
     """Construct a `TrackedHTTPAdapter`.
 
     `retry=None` (the default) uses the built-in `DEFAULT_RETRY` policy. To
     truly opt out of retries, pass `retry=Retry(total=0)`. To override with
     different retry settings, pass a custom `Retry` instance. Any extra
-    kwargs are forwarded to `HTTPAdapter.__init__`. `redact_values` are
-    credential strings to mask in logged URLs and captured samples.
+    kwargs are forwarded to `HTTPAdapter.__init__`.
     """
     if retry is None:
         retry = DEFAULT_RETRY
-    return TrackedHTTPAdapter(max_retries=retry, redact_values=redact_values, **kwargs)
+    return TrackedHTTPAdapter(max_retries=retry, **kwargs)
 
 
 def make_tracked_session(
     *,
     retry: Retry | None = None,
     headers: dict[str, str] | None = None,
-    redact_values: tuple[str, ...] = (),
 ) -> requests.Session:
     """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters.
 
     See `make_tracked_adapter` for the `retry` parameter semantics — `None`
     uses `DEFAULT_RETRY`; pass `Retry(total=0)` to disable retries.
-    `redact_values` are credential strings to mask in logged URLs and captured
-    samples — for auth injected under a param/header name the denylist can't
-    predict (e.g. an API key in a query param).
     """
     session = requests.Session()
-    adapter = make_tracked_adapter(retry=retry, redact_values=redact_values)
+    adapter = make_tracked_adapter(retry=retry)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     if headers:

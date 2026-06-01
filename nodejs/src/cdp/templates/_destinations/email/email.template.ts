@@ -30,7 +30,10 @@ export const template: HogFunctionTemplate = {
                     email: '{{ person.properties.email }}',
                     name: '',
                 },
-                from: {},
+                from: {
+                    email: '',
+                    name: '',
+                },
                 replyTo: '',
                 cc: '',
                 bcc: '',

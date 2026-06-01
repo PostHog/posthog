@@ -4,7 +4,7 @@ import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
 import type { ChartTheme, LineChartConfig, Series } from '../../core/types'
-import { LineChart } from '../LineChart/LineChart'
+import { LineChart } from '../LineChart'
 
 export interface SparklineProps {
     data: number[]

@@ -22,12 +22,12 @@ class TestAPIDocsSchema(APIBaseTest):
         assert isinstance(schema_response.data, dict)
 
         paths = schema_response.data["paths"]
-        list_operation = paths["/api/projects/{project_id}/llm_prompts/"]["get"]
+        list_operation = paths["/api/environments/{project_id}/llm_prompts/"]["get"]
         list_params = list_operation.get("parameters", [])
         assert any(param.get("in") == "query" and param.get("name") == "search" for param in list_params)
         assert any(param.get("in") == "query" and param.get("name") == "content" for param in list_params)
 
-        by_name_path = "/api/projects/{project_id}/llm_prompts/name/{prompt_name}/"
+        by_name_path = "/api/environments/{project_id}/llm_prompts/name/{prompt_name}/"
         assert by_name_path in paths
 
         for method in ("get", "patch"):

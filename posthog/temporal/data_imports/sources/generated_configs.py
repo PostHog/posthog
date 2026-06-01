@@ -73,7 +73,7 @@ class SnowflakeAuthTypeConfig(config.Config):
 @config.config
 class StripeAuthMethodConfig(config.Config):
     stripe_integration_id: int | None = config.value(converter=config.str_to_optional_int, default_factory=lambda: None)
-    selection: Literal["api_key", "oauth"] = "api_key"
+    selection: Literal["oauth", "api_key"] = "oauth"
     stripe_secret_key: str | None = None
 
 
@@ -278,14 +278,6 @@ class ConvexSourceConfig(config.Config):
 @config.config
 class CopperSourceConfig(config.Config):
     pass
-
-
-@config.config
-class CustomSourceConfig(config.Config):
-    manifest_json: str
-    auth_token: str | None = None
-    auth_api_key: str | None = None
-    auth_password: str | None = None
 
 
 @config.config
@@ -696,8 +688,7 @@ class ResendSourceConfig(config.Config):
 
 @config.config
 class RevenueCatSourceConfig(config.Config):
-    secret_api_key: str
-    project_id: str
+    pass
 
 
 @config.config
@@ -947,7 +938,6 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
         ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
-        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,

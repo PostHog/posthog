@@ -649,11 +649,8 @@ jobs:
                   # CHANGED_FILES is space-separated (dorny list-files: escape).
                   # Each entry is products/<name>/product.yaml — strip to <name>.
                   names=$(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p' | xargs)
-                  # Drop products whose product.yaml was deleted in this PR (e.g. the
-                  # product moved out of products/) — there are no owners left to validate.
-                  names=$(for n in $names; do [ -f "products/$n/product.yaml" ] && printf '%s ' "$n"; done | xargs)
                   if [ -z "$names" ]; then
-                    echo "No existing product.yaml files in diff after filtering"
+                    echo "No product.yaml files in diff after filtering"
                     exit 0
                   fi
                   ./bin/hogli product:lint:owners $names

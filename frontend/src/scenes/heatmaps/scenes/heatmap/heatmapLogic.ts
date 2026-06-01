@@ -177,12 +177,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
             actions.setGeneratingScreenshot(true)
-            // Multi-width renders open one Browserless session per width and can take a few minutes,
-            // so poll for up to 5 minutes before giving up (the backend marks failures sooner).
-            const pollIntervalMs = 2000
-            const maxAttempts = (5 * 60 * 1000) / pollIntervalMs
+            const maxAttempts = 60
             while (attempts < maxAttempts) {
-                await breakpoint(pollIntervalMs)
+                await breakpoint(2000)
                 try {
                     const contentResponse = await api.heatmapScreenshots.getContent(id)
                     if (contentResponse.success) {
@@ -221,7 +218,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             if (attempts >= maxAttempts) {
                 actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot is still generating — refresh to check, or try fewer widths.')
+                actions.setScreenshotError('Screenshot generation timed out')
             }
         },
         regenerateScreenshot: async () => {

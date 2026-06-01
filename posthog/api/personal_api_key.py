@@ -232,7 +232,7 @@ class PersonalApiKeySelfAccessPermission(BasePermission):
         return request.successful_authenticator.personal_api_key == item
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
     lookup_field = "id"
     serializer_class = PersonalAPIKeySerializer

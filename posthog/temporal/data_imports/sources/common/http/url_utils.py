@@ -14,9 +14,8 @@ group-by.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from typing import Final
-from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
     {
@@ -50,29 +49,6 @@ _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
 )
 
 _REDACTED: Final[str] = "REDACTED"
-
-# Below this length a credential is too short to redact by value without risking
-# mangling unrelated log text; real API keys/tokens are far longer.
-_MIN_REDACT_VALUE_LEN: Final[int] = 4
-
-
-def redact_literal_values(text: str, values: Iterable[str]) -> str:
-    """Replace known secret values (and their URL-encoded forms) with REDACTED.
-
-    Complements the name-based `scrub_url`/header denylists: when a manifest puts
-    a credential in a query param, header, or cookie whose name we can't predict,
-    the value is still masked here because we know the exact credential string.
-    This is value-based masking (cf. Airbyte) — it covers any injection location
-    and any param name. Both the raw and percent-encoded forms are matched since
-    a query value is URL-encoded by the time it reaches the logged URL.
-    """
-    for value in values:
-        if not value or len(value) < _MIN_REDACT_VALUE_LEN:
-            continue
-        for variant in {value, quote(value, safe=""), quote_plus(value)}:
-            text = text.replace(variant, _REDACTED)
-    return text
-
 
 _NUMERIC_ID = re.compile(r"^\d+$")
 _UUID_ID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")

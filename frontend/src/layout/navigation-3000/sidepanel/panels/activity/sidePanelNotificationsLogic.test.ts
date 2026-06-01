@@ -118,7 +118,7 @@ describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:tid/notifications/': () => [
+                '/api/environments/:tid/notifications/': () => [
                     200,
                     {
                         results: [makeNotification({ id: 'child-1' }), makeNotification({ id: 'child-2' })],
@@ -162,8 +162,8 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/projects/:tid/notifications/mark_read_bulk/': () => [200, { updated: 2 }],
-                '/api/projects/:tid/notifications/mark_unread_bulk/': () => [200, { updated: 2 }],
+                '/api/environments/:tid/notifications/mark_read_bulk/': () => [200, { updated: 2 }],
+                '/api/environments/:tid/notifications/mark_unread_bulk/': () => [200, { updated: 2 }],
             },
         })
         initKeaTests()

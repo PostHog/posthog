@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -8,42 +7,11 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
-
-logger = logging.getLogger(__name__)
-
-# Default log attribute key whose value matches a PostHog person's distinct_id. Mirrors
-# the convention documented at https://posthog.com/docs/logs/link-session-replay: the
-# posthog-js / posthog-react-native SDKs auto-attach `posthogDistinctId` to every log
-# they emit, and the docs instruct OTel-emitting backends to set the same key. Customers
-# whose pipeline uses a different key can override via the `logs_config` endpoint.
-DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY = "posthogDistinctId"
-
-
-class TeamLogsConfig(models.Model):
-    # Plain `models.Model` (not `TeamScopedRootMixin`) — log emission and ingestion
-    # are per-environment, and so is this config. Inheriting the root-mixin would
-    # rewrite writes to the parent project on save, letting a member of one child
-    # environment mutate config that affects sibling environments they may not have
-    # access to. Mirrors the `TeamExperimentsConfig` precedent.
-    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True)
-
-    # Log attribute key whose value matches a PostHog person's distinct_id. Used by the
-    # person profile Logs tab and the `query-logs` MCP tool to filter logs to a single
-    # user without needing per-team prompt engineering.
-    logs_distinct_id_attribute_key = models.CharField(
-        max_length=200,
-        default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
-        db_default=DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
-    )
-
-
-register_team_extension_signal(TeamLogsConfig, logger=logger)
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many

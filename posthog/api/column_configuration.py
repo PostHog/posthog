@@ -54,7 +54,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         return values
 
 
-@extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
+@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ColumnConfiguration.objects.all()

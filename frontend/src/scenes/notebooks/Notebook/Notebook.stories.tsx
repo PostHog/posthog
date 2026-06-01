@@ -253,28 +253,6 @@ const testCases: Record<string, NotebookType> = {
         },
     ]),
     'api/projects/:team_id/notebooks/empty': notebookTestTemplate('empty', []),
-    'api/projects/:team_id/notebooks/flattened-table': notebookTestTemplate('flattened-table', [
-        {
-            type: 'heading',
-            attrs: { level: 1 },
-            content: [{ type: 'text', text: 'Flattened table recovery' }],
-        },
-        {
-            type: 'paragraph',
-            content: [
-                { type: 'text', text: 'Stored as a literal paragraph; migration should render it as a real table:' },
-            ],
-        },
-        {
-            type: 'paragraph',
-            content: [
-                {
-                    type: 'text',
-                    text: '| Content type | Tab opens | Unique users | |---|---|---| | Session replay | 287K (32%) | 58K | | New/blank tab | 248K (27%) | 53K | | Dashboard | 53K (6%) | 14K |',
-                },
-            ],
-        },
-    ]),
 }
 
 const meta: Meta = {
@@ -442,7 +420,6 @@ export const NumberedList: Story = { parameters: { pageUrl: urls.notebook('numbe
 export const BulletList: Story = { parameters: { pageUrl: urls.notebook('bullet-list') } }
 export const TextOnlyNotebook: Story = { parameters: { pageUrl: urls.notebook('12345') } }
 export const EmptyNotebook: Story = { parameters: { pageUrl: urls.notebook('empty') } }
-export const FlattenedTable: Story = { parameters: { pageUrl: urls.notebook('flattened-table') } }
 export const NotebookNotFound: Story = { parameters: { pageUrl: urls.notebook('abcde') } }
 
 export const RecordingsPlaylist: Story = {

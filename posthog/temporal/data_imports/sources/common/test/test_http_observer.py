@@ -132,20 +132,6 @@ def test_log_redacts_auth_query_params(captured_logs):
     assert "REDACTED" in entry["url"]
 
 
-def test_log_redacts_credential_in_non_denylisted_query_param(captured_logs):
-    # An API key injected into a param the denylist can't anticipate must still
-    # be masked via value-based redaction.
-    request = _make_request(url="https://api.example.com/?subscription-key=sk_live_leaky&page=2")
-    response = _make_response(status_code=200)
-
-    record_request(request, response, started_at_monotonic=time.monotonic(), redact_values=("sk_live_leaky",))
-
-    entry = _entries(captured_logs)[-1]
-    assert "sk_live_leaky" not in entry["url"]
-    assert "REDACTED" in entry["url"]
-    assert "page=2" in entry["url"]
-
-
 def test_log_includes_job_context_fields(captured_logs, job_ctx):
     request = _make_request()
     response = _make_response(status_code=200)

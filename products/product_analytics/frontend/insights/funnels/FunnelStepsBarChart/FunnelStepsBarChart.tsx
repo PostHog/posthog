@@ -24,7 +24,9 @@ const STEP_WIDTH_PX = 320
 const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
-    bars: { cornerRadius: 10, track: true, shadow: true },
+    barCornerRadius: 10,
+    barTrack: true,
+    barShadow: true,
     animateHover: true,
     hideXAxis: true,
     yTickFormatter: (value) => `${Math.round(value)}%`,
@@ -69,10 +71,7 @@ export function FunnelStepsBarChart({
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
     const barsWidth = steps.length * STEP_WIDTH_PX
-    const chartConfig = useMemo<BarChartConfig>(
-        () => ({ ...baseChartConfig, bars: { ...baseChartConfig.bars, maxBandRange: barsWidth } }),
-        [barsWidth]
-    )
+    const chartConfig = useMemo<BarChartConfig>(() => ({ ...baseChartConfig, maxBandRange: barsWidth }), [barsWidth])
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {

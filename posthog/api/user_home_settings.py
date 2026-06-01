@@ -93,7 +93,7 @@ class PinnedSceneTabsSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(extensions={"x-product": "platform_features"})
+@extend_schema(tags=["platform_features"])
 @extend_schema_view(
     retrieve=extend_schema(
         description=(

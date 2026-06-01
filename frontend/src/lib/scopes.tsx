@@ -140,7 +140,6 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
-    { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {

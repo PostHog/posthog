@@ -5,8 +5,6 @@ import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { MarkdownManager } from '@tiptap/markdown'
 import StarterKit from '@tiptap/starter-kit'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
-
 function escapeHtmlAttribute(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }
@@ -127,7 +125,7 @@ export function markdownToTextCardDoc(markdown: string | null | undefined): JSON
     }
 
     try {
-        const parsed = markdownManager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
+        const parsed = markdownManager.parse(markdown) as JSONContent
         if (parsed.type === 'doc') {
             return parsed
         }
@@ -168,8 +166,7 @@ export function isTextCardMarkdownRoundTripSafe(markdown: string | null | undefi
     }
 
     try {
-        const expanded = expandFlattenedMarkdownTables(markdown)
-        const originalDoc = markdownManager.parse(expanded) as JSONContent
+        const originalDoc = markdownManager.parse(markdown) as JSONContent
         const roundTripDoc = markdownManager.parse(markdownManager.serialize(originalDoc).trimEnd()) as JSONContent
         return JSON.stringify(originalDoc) === JSON.stringify(roundTripDoc)
     } catch {

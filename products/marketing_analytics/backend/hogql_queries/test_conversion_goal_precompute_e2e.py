@@ -215,36 +215,6 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
             f"{attribution_mode}: precompute diverged from direct path.\ndirect: {direct_rows}\npreagg: {preagg_rows}"
         )
 
-    @parameterized.expand(
-        [
-            (AttributionMode.LAST_TOUCH,),
-            (AttributionMode.FIRST_TOUCH,),
-            (AttributionMode.LINEAR,),
-            (AttributionMode.TIME_DECAY,),
-            (AttributionMode.POSITION_BASED,),
-        ]
-    )
-    def test_precompute_matches_direct_in_non_utc_timezone(self, attribution_mode: AttributionMode):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-        self._seed_events()
-
-        date_from = datetime(2025, 1, 1, tzinfo=UTC)
-        date_to = datetime(2025, 1, 31, tzinfo=UTC)
-
-        direct_processor = self._make_processor(precompute=False, attribution_mode=attribution_mode)
-        direct_rows = sorted(self._execute(direct_processor.generate_cte_query(additional_conditions=[])))
-
-        preagg_processor = self._make_processor(precompute=True, attribution_mode=attribution_mode)
-        preagg_rows = sorted(
-            self._execute(
-                preagg_processor.generate_cte_query(additional_conditions=[], date_from=date_from, date_to=date_to)
-            )
-        )
-
-        assert preagg_rows, f"{attribution_mode}: precompute returned no rows for a non-UTC team"
-        assert _round_rows(direct_rows) == _round_rows(preagg_rows)
-
 
 def _round_rows(rows: list[tuple]) -> list[tuple]:
     """Round floats to avoid weight-multiplication rounding noise between paths."""

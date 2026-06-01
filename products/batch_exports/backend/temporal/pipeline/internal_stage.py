@@ -70,13 +70,6 @@ from products.batch_exports.backend.temporal.utils import set_status_to_running_
 LOGGER = get_write_only_logger()
 
 
-class DataIntervalEndInFutureError(Exception):
-    """Raised when a batch export's 'data_interval_end' is after now."""
-
-    def __init__(self, data_interval_end: dt.datetime) -> None:
-        super().__init__(f"The provided 'data_interval_end' ({data_interval_end.isoformat()}) is in the future")
-
-
 def _is_local_dev_or_test() -> bool:
     return settings.DEBUG or settings.TEST
 
@@ -499,11 +492,6 @@ async def _write_batch_export_record_batches_to_internal_stage(
     else:
         delta = dt.timedelta(minutes=1)
     end_at = full_range[1]
-
-    if _is_local_dev_or_test() is False and end_at > dt.datetime.now(dt.UTC):
-        # Some tests create data in the future, so we do not check this.
-        raise DataIntervalEndInFutureError(end_at)
-
     await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []

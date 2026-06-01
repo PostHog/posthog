@@ -12,14 +12,6 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-// PostHog's curated bot UA and IP lists are tuned for browser traffic. Server-side
-// SDKs (posthog-python, posthog-node, ...) send HTTP-client UAs like 'python-httpx'
-// and backend IPs that match those lists but are not bots. Treat anything other than
-// the browser SDKs ($lib in {web, js}) as non-browser and skip the curated checks.
-// Customer-configured customBotPatterns and customIpPrefixes still apply regardless.
-let lib := event.properties['$lib']
-let is_browser_traffic := empty(lib) or lib == 'web' or lib == 'js'
-
 // Get the user agent value
 let user_agent := event.properties[inputs.userAgent]
 
@@ -28,7 +20,7 @@ if (empty(user_agent) and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
-if (is_browser_traffic and inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
+if (inputs.filterKnownBotUserAgents and isKnownBotUserAgent(user_agent)) {
     return null
 }
 
@@ -54,7 +46,7 @@ if (empty(ip)) {
     return event
 }
 
-if (is_browser_traffic and inputs.filterKnownBotIps and isKnownBotIp(ip)) {
+if (inputs.filterKnownBotIps and isKnownBotIp(ip)) {
     return null
 }
 

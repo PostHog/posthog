@@ -665,10 +665,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 try {
                     this.incrementDatabaseOperation('fetchForChecking', distinctId)
                     const start = performance.now()
-                    const person = await this.personRepository.fetchPerson(teamId, distinctId, {
-                        useReadReplica: true,
-                        callerTag: 'ingestion/person-resolution',
-                    })
+                    const person = await this.personRepository.fetchPerson(teamId, distinctId, { useReadReplica: true })
                     observeLatencyByVersion(person, start, 'fetchForChecking')
                     this.setCheckCachedPerson(teamId, distinctId, person ?? null)
                     return person ?? null
@@ -797,7 +794,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     const start = performance.now()
                     const person = await this.personRepository.fetchPerson(teamId, distinctId, {
                         useReadReplica: false,
-                        callerTag: 'ingestion/person-update-conflict',
                     })
                     observeLatencyByVersion(person, start, 'fetchForUpdate')
                     if (person !== undefined) {
@@ -1486,9 +1482,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
 
         // Fetch latest person data to get current version and properties
         this.incrementDatabaseOperation('fetchPerson', personUpdate.distinct_id)
-        const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
-            callerTag: 'ingestion/person-version-conflict',
-        })
+        const latestPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (latestPerson) {
             // Use fine-grained merge: start with latest properties from DB and apply our specific changes
@@ -1635,9 +1629,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
      * @returns updated PersonUpdate with new person ID if found, null if person no longer exists
      */
     private async refreshPersonIdAfterMerge(personUpdate: PersonUpdate): Promise<PersonUpdate | null> {
-        const currentPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id, {
-            callerTag: 'ingestion/person-merge-refresh',
-        })
+        const currentPerson = await this.personRepository.fetchPerson(personUpdate.team_id, personUpdate.distinct_id)
 
         if (!currentPerson) {
             // Person truly doesn't exist anymore

@@ -112,7 +112,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(extensions={"x-product": "platform_features"})
+@extend_schema(tags=["core", "platform_features"])
 @extend_schema_view(
     list=extend_schema(
         parameters=[

@@ -35,8 +35,6 @@ members = [
   "cyclotron-node",
   "cyclotron-janitor",
   "cymbal",
-  "cymbal-proto",
-  "cymbal-resolution",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
@@ -97,7 +95,6 @@ async-compression = { version = "0.4", features = [
   "brotli",
   "zstd",
 ] }
-async-stream = "0.3"
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"

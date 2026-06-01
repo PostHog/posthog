@@ -27,7 +27,6 @@ class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
-    ID_JAG = "id_jag"
 
 
 class Product(StrEnum):

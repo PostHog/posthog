@@ -61,10 +61,7 @@ jobs:
 
             - name: Run review
               env:
-                  # Dedicated key so a rotation of the shared ANTHROPIC_API_KEY
-                  # doesn't break stamphog (and vice versa). The env var name
-                  # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
-                  ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -114,14 +111,10 @@ jobs:
                       --repo "$REPO"
                   fi
 
-                  # A substantive non-APPROVED verdict (REFUSE/ESCALATE)
-                  # removes the label, breaking the auto-rerun loop until a
-                  # human re-applies it after addressing the feedback. ERROR
-                  # means the review agent couldn't reach its LLM backend
-                  # (auth/credit/outage) — that's not a verdict on the PR, so
-                  # keep the label and let it retry rather than silently
-                  # dropping it across every queued PR during an outage.
-                  if [ "$VERDICT" != "APPROVED" ] && [ "$VERDICT" != "ERROR" ]; then
+                  # Non-APPROVED verdict removes the label, breaking the
+                  # auto-rerun loop until a human re-applies it after
+                  # addressing the feedback.
+                  if [ "$VERDICT" != "APPROVED" ]; then
                     gh pr edit "$PR" --remove-label stamphog \
                       --repo "$REPO"
                   fi

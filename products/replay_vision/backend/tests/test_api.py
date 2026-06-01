@@ -190,7 +190,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
-            ("summarizer-with-embeddings", ScannerType.SUMMARIZER, {"prompt": "p", "emits_embeddings": True}),
+            ("indexer", ScannerType.INDEXER, {}),
         ]
     )
     def test_create_accepts_valid_scanner_config_per_type(

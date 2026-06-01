@@ -6,8 +6,8 @@ printer normalises some constructs (e.g. ``1 + 2`` → ``plus(1, 2)``), we
 compare at the *printed-string* level: ``print(parse(print(ast))) == print(ast)``.
 
 As a bonus this also tests **parser backend equivalence**: every generated
-string is parsed with both the rust-py and cpp-json backends and the results
-are compared.
+string is parsed with both the Python and C++ backends and the results are
+compared.
 """
 
 import os
@@ -312,21 +312,21 @@ def _print_hogql(node: ast.Expr) -> str:
 
 
 def _parse_both_backends(hogql_string: str) -> tuple[ast.Expr | None, ast.Expr | None]:
-    """Parse with both backends, returning (rust_ast, cpp_ast).
+    """Parse with both backends, returning (python_ast, cpp_ast).
 
     Returns None for a backend if parsing fails.
     """
-    rust_ast: ast.Expr | None = None
+    py_ast: ast.Expr | None = None
     cpp_ast: ast.Expr | None = None
     try:
-        rust_ast = parse_expr(hogql_string, backend="rust-py")
+        py_ast = parse_expr(hogql_string, backend="python")
     except BaseHogQLError:
         pass
     try:
         cpp_ast = parse_expr(hogql_string, backend="cpp-json")
     except BaseHogQLError:
         pass
-    return rust_ast, cpp_ast
+    return py_ast, cpp_ast
 
 
 def _roundtrip_check(expr: ast.Expr) -> None:
@@ -363,37 +363,37 @@ class TestParserBackendEquivalence:
 
     @given(expr=_expr_strategy())
     @settings(max_examples=2000, deadline=None, suppress_health_check=[HealthCheck.too_slow])
-    def test_rust_py_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
+    def test_python_and_cpp_backends_agree(self, expr: ast.Expr) -> None:
         try:
             hogql_string = _print_hogql(expr)
         except BaseHogQLError:
             assume(False)
             return  # type: ignore[unreachable]
 
-        rust_ast, cpp_ast = _parse_both_backends(hogql_string)
+        py_ast, cpp_ast = _parse_both_backends(hogql_string)
 
-        if rust_ast is None and cpp_ast is None:
+        if py_ast is None and cpp_ast is None:
             assume(False)
             return  # type: ignore[unreachable]
 
         # If one succeeds and the other fails, that's a bug
-        assert (rust_ast is None) == (cpp_ast is None), (
+        assert (py_ast is None) == (cpp_ast is None), (
             f"Backend disagreement on parsability of: {hogql_string!r}\n"
-            f"  Rust: {'failed' if rust_ast is None else 'ok'}\n"
-            f"  C++:  {'failed' if cpp_ast is None else 'ok'}"
+            f"  Python: {'failed' if py_ast is None else 'ok'}\n"
+            f"  C++:    {'failed' if cpp_ast is None else 'ok'}"
         )
 
-        assert rust_ast is not None and cpp_ast is not None
+        assert py_ast is not None and cpp_ast is not None
 
         # Compare by printing both back to HogQL — this normalises away
         # any minor structural differences (like start/end positions).
-        rust_printed = _print_hogql(rust_ast)
+        py_printed = _print_hogql(py_ast)
         cpp_printed = _print_hogql(cpp_ast)
 
-        assert rust_printed == cpp_printed, (
+        assert py_printed == cpp_printed, (
             f"Backend outputs differ for: {hogql_string!r}\n"
-            f"  Rust backend: {rust_printed!r}\n"
-            f"  C++ backend:  {cpp_printed!r}"
+            f"  Python backend: {py_printed!r}\n"
+            f"  C++ backend:    {cpp_printed!r}"
         )
 
 

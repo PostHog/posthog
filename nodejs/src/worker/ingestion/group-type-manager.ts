@@ -26,10 +26,7 @@ export class GroupTypeManager {
                 const timeout = timeoutGuard(`Still running "fetchGroupTypes". Timeout warning after 30 sec!`)
                 try {
                     const projectIdNumbers = projectIds.map((id) => parseInt(id) as ProjectId)
-                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(
-                        projectIdNumbers,
-                        'ingestion/group-type-resolution'
-                    )
+                    const groupTypesByProject = await this.groupRepository.fetchGroupTypesByProjectIds(projectIdNumbers)
 
                     for (const [projectIdStr, groupTypes] of Object.entries(groupTypesByProject)) {
                         const groupTypeMapping: GroupTypeToColumnIndex = {}

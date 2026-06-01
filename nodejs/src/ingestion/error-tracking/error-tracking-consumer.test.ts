@@ -166,9 +166,6 @@ describe('ErrorTrackingConsumer', () => {
             rateLimiterRedisPort: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
             rateLimiterRedisTls: hub.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
             rateLimiterTtlSeconds: hub.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
-            perIssueGuardThreshold: hub.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
-            perIssueGuardWindowTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
-            perIssueGuardCooldownTtlSeconds: hub.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
             fallbackRedisUrl: hub.REDIS_URL,
             rateLimiterRedisPoolMinSize: hub.REDIS_POOL_MIN_SIZE,
             rateLimiterRedisPoolMaxSize: hub.REDIS_POOL_MAX_SIZE,
@@ -462,13 +459,9 @@ describe('ErrorTrackingConsumer', () => {
             consumer = await createConsumer(hub)
 
             await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
-                // Per-issue buckets are hash-tagged (`tokens/{teamId}/…`); the team-global
-                // bucket is keyed straight off the id (`tokens/teamId:exceptions:global`).
-                const tokens = `@posthog-test/error-tracking-rate-limiter/tokens`
-                const keys = [
-                    ...(await client.keys(`${tokens}/{${team.id}}/*`)),
-                    ...(await client.keys(`${tokens}/${team.id}:*`)),
-                ]
+                const keys = await client.keys(
+                    `@posthog-test/error-tracking-rate-limiter/tokens/${team.id}:exceptions:*`
+                )
                 if (keys.length > 0) {
                     await client.del(...keys)
                 }

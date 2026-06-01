@@ -22,7 +22,7 @@ export class PersonHogGroupRepository implements GroupRepository {
         teamId: TeamId,
         groupTypeIndex: GroupTypeIndex,
         groupKey: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<Group | undefined> {
         // Only route to gRPC for eventually-consistent replica reads (useReadReplica: true)
         // where no row-level lock is needed (forUpdate: false/unset).
@@ -38,7 +38,7 @@ export class PersonHogGroupRepository implements GroupRepository {
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchGroup', () =>
-                this.grpcClient.groups.fetchGroup(teamId, groupTypeIndex, groupKey, options?.callerTag)
+                this.grpcClient.groups.fetchGroup(teamId, groupTypeIndex, groupKey)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroup failed, falling back to Postgres', {
@@ -55,8 +55,7 @@ export class PersonHogGroupRepository implements GroupRepository {
     async fetchGroupsByKeys(
         teamIds: TeamId[],
         groupTypeIndexes: GroupTypeIndex[],
-        groupKeys: string[],
-        callerTag?: string
+        groupKeys: string[]
     ): Promise<
         {
             team_id: TeamId
@@ -67,13 +66,13 @@ export class PersonHogGroupRepository implements GroupRepository {
     > {
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupsByKeys failed, falling back to Postgres', {
@@ -81,24 +80,23 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupsByKeys', () =>
-                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
+                this.postgres.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
             )
         }
     }
 
     async fetchGroupTypesByTeamIds(
-        teamIds: TeamId[],
-        callerTag?: string
+        teamIds: TeamId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!shouldUseGrpcForTeams(this.rolloutTeamIds, teamIds, this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.postgres.fetchGroupTypesByTeamIds(teamIds, callerTag)
+                this.postgres.fetchGroupTypesByTeamIds(teamIds)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds, callerTag)
+                this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByTeamIds failed, falling back to Postgres', {
@@ -106,24 +104,23 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
-                this.postgres.fetchGroupTypesByTeamIds(teamIds, callerTag)
+                this.postgres.fetchGroupTypesByTeamIds(teamIds)
             )
         }
     }
 
     async fetchGroupTypesByProjectIds(
-        projectIds: ProjectId[],
-        callerTag?: string
+        projectIds: ProjectId[]
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (!shouldUseGrpc(this.grpcPercentage)) {
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.postgres.fetchGroupTypesByProjectIds(projectIds, callerTag)
+                this.postgres.fetchGroupTypesByProjectIds(projectIds)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.grpcClient.groups.fetchGroupTypesByProjectIds(projectIds, callerTag)
+                this.grpcClient.groups.fetchGroupTypesByProjectIds(projectIds)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchGroupTypesByProjectIds failed, falling back to Postgres', {
@@ -131,7 +128,7 @@ export class PersonHogGroupRepository implements GroupRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchGroupTypesByProjectIds', () =>
-                this.postgres.fetchGroupTypesByProjectIds(projectIds, callerTag)
+                this.postgres.fetchGroupTypesByProjectIds(projectIds)
             )
         }
     }

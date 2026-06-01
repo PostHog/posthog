@@ -7,7 +7,6 @@ import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEd
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { colonDelimitedDuration } from 'lib/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
@@ -40,7 +39,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting'], membersLogic, ['ensureAllMembersLoaded']],
+        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting']],
     })),
     actions({
         editComment: (comment: RecordingCommentForm) => ({ comment }),
@@ -126,10 +125,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
             }
         },
         setIsCommenting: ({ isCommenting }) => {
-            if (isCommenting) {
-                // Load org members so @-mentions in the comment editor can resolve.
-                actions.ensureAllMembersLoaded()
-            } else {
+            if (!isCommenting) {
                 actions.resetRecordingComment()
                 // Don't let "Add as task" leak into the next overlay session.
                 actions.setAsTask(false)

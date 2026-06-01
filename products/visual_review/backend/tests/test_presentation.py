@@ -6,7 +6,6 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from parameterized import parameterized
 from rest_framework import status
 
 from products.visual_review.backend import logic
@@ -194,53 +193,6 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Per-snapshot approval is DB only — run not finalized
         self.assertFalse(response.json()["run"]["approved"])
-
-    def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
-        logic.get_or_create_artifact(
-            repo_id=self.vr_project.id,
-            content_hash="new_hash",
-            storage_path="visual_review/new_hash",
-        )
-        create_result = api.create_run(
-            CreateRunInput(
-                repo_id=self.vr_project.id,
-                run_type=RunType.STORYBOOK,
-                commit_sha="abc123",
-                branch="main",
-                snapshots=[SnapshotManifestItem(identifier="Button", content_hash="new_hash")],
-                baseline_hashes={"Button": "old_hash"},
-            ),
-            team_id=self.team.id,
-        )
-        snapshot = RunSnapshot.objects.get(run_id=create_result.run_id, identifier="Button")
-        # The diff pipeline normally classifies the snapshot — short-circuit it here
-        # so the test stays a permission-boundary test rather than an integration test.
-        snapshot.result = SnapshotResult.CHANGED
-        snapshot.save(update_fields=["result"])
-        return str(create_result.run_id), str(snapshot.id)
-
-    @parameterized.expand(
-        [
-            ("session_auth", None, status.HTTP_200_OK),
-            ("personal_api_key_write_scope", "visual_review:write", status.HTTP_200_OK),
-            ("personal_api_key_read_scope", "visual_review:read", status.HTTP_403_FORBIDDEN),
-        ]
-    )
-    def test_mark_tolerated_permission_boundary(self, _name: str, scope: str | None, expected_status: int):
-        run_id, snapshot_id = self._changed_snapshot_for_tolerate()
-
-        if scope is not None:
-            key = self.create_personal_api_key_with_scopes([scope])
-            self.client.logout()
-            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/tolerate/",
-            {"snapshot_id": snapshot_id},
-            format="json",
-        )
-
-        assert response.status_code == expected_status, response.json()
 
     def _seed_history_row(
         self,

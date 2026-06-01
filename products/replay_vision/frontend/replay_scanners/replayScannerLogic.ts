@@ -59,7 +59,7 @@ function currentTemplateKey(): string | null {
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
-        return { prompt: '', length: 'medium', emits_embeddings: false }
+        return { prompt: '', length: 'medium' }
     }
     if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }

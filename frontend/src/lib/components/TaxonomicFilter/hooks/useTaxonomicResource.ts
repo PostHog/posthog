@@ -253,30 +253,6 @@ export function invalidateTaxonomicResource(key: ReadonlyArray<unknown>): void {
     }
 }
 
-/**
- * Invalidate every cached entry whose key matches a predicate. Used by
- * domain models (e.g. cohortsModel) to flush taxonomic cache slices when
- * the underlying data mutates. The hash is the JSON-stringified key so
- * we re-parse to feed structured input back to the predicate — keys are
- * always plain arrays of JSON-safe values so the round-trip is lossless.
- */
-export function invalidateTaxonomicResourcesWhere(predicate: (key: unknown[]) => boolean): void {
-    for (const [hash, entry] of cache) {
-        let key: unknown[]
-        try {
-            key = JSON.parse(hash) as unknown[]
-        } catch {
-            continue
-        }
-        if (!predicate(key)) {
-            continue
-        }
-        entry.ts = 0
-        entry.error = undefined
-        notify(entry)
-    }
-}
-
 /** Subscribe to a key without rendering. Returns an unsubscribe fn. */
 export function subscribeTaxonomicResource(key: ReadonlyArray<unknown>, listener: () => void): () => void {
     const entry = getEntry(hashKey(key))

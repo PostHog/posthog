@@ -197,15 +197,15 @@ mod tests {
     }
 
     #[test]
-    fn batch_entry_status_serialize_warning_with_details() {
+    fn batch_entry_status_serialize_limited_with_details() {
         let status = BatchEntryStatus {
-            result: EventResult::Warning,
+            result: EventResult::Limited,
             details: Some("person_processing_disabled"),
         };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(
             json,
-            r#"{"result":"warning","details":"person_processing_disabled"}"#
+            r#"{"result":"limited","details":"person_processing_disabled"}"#
         );
     }
 
@@ -232,7 +232,7 @@ mod tests {
         let events = vec![
             make_wrapped(EventResult::Ok, None),
             make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
-            make_wrapped(EventResult::Warning, Some("person_processing_disabled")),
+            make_wrapped(EventResult::Limited, Some("person_processing_disabled")),
             make_wrapped(EventResult::Retry, Some("not_persisted")),
         ];
         let resp = BatchResponse::build(&ctx, &events);
@@ -240,7 +240,7 @@ mod tests {
         assert_eq!(resp.entries().len(), 4);
         assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
         assert_eq!(resp.entries()[1].1.result, EventResult::Drop);
-        assert_eq!(resp.entries()[2].1.result, EventResult::Warning);
+        assert_eq!(resp.entries()[2].1.result, EventResult::Limited);
         assert_eq!(resp.entries()[3].1.result, EventResult::Retry);
     }
 
@@ -250,7 +250,7 @@ mod tests {
         let events = vec![
             make_wrapped(EventResult::Ok, None),
             make_wrapped(EventResult::Drop, Some("billing")),
-            make_wrapped(EventResult::Warning, Some("pp_disabled")),
+            make_wrapped(EventResult::Limited, Some("pp_disabled")),
         ];
         let resp = BatchResponse::build(&ctx, &events);
         assert!(!resp.has_retry);

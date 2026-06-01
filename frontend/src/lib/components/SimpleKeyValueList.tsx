@@ -1,5 +1,5 @@
 // A React component that renders a list of key-value pairs in a simple way.
-import { ReactNode, useMemo, useState } from 'react'
+import { ReactNode, useMemo } from 'react'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -18,41 +18,6 @@ export interface SimpleKeyValueListProps {
      */
     promotedKeys?: string[]
     sortItems?: boolean
-    /**
-     * Optional action rendered at the end of each row. The second argument is whether the row is
-     * currently hovered, so the action can reveal itself on hover without reaching for a CSS class.
-     */
-    rowActions?: (key: string, isRowHovered: boolean) => ReactNode
-}
-
-function SimpleKeyValueRow({
-    name,
-    value,
-    rowActions,
-}: {
-    name: string
-    value: any
-    rowActions?: (key: string, isRowHovered: boolean) => ReactNode
-}): JSX.Element {
-    const [isHovered, setIsHovered] = useState(false)
-    const isComplexStructure = Array.isArray(value) || isObject(value)
-    return (
-        <div
-            className="flex gap-4 items-start justify-between overflow-hidden"
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
-        >
-            <span className="font-semibold flex items-center gap-1 min-w-0">
-                <PropertyKeyInfo value={name} />
-                {rowActions ? rowActions(name, isHovered) : null}
-            </span>
-            {isComplexStructure ? (
-                <JSONViewer src={value} collapsed={1} />
-            ) : (
-                <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
-            )}
-        </div>
-    )
 }
 
 export function SimpleKeyValueList({
@@ -61,7 +26,6 @@ export function SimpleKeyValueList({
     promotedKeys,
     header,
     sortItems = true,
-    rowActions,
 }: SimpleKeyValueListProps): JSX.Element {
     const sortedItemsPromotedFirst = useMemo(() => {
         const sortedItems = sortItems
@@ -94,9 +58,21 @@ export function SimpleKeyValueList({
     return (
         <div className="text-xs deprecated-space-y-1 max-w-full">
             {header}
-            {sortedItemsPromotedFirst.map(([key, value]) => (
-                <SimpleKeyValueRow key={key} name={key} value={value} rowActions={rowActions} />
-            ))}
+            {sortedItemsPromotedFirst.map(([key, value]) => {
+                const isComplexStructure = Array.isArray(value) || isObject(value)
+                return (
+                    <div key={key} className="flex gap-4 items-start justify-between overflow-hidden">
+                        <span className="font-semibold">
+                            <PropertyKeyInfo value={key} />
+                        </span>
+                        {isComplexStructure ? (
+                            <JSONViewer src={value} collapsed={1} />
+                        ) : (
+                            <pre className="text-primary-alt break-all mb-0">{String(value)}</pre>
+                        )}
+                    </div>
+                )
+            })}
             {Object.keys(item).length === 0 && emptyMessage}
         </div>
     )

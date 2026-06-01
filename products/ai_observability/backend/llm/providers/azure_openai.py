@@ -140,10 +140,7 @@ class AzureOpenAIAdapter(OpenAIAdapter):
         analytics: AnalyticsContext,
     ) -> Any:
         """Create an AzureOpenAI client. Ignores base_url — uses azure_endpoint instead."""
-        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-
         posthog_client = posthoganalytics.default_client
-        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
         if analytics.capture and posthog_client:
             return WrappedAzureOpenAI(
                 posthog_client=posthog_client,
@@ -151,14 +148,12 @@ class AzureOpenAIAdapter(OpenAIAdapter):
                 azure_endpoint=self.azure_endpoint,
                 api_version=self.api_version,
                 timeout=OpenAIConfig.TIMEOUT,
-                http_client=http_client,
             )
         return openai.AzureOpenAI(
             api_key=api_key,
             azure_endpoint=self.azure_endpoint,
             api_version=self.api_version,
             timeout=OpenAIConfig.TIMEOUT,
-            http_client=http_client,
         )
 
     @staticmethod

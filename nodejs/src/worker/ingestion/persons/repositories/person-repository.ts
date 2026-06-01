@@ -38,19 +38,17 @@ export interface PersonRepository {
     fetchPerson(
         teamId: Team['id'],
         distinctId: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean }
     ): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
         teamPersons: { teamId: TeamId; distinctId: string }[],
-        useReadReplica?: boolean,
-        callerTag?: string
+        useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
     fetchPersonsByPersonIds(
         teamPersons: { teamId: TeamId; personId: string }[],
-        useReadReplica?: boolean,
-        callerTag?: string
+        useReadReplica?: boolean
     ): Promise<InternalPerson[]>
 
     /**

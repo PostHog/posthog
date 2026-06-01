@@ -229,7 +229,7 @@ class SCIMRequestLogFilter(django_filters.FilterSet):
         return _search_scim_logs(queryset, name, value)
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationDomainSerializer

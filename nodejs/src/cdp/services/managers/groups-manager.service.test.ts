@@ -233,8 +233,8 @@ describe('Groups Manager', () => {
         expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledTimes(1)
         expect(mockFetchGroupsByKeys).toHaveBeenCalledTimes(1)
 
-        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledWith([1], 'cdp/hogflow-group-type-resolution')
-        expect(mockFetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'], 'cdp/hogflow-group-property-enrichment')
+        expect(mockFetchGroupTypesByTeamIds).toHaveBeenCalledWith([1])
+        expect(mockFetchGroupsByKeys).toHaveBeenCalledWith([1], [1], ['id-2'])
     })
 
     it.each([

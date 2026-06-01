@@ -31,7 +31,7 @@ class TestResolveIntegration:
         # Different workspace; should never match the WORKSPACE-scoped lookups.
         self.integration_other_workspace = Integration.objects.create(
             team=self.team_a,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id="T_OTHER",
             sensitive_config={"access_token": "xoxb-other"},
         )
@@ -39,14 +39,14 @@ class TestResolveIntegration:
     def _mk_integration(self, team: Team) -> Integration:
         return Integration.objects.create(
             team=team,
-            kind="slack",
+            kind="slack-posthog-code",
             integration_id=WORKSPACE,
             sensitive_config={"access_token": "xoxb"},
         )
 
     def _workspace_integrations(self) -> list[Integration]:
         return list(
-            Integration.objects.filter(kind="slack", integration_id=WORKSPACE).select_related(
+            Integration.objects.filter(kind="slack-posthog-code", integration_id=WORKSPACE).select_related(
                 "team", "team__organization"
             )
         )
@@ -75,7 +75,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
             channel="C1",
@@ -107,7 +107,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
             channel="C1",
@@ -128,7 +128,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -146,7 +146,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -156,21 +156,21 @@ class TestResolveIntegration:
         assert {i.id for i in result.candidates} == {self.integration_a.id, self.integration_b.id}
 
     def test_user_default_ignored_when_target_kind_changed(self):
-        # Stored default points at integration_a, but its kind no longer matches the
-        # Slack lookup (e.g. the row was repurposed for a different provider). The
-        # default must silently fall through rather than routing the user to the
-        # wrong-kind integration.
+        # Stored default points at integration_a, but its kind was switched
+        # away from "slack-posthog-code" (e.g. it became a plain notifications
+        # "slack" install). The default must silently fall through rather than
+        # routing the user to the wrong-kind integration.
         SlackSettings.objects.create(
             default_integration=self.integration_a,
             slack_workspace_id=WORKSPACE,
             slack_user_id=SLACK_USER,
         )
-        self.integration_a.kind = "github"
+        self.integration_a.kind = "slack"
         self.integration_a.save(update_fields=["kind"])
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -195,7 +195,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -212,7 +212,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -230,7 +230,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -245,7 +245,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -256,7 +256,7 @@ class TestResolveIntegration:
     def test_picker_with_multiple_candidates(self):
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )
@@ -271,7 +271,7 @@ class TestResolveIntegration:
         # integration becomes a candidate.
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=None,
         )
@@ -293,7 +293,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=None,
         )
@@ -319,7 +319,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=None,
             channel="C1",
@@ -341,7 +341,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=None,
         )
@@ -356,7 +356,7 @@ class TestResolveIntegration:
 
         result = load_integrations(
             slack_team_id=WORKSPACE,
-            kinds=["slack"],
+            kinds=["slack-posthog-code"],
             slack_user_id=SLACK_USER,
             user=self.user,
         )

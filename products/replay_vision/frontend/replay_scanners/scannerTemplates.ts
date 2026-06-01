@@ -1,5 +1,6 @@
 import type {
     ClassifierScannerConfig,
+    IndexerScannerConfig,
     MonitorScannerConfig,
     ScorerScannerConfig,
     SummarizerScannerConfig,
@@ -46,7 +47,17 @@ export interface ScorerTemplate extends BaseTemplate {
     scanner_config: ScorerScannerConfig
 }
 
-export type ScannerTemplate = MonitorTemplate | SummarizerTemplate | ClassifierTemplate | ScorerTemplate
+export interface IndexerTemplate extends BaseTemplate {
+    scanner_type: 'indexer'
+    scanner_config: IndexerScannerConfig
+}
+
+export type ScannerTemplate =
+    | MonitorTemplate
+    | SummarizerTemplate
+    | ClassifierTemplate
+    | ScorerTemplate
+    | IndexerTemplate
 
 export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {
@@ -72,7 +83,6 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_config: {
             prompt: 'Summarize what the user did in this session. Mention the main pages they visited, the primary actions they took, and any notable moments (errors, confusion, completed flows). Be concrete and avoid speculation.',
             length: 'medium',
-            emits_embeddings: false,
         },
     },
     {

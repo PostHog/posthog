@@ -20,6 +20,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -257,10 +258,15 @@ export const ActivityLogRow = ({
 }
 
 export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element | null => {
+    const logic = activityLogLogic({ scope, id, caption, startingPage })
+    const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billingLoading } = useValues(billingLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
+
+    const paginationState = usePagination(humanizedActivity || [], pagination)
 
     if (!hasAccess) {
         return <AccessDenied object="activity logs" />
@@ -269,43 +275,32 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     return (
         <div className="ActivityLog" data-attr="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            <PayGateMini
-                feature={AvailableFeature.AUDIT_LOGS}
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-            >
-                <ActivityLogContents scope={scope} id={id} caption={caption} startingPage={startingPage} />
-            </PayGateMini>
+            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
+                <Loading />
+            ) : (
+                <PayGateMini
+                    feature={AvailableFeature.AUDIT_LOGS}
+                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                >
+                    {humanizedActivity.length === 0 ? (
+                        <Empty scope={scope} />
+                    ) : (
+                        <>
+                            <div className="deprecated-space-y-2">
+                                {humanizedActivity.map((logItem, index) => (
+                                    <ActivityLogRow
+                                        key={logItem.id || index}
+                                        logItem={logItem}
+                                        highlighted={logItem.id === highlightedActivityId}
+                                    />
+                                ))}
+                            </div>
+                            <LemonDivider />
+                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                        </>
+                    )}
+                </PayGateMini>
+            )}
         </div>
-    )
-}
-
-const ActivityLogContents = ({ scope, id, caption, startingPage = 1 }: ActivityLogProps): JSX.Element => {
-    const logic = activityLogLogic({ scope, id, caption, startingPage })
-    const { humanizedActivity, activityLoading, pagination, highlightedActivityId } = useValues(logic)
-
-    const paginationState = usePagination(humanizedActivity || [], pagination)
-
-    if (activityLoading && humanizedActivity.length === 0) {
-        return <Loading />
-    }
-
-    if (humanizedActivity.length === 0) {
-        return <Empty scope={scope} />
-    }
-
-    return (
-        <>
-            <div className="deprecated-space-y-2">
-                {humanizedActivity.map((logItem, index) => (
-                    <ActivityLogRow
-                        key={logItem.id || index}
-                        logItem={logItem}
-                        highlighted={logItem.id === highlightedActivityId}
-                    />
-                ))}
-            </div>
-            <LemonDivider />
-            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-        </>
     )
 }

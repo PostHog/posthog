@@ -5,7 +5,7 @@ from typing import ClassVar, Literal
 from pydantic import BaseModel, Field
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
 
 
 class MonitorLlmResponse(BaseScannerOutput, frozen=True):
@@ -18,14 +18,14 @@ class MonitorLlmResponse(BaseScannerOutput, frozen=True):
 
 
 class MonitorOutput(MonitorLlmResponse, frozen=True):
-    """Persisted output: `reasoning` is plain prose; `reasoning_segments` is the same prose pre-split into render-ready text + chip segments."""
+    """Persisted output: adds the discriminator for the `AnyScannerOutput` union."""
 
     scanner_type: Literal[ScannerType.MONITOR] = ScannerType.MONITOR
-    reasoning_segments: list[Segment] = Field(default_factory=list)
 
 
 class MonitorScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.MONITOR] = ScannerType.MONITOR
+    prompt: str
     prompt_template: ClassVar[str] = "monitor.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = MonitorOutput

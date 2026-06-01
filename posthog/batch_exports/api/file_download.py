@@ -105,11 +105,6 @@ class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
         if data["data_interval_end"] - data["data_interval_start"] > FILE_DOWNLOAD_MAX_RANGE:
             raise ValidationError("data interval range too big")
 
-        if data["data_interval_end"] > dt.datetime.now(dt.UTC):
-            raise ValidationError(
-                f"The provided 'data_interval_end' ({data['data_interval_end'].isoformat()}) is in the future"
-            )
-
         return data
 
     def create(self, validated_data: dict) -> BatchExportRun:

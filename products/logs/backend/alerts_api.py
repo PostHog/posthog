@@ -786,6 +786,7 @@ def _fill_empty_buckets(
     return result
 
 
+@extend_schema(tags=["logs"])
 class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")

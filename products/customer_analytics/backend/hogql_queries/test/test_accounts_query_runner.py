@@ -15,7 +15,6 @@ from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.test.factories import create_account
-from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -31,13 +30,8 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _ids(self, **query_kwargs) -> list[str]:
         runner, response = self._run_query(**query_kwargs)
-        name_idx = runner.columns.index("name")
-        return [row[name_idx]["id"] for row in response.results]
-
-    def _names(self, **query_kwargs) -> list[str]:
-        runner, response = self._run_query(**query_kwargs)
-        name_idx = runner.columns.index("name")
-        return [row[name_idx]["name"] for row in response.results]
+        id_index = runner.columns.index("id")
+        return [str(row[id_index]) for row in response.results]
 
     def test_team_isolation(self):
         mine_1 = create_account(team_id=self.team.id, name="Mine 1")
@@ -67,7 +61,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         create_account(team_id=self.team.id, name="Globex", external_id="glx-99")
 
-        self.assertEqual(sorted(self._names(search=search)), sorted(expected_names))
+        runner, response = self._run_query(search=search)
+        name_idx = runner.columns.index("name")
+        self.assertEqual(sorted(r[name_idx] for r in response.results), sorted(expected_names))
 
     def test_blank_search_returns_all(self):
         create_account(team_id=self.team.id, name="A")
@@ -210,134 +206,25 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         banana = create_account(team_id=self.team.id, name="Banana")
         self.assertEqual(self._ids(orderBy=["-name"]), [str(banana.id), str(apple.id)])
 
-    def _link_notebooks(self, account, count: int) -> None:
-        for i in range(count):
-            notebook = Notebook.objects.create(
-                team=self.team,
-                title=f"NB {account.name} {i}",
-                content=[],
-                visibility=Notebook.Visibility.INTERNAL,
-            )
-            ResourceNotebook.objects.create(notebook=notebook, account=account)
-
-    def test_ordering_by_notebook_count_asc(self):
-        zero = create_account(team_id=self.team.id, name="Zero")
-        one = create_account(team_id=self.team.id, name="One")
-        two = create_account(team_id=self.team.id, name="Two")
-        self._link_notebooks(one, 1)
-        self._link_notebooks(two, 2)
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", "accounts.notebooks.count AS notebook_count"],
-                orderBy=["notebook_count", "name"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        # Accounts with no notebook rows aggregate to NULL (no group), so they appear before
-        # the rows with positive counts when sorting ASC. Tie-break by name keeps it deterministic.
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results],
-            [str(zero.id), str(one.id), str(two.id)],
-        )
-
-    def test_ordering_by_notebook_count_desc(self):
-        zero = create_account(team_id=self.team.id, name="Zero")
-        one = create_account(team_id=self.team.id, name="One")
-        two = create_account(team_id=self.team.id, name="Two")
-        self._link_notebooks(one, 1)
-        self._link_notebooks(two, 2)
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", "accounts.notebooks.count AS notebook_count"],
-                orderBy=["notebook_count DESC", "name"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results[:2]],
-            [str(two.id), str(one.id)],
-        )
-        # `zero` has no notebook rows, so the aggregate is NULL and lands at the end.
-        self.assertEqual(str(response.results[-1][id_idx]), str(zero.id))
-
-    @parameterized.expand(
-        [
-            ("csm", "csm"),
-            ("account_executive", "account_executive"),
-        ]
-    )
-    def test_ordering_by_role_email_asc(self, _name, role_key):
-        zed = create_account(
-            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
-        )
-        adam = create_account(
-            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
-        )
-        molly = create_account(
-            team_id=self.team.id, name="Molly", _properties={role_key: {"id": 3, "email": "molly@example.com"}}
-        )
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", role_key],
-                orderBy=[f"tupleElement({role_key}, 2)"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results],
-            [str(adam.id), str(molly.id), str(zed.id)],
-        )
-
-    @parameterized.expand(
-        [
-            ("csm", "csm"),
-            ("account_executive", "account_executive"),
-        ]
-    )
-    def test_ordering_by_role_email_desc(self, _name, role_key):
-        zed = create_account(
-            team_id=self.team.id, name="Zed", _properties={role_key: {"id": 1, "email": "zed@example.com"}}
-        )
-        adam = create_account(
-            team_id=self.team.id, name="Adam", _properties={role_key: {"id": 2, "email": "adam@example.com"}}
-        )
-
-        runner = AccountsQueryRunner(
-            query=AccountsQuery(
-                select=["id", role_key],
-                orderBy=[f"tupleElement({role_key}, 2) DESC"],
-            ),
-            team=self.team,
-        )
-        response = runner.calculate()
-        id_idx = runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in response.results],
-            [str(zed.id), str(adam.id)],
-        )
-
     def test_pagination_limit_and_offset(self):
         ids = [str(create_account(team_id=self.team.id, name=f"Account {i:02d}").id) for i in range(5)]
         expected_reverse = list(reversed(ids))
 
         page_one_runner, page_one_response = self._run_query(limit=2, offset=0)
-        name_idx = page_one_runner.columns.index("name")
-        self.assertEqual([row[name_idx]["id"] for row in page_one_response.results], expected_reverse[:2])
         self.assertTrue(page_one_response.hasMore)
+        id_idx = page_one_runner.columns.index("id")
+        self.assertEqual(
+            [str(row[id_idx]) for row in page_one_response.results],
+            expected_reverse[:2],
+        )
 
         page_three_runner, page_three_response = self._run_query(limit=2, offset=4)
-        name_idx = page_three_runner.columns.index("name")
-        self.assertEqual([row[name_idx]["id"] for row in page_three_response.results], expected_reverse[4:])
         self.assertFalse(page_three_response.hasMore)
+        id_idx = page_three_runner.columns.index("id")
+        self.assertEqual(
+            [str(row[id_idx]) for row in page_three_response.results],
+            expected_reverse[4:],
+        )
 
     def test_empty_result_set(self):
         create_account(team_id=self.team.id, name="Acme")
@@ -346,18 +233,10 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(response.hasMore)
         self.assertEqual(response.offset, 0)
 
-    def test_name_column_carries_id_external_id_and_display_name(self):
-        account = create_account(team_id=self.team.id, name="A", external_id="ext-A")
-        runner, response = self._run_query()
-        name_idx = runner.columns.index("name")
-        self.assertEqual(
-            response.results[0][name_idx],
-            {"name": "A", "external_id": "ext-A", "id": str(account.id)},
-        )
-
-    def test_name_column_is_prepended_when_not_in_select(self):
-        runner = AccountsQueryRunner(query=AccountsQuery(select=["external_id"]), team=self.team)
-        self.assertEqual(runner.columns, ["name", "external_id"])
+    def test_external_id_is_in_default_columns(self):
+        create_account(team_id=self.team.id, name="A", external_id="ext-A")
+        runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
+        self.assertIn("external_id", runner.columns)
 
     def test_set_tags_on_object_helper_matches(self):
         # Mirror existing API test setup that uses set_tags_on_object.

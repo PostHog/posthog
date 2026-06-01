@@ -1,12 +1,4 @@
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
-from products.signals.backend.temporal.agentic.scout_coordinator import (
-    SignalsScoutCoordinatorWorkflow,
-    fetch_enabled_signals_scout_runs_activity,
-)
-from products.signals.backend.temporal.agentic.scout_scheduler import (
-    RunSignalsScoutWorkflow,
-    run_signals_scout_activity,
-)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -74,15 +66,12 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
-    RunSignalsScoutWorkflow,
-    SignalsScoutCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
-    fetch_enabled_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
@@ -110,7 +99,6 @@ ACTIVITIES = [
     restore_grouping_pause_activity,
     run_agentic_report_activity,
     run_signal_semantic_search_activity,
-    run_signals_scout_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,

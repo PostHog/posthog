@@ -59,14 +59,6 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P4,
 )
 
-_SLACK_PRIORITY_LABELS: dict[str, str] = {
-    AutonomyPriority.P0: "🆘 P0",
-    AutonomyPriority.P1: "‼️ P1",
-    AutonomyPriority.P2: "❗ P2",
-    AutonomyPriority.P3: "⚠️ P3",
-    AutonomyPriority.P4: "👀 P4",
-}
-
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
     choice.value: str(choice.label) for choice in SignalSourceConfig.SourceProduct
 }
@@ -79,10 +71,6 @@ def _priority_rank(value: str | None) -> int | None:
         return _PRIORITY_ORDER.index(value)
     except ValueError:
         return None
-
-
-def _slack_priority_label(value: str) -> str:
-    return _SLACK_PRIORITY_LABELS.get(value, value)
 
 
 def _meets_min_priority(report_priority: str | None, min_priority: str | None) -> bool:
@@ -124,9 +112,7 @@ def _latest_priority(report: SignalReport) -> str | None:
 
 @dataclass(frozen=True)
 class _RecipientPresentation:
-    # `<@U…>` mention if we resolved the user's Slack ID — only renders inside mrkdwn
-    # blocks (header blocks are plain_text and would show the raw `<@U…>` string).
-    slack_mention: str | None
+    header_label: str  # `<@U…>` mention or display name for the header
     plain_name: str
 
 
@@ -238,8 +224,8 @@ def _recipient_presentation(
 ) -> _RecipientPresentation:
     plain_name = _posthog_user_display_name(user)
     slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
-    slack_mention = f"<@{slack_user_id}>" if slack_user_id else None
-    return _RecipientPresentation(slack_mention=slack_mention, plain_name=plain_name)
+    header_label = f"<@{slack_user_id}>" if slack_user_id else plain_name
+    return _RecipientPresentation(header_label=header_label, plain_name=plain_name)
 
 
 def _format_source_product_labels(source_products: list[str]) -> str:
@@ -271,18 +257,13 @@ def _build_message_blocks(
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"📬 {title_line}"
+    header_text = f"Inbox for {recipient.header_label}"
+    if priority:
+        header_text = f"{header_text} · {priority}"
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    recipient_label = recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace(
-        "<", "&lt;"
-    ).replace(">", "&gt;")
-    metadata_parts = [f"Matched to {recipient_label} per code"]
-    if priority:
-        metadata_parts.insert(0, _slack_priority_label(priority))
-
-    body_parts: list[str] = [f"*{' • '.join(metadata_parts)}*"]
+    body_parts = [f"*{title_line}*"]
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
         body_parts.append(summary_text)

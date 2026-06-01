@@ -1715,7 +1715,6 @@ export enum PersonsTabType {
     EXCEPTIONS = 'exceptions',
     SURVEY_RESPONSES = 'surveyResponses',
     SESSION_RECORDINGS = 'sessionRecordings',
-    LOGS = 'logs',
     PROPERTIES = 'properties',
     COHORTS = 'cohorts',
     RELATED = 'related',
@@ -4757,11 +4756,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    /**
-     * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
-     * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
-     */
-    persisted_feature_flags?: string[] | Record<string, string | boolean>
+    persisted_feature_flags?: string[]
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
@@ -5402,7 +5397,6 @@ export type APIScopeObject =
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
-    | 'signal_scout'
     | 'subscription'
     | 'survey'
     | 'task'

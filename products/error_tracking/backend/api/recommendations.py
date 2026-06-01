@@ -13,6 +13,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
@@ -163,6 +165,7 @@ def _kick_off_stale_computations(team_id: int) -> None:
             )
 
 
+@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingRecommendationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

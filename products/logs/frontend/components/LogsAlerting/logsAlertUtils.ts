@@ -1,61 +1,9 @@
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import {
-    LOGS_ALERT_AUTO_DISABLED_EVENT_ID,
-    LOGS_ALERT_ERRORED_EVENT_ID,
-    LOGS_ALERT_FIRING_EVENT_ID,
-    LOGS_ALERT_RESOLVED_EVENT_ID,
-} from 'lib/constants'
-
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
-import {
-    CyclotronJobFiltersType,
-    HogFunctionType,
-    PropertyFilterType,
-    PropertyOperator,
-    SlackChannelType,
-} from '~/types'
+import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { LogsAlertConfigurationApi } from 'products/logs/frontend/generated/api.schemas'
-
-export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
-
-export const LOGS_ALERT_EVENT_KIND_ORDER: LogsAlertEventKind[] = ['firing', 'resolved', 'broken', 'errored']
-
-export const LOGS_ALERT_EVENT_KIND_META: Record<LogsAlertEventKind, { label: string; description: string }> = {
-    firing: {
-        label: 'Firing',
-        description: 'Sent when the alert starts firing.',
-    },
-    resolved: {
-        label: 'Resolved',
-        description: 'Sent when a firing alert returns to normal.',
-    },
-    broken: {
-        label: 'Auto-disabled',
-        description: 'Sent if the alert is auto-disabled after repeated check failures.',
-    },
-    errored: {
-        label: 'Errored',
-        description: "Sent when an alert check can't evaluate.",
-    },
-}
-
-export function getHogFunctionEventKind(hf: HogFunctionType): LogsAlertEventKind | null {
-    const eventId = hf.filters?.events?.[0]?.id
-    switch (eventId) {
-        case LOGS_ALERT_FIRING_EVENT_ID:
-            return 'firing'
-        case LOGS_ALERT_RESOLVED_EVENT_ID:
-            return 'resolved'
-        case LOGS_ALERT_AUTO_DISABLED_EVENT_ID:
-            return 'broken'
-        case LOGS_ALERT_ERRORED_EVENT_ID:
-            return 'errored'
-        default:
-            return null
-    }
-}
 
 export type PreEnableFilters = {
     severityLevels: string[]
@@ -208,23 +156,6 @@ export type LogsAlertDestinationGroup = {
     label: string
     hogFunctions: HogFunctionType[]
     enabled: boolean
-}
-
-export function slackChannelLabel(channelValue: string, slackChannels: SlackChannelType[]): string {
-    const channelId = channelValue.split('|')[0]
-    const name = slackChannels.find((c) => c.id === channelId)?.name
-    return name ? `Slack #${name}` : 'Slack'
-}
-
-export function resolveGroupLabel(group: LogsAlertDestinationGroup, slackChannels: SlackChannelType[]): string {
-    if (group.type === LOGS_ALERT_NOTIFICATION_TYPE_SLACK) {
-        const hf = group.hogFunctions[0]
-        const channelValue = hf?.inputs?.channel?.value
-        if (typeof channelValue === 'string') {
-            return slackChannelLabel(channelValue, slackChannels)
-        }
-    }
-    return group.label
 }
 
 export function groupLogsAlertDestinations(

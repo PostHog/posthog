@@ -11,8 +11,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
-
 import { NotebookNodeType } from '../types'
 
 export type TabularFormat = 'tsv' | 'csv'
@@ -102,7 +100,7 @@ export function parseMarkdownToTipTap(markdown: string): JSONContent[] {
     if (!markdown || markdown.trim() === '') {
         return []
     }
-    const doc = markdownManager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
+    const doc = markdownManager.parse(markdown) as JSONContent
     return (doc.content as JSONContent[]) || []
 }
 

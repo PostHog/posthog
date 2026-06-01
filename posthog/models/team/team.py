@@ -439,13 +439,6 @@ class Team(UUIDTClassicModel):
     # Logs
     logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
-    # LLM gateway — per-team kill switch read by the llm-gateway Go service via a
-    # purpose-built HyperCache blob (cache/team_tokens/<token>/team_metadata/
-    # llm_gateway_policy.json). Non-null revokes the team's gateway access; null
-    # means active. A non-revoked team with balance gets the full supported model
-    # surface (the catalog is gateway-owned). Set by internal tooling/admin only.
-    llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
-
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
 

@@ -22,7 +22,6 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,
     _end_turn_line,
-    _usage_update_line,
     _user_message_line,
 )
 
@@ -129,90 +128,6 @@ class TestPollForTurnEmptyEndTurn:
         # Cursors settled on the final (recovered) line count, not the truncated one.
         assert total_lines == len(poll_3_lines)
         assert printed_lines == len(poll_3_lines)
-
-
-class TestPollForTurnTerminalDrain:
-    """Terminal-status drain must recover an agent_message from *this* turn only.
-
-    When the TaskRun reaches a terminal status (FAILED/CANCELLED/COMPLETED) without
-    emitting `end_turn`, `_drain_final_log` re-reads the log and walks backward for
-    the trailing agent_message. The walk must be bounded by the start-of-turn cursor
-    so it never returns a previous turn's response in a multi-turn session.
-    """
-
-    @pytest.mark.asyncio
-    async def test_terminal_status_does_not_return_previous_turn_message(self):
-        """Regression: turn 2 hits terminal status with no agent_message of its own.
-        The drain must raise RuntimeError, NOT silently return turn 1's response."""
-        turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
-        # Turn 2 prompt + tool churn, but the agent died before emitting any agent_message
-        # AND before emitting end_turn (so the empty_end_turn path is not what triggers drain).
-        turn_2_partial = [_user_message_line("followup question"), _usage_update_line(0)]
-
-        log = "\n".join(turn_1 + turn_2_partial)
-        skip = len(turn_1)  # start-of-turn-2 cursor — what MultiTurnSession passes
-
-        # Simulate the task reaching FAILED status mid-poll
-        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
-
-        with (
-            patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
-            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
-        ):
-            with pytest.raises(RuntimeError, match="terminal status"):
-                await poll_for_turn(fake_task_run, skip_lines=skip)
-
-    @pytest.mark.asyncio
-    async def test_terminal_status_recovers_mid_turn_agent_message(self):
-        """The original commit's intent must still hold: when the agent emitted an
-        agent_message earlier in *this* turn but the workflow then hit terminal status
-        without `end_turn`, the drain recovers that message. Verified with skip_lines>0
-        so we're sure the scan walks the current-turn slice, not just [0..end)."""
-        turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
-        # Turn 2: agent emitted text, then died before end_turn (e.g. inactivity timeout)
-        turn_2_recoverable = [
-            _user_message_line("followup question"),
-            _agent_message_line("turn-2-partial-answer"),
-            _usage_update_line(0),  # cursor has advanced past the agent_message by now
-        ]
-
-        log = "\n".join(turn_1 + turn_2_recoverable)
-        skip = len(turn_1)
-        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
-
-        with (
-            patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
-            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
-        ):
-            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
-
-        assert last_message == "turn-2-partial-answer"
-
-    @pytest.mark.asyncio
-    async def test_terminal_status_first_turn_still_scans_full_log(self):
-        """First-turn case (skip_lines=0): the drain scans from 0 as before — no behavior
-        change for single-turn or initial-turn callers."""
-        turn_1 = [
-            _user_message_line("initial prompt"),
-            _agent_message_line("partial-before-death"),
-            _usage_update_line(0),
-        ]
-        log = "\n".join(turn_1)
-        fake_task_run = FakeTaskRun(status="failed", error_message="sandbox killed")
-
-        with (
-            patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
-            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
-            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
-        ):
-            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=0)
-
-        assert last_message == "partial-before-death"
 
 
 class TestMultiTurnSessionRetry:

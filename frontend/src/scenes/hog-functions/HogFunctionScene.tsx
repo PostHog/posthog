@@ -157,27 +157,6 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     iconType: 'data_pipeline',
                 }
 
-                const firstEventId = configuration?.filters?.events?.[0]?.id
-                const isLogsAlert = typeof firstEventId === 'string' && firstEventId.startsWith('$logs_alert_')
-
-                if (type === 'internal_destination' && isLogsAlert && alertId) {
-                    return [
-                        {
-                            key: Scene.Logs,
-                            name: 'Logs',
-                            path: `${urls.logs()}?activeTab=alerts`,
-                            iconType: 'logs',
-                        },
-                        {
-                            key: Scene.LogsAlertDetail,
-                            name: 'Alert',
-                            path: returnTo ?? urls.logsAlertDetail(alertId, 'notifications'),
-                            iconType: 'logs',
-                        },
-                        finalCrumb,
-                    ]
-                }
-
                 if (type === 'internal_destination' && alertId) {
                     // returnTo contains the full path back to the alert edit view
                     // Strip the alert_id param for the insight breadcrumb

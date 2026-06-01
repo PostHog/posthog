@@ -151,6 +151,7 @@ class MCPServerTemplateSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "url", "docs_url", "description", "auth_type", "icon_key", "category"]
 
 
+@extend_schema(tags=["mcp_store"])
 class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     """Lists curated MCP server templates that users can install with one click.
 
@@ -336,6 +337,7 @@ class ToolApprovalUpdateSerializer(serializers.Serializer):
     approval_state = serializers.ChoiceField(choices=["approved", "needs_approval", "do_not_use"])
 
 
+@extend_schema(tags=["mcp_store"])
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     scope_object_read_actions = ["list", "retrieve", "authorize", "list_tools"]
@@ -1187,6 +1189,7 @@ def _installation_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
+@extend_schema(tags=["mcp_store"])
 class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     """Team-agnostic public OAuth callback endpoint.
 

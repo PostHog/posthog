@@ -201,6 +201,7 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
     # DELETE /experiments/{id}/
     # Logic and API docs defined in posthog/api/forbid_destroy_model.py (hard delete not allowed)
 )
+@extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     # ApprovalHandlingMixin converts ApprovalRequired exceptions (raised by
     # FeatureFlagSerializer in ship_variant) into 409 HTTP responses. The

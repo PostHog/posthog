@@ -97,6 +97,7 @@ export const ToolConfigSchema = z
                     })
             )
             .optional(),
+        mcp_version: z.number().int().positive().optional(),
         /**
          * Cross-field refinements applied to the composed tool schema.
          * Each entry names a function exported from `@/schema/tool-inputs` whose
@@ -357,6 +358,7 @@ export const QueryWrapperToolConfigSchema = z
             })
             .strict()
             .optional(),
+        mcp_version: z.number().int().positive().optional(),
         title: z.string().optional(),
         description: z.string().optional(),
         /** Path to a file containing the tool description (resolved relative to the YAML file). Mutually exclusive with `description`. */

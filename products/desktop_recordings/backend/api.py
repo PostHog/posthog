@@ -26,6 +26,7 @@ from .serializers import (
 from .services.recall_client import RecallAIClient
 
 
+@extend_schema(tags=["desktop_recordings"])
 class DesktopRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     RESTful API for managing desktop meeting recordings.

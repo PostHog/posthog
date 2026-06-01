@@ -4,7 +4,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 
 ## Concepts
 
-**Scanner** — a configured probe scoped to a team. Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, and a sampling rate. Each enabled scanner has a Temporal schedule that fires every 5 minutes. Summarizers can opt into emitting per-facet embeddings via the `emits_embeddings` config flag.
+**Scanner** — a configured probe scoped to a team. Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer` / `indexer`), a `RecordingsQuery` that selects matching sessions, and a sampling rate. Each enabled scanner has a Temporal schedule that fires every 5 minutes.
 
 **Observation** — one application of a scanner to a session. Created in `pending` when triggered (by the scanner's schedule or the `/observe/` action), transitions to `running` while `ApplyScannerWorkflow` executes, and lands in `succeeded` (with content emitted as a `$recording_observed` event) or `failed`. Each observation snapshots the full scanner state (`scanner_snapshot`) that produced it, so subsequent edits to the scanner don't retro-mutate history.
 

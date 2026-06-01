@@ -10,7 +10,7 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 
 export const getRevenueAnalyticsJoinsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/revenue_analytics/joins/`
+    return `/api/environments/${projectId}/revenue_analytics/joins/`
 }
 
 export const revenueAnalyticsJoinsCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -21,7 +21,7 @@ export const revenueAnalyticsJoinsCreate = async (projectId: string, options?: R
 }
 
 export const getRevenueAnalyticsTaxonomyValuesRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/revenue_analytics/taxonomy/values/`
+    return `/api/environments/${projectId}/revenue_analytics/taxonomy/values/`
 }
 
 export const revenueAnalyticsTaxonomyValuesRetrieve = async (

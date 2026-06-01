@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import (
+    ProductKey,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -48,10 +49,6 @@ from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns, sql_schema_metadata
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-from posthog.temporal.data_imports.sources.custom.source import (
-    is_custom_source_available_for_team,
-    manifest_request_hosts,
-)
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -711,24 +708,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             incoming_job_inputs.get("ssh_tunnel"),
         )
 
-        # The custom source's connection target lives inside the manifest, not a top-level `host`.
-        # A manifest edit that introduces a new request host would send the preserved credential
-        # somewhere it wasn't going before — the same exfiltration risk, so require re-entry too.
-        manifest_host_added = False
-        if source_type_model == ExternalDataSourceType.CUSTOM and "manifest_json" in incoming_job_inputs:
-            new_hosts = manifest_request_hosts(incoming_job_inputs.get("manifest_json"))
-            existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
-            manifest_host_added = bool(new_hosts - existing_hosts)
-
-        if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
+        if connection_host_changed or ssh_tunnel_changed:
             missing_credentials = [
                 key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
             ]
             if missing_credentials:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
-                if manifest_host_added:
-                    raise ValidationError("Changing the manifest's request host requires re-entering your credentials.")
                 raise ValidationError("Changing the connection host requires re-entering your credentials.")
 
         # Preserve sensitive credentials not explicitly provided (API response omits them for security)
@@ -935,6 +921,7 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
@@ -1067,11 +1054,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 if isinstance(value, str):
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
-        if source_type_model == ExternalDataSourceType.CUSTOM and not is_custom_source_available_for_team(self.team_id):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Custom REST source is not available for this team."},
-            )
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
         if not is_valid:

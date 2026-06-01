@@ -4,7 +4,7 @@
  *
  * Validates tool names from three sources:
  *   1. YAML definitions (products and services/mcp/definitions)
- *   2. Handwritten JSON definitions (tool-definitions.json)
+ *   2. Handwritten JSON definitions (tool-definitions.json, tool-definitions-v2.json)
  *   3. Generated JSON definitions (generated-tool-definitions.json)
  *
  * Length: tool names must be <= 52 chars because some MCP clients (notably Cursor)
@@ -103,7 +103,7 @@ function main(): void {
 
     hasErrors = validateYamlDefinitions(violations) || hasErrors
 
-    for (const jsonFile of ['tool-definitions.json', 'generated-tool-definitions.json']) {
+    for (const jsonFile of ['tool-definitions.json', 'tool-definitions-v2.json', 'generated-tool-definitions.json']) {
         hasErrors = validateJsonDefinitions(jsonFile, violations) || hasErrors
     }
 

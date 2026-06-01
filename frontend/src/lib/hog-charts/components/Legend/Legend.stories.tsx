@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { DAYS, SERIES } from '../../charts/time-series-fixtures'
 import { TimeSeriesBarChart } from '../../charts/TimeSeriesBarChart/TimeSeriesBarChart'
 import { Stage, useReactiveTheme } from '../../story-helpers'
-import { ChartLegend } from './ChartLegend'
+import { ChartLegendLayout } from './ChartLegendLayout'
 import { Legend, type LegendItem } from './Legend'
 import { legendItemsFromSeries } from './legendItemsFromSeries'
 
@@ -66,31 +66,28 @@ export const ManyItemsWraps: Story = {
     ),
 }
 
-function ChartLegendStory({
-    show = true,
-    position,
-}: {
-    show?: boolean
-    position: 'top' | 'bottom' | 'left' | 'right'
-}): JSX.Element {
+function ChartWithLegend({ position }: { position: 'top' | 'bottom' | 'left' | 'right' }): JSX.Element {
     const theme = useReactiveTheme()
+    const isRow = position === 'left' || position === 'right'
     const items = useMemo(() => legendItemsFromSeries(SERIES, theme), [theme])
     return (
         <Stage width={520} height={320}>
-            <ChartLegend show={show} items={items} position={position}>
+            <ChartLegendLayout
+                legend={<Legend items={items} orientation={isRow ? 'vertical' : 'horizontal'} />}
+                position={position}
+            >
                 <TimeSeriesBarChart
                     series={SERIES}
                     labels={DAYS}
                     theme={theme}
                     config={{ yAxis: { showGrid: true } }}
                 />
-            </ChartLegend>
+            </ChartLegendLayout>
         </Stage>
     )
 }
 
-export const LayoutTop: Story = { render: () => <ChartLegendStory position="top" /> }
-export const LayoutBottom: Story = { render: () => <ChartLegendStory position="bottom" /> }
-export const LayoutLeft: Story = { render: () => <ChartLegendStory position="left" /> }
-export const LayoutRight: Story = { render: () => <ChartLegendStory position="right" /> }
-export const LegendHidden: Story = { render: () => <ChartLegendStory show={false} position="top" /> }
+export const LayoutTop: Story = { render: () => <ChartWithLegend position="top" /> }
+export const LayoutBottom: Story = { render: () => <ChartWithLegend position="bottom" /> }
+export const LayoutLeft: Story = { render: () => <ChartWithLegend position="left" /> }
+export const LayoutRight: Story = { render: () => <ChartWithLegend position="right" /> }

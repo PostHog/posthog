@@ -31,7 +31,6 @@ import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleSt
 import { SessionTurn } from './extractSessionTurns'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { resolveSessionTitle } from './sessionTitle'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -94,17 +93,8 @@ function SessionSceneWrapper(): JSX.Element {
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    const {
-        traces,
-        responseLoading,
-        responseError,
-        sessionTurns,
-        hasMoreData,
-        nextDataLoading,
-        summariesLoading,
-        fullTraces,
-        traceSummaries,
-    } = useValues(aiObservabilitySessionDataLogic)
+    const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
+        useValues(aiObservabilitySessionDataLogic)
     const { sessionId } = useValues(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData } = useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
@@ -127,14 +117,6 @@ function SessionSceneWrapper(): JSX.Element {
         { totalCost: 0, totalLatency: 0, traceCount: 0 }
     )
 
-    const firstTrace = traces[0]
-    const firstFullTrace = firstTrace ? fullTraces[firstTrace.id] : undefined
-    const cachedSummaryTitle = firstTrace ? traceSummaries[firstTrace.id]?.title : undefined
-    // Prefer the cached LLM summary when present; otherwise derive a title from
-    // the first trace (full event tree when loaded, else the lite trace for
-    // traceName fallback while loading).
-    const heroTitle = cachedSummaryTitle || resolveSessionTitle(firstFullTrace ?? firstTrace)
-
     if (responseLoading) {
         return <SpinnerOverlay />
     }
@@ -149,7 +131,6 @@ function SessionSceneWrapper(): JSX.Element {
         <div className="relative flex flex-col gap-4">
             <SceneBreadcrumbBackButton />
             <AIObservabilityRenameBanner />
-            {heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>}
             <header className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex gap-1.5 flex-wrap">
                     <LemonTag size="medium" className="bg-surface-primary">

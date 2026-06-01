@@ -134,7 +134,7 @@ class ExperimentSavedMetricSerializer(
         return ExperimentSavedMetricService(team=self.context["get_team"](), user=request.user)
 
 
-@extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
+@extend_schema(tags=["experiments"], extensions={"x-swagger-tag": "experiment_saved_metrics"})
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment_saved_metric"
     queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()

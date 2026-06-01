@@ -58,11 +58,6 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
-# Slack integration kind used by the PostHog Code coding-agent flow. Historically this used
-# a dedicated `slack-posthog-code` install, but the notifications Slack app (`slack`) carries
-# every scope the coding agent needs, so both surfaces share one kind.
-SLACK_INTEGRATION_KIND = "slack"
-
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
 # Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
@@ -614,7 +609,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
     body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
-    signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
+    signing_secret = SlackIntegration.posthog_code_slack_config()["SLACK_POSTHOG_CODE_SIGNING_SECRET"]
     signature, ts = sign_slack_request(body, signing_secret)
 
     try:
@@ -670,8 +665,8 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("slack_app_workspace_claims_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1042,7 +1037,7 @@ def _replace_repo_picker_message_with_selection(
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
         )
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
@@ -1076,7 +1071,7 @@ def _replace_repo_picker_message_with_no_repo(
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
         )
         slack = SlackIntegration(integration)
         text = "Continuing without a repository."
@@ -1530,7 +1525,7 @@ def route_posthog_code_event_to_relevant_region(
 
         result = load_integrations(
             slack_team_id=slack_team_id,
-            kinds=[SLACK_INTEGRATION_KIND],
+            kinds=["slack-posthog-code"],
             slack_user_id=str(event.get("user") or ""),
             user=None,
             channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
@@ -1541,7 +1536,7 @@ def route_posthog_code_event_to_relevant_region(
         if not result.candidates:
             return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
-        if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
+        if _us_should_handle_instead(slack_team_id, ["slack-posthog-code"], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
         # Gate the entire @PostHog surface on the rollout flag at the candidate
@@ -1702,8 +1697,8 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1845,7 +1840,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         team_id = payload.get("team", {}).get("id")
         if team_id:
             fallback_integration = (
-                Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=team_id).order_by("id").first()
+                Integration.objects.filter(kind="slack-posthog-code", integration_id=team_id).order_by("id").first()
             )
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
@@ -1880,7 +1875,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
             raise Integration.DoesNotExist
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
@@ -1959,7 +1954,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
             integration = Integration.objects.get(
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+                id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
             )
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
@@ -2098,8 +2093,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        slack_config = SlackIntegration.slack_config()
-        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+        posthog_code_config = SlackIntegration.posthog_code_slack_config()
+        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -2131,19 +2126,19 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if slack_team_id and ctx_integration_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind=SLACK_INTEGRATION_KIND,
+            kind="slack-posthog-code",
             integration_id=slack_team_id,
         ).exists()
 

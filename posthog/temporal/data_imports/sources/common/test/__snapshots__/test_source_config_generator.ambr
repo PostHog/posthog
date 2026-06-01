@@ -79,7 +79,6 @@
           ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
           ExternalDataSourceType.CONVEX: ConvexSourceConfig,
           ExternalDataSourceType.COPPER: CopperSourceConfig,
-          ExternalDataSourceType.CUSTOM: CustomSourceConfig,
           ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
           ExternalDataSourceType.DATADOG: DatadogSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,

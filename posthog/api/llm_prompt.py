@@ -105,7 +105,7 @@ class LLMPromptFeatureFlagPermission(BasePermission):
         )
 
 
-@extend_schema(extensions={"x-product": "llm_analytics"})
+@extend_schema(tags=["llm_analytics"])
 class LLMPromptViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

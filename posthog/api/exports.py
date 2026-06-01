@@ -377,7 +377,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(extensions={"x-product": "core"})
+@extend_schema(tags=["core"])
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,

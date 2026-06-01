@@ -31,7 +31,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     if (search) {
                         await breakpoint(300)
                     }
-                    return await api.integrations.slackChannels(props.id, forceRefresh, { search })
+                    return await api.integrations.slackChannels(props.id, forceRefresh, { search, limit: 200 })
                 },
             },
         ],

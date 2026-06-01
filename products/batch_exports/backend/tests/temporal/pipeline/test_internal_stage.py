@@ -20,8 +20,6 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
-    DataIntervalEndInFutureError,
-    _write_batch_export_record_batches_to_internal_stage,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -175,33 +173,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
             "product": "batch_export",
         }
     )
-
-
-async def test_write_batch_export_record_batches_to_internal_stage_rejects_future_data_interval_end():
-    data_interval_start = dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)
-    data_interval_end = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
-
-    with (
-        patch(
-            "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
-        ) as mock_wait,
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
-        override_settings(DEBUG=False, TEST=False),
-    ):
-        with pytest.raises(DataIntervalEndInFutureError, match="The provided 'data_interval_end'.*is in the future"):
-            await _write_batch_export_record_batches_to_internal_stage(
-                query_or_model="SELECT 1",
-                full_range=(data_interval_start, data_interval_end),
-                query_parameters={},
-                team_id=1,
-                batch_export_id=str(uuid.uuid4()),
-                data_interval_start=data_interval_start.isoformat(),
-                data_interval_end=data_interval_end.isoformat(),
-                s3_staging_folder_url="s3://bucket/folder",
-            )
-
-    mock_wait.assert_not_called()
-    mock_get_client.assert_not_called()
 
 
 @pytest_asyncio.fixture

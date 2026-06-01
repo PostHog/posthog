@@ -36,26 +36,6 @@ export interface PaginatedDAGListApi {
     results: DagApi[]
 }
 
-export interface PatchedDAGApi {
-    readonly id?: string
-    /**
-     * Human-readable name for this DAG
-     * @maxLength 2048
-     */
-    name?: string
-    /** Optional description of the DAG's purpose */
-    description?: string
-    /**
-     * Sync frequency string (e.g. '24hour', '7day')
-     * @nullable
-     */
-    sync_frequency?: string | null
-    readonly node_count?: number
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
 export interface EdgeApi {
     readonly id: string
     readonly source_id: string
@@ -75,18 +55,6 @@ export interface PaginatedEdgeListApi {
     /** @nullable */
     previous?: string | null
     results: EdgeApi[]
-}
-
-export interface PatchedEdgeApi {
-    readonly id?: string
-    readonly source_id?: string
-    readonly target_id?: string
-    dag?: string
-    readonly dag_name?: string
-    properties?: unknown
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
 }
 
 /**
@@ -137,32 +105,6 @@ export interface PaginatedNodeListApi {
     /** @nullable */
     previous?: string | null
     results: NodeApi[]
-}
-
-export interface PatchedNodeApi {
-    readonly id?: string
-    /** @maxLength 2048 */
-    name?: string
-    type?: NodeTypeEnumApi
-    dag?: string
-    readonly dag_name?: string
-    /** @maxLength 1024 */
-    description?: string
-    /** @nullable */
-    readonly saved_query_id?: string | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly upstream_count?: number
-    readonly downstream_count?: number
-    /** @nullable */
-    readonly last_run_at?: string | null
-    /** @nullable */
-    readonly last_run_status?: string | null
-    /** @nullable */
-    readonly user_tag?: string | null
-    /** @nullable */
-    readonly sync_interval?: string | null
 }
 
 export type DataModelingDagsListParams = {

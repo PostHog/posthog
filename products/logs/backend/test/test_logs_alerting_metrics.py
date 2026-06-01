@@ -222,6 +222,13 @@ class TestRecordCohortSaveSubstageDurations:
                 "Postgres bulk_update time for LogsAlertConfiguration rows in a cohort",
                 28,
             ),
+            (
+                "cohort_size",
+                record_cohort_size,
+                "logs_alerting_cohort_size",
+                "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save",
+                17,
+            ),
         ]
     )
     @patch("products.logs.backend.temporal.metrics._record_histogram")
@@ -230,26 +237,6 @@ class TestRecordCohortSaveSubstageDurations:
     ):
         fn(sample_value)
         mock_record.assert_called_once_with(metric_name, description, sample_value)
-
-
-class TestRecordCohortSize:
-    @patch("products.logs.backend.temporal.metrics.get_metric_meter")
-    def test_records_count_histogram(self, mock_get_meter: MagicMock):
-        mock_meter = MagicMock()
-        mock_hist = MagicMock()
-        mock_meter.create_histogram.return_value = mock_hist
-        mock_get_meter.return_value = mock_meter
-
-        record_cohort_size(17)
-
-        kwargs = mock_meter.create_histogram.call_args.kwargs
-        assert kwargs["name"] == "logs_alerting_cohort_size"
-        assert kwargs["unit"] == "alerts"
-        assert (
-            kwargs["description"]
-            == "Number of alerts in a cohort sharing one batched ClickHouse query and one bulk Postgres save"
-        )
-        mock_hist.record.assert_called_once_with(17)
 
 
 class TestIncrementCohortSaveFallback:

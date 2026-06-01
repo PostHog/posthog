@@ -7,15 +7,7 @@ from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
 
-from posthog.models.team.extensions import get_or_create_team_extension
-
-from products.logs.backend.models import (
-    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
-    MAX_EVALUATION_PERIODS,
-    LogsAlertConfiguration,
-    LogsAlertEvent,
-    TeamLogsConfig,
-)
+from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 
 class TestLogsAlertConfiguration(BaseTest):
@@ -224,29 +216,3 @@ class TestLogsAlertEvent(BaseTest):
         alert.delete()
 
         assert LogsAlertEvent.objects.count() == 0
-
-
-class TestTeamLogsConfig(BaseTest):
-    def test_default_attribute_key(self):
-        config = get_or_create_team_extension(self.team, TeamLogsConfig)
-        assert config.logs_distinct_id_attribute_key == DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
-        # Matches the JS SDK / docs convention so logs from posthog-js are linked to
-        # their person without any team configuration.
-        assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
-
-    def test_custom_attribute_key_persists(self):
-        config = get_or_create_team_extension(self.team, TeamLogsConfig)
-        config.logs_distinct_id_attribute_key = "user.id"
-        config.save()
-
-        refetched = get_or_create_team_extension(self.team, TeamLogsConfig)
-        assert refetched.logs_distinct_id_attribute_key == "user.id"
-
-    def test_cascade_delete_with_team(self):
-        get_or_create_team_extension(self.team, TeamLogsConfig)
-        team_id = self.team.pk
-        assert TeamLogsConfig.objects.filter(team_id=team_id).exists()
-
-        self.team.delete()
-
-        assert not TeamLogsConfig.objects.filter(team_id=team_id).exists()

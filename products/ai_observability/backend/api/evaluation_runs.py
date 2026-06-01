@@ -44,6 +44,7 @@ class EvaluationRunRequestSerializer(serializers.Serializer):
     )
 
 
+@extend_schema(tags=["llm_analytics"])
 class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "evaluation"
     permission_classes = [IsAuthenticated, AccessControlPermission]

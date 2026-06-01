@@ -44,10 +44,6 @@ import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 const DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES = 512 * 1024
 const DEFAULT_PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES = 655360
 
-function queryTag(base: string, callerTag?: string): string {
-    return callerTag ? `${base}:${callerTag}` : base
-}
-
 export interface PostgresPersonRepositoryOptions {
     calculatePropertiesSize: number
     /** Limit used when comparing pg_column_size(properties) to decide whether to remediate */
@@ -225,7 +221,7 @@ export class PostgresPersonRepository
     async fetchPerson(
         teamId: number,
         distinctId: string,
-        options: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string } = {}
+        options: { forUpdate?: boolean; useReadReplica?: boolean } = {}
     ): Promise<InternalPerson | undefined> {
         if (options.forUpdate && options.useReadReplica) {
             throw new Error("can't enable both forUpdate and useReadReplica in db::fetchPerson")
@@ -262,7 +258,7 @@ export class PostgresPersonRepository
             options.useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             values,
-            queryTag('fetchPerson', options.callerTag)
+            'fetchPerson'
         )
 
         if (rows.length > 0) {
@@ -272,8 +268,7 @@ export class PostgresPersonRepository
 
     async fetchPersonsByDistinctIds(
         teamPersons: { teamId: TeamId; distinctId: string }[],
-        useReadReplica: boolean = true,
-        callerTag?: string
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
@@ -322,7 +317,7 @@ export class PostgresPersonRepository
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             [teamIds, distinctIds],
-            queryTag('fetchPersonsByDistinctIds', callerTag)
+            'fetchPersonsByDistinctIds'
         )
 
         return rows.map((row) => ({
@@ -333,8 +328,7 @@ export class PostgresPersonRepository
 
     async fetchPersonsByPersonIds(
         teamPersons: { teamId: TeamId; personId: string }[],
-        useReadReplica: boolean = true,
-        callerTag?: string
+        useReadReplica: boolean = true
     ): Promise<InternalPerson[]> {
         if (teamPersons.length === 0) {
             return []
@@ -376,7 +370,7 @@ export class PostgresPersonRepository
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             [teamIds, personIds],
-            queryTag('fetchPersonsByPersonIds', callerTag)
+            'fetchPersonsByPersonIds'
         )
 
         return rows.map(this.toPerson)

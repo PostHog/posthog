@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { LineChart } from '../charts/LineChart/LineChart'
+import { LineChart } from '../charts/LineChart'
 import type { LineChartConfig, Series } from '../core/types'
 import { Stage, useReactiveTheme } from '../story-helpers'
 import { ReferenceLine } from './ReferenceLine'

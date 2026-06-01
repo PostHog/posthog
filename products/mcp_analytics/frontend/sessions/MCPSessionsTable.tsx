@@ -21,14 +21,13 @@ export function MCPSessionsTable(): JSX.Element {
         {
             title: 'Person',
             key: 'distinct_id',
-            width: '40%',
             render: (_, record) => {
                 const label = record.person_name || record.person_email
                 if (label) {
-                    return <div className="text-xs font-medium truncate">{label}</div>
+                    return <span className="text-xs font-medium truncate">{label}</span>
                 }
                 if (record.distinct_id) {
-                    return <div className="text-xs font-mono text-secondary truncate">{record.distinct_id}</div>
+                    return <span className="text-xs font-mono text-secondary truncate">{record.distinct_id}</span>
                 }
                 return <span className="text-secondary">—</span>
             },
@@ -37,7 +36,6 @@ export function MCPSessionsTable(): JSX.Element {
         {
             title: 'Started',
             key: 'session_start',
-            width: '20%',
             render: (_, record) => <TZLabel time={record.session_start} />,
             sorter: true,
         },
@@ -45,7 +43,6 @@ export function MCPSessionsTable(): JSX.Element {
             title: 'Tool calls',
             key: 'tool_call_count',
             dataIndex: 'tool_calls',
-            width: '20%',
             align: 'right',
             render: (_, record) => <span className="text-xs whitespace-nowrap">{record.tool_calls}</span>,
             sorter: true,
@@ -53,7 +50,6 @@ export function MCPSessionsTable(): JSX.Element {
         {
             title: 'Duration',
             key: 'duration_seconds',
-            width: '20%',
             align: 'right',
             render: (_, record) => (
                 <span className="text-xs whitespace-nowrap">

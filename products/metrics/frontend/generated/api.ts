@@ -19,7 +19,7 @@ import type {
 } from './api.schemas'
 
 export const getEventFilterMetricsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_filter/metrics/`
+    return `/api/environments/${projectId}/event_filter/metrics/`
 }
 
 /**
@@ -40,7 +40,7 @@ export const eventFilterMetricsRetrieve = async (
 }
 
 export const getEventFilterMetricsTotalsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_filter/metrics/totals/`
+    return `/api/environments/${projectId}/event_filter/metrics/totals/`
 }
 
 /**

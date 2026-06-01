@@ -202,10 +202,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
                 )
 
-                # prepare files for querying and create DataWarehouseTable.
-                # materialize_view_activity guarantees file_uris is non-empty even for
-                # zero-row results — it falls back to _write_empty_parquet_for_zero_rows
-                # so prepare_s3_files_for_querying has something to list.
+                # prepare files for querying and create DataWarehouseTable
                 storage_result = await temporalio.workflow.execute_activity(
                     prepare_queryable_table_activity,
                     PrepareQueryableTableInputs(

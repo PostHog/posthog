@@ -7,17 +7,17 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.temporal.scanners import (
     ClassifierOutput,
     ClassifierScanner,
+    IndexerOutput,
+    IndexerScanner,
     MonitorLlmResponse,
     MonitorOutput,
     MonitorScanner,
     ScorerOutput,
     ScorerScanner,
-    SummarizerLlmResponse,
     SummarizerOutput,
     SummarizerScanner,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerWithFacetsLlmResponse
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -492,88 +492,47 @@ class TestSummarizerScanner:
         assert round_tripped == out
 
 
-class TestSummarizerScannerFacets:
-    def test_emits_embeddings_defaults_to_false(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        assert isinstance(scanner, SummarizerScanner)
-        assert scanner.emits_embeddings is False
+class TestIndexerScanner:
+    def test_scanner_from_db_picks_indexer_subclass(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.INDEXER, scanner_config={}))
+        assert isinstance(scanner, IndexerScanner)
 
-    def test_emits_embeddings_propagates_into_prompt_context(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert scanner.prompt_context()["emits_embeddings"] is True
+    def test_scanner_from_db_rejects_prompt_on_indexer(self) -> None:
+        with pytest.raises(ApplicationError, match="prompt"):
+            scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.INDEXER, scanner_config={"prompt": "x"}))
 
-    def test_output_round_trip_carries_facets(self) -> None:
-        out = SummarizerOutput(
-            title="Onboarding",
-            summary="Walked through demo",
-            intent="Try the demo",
-            outcome="Finished",
-            friction_points=["empty state"],
-            keywords=["demo", "onboarding", "walkthrough"],
-            confidence=0.9,
+    def test_output_round_trip_includes_all_facets(self) -> None:
+        out = IndexerOutput(
+            intent="File a regression report",
+            summary="Bug report",
+            outcome="Submitted ticket",
+            friction_points=["upload failure"],
+            keywords=["bug", "regression", "ticket"],
+            confidence=0.8,
         )
-        round_tripped = SummarizerOutput.model_validate_json(out.model_dump_json())
+        round_tripped = IndexerOutput.model_validate_json(out.model_dump_json())
         assert round_tripped == out
 
-    def test_facets_default_to_empty(self) -> None:
-        out = SummarizerOutput(title="t", summary="s", confidence=0.9)
-        assert out.intent == ""
-        assert out.outcome == ""
-        assert out.friction_points == []
-        assert out.keywords == []
-
-    def test_llm_response_schema_branches_on_flag(self) -> None:
-        without_facets = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        with_facets = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert without_facets.llm_response_schema is SummarizerLlmResponse
-        assert with_facets.llm_response_schema is SummarizerWithFacetsLlmResponse
+    def test_output_rejects_empty_keywords(self) -> None:
+        with pytest.raises(ValidationError):
+            IndexerOutput(intent="x", summary="x", outcome="x", keywords=[], confidence=0.8)
 
     def test_finalize_lowercases_keywords_and_friction_points(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        response = SummarizerWithFacetsLlmResponse(
-            title="Auth",
-            summary="Tried to log in",
+        scanner = scanner_from_db(_build_replay_scanner(scanner_type=ScannerType.INDEXER, scanner_config={}))
+        from products.replay_vision.backend.temporal.scanners import IndexerLlmResponse
+
+        response = IndexerLlmResponse(
             intent="Authenticate",
+            summary="Tried to log in",
             outcome="Reached reset page",
             friction_points=["Invalid Password Error", "Buffering Page"],
             keywords=["Login", "Failed Attempt", "Reset"],
             confidence=0.9,
         )
         finalized = scanner.finalize(response)
-        assert isinstance(finalized, SummarizerOutput)
+        assert isinstance(finalized, IndexerOutput)
         assert finalized.friction_points == ["invalid password error", "buffering page"]
         assert finalized.keywords == ["login", "failed attempt", "reset"]
-
-
-class TestSummarizerOutputHasAnyFacet:
-    def test_returns_false_when_all_facets_empty(self) -> None:
-        out = SummarizerOutput(title="t", summary="s", confidence=0.9)
-        assert out.has_any_facet() is False
-
-    def test_returns_true_when_any_facet_filled(self) -> None:
-        assert SummarizerOutput(title="t", summary="s", intent="i", confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", outcome="o", confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", friction_points=["x"], confidence=0.9).has_any_facet() is True
-        assert SummarizerOutput(title="t", summary="s", keywords=["x"], confidence=0.9).has_any_facet() is True
 
 
 class TestToEventProperties:
@@ -583,7 +542,6 @@ class TestToEventProperties:
         assert props == {
             "scanner_output_verdict": True,
             "scanner_output_reasoning": "found it",
-            "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
         }
 

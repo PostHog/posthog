@@ -19,6 +19,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from posthog.schema import ProductKey
+
 from posthog.api.documentation import extend_schema
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -587,6 +589,7 @@ class TraceReviewFilter(django_filters.FilterSet):
         return queryset
 
 
+@extend_schema(tags=[ProductKey.LLM_ANALYTICS])
 class TraceReviewViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ModelViewSet):
     scope_object = "llm_analytics"
     permission_classes = [TraceReviewFeatureFlagPermission, AccessControlPermission]

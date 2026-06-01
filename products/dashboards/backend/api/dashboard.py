@@ -129,55 +129,6 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 
-def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
-    return not (
-        rect_a["x"] + rect_a["w"] <= rect_b["x"]
-        or rect_b["x"] + rect_b["w"] <= rect_a["x"]
-        or rect_a["y"] + rect_a["h"] <= rect_b["y"]
-        or rect_b["y"] + rect_b["h"] <= rect_a["y"]
-    )
-
-
-def _compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
-    """Vertically compact tile layouts in place, mirroring the dashboard grid's default
-    react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
-    independently: tiles keep their x/w/h and are pulled up to the lowest free row.
-    Returns the ids of tiles whose layouts changed.
-    """
-    for tile in tiles:
-        if isinstance(tile.layouts, str):
-            tile.layouts = json.loads(tile.layouts)
-
-    changed: set[int] = set()
-    breakpoints: set[str] = set()
-    for tile in tiles:
-        if isinstance(tile.layouts, dict):
-            breakpoints.update(tile.layouts.keys())
-
-    for breakpoint in breakpoints:
-        entries = [
-            tile for tile in tiles if isinstance(tile.layouts, dict) and isinstance(tile.layouts.get(breakpoint), dict)
-        ]
-        placed: list[dict[str, int]] = []
-        for tile in DashboardTile.sort_tiles_by_layout(entries, breakpoint):
-            layout = tile.layouts[breakpoint]
-            rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
-            # Drop the tile to the lowest free row. Jump past colliding tiles rather than
-            # scanning row-by-row, so an editor-supplied giant height can't blow up the loop.
-            new_y = 0
-            while True:
-                collisions = [pr for pr in placed if _tile_rects_overlap({**rect, "y": new_y}, pr)]
-                if not collisions:
-                    break
-                new_y = max(pr["y"] + pr["h"] for pr in collisions)
-            placed.append({**rect, "y": new_y})
-            if new_y != layout.get("y", 0):
-                layout["y"] = new_y
-                changed.add(tile.id)
-
-    return changed
-
-
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
     """
     Serialize a single tile with error handling. Returns (order, tile_data) tuple.
@@ -391,13 +342,6 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="New accent color name, empty string or null to clear. Omit to leave unchanged.",
         error_messages={"max_length": "Color cannot exceed 400 characters"},
-    )
-
-
-class DeleteTileRequestSerializer(serializers.Serializer):
-    tile_id = serializers.IntegerField(
-        required=True,
-        help_text="ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.",
     )
 
 
@@ -1309,6 +1253,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ],
     ),
 )
+@extend_schema(tags=["core"])
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -1958,51 +1903,6 @@ class DashboardsViewSet(
 
         tile.refresh_from_db()
         return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
-
-    @extend_schema(
-        operation_id="dashboards_delete_tile",
-        request=DeleteTileRequestSerializer,
-        responses={204: None},
-    )
-    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
-    def delete_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Soft-delete a single tile from a dashboard.
-
-        Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-        object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-        use the dashboard delete endpoint instead.
-        """
-        dashboard = self.get_object()
-        if dashboard.deleted:
-            raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
-        serializer = DeleteTileRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        tile_id = serializer.validated_data["tile_id"]
-
-        tile = get_object_or_404(
-            DashboardTile,
-            id=tile_id,
-            dashboard=dashboard,
-            dashboard__team__project_id=self.team.project_id,
-        )
-        # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
-        # (react-grid-layout compacts upward on render but never persists it).
-        with transaction.atomic():
-            tile.deleted = True
-            tile.save(update_fields=["deleted"])
-
-            remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
-            changed_ids = _compact_tile_layouts(remaining)
-            if changed_ids:
-                DashboardTile.objects.bulk_update(
-                    [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
-                    ["layouts"],
-                )
-
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         parameters=[

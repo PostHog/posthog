@@ -14,15 +14,13 @@ import type {
     CIMDVerificationTokenApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
+    DashboardTemplateApi,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
     ExportedAssetApi,
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    GitHubBranchesResponseApi,
-    GitHubReposRefreshResponseApi,
-    GitHubReposResponseApi,
     InvitesListParams,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
@@ -41,8 +39,8 @@ import type {
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedSubscriptionDeliveryListApi,
     PaginatedSubscriptionListApi,
-    PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PatchedDashboardTemplateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
     PatchedOrganizationDomainApi,
@@ -61,14 +59,9 @@ import type {
     SubscriptionsListParams,
     SubscriptionsSummaryQuotaRetrieve200,
     UserApi,
-    UserGitHubLinkStartRequestApi,
-    UserGitHubLinkStartResponseApi,
     UserPushTokenItemApi,
     UserPushTokenRegisterRequestApi,
     UserPushTokenUnregisterRequestApi,
-    UsersIntegrationsGithubBranchesRetrieveParams,
-    UsersIntegrationsGithubReposRetrieveParams,
-    UsersIntegrationsListParams,
     UsersListParams,
 } from './api.schemas'
 
@@ -365,21 +358,6 @@ export const domainsDestroy = async (organizationId: string, id: string, options
     return apiMutator<void>(getDomainsDestroyUrl(organizationId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
-}
-
-export const domainsScimLogsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
     })
 }
 
@@ -892,76 +870,72 @@ export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
     )
 }
 
-export const getDashboardsSharingListUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/`
+export const getDashboardTemplatesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
 }
 
-export const dashboardsSharingList = async (
+export const dashboardTemplatesRetrieve = async (
     projectId: string,
-    dashboardId: number,
+    id: string,
     options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getDashboardsSharingListUrl(projectId, dashboardId), {
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/`
+export const getDashboardTemplatesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
 }
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const dashboardsSharingPasswordsCreate = async (
+export const dashboardTemplatesUpdate = async (
     projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
+    id: string,
+    dashboardTemplateApi?: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingPasswordsCreateUrl(projectId, dashboardId), {
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesUpdateUrl(projectId, id), {
         ...options,
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
+        body: JSON.stringify(dashboardTemplateApi),
     })
 }
 
-export const getDashboardsSharingPasswordsDestroyUrl = (projectId: string, dashboardId: number, passwordId: string) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/passwords/${passwordId}/`
+export const getDashboardTemplatesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
+}
+
+export const dashboardTemplatesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDashboardTemplateApi?: NonReadonly<PatchedDashboardTemplateApi>,
+    options?: RequestInit
+): Promise<DashboardTemplateApi> => {
+    return apiMutator<DashboardTemplateApi>(getDashboardTemplatesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDashboardTemplateApi),
+    })
+}
+
+export const getDashboardTemplatesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/dashboard_templates/${id}/`
 }
 
 /**
- * Delete a password from the sharing configuration.
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const dashboardsSharingPasswordsDestroy = async (
+export const dashboardTemplatesDestroy = async (
     projectId: string,
-    dashboardId: number,
-    passwordId: string,
+    id: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsSharingPasswordsDestroyUrl(projectId, dashboardId, passwordId), {
+): Promise<unknown> => {
+    return apiMutator<unknown>(getDashboardTemplatesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
-    })
-}
-
-export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboardId: number) => {
-    return `/api/projects/${projectId}/dashboards/${dashboardId}/sharing/refresh/`
-}
-
-export const dashboardsSharingRefreshCreate = async (
-    projectId: string,
-    dashboardId: number,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getDashboardsSharingRefreshCreateUrl(projectId, dashboardId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
     })
 }
 
@@ -1340,79 +1314,6 @@ export const insightsSharingRefreshCreate = async (
     options?: RequestInit
 ): Promise<SharingConfigurationApi> => {
     return apiMutator<SharingConfigurationApi>(getInsightsSharingRefreshCreateUrl(projectId, insightId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getNotebooksSharingListUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/`
-}
-
-export const notebooksSharingList = async (
-    projectId: string,
-    notebookId: string,
-    options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getNotebooksSharingListUrl(projectId, notebookId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/`
-}
-
-/**
- * Create a new password for the sharing configuration.
- */
-export const notebooksSharingPasswordsCreate = async (
-    projectId: string,
-    notebookId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getNotebooksSharingPasswordsCreateUrl(projectId, notebookId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getNotebooksSharingPasswordsDestroyUrl = (projectId: string, notebookId: string, passwordId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/${passwordId}/`
-}
-
-/**
- * Delete a password from the sharing configuration.
- */
-export const notebooksSharingPasswordsDestroy = async (
-    projectId: string,
-    notebookId: string,
-    passwordId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksSharingPasswordsDestroyUrl(projectId, notebookId, passwordId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/refresh/`
-}
-
-export const notebooksSharingRefreshCreate = async (
-    projectId: string,
-    notebookId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getNotebooksSharingRefreshCreateUrl(projectId, notebookId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2046,195 +1947,6 @@ export const usersHedgehogConfigPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedUserApi),
-    })
-}
-
-export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/`
-}
-
-/**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
- */
-export const usersIntegrationsList = async (
-    uuid: string,
-    params?: UsersIntegrationsListParams,
-    options?: RequestInit
-): Promise<PaginatedUserGitHubIntegrationListResponseListApi> => {
-    return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
-    return `/api/users/${uuid}/integrations/github/${installationId}/`
-}
-
-/**
- * Remove a specific GitHub installation by its installation_id.
- * @summary Disconnect a personal GitHub integration
- */
-export const usersIntegrationsGithubDestroy = async (
-    uuid: string,
-    installationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getUsersIntegrationsGithubDestroyUrl(uuid, installationId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
-    uuid: string,
-    installationId: string,
-    params: UsersIntegrationsGithubBranchesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
-}
-
-/**
- * List branches for a repository accessible to a personal GitHub installation.
- * @summary List branches for a personal GitHub installation repository
- */
-export const usersIntegrationsGithubBranchesRetrieve = async (
-    uuid: string,
-    installationId: string,
-    params: UsersIntegrationsGithubBranchesRetrieveParams,
-    options?: RequestInit
-): Promise<GitHubBranchesResponseApi> => {
-    return apiMutator<GitHubBranchesResponseApi>(
-        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubReposRetrieveUrl = (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/github/${installationId}/repos/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/github/${installationId}/repos/`
-}
-
-/**
- * List repositories accessible to a specific GitHub installation (paginated, cached).
- * @summary List repositories for a personal GitHub installation
- */
-export const usersIntegrationsGithubReposRetrieve = async (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams,
-    options?: RequestInit
-): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(
-        getUsersIntegrationsGithubReposRetrieveUrl(uuid, installationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
-    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
-}
-
-/**
- * Refresh repositories accessible to a specific GitHub installation.
- * @summary Refresh repositories for a personal GitHub installation
- */
-export const usersIntegrationsGithubReposRefreshCreate = async (
-    uuid: string,
-    installationId: string,
-    options?: RequestInit
-): Promise<GitHubReposRefreshResponseApi> => {
-    return apiMutator<GitHubReposRefreshResponseApi>(
-        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/integrations/github/start/`
-}
-
-/**
- * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**OAuth fast path:** when the current project already has a team-level
-GitHub installation, and the user has no ``UserIntegration`` for that
-installation yet, we skip the org picker and redirect straight to
-``/login/oauth/authorize`` so the user only authorizes themselves.
-``connect_from`` is preserved for first-party clients so they return to
-the originating client immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
- * @summary Start GitHub personal integration linking
- */
-export const usersIntegrationsGithubStartCreate = async (
-    uuid: string,
-    userGitHubLinkStartRequestApi?: UserGitHubLinkStartRequestApi,
-    options?: RequestInit
-): Promise<UserGitHubLinkStartResponseApi> => {
-    return apiMutator<UserGitHubLinkStartResponseApi>(getUsersIntegrationsGithubStartCreateUrl(uuid), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userGitHubLinkStartRequestApi),
     })
 }
 

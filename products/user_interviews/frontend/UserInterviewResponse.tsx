@@ -20,7 +20,6 @@ import { PersonType } from '~/types'
 import { userInterviewTopicsRetrieve, userInterviewTopicsIntervieweesList, userInterviewsList } from './generated/api'
 import type { UserInterviewTopicApi, IntervieweeContextApi, UserInterviewApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
-import { TranscriptChat } from './TranscriptChat'
 import { userInterviewLogic } from './userInterviewLogic'
 
 export interface UserInterviewResponseProps {
@@ -129,11 +128,9 @@ export function UserInterviewResponse({ topicId, responseId }: UserInterviewResp
                     <LemonWidget title="Transcript">
                         {interview?.transcript ? (
                             <div className="p-4">
-                                <TranscriptChat
-                                    transcript={interview.transcript}
-                                    person={person}
-                                    identifier={identifier}
-                                />
+                                <LemonMarkdown className="text-sm leading-relaxed">
+                                    {interview.transcript}
+                                </LemonMarkdown>
                             </div>
                         ) : (
                             <div className="p-4 text-muted text-center">

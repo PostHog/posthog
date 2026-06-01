@@ -295,9 +295,8 @@ RUN ARCH= && dpkgArch="$(dpkg --print-architecture)" \
     && rm -rf /tmp/*
 
 # Install and use a non-root user.
-# Pin uid/gid to a fixed, host-safe value (avoid 1000, which maps to ec2-user on the nodes).
-RUN groupadd -g 10001 posthog && \
-    useradd -u 10001 -g posthog -m -d /home/posthog -s /bin/bash posthog && \
+RUN groupadd -g 1000 posthog && \
+    useradd -r -g posthog posthog && \
     chown posthog:posthog /code
 USER posthog
 

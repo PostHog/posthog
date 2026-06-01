@@ -1,26 +1,35 @@
-import { BindLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import { AccountsHogQLTable } from './AccountsHogQLTable'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, accountsLogic } from './accountsLogic'
+import { accountsLogic, AccountsView } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
+import { AccountsTable } from './AccountsTable'
 
 export function AccountsTabContent(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
+    const { activeView } = useValues(accountsLogic)
+    const { setActiveView } = useActions(accountsLogic)
 
     return (
-        <BindLogic
-            logic={dataNodeLogic}
-            props={{
-                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                query: hogqlQuery.source,
-            }}
-        >
-            <div className="flex flex-col gap-3">
-                <AccountsTabFilters />
-                <AccountsHogQLTable />
-            </div>
-        </BindLogic>
+        <div className="flex flex-col gap-3">
+            <AccountsTabFilters />
+            <LemonTabs
+                activeKey={activeView}
+                onChange={(key) => setActiveView(key as AccountsView)}
+                tabs={[
+                    {
+                        key: 'endpoint',
+                        label: 'REST endpoint',
+                        content: <AccountsTable />,
+                    },
+                    {
+                        key: 'hogql',
+                        label: 'HogQL query',
+                        content: <AccountsHogQLTable />,
+                    },
+                ]}
+            />
+        </div>
     )
 }

@@ -27,7 +27,6 @@ from django.utils.timezone import now
 import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
-from parameterized import parameterized
 
 from posthog.schema import EventsQuery
 
@@ -1711,83 +1710,6 @@ class TestCaptureReportGroupProperties(ClickhouseDestroyTablesMixin, TestCase, C
                 "survey_count": 2,
             },
         )
-
-
-class TestTrimOversizeUsageReportPayload(TestCase):
-    @parameterized.expand(
-        [
-            ("under_limit", 2, False),
-            ("over_limit", 600, True),
-        ]
-    )
-    def test_trims_teams_only_when_over_limit(self, _name: str, team_count: int, expect_trimmed: bool) -> None:
-        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, _trim_oversize_usage_report_payload
-
-        # `team_count` drives the serialized size across the threshold; the org-level totals stay realistic.
-        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
-        teams = {str(team_id): per_team_counters for team_id in range(team_count)}
-        report = {
-            "team_count": team_count,
-            "event_count_in_period": 7_777,
-            "organization_name": "Big Customer",
-            "teams": teams,
-        }
-        assert (len(json.dumps(report, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES) is expect_trimmed
-
-        result = _trim_oversize_usage_report_payload(report)
-
-        if not expect_trimmed:
-            assert result is report
-            return
-
-        assert result is not report  # Original kept intact for the SQS path.
-        assert report["teams"] == teams
-        assert result["teams"] == {}
-        assert result["teams_omitted_due_to_size"] is True
-        assert result["team_count"] == team_count
-        assert result["event_count_in_period"] == 7_777
-        assert result["organization_name"] == "Big Customer"
-        assert len(json.dumps(result, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
-
-
-@freeze_time("2022-01-10T00:01:00Z")
-class TestCaptureReportTrimsOversizePayload(TestCase):
-    @patch("posthog.tasks.usage_report.get_ph_client")
-    def test_capture_report_drops_teams_when_payload_too_large(self, mock_client: MagicMock) -> None:
-        from posthog.tasks.usage_report import MAX_USAGE_REPORT_PAYLOAD_BYTES, capture_report
-
-        mock_posthog = MagicMock()
-        mock_client.return_value = mock_posthog
-
-        org = Organization.objects.create(name="Big Customer")
-
-        per_team_counters = {f"counter_{i}": 12345 for i in range(80)}
-        teams = {str(team_id): per_team_counters for team_id in range(600)}
-        full_report_dict = {
-            "team_count": len(teams),
-            "event_count_in_period": 7_777,
-            "organization_user_count": 1,
-            "dashboard_count": 0,
-            "ff_count": 0,
-            "survey_count": 0,
-            "teams": teams,
-        }
-        assert len(json.dumps(full_report_dict, default=str)) > MAX_USAGE_REPORT_PAYLOAD_BYTES
-
-        capture_report(organization_id=str(org.id), full_report_dict=full_report_dict)
-
-        capture_calls = [
-            call
-            for call in mock_posthog.capture.call_args_list
-            if call.kwargs.get("event") == "organization usage report"
-        ]
-        assert len(capture_calls) == 1
-        captured_properties = capture_calls[0].kwargs["properties"]
-        assert captured_properties["teams"] == {}
-        assert captured_properties["teams_omitted_due_to_size"] is True
-        assert captured_properties["team_count"] == len(teams)
-        assert captured_properties["event_count_in_period"] == 7_777
-        assert len(json.dumps(captured_properties, default=str)) <= MAX_USAGE_REPORT_PAYLOAD_BYTES
 
 
 @freeze_time("2022-01-10T00:01:00Z")

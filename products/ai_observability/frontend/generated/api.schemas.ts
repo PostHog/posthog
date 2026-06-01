@@ -7,295 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface _SummaryApi {
-    /** Inclusive UTC start of the spend window resolved from the request. */
-    date_from: string
-    /** Exclusive UTC end of the spend window resolved from the request. */
-    date_to: string
-    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
-    product: string
-    /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
-    total_cost_usd: number
-    /** Total $ai_generation + $ai_embedding events captured across every product. */
-    event_count: number
-    /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
-    scoped_cost_usd: number
-    /** Total $ai_generation + $ai_embedding events for the scoped slice. */
-    scoped_event_count: number
-}
-
-export interface _ProductBreakdownRowApi {
-    /**
-     * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
-     * @nullable
-     */
-    product: string | null
-    /** Number of $ai_generation + $ai_embedding events for this product. */
-    event_count: number
-    /** Total cost in USD for this product over the lookback window. */
-    cost_usd: number
-}
-
-export interface _ProductBreakdownApi {
-    /** Rows of spend by product, ordered by cost descending. */
-    items: _ProductBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _ToolBreakdownRowApi {
-    /**
-     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
-     * @nullable
-     */
-    tool: string | null
-    /** Number of $ai_generation events whose tool list includes this tool. */
-    generation_count: number
-    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
-    cost_usd: number
-    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
-    share_of_scoped: number
-    /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
-    avg_input_tokens: number
-}
-
-export interface _ToolBreakdownApi {
-    /** Rows of spend by tool, ordered by cost descending. */
-    items: _ToolBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _ModelBreakdownRowApi {
-    /**
-     * Value of the `$ai_model` property.
-     * @nullable
-     */
-    model: string | null
-    /** Number of $ai_generation + $ai_embedding events. */
-    generation_count: number
-    /** Total cost in USD for this model. */
-    cost_usd: number
-    /** Sum of `$ai_input_tokens` for this model. */
-    input_tokens: number
-    /** Sum of `$ai_output_tokens` for this model. */
-    output_tokens: number
-}
-
-export interface _ModelBreakdownApi {
-    /** Rows of spend by model, ordered by cost descending. */
-    items: _ModelBreakdownRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-export interface _TopTraceRowApi {
-    /**
-     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
-     * @nullable
-     */
-    trace_id: string | null
-    /** Number of $ai_generation events in this trace. */
-    generation_count: number
-    /** Total cost in USD for this trace. */
-    cost_usd: number
-    /**
-     * Timestamp of the earliest event in this trace.
-     * @nullable
-     */
-    started_at: string | null
-}
-
-export interface _TopTracesApi {
-    /** Rows of top traces by cost, ordered by cost descending. */
-    items: _TopTraceRowApi[]
-    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
-    truncated: boolean
-}
-
-/**
- * Structured personal LLM spend analysis for the requesting user.
- */
-export interface PersonalSpendAnalysisResponseApi {
-    /** High-level totals for the lookback window. */
-    summary: _SummaryApi
-    /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
-    by_product: _ProductBreakdownApi
-    /** Spend grouped by tool. Scoped to `product` when set. */
-    by_tool: _ToolBreakdownApi
-    /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
-    by_model: _ModelBreakdownApi
-    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
-    top_traces: _TopTracesApi
-}
-
-/**
- * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
- */
-export interface _ErrorResponseApi {
-    /** Human-readable error description from DRF. */
-    detail: string
-}
-
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface DatasetItemApi {
-    readonly id: string
-    dataset: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetItemApi[]
-}
-
-export interface PatchedDatasetItemApi {
-    readonly id?: string
-    dataset?: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_trace_id?: string | null
-    /** @nullable */
-    ref_timestamp?: string | null
-    /**
-     * @maxLength 255
-     * @nullable
-     */
-    ref_source_id?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
-export interface DatasetApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by: UserBasicApi
-    readonly team: number
-}
-
-export interface PaginatedDatasetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DatasetApi[]
-}
-
-export interface PatchedDatasetApi {
-    readonly id?: string
-    /** @maxLength 400 */
-    name?: string
-    /** @nullable */
-    description?: string | null
-    metadata?: unknown
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    deleted?: boolean | null
-    readonly created_by?: UserBasicApi
-    readonly team?: number
-}
-
 export interface EvaluationRunRequestApi {
     /** UUID of the evaluation to run. */
     evaluation_id: string
@@ -390,6 +101,61 @@ export interface ModelConfigurationApi {
     provider_key_id?: string | null
     /** @nullable */
     readonly provider_key_name: string | null
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -2417,34 +2183,6 @@ export interface TaggerCreateApi {
     model_configuration?: TaggerModelConfigurationWriteApi | null
 }
 
-export interface TaggerUpdateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface PatchedTaggerUpdateApi {
-    /** @maxLength 400 */
-    name?: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config?: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
 export interface TestHogTaggerTagApi {
     /**
      * Tag identifier to allow in Hog test results.
@@ -2504,78 +2242,238 @@ export interface TestHogTaggerResponseApi {
     message?: string
 }
 
-export type LlmAnalyticsPersonalSpendListParams = {
+export interface _SummaryApi {
+    /** Inclusive UTC start of the spend window resolved from the request. */
+    date_from: string
+    /** Exclusive UTC end of the spend window resolved from the request. */
+    date_to: string
+    /** The `ai_product` filter applied to tool / model / trace breakdowns — echoes the request `product`. */
+    product: string
+    /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
+    total_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events captured across every product. */
+    event_count: number
+    /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
+    scoped_cost_usd: number
+    /** Total $ai_generation + $ai_embedding events for the scoped slice. */
+    scoped_event_count: number
+}
+
+export interface _ProductBreakdownRowApi {
     /**
-     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
-     * @minLength 1
-     * @maxLength 32
-     */
-    date_from?: string
-    /**
-     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
-     * @maxLength 32
+     * Value of the `ai_product` property on the event (e.g. `posthog_code`, `background_agents`). Null when unset.
      * @nullable
      */
-    date_to?: string | null
-    /**
-     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number
-    /**
-     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
-     * @minLength 1
-     * @maxLength 64
-     */
-    product: string
-    /**
-     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
-     */
-    refresh?: boolean
+    product: string | null
+    /** Number of $ai_generation + $ai_embedding events for this product. */
+    event_count: number
+    /** Total cost in USD for this product over the lookback window. */
+    cost_usd: number
 }
 
-export type DatasetItemsListParams = {
-    /**
-     * Filter by dataset ID
-     */
-    dataset?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+export interface _ProductBreakdownApi {
+    /** Rows of spend by product, ordered by cost descending. */
+    items: _ProductBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
 }
 
-export type DatasetsListParams = {
+export interface _ToolBreakdownRowApi {
     /**
-     * Multiple values may be separated by commas.
+     * Individual tool name from `$ai_tools_called` (split on `,` since multi-tool generations store a comma-separated list). Null = pure text response with no tool call.
+     * @nullable
      */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
- * Ordering
+    tool: string | null
+    /** Number of $ai_generation events whose tool list includes this tool. */
+    generation_count: number
+    /** Sum of `$ai_total_cost_usd` for generations whose tool list includes this tool. Multi-tool generations contribute their full cost to every tool they invoked, so this sum can exceed `summary.scoped_cost_usd`. Prefer `share_of_scoped` for headline percentages — it's computed per row and doesn't require the totals to reconcile. */
+    cost_usd: number
+    /** This tool's share of `summary.scoped_cost_usd`, expressed as a float in `[0, 1]`. Independent per row, so co-occurring tools can each show a substantial share — the headline number to present (e.g. `'Bash drove 47% of your spend'`). */
+    share_of_scoped: number
+    /** Average `$ai_input_tokens` across these generations — high values signal context bloat per call. */
+    avg_input_tokens: number
+}
 
-* `created_at` - Created At
-* `-created_at` - Created At (descending)
-* `updated_at` - Updated At
-* `-updated_at` - Updated At (descending)
+export interface _ToolBreakdownApi {
+    /** Rows of spend by tool, ordered by cost descending. */
+    items: _ToolBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _ModelBreakdownRowApi {
+    /**
+     * Value of the `$ai_model` property.
+     * @nullable
+     */
+    model: string | null
+    /** Number of $ai_generation + $ai_embedding events. */
+    generation_count: number
+    /** Total cost in USD for this model. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model. */
+    output_tokens: number
+}
+
+export interface _ModelBreakdownApi {
+    /** Rows of spend by model, ordered by cost descending. */
+    items: _ModelBreakdownRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+export interface _TopTraceRowApi {
+    /**
+     * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
+     * @nullable
+     */
+    trace_id: string | null
+    /** Number of $ai_generation events in this trace. */
+    generation_count: number
+    /** Total cost in USD for this trace. */
+    cost_usd: number
+    /**
+     * Timestamp of the earliest event in this trace.
+     * @nullable
+     */
+    started_at: string | null
+}
+
+export interface _TopTracesApi {
+    /** Rows of top traces by cost, ordered by cost descending. */
+    items: _TopTraceRowApi[]
+    /** True when more rows exist beyond the requested `limit`. Re-request with a larger `limit` to retrieve them. */
+    truncated: boolean
+}
+
+/**
+ * Structured personal LLM spend analysis for the requesting user.
  */
-    order_by?: string[]
+export interface PersonalSpendAnalysisResponseApi {
+    /** High-level totals for the lookback window. */
+    summary: _SummaryApi
+    /** Spend grouped by the `ai_product` property — always across all products, never filtered. */
+    by_product: _ProductBreakdownApi
+    /** Spend grouped by tool. Scoped to `product` when set. */
+    by_tool: _ToolBreakdownApi
+    /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
+    by_model: _ModelBreakdownApi
+    /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
+    top_traces: _TopTracesApi
+}
+
+/**
+ * DRF's default error envelope — `{ "detail": str }` — typed for the OpenAPI schema.
+ */
+export interface _ErrorResponseApi {
+    /** Human-readable error description from DRF. */
+    detail: string
+}
+
+export interface DatasetItemApi {
+    readonly id: string
+    dataset: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
     /**
-     * Search in name, description, or metadata
+     * @maxLength 255
+     * @nullable
      */
-    search?: string
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetItemApi[]
+}
+
+export interface PatchedDatasetItemApi {
+    readonly id?: string
+    dataset?: string
+    input?: unknown
+    output?: unknown
+    metadata?: unknown
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
+}
+
+export interface DatasetApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedDatasetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DatasetApi[]
+}
+
+export interface PatchedDatasetApi {
+    readonly id?: string
+    /** @maxLength 400 */
+    name?: string
+    /** @nullable */
+    description?: string | null
+    metadata?: unknown
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly team?: number
 }
 
 export type EvaluationRunsCreate200 = { [key: string]: unknown }
@@ -3030,6 +2928,80 @@ export type TaggersListParams = {
     order_by?: string[]
     /**
      * Search in name or description
+     */
+    search?: string
+}
+
+export type LlmAnalyticsPersonalSpendListParams = {
+    /**
+     * Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.
+     * @minLength 1
+     * @maxLength 32
+     */
+    date_from?: string
+    /**
+     * End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null
+    /**
+     * Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.
+     * @minLength 1
+     * @maxLength 64
+     */
+    product: string
+    /**
+     * If true, bypass the result cache and re-run the underlying queries against ClickHouse.
+     */
+    refresh?: boolean
+}
+
+export type DatasetItemsListParams = {
+    /**
+     * Filter by dataset ID
+     */
+    dataset?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DatasetsListParams = {
+    /**
+     * Multiple values may be separated by commas.
+     */
+    id__in?: string[]
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+ * Ordering
+
+* `created_at` - Created At
+* `-created_at` - Created At (descending)
+* `updated_at` - Updated At
+* `-updated_at` - Updated At (descending)
+ */
+    order_by?: string[]
+    /**
+     * Search in name, description, or metadata
      */
     search?: string
 }

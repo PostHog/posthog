@@ -114,7 +114,7 @@ class WelcomeResponseSerializer(serializers.Serializer):
 # ------------- Viewset --------------------------------------------------------------------------------
 
 
-@extend_schema(extensions={"x-product": "platform_features"})
+@extend_schema(tags=["platform_features"])
 class WelcomeViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Aggregated payload for the invited-user welcome screen."""
 

@@ -77,7 +77,7 @@ class HogFunctionTemplateSerializer(serializers.ModelSerializer):
 
 
 # NOTE: There is nothing currently private about these values
-@extend_schema(tags=["hog_function_templates"], extensions={"x-product": "cdp"})
+@extend_schema(tags=["hog_function_templates", "cdp"])
 class PublicHogFunctionTemplateViewSet(
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,

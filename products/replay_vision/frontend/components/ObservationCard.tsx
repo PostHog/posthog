@@ -1,7 +1,6 @@
 import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { colonDelimitedDuration } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
@@ -11,6 +10,7 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { CitationPart, formatSessionOffset, parseCitedText } from '../utils/citations'
 
 export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
     if (status === 'succeeded') {
@@ -38,48 +38,24 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-type Segment = { kind: 'text'; value: string } | { kind: 'chip'; uuid: string; timestamp_ms: number }
-
-function isSegment(value: unknown): value is Segment {
-    if (!value || typeof value !== 'object') {
-        return false
-    }
-    const candidate = value as Partial<Segment>
-    if (candidate.kind === 'text') {
-        return typeof (candidate as { value?: unknown }).value === 'string'
-    }
-    if (candidate.kind === 'chip') {
-        const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
-        return typeof chip.uuid === 'string' && typeof chip.timestamp_ms === 'number'
-    }
-    return false
-}
-
-/** Dumb renderer for parsed citation segments. Pass `onSeek` to make citation chips interactive; omit for plain-text timestamps. */
+/** Dumb renderer for parsed citation parts. Pass `onSeek` to make citations interactive; omit for plain-text timestamps. */
 export function CitedText({
-    text,
-    segments,
+    parts,
     onSeek,
 }: {
-    text: string
-    segments: unknown
+    parts: CitationPart[]
     onSeek?: (timestampMs: number) => void
 }): JSX.Element {
-    const list = Array.isArray(segments) ? (segments.filter(isSegment) as Segment[]) : []
-    if (list.length === 0) {
-        return <>{text}</>
-    }
     return (
         <>
-            {list.map((segment, i) => {
-                if (segment.kind === 'text') {
-                    return <span key={i}>{segment.value}</span>
+            {parts.map((part, i) => {
+                if (part.type === 'text') {
+                    return <span key={i}>{part.value}</span>
                 }
-                const seconds = Math.max(0, Math.floor(segment.timestamp_ms / 1000))
-                const label = colonDelimitedDuration(seconds, null)
+                const label = formatSessionOffset(part.timestampMs)
                 if (onSeek) {
                     return (
-                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)}>
+                        <Link key={i} onClick={() => onSeek(part.timestampMs)}>
                             <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
                             <span className="font-mono">{label}</span>
                         </Link>
@@ -147,7 +123,10 @@ export function ObservationPrimaryOutput({
                 {title && <span className="font-semibold text-sm">{title}</span>}
                 {summary && (
                     <span className={summaryClass}>
-                        <CitedText text={summary} segments={result.summary_segments} onSeek={onSeek} />
+                        <CitedText
+                            parts={parseCitedText(summary, observation.scanner_result?.event_id_mapping)}
+                            onSeek={onSeek}
+                        />
                     </span>
                 )}
             </div>
@@ -246,7 +225,7 @@ export function ObservationPrimaryOutput({
         )
     }
 
-    // Unknown / generic fallback (also covers summarizers that emit facets alongside title/summary).
+    // Indexer / unknown fallback.
     const summary = typeof result.summary === 'string' ? result.summary : null
     const userType = typeof result.user_type === 'string' ? result.user_type : null
     const outcome = typeof result.outcome === 'string' ? result.outcome : null

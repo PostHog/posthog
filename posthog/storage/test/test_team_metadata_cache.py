@@ -583,12 +583,3 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
             self.team.full_clean()
 
         self.assertIn("session_recording_sample_rate", str(context.exception))
-
-
-# llm-gateway policy projection lives in its own cache (see
-# test_team_llm_gateway_policy_cache.py); we explicitly assert the field is NOT
-# in the shared team_metadata blob so the flags-pipeline consumers stay
-# unaffected by llm-gateway changes.
-class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
-    def test_llm_gateway_fields_excluded_from_shared_metadata(self):
-        self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

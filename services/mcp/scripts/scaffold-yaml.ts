@@ -2,7 +2,7 @@
 /**
  * Scaffolds YAML tool definitions from the OpenAPI schema.
  *
- * Discovers operations using x-product (priority 1) and URL path
+ * Discovers operations using x-explicit-tags (priority 1) and URL path
  * substring matching (fallback), same approach as generate-openapi-types.mjs.
  *
  * Idempotent: re-running on an existing file only adds newly discovered
@@ -41,7 +41,7 @@ interface OpenApiOperation {
     summary?: string
     description?: string
     deprecated?: boolean
-    'x-product'?: string[]
+    'x-explicit-tags'?: string[]
 }
 
 interface OpenApiSpec {
@@ -94,10 +94,10 @@ function operationIdToToolName(operationId: string): string {
 }
 
 /**
- * Find operations by x-product — same priority-1 approach as
+ * Find operations by x-explicit-tags — same priority-1 approach as
  * frontend/bin/generate-openapi-types.mjs resolveTagToProduct().
- * Values are set via @extend_schema(tags=[...]) or auto-derived from
- * the ViewSet module path (products/<name>/backend/ → "<name>").
+ * Tags are set via @extend_schema(tags=[...]) or auto-derived from
+ * the ViewSet module path (products/<name>/backend/ → tag "<name>").
  */
 function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
@@ -114,7 +114,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
             if (!httpMethods.has(method) || !op?.operationId || op.deprecated) {
                 continue
             }
-            const tags = op['x-product'] ?? []
+            const tags = op['x-explicit-tags'] ?? []
             if (tags.some((tag) => matchingTags.has(tag.replace(/-/g, '_')))) {
                 ops.push({
                     operationId: op.operationId,
@@ -131,7 +131,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 
 /**
  * Find operations whose URL path contains /{product}/ — fallback when
- * x-product doesn't match, same as generate-openapi-types.mjs
+ * x-explicit-tags doesn't match, same as generate-openapi-types.mjs
  * matchUrlToProduct().
  */
 function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
@@ -171,7 +171,7 @@ function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOper
 /**
  * Find operations for a product. Uses the same priority as
  * frontend/bin/generate-openapi-types.mjs:
- * 1. x-product match (covers ViewSets with @extend_schema(tags=[...])
+ * 1. x-explicit-tags match (covers ViewSets with @extend_schema(tags=[...])
  *    and ViewSets in products/<name>/backend/)
  * 2. URL path substring match (fallback for legacy endpoints)
  */
@@ -528,7 +528,7 @@ function main(): void {
         console.error('       scaffold-yaml --path <prefix> [--output <file>]')
         console.error('       scaffold-yaml --sync-all')
         console.error('')
-        console.error('--product discovers endpoints by x-product first, then URL path fallback.')
+        console.error('--product discovers endpoints by x-explicit-tags first, then URL path fallback.')
         console.error('Uses the product folder name (underscores), e.g. error_tracking, workflows.')
         process.exit(1)
     }

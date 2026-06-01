@@ -172,12 +172,12 @@ The Test Cluster is read-only, so you cannot try schema changes there. For those
 
 ### Query performance autoresearch (the powertool)
 
-For hard cases, [`tools/query-performance-ai/query_performance_ai/`](../../../tools/query-performance-ai/query_performance_ai/) wraps [pi-autoresearch](https://github.com/davebcn87/pi-autoresearch) in a coordinator that hands the LLM a query and asks it to optimize against the Test Cluster in a loop. Setup is non-trivial (Docker sandbox per query, ANTHROPIC_API_KEY, Metabase database IDs), so ask the user to run the setup themselves:
+For hard cases, [`products/query_performance_ai/`](../../../products/query_performance_ai/) wraps [pi-autoresearch](https://github.com/davebcn87/pi-autoresearch) in a coordinator that hands the LLM a query and asks it to optimize against the Test Cluster in a loop. Setup is non-trivial (Docker sandbox per query, ANTHROPIC_API_KEY, Metabase database IDs), so ask the user to run the setup themselves:
 
-- Coordinator and setup: [`tools/query-performance-ai/README.md`](../../../tools/query-performance-ai/README.md)
-- Coordinator entry point: [`tools/query-performance-ai/query_performance_ai/orchestrator/coordinator.py`](../../../tools/query-performance-ai/query_performance_ai/orchestrator/coordinator.py)
-- The campaign skill the sandboxed agent runs: [`tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md`](../../../tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md)
-- Orchestration contract: [`tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md`](../../../tools/query-performance-ai/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md)
+- Coordinator and setup: [`products/query_performance_ai/README.md`](../../../products/query_performance_ai/README.md)
+- Coordinator entry point: [`products/query_performance_ai/orchestrator/coordinator.py`](../../../products/query_performance_ai/orchestrator/coordinator.py)
+- The campaign skill the sandboxed agent runs: [`products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md`](../../../products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/SKILL.md)
+- Orchestration contract: [`products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md`](../../../products/query_performance_ai/sandboxed_autoresearch_agent/pi_plugin/skills/clickhouse-autoresearch-campaign/orchestration.md)
 
 I am not entirely sure of the exact commands needed beyond the snippets in the README. Ask the user; the setup also takes effort on their side.
 

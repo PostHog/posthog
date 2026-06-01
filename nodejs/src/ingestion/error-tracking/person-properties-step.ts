@@ -41,10 +41,7 @@ export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
             .map((input) => ({ teamId: input.team.id, distinctId: input.event.distinct_id }))
 
         // Batch fetch all persons in a single query
-        const persons =
-            lookups.length > 0
-                ? await personRepository.fetchPersonsByDistinctIds(lookups, true, 'error-tracking/person-properties')
-                : []
+        const persons = lookups.length > 0 ? await personRepository.fetchPersonsByDistinctIds(lookups, true) : []
 
         // Build lookup map
         const personMap = new Map(persons.map((p) => [personKey(p.team_id, p.distinct_id), p as Person]))

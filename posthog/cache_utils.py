@@ -57,12 +57,6 @@ class CachedFunction(Generic[P, R]):
 
         return self._cache[key][1]
 
-    def clear_cache(self) -> None:
-        """Drop all in-process cache entries. Intended for tests that need to start
-        with a clean slate; production callers should rely on the TTL instead."""
-        self._cache.clear()
-        self._refreshing.clear()
-
 
 def cache_for(cache_time: timedelta, background_refresh=False) -> Callable[[Callable[P, R]], CachedFunction[P, R]]:
     def wrapper(fn: Callable[P, R]) -> CachedFunction[P, R]:

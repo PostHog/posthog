@@ -63,10 +63,10 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                 If you're growing like crazy, you might want to check out our{' '}
                 {scrollToProduct ? (
                     <>
-                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
+                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
                     </>
                 ) : (
-                    'Platform packages'
+                    'Platform add-ons'
                 )}
                 .
             </p>
@@ -122,9 +122,9 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
             <p>
                 If you're growing like crazy, you might want to check out our{' '}
                 {scrollToProduct ? (
-                    <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
+                    <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
                 ) : (
-                    'Platform packages'
+                    'Platform add-ons'
                 )}
                 .
             </p>
@@ -140,9 +140,9 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
                     {scrollToProduct ? (
-                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform packages</Link>
+                        <Link onClick={() => scrollToProduct('platform_and_support')}>Platform add-ons</Link>
                     ) : (
-                        'Platform packages'
+                        'Platform add-ons'
                     )}
                     .
                 </p>

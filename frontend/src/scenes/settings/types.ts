@@ -181,7 +181,6 @@ export type SettingId =
     | 'members'
     | 'notifications'
     | 'optout'
-    | 'organization-admin-notice'
     | 'organization-ai-consent'
     | 'organization-ai-training-opt-out'
     | 'organization-cimd-verification-tokens-list'

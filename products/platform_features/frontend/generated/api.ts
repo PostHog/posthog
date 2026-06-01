@@ -62,6 +62,219 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalPoliciesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/approval_policies/?${stringifiedParams}`
+        : `/api/environments/${projectId}/approval_policies/`
+}
+
+export const approvalPoliciesList = async (
+    projectId: string,
+    params?: ApprovalPoliciesListParams,
+    options?: RequestInit
+): Promise<PaginatedApprovalPolicyListApi> => {
+    return apiMutator<PaginatedApprovalPolicyListApi>(getApprovalPoliciesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApprovalPoliciesCreateUrl = (projectId: string) => {
+    return `/api/environments/${projectId}/approval_policies/`
+}
+
+export const approvalPoliciesCreate = async (
+    projectId: string,
+    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(approvalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApprovalPoliciesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesUpdate = async (
+    projectId: string,
+    id: string,
+    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(approvalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedApprovalPolicyApi?: NonReadonly<PatchedApprovalPolicyApi>,
+    options?: RequestInit
+): Promise<ApprovalPolicyApi> => {
+    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedApprovalPolicyApi),
+    })
+}
+
+export const getApprovalPoliciesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/approval_policies/${id}/`
+}
+
+export const approvalPoliciesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getApprovalPoliciesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getChangeRequestsListUrl = (projectId: string, params?: ChangeRequestsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/environments/${projectId}/change_requests/?${stringifiedParams}`
+        : `/api/environments/${projectId}/change_requests/`
+}
+
+export const changeRequestsList = async (
+    projectId: string,
+    params?: ChangeRequestsListParams,
+    options?: RequestInit
+): Promise<PaginatedChangeRequestListApi> => {
+    return apiMutator<PaginatedChangeRequestListApi>(getChangeRequestsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getChangeRequestsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/change_requests/${id}/`
+}
+
+export const changeRequestsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/change_requests/${id}/approve/`
+}
+
+/**
+ * Approve a change request.
+If quorum is reached, automatically applies the change immediately.
+ */
+export const changeRequestsApproveCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
+export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/change_requests/${id}/cancel/`
+}
+
+/**
+ * Cancel a change request.
+Only the requester can cancel their own pending change request.
+ */
+export const changeRequestsCancelCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsCancelCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
+export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) => {
+    return `/api/environments/${projectId}/change_requests/${id}/reject/`
+}
+
+/**
+ * Reject a change request.
+ */
+export const changeRequestsRejectCreate = async (
+    projectId: string,
+    id: string,
+    changeRequestApi?: NonReadonly<ChangeRequestApi>,
+    options?: RequestInit
+): Promise<ChangeRequestApi> => {
+    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(changeRequestApi),
+    })
+}
+
 export const getListUrl = (params?: ListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -531,219 +744,6 @@ export const advancedActivityLogsExportCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(activityLogApi),
-    })
-}
-
-export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalPoliciesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/approval_policies/?${stringifiedParams}`
-        : `/api/projects/${projectId}/approval_policies/`
-}
-
-export const approvalPoliciesList = async (
-    projectId: string,
-    params?: ApprovalPoliciesListParams,
-    options?: RequestInit
-): Promise<PaginatedApprovalPolicyListApi> => {
-    return apiMutator<PaginatedApprovalPolicyListApi>(getApprovalPoliciesListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getApprovalPoliciesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/approval_policies/`
-}
-
-export const approvalPoliciesCreate = async (
-    projectId: string,
-    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(approvalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getApprovalPoliciesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesUpdate = async (
-    projectId: string,
-    id: string,
-    approvalPolicyApi: NonReadonly<ApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(approvalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedApprovalPolicyApi?: NonReadonly<PatchedApprovalPolicyApi>,
-    options?: RequestInit
-): Promise<ApprovalPolicyApi> => {
-    return apiMutator<ApprovalPolicyApi>(getApprovalPoliciesPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedApprovalPolicyApi),
-    })
-}
-
-export const getApprovalPoliciesDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/approval_policies/${id}/`
-}
-
-export const approvalPoliciesDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getApprovalPoliciesDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getChangeRequestsListUrl = (projectId: string, params?: ChangeRequestsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/change_requests/?${stringifiedParams}`
-        : `/api/projects/${projectId}/change_requests/`
-}
-
-export const changeRequestsList = async (
-    projectId: string,
-    params?: ChangeRequestsListParams,
-    options?: RequestInit
-): Promise<PaginatedChangeRequestListApi> => {
-    return apiMutator<PaginatedChangeRequestListApi>(getChangeRequestsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getChangeRequestsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/change_requests/${id}/`
-}
-
-export const changeRequestsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/change_requests/${id}/approve/`
-}
-
-/**
- * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
- */
-export const changeRequestsApproveCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsApproveCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
-    })
-}
-
-export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/change_requests/${id}/cancel/`
-}
-
-/**
- * Cancel a change request.
-Only the requester can cancel their own pending change request.
- */
-export const changeRequestsCancelCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsCancelCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
-    })
-}
-
-export const getChangeRequestsRejectCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/change_requests/${id}/reject/`
-}
-
-/**
- * Reject a change request.
- */
-export const changeRequestsRejectCreate = async (
-    projectId: string,
-    id: string,
-    changeRequestApi?: NonReadonly<ChangeRequestApi>,
-    options?: RequestInit
-): Promise<ChangeRequestApi> => {
-    return apiMutator<ChangeRequestApi>(getChangeRequestsRejectCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(changeRequestApi),
     })
 }
 

@@ -6,14 +6,19 @@ import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonInputSelect
 import { MemberSelect } from 'lib/components/MemberSelect'
 
 import { tagsModel } from '~/models/tagsModel'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchQuery, tagsFilter, allRolesUnassigned, csmFilter, accountExecutiveFilter, accountOwnerFilter } =
-        useValues(accountsLogic)
-    const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
+    const {
+        searchQuery,
+        tagsFilter,
+        allRolesUnassigned,
+        csmFilter,
+        accountExecutiveFilter,
+        accountOwnerFilter,
+        accountsLoading,
+    } = useValues(accountsLogic)
     const {
         setSearchQuery,
         setTagsFilter,

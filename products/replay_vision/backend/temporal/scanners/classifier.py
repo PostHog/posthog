@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, create_model, field_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
 
 _MAX_FREEFORM_TAGS = 5
 # Anything that isn't a-z, 0-9, underscore, or dash collapses to a single underscore.
@@ -30,7 +30,6 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
         ),
     )
     reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
-    reasoning_segments: list[Segment] = Field(default_factory=list)
 
     @field_validator("tags_freeform", mode="after")
     @classmethod
@@ -41,6 +40,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
 
 class ClassifierScanner(BaseScanner, frozen=True):
     scanner_type: Literal[ScannerType.CLASSIFIER] = ScannerType.CLASSIFIER
+    prompt: str
     prompt_template: ClassVar[str] = "classifier.jinja"
     citation_fields: ClassVar[tuple[str, ...]] = ("reasoning",)
     output_cls: ClassVar[type[BaseScannerOutput]] = ClassifierOutput

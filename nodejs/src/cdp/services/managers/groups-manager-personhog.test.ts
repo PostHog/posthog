@@ -213,18 +213,12 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
             })
 
             if (rolloutPercentage === 100) {
-                expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith(
-                    [TEAM_1],
-                    'cdp/hogflow-group-type-resolution'
-                )
+                expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_1])
                 expect(mockGrpc.groups.fetchGroupsByKeys).toHaveBeenCalled()
                 expect(mockPostgres.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 expect(mockPostgres.fetchGroupsByKeys).not.toHaveBeenCalled()
             } else {
-                expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith(
-                    [TEAM_1],
-                    'cdp/hogflow-group-type-resolution'
-                )
+                expect(mockPostgres.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_1])
                 expect(mockPostgres.fetchGroupsByKeys).toHaveBeenCalled()
                 expect(mockGrpc.groups.fetchGroupTypesByTeamIds).not.toHaveBeenCalled()
                 expect(mockGrpc.groups.fetchGroupsByKeys).not.toHaveBeenCalled()
@@ -346,10 +340,7 @@ describe('GroupsManagerService + PersonHogGroupRepository integration', () => {
 
             // UnknownType has no mapping → skipped entirely → empty groups
             expect(globals.groups).toEqual({})
-            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith(
-                [TEAM_3],
-                'cdp/hogflow-group-type-resolution'
-            )
+            expect(mockGrpc.groups.fetchGroupTypesByTeamIds).toHaveBeenCalledWith([TEAM_3])
             // fetchGroupsByKeys should NOT be called since there are no valid group type mappings
             expect(mockGrpc.groups.fetchGroupsByKeys).not.toHaveBeenCalled()
         })

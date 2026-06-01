@@ -22,7 +22,7 @@ from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_PROVIDER_CALL
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, ChipSegment, Segment, TextSegment
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_data_class_from_redis,
@@ -30,6 +30,7 @@ from products.replay_vision.backend.temporal.state import (
 )
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
+    EventCitation,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
@@ -38,11 +39,8 @@ from products.replay_vision.backend.temporal.types import (
 logger = structlog.get_logger(__name__)
 
 _MAX_LLM_ATTEMPTS = 2  # one initial call + one re-prompt with the validation error appended
-# `(event_uuid <uuid>)` with optional leading whitespace, so we eat the space when stripping the paren.
-_EVENT_UUID_CITATION_RE = re.compile(
-    r"\s*\(event_uuid ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\)",
-    re.IGNORECASE,
-)
+# Captures the hex hash inside `(event_id <hash>)`; case-insensitive since model output isn't deterministic.
+_EVENT_ID_CITATION_RE = re.compile(r"\(event_id ([0-9a-f]{16})\)", re.IGNORECASE)
 
 
 @activity.defn
@@ -74,50 +72,39 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
         prompt_parts=prompt_parts,
         team_id=inputs.team_id,
     )
-    finalized = _resolve_citations(finalized, scanner, llm_inputs.event_timestamps)
-    return ScannerCallOutput(model_output=finalized)
+    finalized, filtered_mapping = _resolve_citations(finalized, scanner, llm_inputs.event_id_mapping)
+    return ScannerCallOutput(model_output=finalized, event_id_mapping=filtered_mapping)
 
 
 def _resolve_citations(
     finalized: BaseModel,
     scanner: BaseScanner,
-    event_timestamps: dict[str, int],
-) -> BaseModel:
-    """Walk each `(event_uuid <uuid>)` marker in the citation fields: drop hallucinated ones, build the plain text, and persist a parallel render-ready segment list."""
-    field_updates: dict[str, str | list[Segment]] = {}
+    mapping: dict[str, EventCitation],
+) -> tuple[BaseModel, dict[str, EventCitation]]:
+    """Slim event_id_mapping to citations actually used; strip hallucinated `(event_id <hash>)` parens whose hash isn't in `mapping`."""
+    cited_hashes: set[str] = set()
+    field_updates: dict[str, str] = {}
     for field in scanner.citation_fields:
         text = getattr(finalized, field, None)
         if not isinstance(text, str):
             continue
-        plain, segments = _extract_segments(text, event_timestamps)
-        field_updates[field] = plain
-        field_updates[f"{field}_segments"] = segments
+
+        def _filter(match: re.Match[str]) -> str:
+            hex_hash = match.group(1).lower()
+            if hex_hash not in mapping:
+                return ""  # drop dead citation rather than leaving a parenthetical the FE can't resolve
+            cited_hashes.add(hex_hash)
+            # Rewrite with canonical lowercase hex so persisted text matches the mapping keys.
+            return f"(event_id {hex_hash})"
+
+        new_text = _EVENT_ID_CITATION_RE.sub(_filter, text)
+        if new_text != text:
+            field_updates[field] = new_text
 
     if field_updates:
         finalized = finalized.model_copy(update=field_updates)
-    return finalized
-
-
-def _extract_segments(text: str, event_timestamps: dict[str, int]) -> tuple[str, list[Segment]]:
-    """Walk `(event_uuid <uuid>)` markers in `text`; drop hallucinated uuids; return (plain text, render-ready text/chip segments)."""
-    plain_parts: list[str] = []
-    segments: list[Segment] = []
-    last_end = 0
-    for match in _EVENT_UUID_CITATION_RE.finditer(text):
-        chunk = text[last_end : match.start()]
-        plain_parts.append(chunk)
-        if chunk:
-            segments.append(TextSegment(value=chunk))
-        uuid = match.group(1).lower()
-        timestamp_ms = event_timestamps.get(uuid)
-        if timestamp_ms is not None:
-            segments.append(ChipSegment(uuid=uuid, timestamp_ms=timestamp_ms))
-        last_end = match.end()
-    trailing = text[last_end:]
-    plain_parts.append(trailing)
-    if trailing:
-        segments.append(TextSegment(value=trailing))
-    return "".join(plain_parts), segments
+    filtered_mapping = {h: c for h, c in mapping.items() if h in cited_hashes}
+    return finalized, filtered_mapping
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:

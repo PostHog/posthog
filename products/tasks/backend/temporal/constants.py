@@ -27,13 +27,6 @@ MAX_CI_REPETITIONS = 3
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 
-# Delay before the first in-sandbox credential refresh, and the fallback cadence
-# when the refresh activity can't report a token-specific interval. Kept under
-# the ~1h GitHub installation-token TTL so the in-sandbox copy never lapses; the
-# activity returns a token-aware interval for subsequent refreshes. Override via
-# TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS for local testing.
-CREDENTIAL_REFRESH_INITIAL_DELAY = timedelta(seconds=settings.TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS or 20 * 60)
-
 # Forwarding a queued user message into the sandbox uses a one-shot activity
 # bounded by this timeout (seconds, not timedelta — matches the existing wire
 # format).

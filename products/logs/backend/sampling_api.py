@@ -288,6 +288,7 @@ class LogsSamplingRuleSimulateResponseSerializer(serializers.Serializer):
     notes = serializers.CharField(help_text="Human-readable caveats for the estimate.")
 
 
+@extend_schema(tags=["logs"])
 class LogsSamplingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "logs"
     queryset = LogsExclusionRule.objects.all().order_by("priority", "created_at")
