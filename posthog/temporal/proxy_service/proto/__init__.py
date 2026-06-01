@@ -7,5 +7,6 @@ from posthog.temporal.proxy_service.proto.proxy_provisioner_pb2 import (
     CreateRequest,
     DeleteRequest,
     StatusRequest,
+    StatusResponse,
 )
 from posthog.temporal.proxy_service.proto.proxy_provisioner_pb2_grpc import ProxyProvisionerServiceStub

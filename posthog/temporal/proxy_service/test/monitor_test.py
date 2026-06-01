@@ -1,15 +1,28 @@
 import json
+import datetime as dt
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import TestCase
 
+import grpc
+import grpc.aio
 import requests
 
 from posthog.models import Organization, ProxyRecord
-from posthog.temporal.proxy_service.monitor import CheckActivityInput, check_proxy_is_live
+from posthog.temporal.proxy_service.common import NonRetriableException
+from posthog.temporal.proxy_service.monitor import (
+    CheckActivityInput,
+    _check_legacy_certificate_status,
+    check_proxy_is_live,
+)
+from posthog.temporal.proxy_service.proto import CertificateState_READY
+
+
+def _aio_rpc_error(code: grpc.StatusCode) -> grpc.aio.AioRpcError:
+    return grpc.aio.AioRpcError(code, grpc.aio.Metadata(), grpc.aio.Metadata(), details=str(code))
 
 
 class TestCheckProxyIsLive(TestCase):
@@ -142,3 +155,75 @@ class TestCheckProxyIsLive(TestCase):
 
         self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
         self.assertEqual(result.warnings, [])
+
+
+class TestCheckLegacyCertificateStatus(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.proxy_record = ProxyRecord.objects.create(
+            organization=self.organization,
+            domain="prod.ph-proxy.com",
+            target_cname="legacy.posthog.com",
+            status="valid",
+        )
+        self.logger = Mock()
+
+    def _ready_response(self) -> Mock:
+        response = Mock()
+        response.certificate_status = CertificateState_READY
+        response.renewal_time.ToDatetime.return_value = dt.datetime.now()
+        response.not_after.ToDatetime.return_value = dt.datetime.now() + dt.timedelta(days=60)
+        return response
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_grpc_client")
+    async def test_not_found_treated_as_expected_terminal(self, mock_get_grpc_client):
+        """A migrated proxy whose cert-manager resource was removed should not raise."""
+        client = AsyncMock()
+        client.Status.side_effect = _aio_rpc_error(grpc.StatusCode.NOT_FOUND)
+        mock_get_grpc_client.return_value = client
+
+        result = await _check_legacy_certificate_status(self.proxy_record, self.logger)
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.warnings, [])
+        client.Status.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.get_grpc_client")
+    async def test_invalid_argument_raises_non_retriable(self, mock_get_grpc_client):
+        client = AsyncMock()
+        client.Status.side_effect = _aio_rpc_error(grpc.StatusCode.INVALID_ARGUMENT)
+        mock_get_grpc_client.return_value = client
+
+        with self.assertRaises(NonRetriableException):
+            await _check_legacy_certificate_status(self.proxy_record, self.logger)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("posthog.temporal.proxy_service.monitor.get_grpc_client")
+    async def test_transient_unavailable_recovers_on_retry(self, mock_get_grpc_client, _mock_sleep):
+        """A transient UNAVAILABLE is retried in-process and recovers without surfacing."""
+        client = AsyncMock()
+        client.Status.side_effect = [_aio_rpc_error(grpc.StatusCode.UNAVAILABLE), self._ready_response()]
+        mock_get_grpc_client.return_value = client
+
+        result = await _check_legacy_certificate_status(self.proxy_record, self.logger)
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(client.Status.await_count, 2)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("posthog.temporal.proxy_service.monitor.get_grpc_client")
+    async def test_persistent_unavailable_reraises_after_retries(self, mock_get_grpc_client, _mock_sleep):
+        """A persistent transient failure is re-raised so Temporal can retry the activity."""
+        client = AsyncMock()
+        client.Status.side_effect = _aio_rpc_error(grpc.StatusCode.UNAVAILABLE)
+        mock_get_grpc_client.return_value = client
+
+        with self.assertRaises(grpc.aio.AioRpcError):
+            await _check_legacy_certificate_status(self.proxy_record, self.logger)
+
+        self.assertEqual(client.Status.await_count, 3)

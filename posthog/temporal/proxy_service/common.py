@@ -20,8 +20,17 @@ from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 LOGGER = get_logger(__name__)
 
 
+# Keepalive options stop idle channels from being torn down between monitoring cycles,
+# which otherwise surfaced as transient UNAVAILABLE ('Socket closed') errors mid-call.
+GRPC_KEEPALIVE_OPTIONS: list[tuple[str, int]] = [
+    ("grpc.keepalive_time_ms", 30_000),
+    ("grpc.keepalive_timeout_ms", 10_000),
+    ("grpc.keepalive_permit_without_calls", 1),
+]
+
+
 async def get_grpc_client():
-    channel = grpc.aio.insecure_channel(settings.PROXY_PROVISIONER_ADDR)
+    channel = grpc.aio.insecure_channel(settings.PROXY_PROVISIONER_ADDR, options=GRPC_KEEPALIVE_OPTIONS)
     await channel.channel_ready()
     return ProxyProvisionerServiceStub(channel)
 

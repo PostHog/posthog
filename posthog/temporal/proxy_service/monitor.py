@@ -37,7 +37,7 @@ from posthog.temporal.proxy_service.common import (
     get_record,
     is_cloudflare_proxy,
 )
-from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest
+from posthog.temporal.proxy_service.proto import CertificateState_READY, StatusRequest, StatusResponse
 
 LOGGER = get_logger(__name__)
 
@@ -193,49 +193,90 @@ async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckAct
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
 
 
+# Transient gRPC failures are retried in-process so they recover within the activity
+# without surfacing to error tracking on every monitoring cycle.
+_TRANSIENT_GRPC_CODES = (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)
+
+
+async def _legacy_status_with_retries(proxy_record, logger, max_attempts: int = 3) -> StatusResponse:
+    """Call the legacy provisioner Status RPC, retrying transient gRPC failures in-process.
+
+    A fresh channel is created on each attempt so a torn-down idle connection recovers.
+    """
+    last_error: grpc.aio.AioRpcError | None = None
+    for attempt in range(1, max_attempts + 1):
+        client = await get_grpc_client()
+        try:
+            return await client.Status(
+                StatusRequest(
+                    uuid=str(proxy_record.id),
+                    domain=proxy_record.domain,
+                )
+            )
+        except grpc.aio.AioRpcError as e:
+            if e.code() not in _TRANSIENT_GRPC_CODES:
+                raise
+            last_error = e
+            logger.warning(
+                "Transient gRPC error (%s) checking legacy certificate status for proxy %s, attempt %d/%d",
+                e.code(),
+                proxy_record.id,
+                attempt,
+                max_attempts,
+            )
+            if attempt < max_attempts:
+                await asyncio.sleep(attempt)
+
+    # All in-process retries exhausted - re-raise so Temporal can retry the activity.
+    assert last_error is not None
+    raise last_error
+
+
 async def _check_legacy_certificate_status(proxy_record, logger) -> CheckActivityOutput:
     """Check certificate status via legacy gRPC proxy provisioner."""
-    client = await get_grpc_client()
-
     try:
-        response = await client.Status(
-            StatusRequest(
-                uuid=str(proxy_record.id),
-                domain=proxy_record.domain,
-            )
-        )
-
-        if response.certificate_status != CertificateState_READY:
-            return CheckActivityOutput(
-                errors=[],
-                warnings=["TLS Certificate is not ready"],
-            )
-
-        if response.renewal_time.ToDatetime() < dt.datetime.now() - dt.timedelta(minutes=10):
-            return CheckActivityOutput(
-                errors=[],
-                warnings=["DNS Certificate is not renewing as expected"],
-            )
-
-        # if certificate renewal is working it should never allow the cert to come within
-        # 3 weeks of expiration (it renews at 4 weeks)
-        if response.not_after.ToDatetime() < dt.datetime.now() + dt.timedelta(days=21):
-            return CheckActivityOutput(
-                errors=[],
-                warnings=["DNS Certificate is expiring soon but is unable to be renewed"],
-            )
-
-        return CheckActivityOutput(
-            errors=[],
-            warnings=[],
-        )
-
+        response = await _legacy_status_with_retries(proxy_record, logger)
     except grpc.aio.AioRpcError as e:
         if e.code() == grpc.StatusCode.INVALID_ARGUMENT:
             raise NonRetriableException("invalid argument") from e
         if e.code() == grpc.StatusCode.NOT_FOUND:
-            raise NonRetriableException("not found") from e
+            # The cert-manager Certificate resource was removed when this proxy migrated off
+            # the legacy provisioner (Cloudflare migration). There is nothing left to monitor
+            # on the legacy path, so treat NOT_FOUND as an expected terminal state rather than
+            # raising - liveness is still verified separately by check_proxy_is_live.
+            logger.info(
+                "Legacy certificate resource not found for proxy %s (domain %s) - "
+                "treating as migrated, skipping legacy certificate monitoring",
+                proxy_record.id,
+                proxy_record.domain,
+            )
+            return CheckActivityOutput(errors=[], warnings=[])
         raise
+
+    if response.certificate_status != CertificateState_READY:
+        return CheckActivityOutput(
+            errors=[],
+            warnings=["TLS Certificate is not ready"],
+        )
+
+    if response.renewal_time.ToDatetime() < dt.datetime.now() - dt.timedelta(minutes=10):
+        return CheckActivityOutput(
+            errors=[],
+            warnings=["DNS Certificate is not renewing as expected"],
+        )
+
+    # if certificate renewal is working it should never allow the cert to come within
+    # 3 weeks of expiration (it renews at 4 weeks)
+    if response.not_after.ToDatetime() < dt.datetime.now() + dt.timedelta(days=21):
+        return CheckActivityOutput(
+            errors=[],
+            warnings=["DNS Certificate is expiring soon but is unable to be renewed"],
+        )
+
+    return CheckActivityOutput(
+        errors=[],
+        warnings=[],
+    )
 
 
 @activity.defn
