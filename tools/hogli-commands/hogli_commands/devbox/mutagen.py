@@ -49,10 +49,13 @@ def _mutagen_platform() -> tuple[str, str]:
 
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
-        return system, "amd64"
-    if machine in ("arm64", "aarch64"):
-        return system, "arm64"
-    _fail(f"Unsupported CPU arch for mutagen install: {machine}. hogli devbox:sync supports amd64 and arm64 only.")
+        arch = "amd64"
+    elif machine in ("arm64", "aarch64"):
+        arch = "arm64"
+    else:
+        _fail(f"Unsupported CPU arch for mutagen install: {machine}. hogli devbox:sync supports amd64 and arm64 only.")
+
+    return system, arch
 
 
 def _mutagen_release_url(version: str = _MUTAGEN_VERSION) -> str:
