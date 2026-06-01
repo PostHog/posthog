@@ -363,10 +363,6 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe('Optional payload values keyed by variant key.'),
-                super_groups: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Additional super condition groups used by experiments.'),
                 feature_enrollment: zod
                     .boolean()
                     .nullish()
@@ -1250,10 +1246,6 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .record(zod.string(), zod.string())
                     .optional()
                     .describe('Optional payload values keyed by variant key.'),
-                super_groups: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Additional super condition groups used by experiments.'),
                 feature_enrollment: zod
                     .boolean()
                     .nullish()

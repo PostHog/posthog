@@ -281,6 +281,14 @@ class CopperSourceConfig(config.Config):
 
 
 @config.config
+class CustomSourceConfig(config.Config):
+    manifest_json: str
+    auth_token: str | None = None
+    auth_api_key: str | None = None
+    auth_password: str | None = None
+
+
+@config.config
 class CustomerIOSourceConfig(config.Config):
     app_api_key: str
     region: Literal["us", "eu"] = config.value(default="us")
@@ -939,6 +947,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CONVERTKIT: ConvertKitSourceConfig,
         ExternalDataSourceType.CONVEX: ConvexSourceConfig,
         ExternalDataSourceType.COPPER: CopperSourceConfig,
+        ExternalDataSourceType.CUSTOM: CustomSourceConfig,
         ExternalDataSourceType.CUSTOMERIO: CustomerIOSourceConfig,
         ExternalDataSourceType.DATADOG: DatadogSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,

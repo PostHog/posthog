@@ -125,7 +125,7 @@ class TestSlackThreadHandler(TestCase):
         assert "Pull request opened" in kwargs["text"]
         actions = kwargs["blocks"][1]["elements"]
         assert actions[0]["text"]["text"] == "View PR"
-        assert actions[1]["text"]["text"] == "Open in PostHog"
+        assert actions[1]["text"]["text"] == "Open in PostHog Code"
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
@@ -149,3 +149,123 @@ class TestSlackThreadHandler(TestCase):
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == f"*Task Failed* :x:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
         assert kwargs["blocks"][1]["text"]["text"] == UPSTREAM_PROVIDER_FAILURE_MESSAGE
+
+
+def _action_blocks(call_kwargs: dict) -> list[dict]:
+    return [block for block in call_kwargs["blocks"] if block.get("type") == "actions"]
+
+
+def _button_texts(action_block: dict) -> list[str]:
+    return [element["text"]["text"] for element in action_block["elements"]]
+
+
+class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
+    """A ``task_url=None`` payload signals the recipient does not have PostHog Code access.
+
+    Each renderer must drop the PostHog button (or the entire actions block when
+    that was the only button) so the message stays useful without dangling at a
+    URL the recipient can't reach.
+    """
+
+    def _make_context(self) -> SlackThreadContext:
+        return SlackThreadContext(
+            integration_id=1,
+            channel="C001",
+            thread_ts="1234.5678",
+            user_message_ts="1234.5678",
+            mentioning_slack_user_id="U123",
+        )
+
+    @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_or_update_progress_without_task_url_drops_button(self, mock_get_client, _mock_find_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_or_update_progress("Building", task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_opened_sandbox_cleaned_without_task_url_keeps_pr_button(
+        self, mock_get_client, _mock_delete_progress
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_pr_opened_sandbox_cleaned("https://github.com/org/repo/pull/1", task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        actions = _action_blocks(mock_client.chat_postMessage.call_args.kwargs)
+        assert len(actions) == 1
+        assert _button_texts(actions[0]) == ["View PR"]
+
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_pr_opened("https://github.com/org/repo/pull/1", task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        actions = _action_blocks(mock_client.chat_postMessage.call_args.kwargs)
+        assert len(actions) == 1
+        assert _button_texts(actions[0]) == ["View PR"]
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_completion_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_completion("https://github.com/org/repo/pull/1", task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        actions = _action_blocks(mock_client.chat_postMessage.call_args.kwargs)
+        assert len(actions) == 1
+        assert _button_texts(actions[0]) == ["View PR"]
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_completion_without_pr_or_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_completion(pr_url=None, task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_error_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_error("boom", task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert _action_blocks(kwargs) == []
+        # The error body itself must still surface — only the action block is gated.
+        assert kwargs["blocks"][1]["text"]["text"] == "boom"
+
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_cancelled_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._make_context())
+
+        handler.post_cancelled(task_url=None)
+
+        mock_client.chat_postMessage.assert_called_once()
+        assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []

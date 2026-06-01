@@ -1298,6 +1298,26 @@
   }
   '''
 # ---
+# name: test_byte_order_mark_does_not_break_parse[let_x_1-bccdb443]
+  '''
+  {
+    declarations: [
+      {
+        end: 10
+        expr: {
+          end: 10
+          start: 9
+          value: 1
+        }
+        name: "x"
+        start: 0
+      }
+    ]
+    end: 10
+    start: 0
+  }
+  '''
+# ---
 # name: test_call_arg_select_releases_when_followed_by_keyword_infix[f_SELECT_1-bc5c7d75]
   '''
   {
@@ -8376,6 +8396,62 @@
   }
   '''
 # ---
+# name: test_limit_by_then_limit_offset_position_stops_before_outer_offset[select_1_from_events_LIMIT_1_BY_event_LIMIT_2_OFFSET_3-eea0b59d]
+  '''
+  {
+    end: 45
+    limit: {
+      end: 45
+      start: 44
+      value: 2
+    }
+    limit_by: {
+      end: 37
+      exprs: [
+        {
+          chain: [
+            "event"
+          ]
+          end: 37
+          from_asterisk: False
+          start: 32
+        }
+      ]
+      n: {
+        end: 28
+        start: 27
+        value: 1
+      }
+      start: 21
+    }
+    offset: {
+      end: 54
+      start: 53
+      value: 3
+    }
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 20
+      start: 14
+      table: {
+        chain: [
+          "events"
+        ]
+        end: 20
+        from_asterisk: False
+        start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
 # name: test_limit_offset_with_ties_must_precede_offset[SELECT_a_FROM_t_LIMIT_1_2_WITH_TIES-f7bf5a57]
   '''
   {
@@ -9791,7 +9867,7 @@
     declarations: [
       {
         catches: [
-          [
+          (
             "e",
             None,
             {
@@ -9799,7 +9875,7 @@
               end: 19
               start: 17
             }
-          ]
+          )
         ]
         end: 19
         start: 0
@@ -9821,7 +9897,7 @@
     declarations: [
       {
         catches: [
-          [
+          (
             "e",
             "T",
             {
@@ -9829,7 +9905,7 @@
               end: 22
               start: 20
             }
-          ]
+          )
         ]
         end: 22
         start: 0
@@ -14928,6 +15004,195 @@
   }
   '''
 # ---
+# name: test_template_string_top_level_carries_outer_span[Hello_TypeScript_arrayMap_a_a_1_2_3-46be7f64]
+  '''
+  {
+    args: [
+      {
+        end: 20
+        start: 2
+        value: "Hello, TypeScript "
+      },
+      {
+        args: [
+          {
+            args: [
+              "a"
+            ]
+            end: 36
+            expr: {
+              chain: [
+                "a"
+              ]
+              end: 36
+              from_asterisk: False
+              start: 35
+            }
+            start: 30
+          },
+          {
+            end: 47
+            exprs: [
+              {
+                end: 40
+                start: 39
+                value: 1
+              },
+              {
+                end: 43
+                start: 42
+                value: 2
+              },
+              {
+                end: 46
+                start: 45
+                value: 3
+              }
+            ]
+            start: 38
+          }
+        ]
+        distinct: False
+        end: 48
+        name: "arrayMap"
+        start: 21
+      },
+      {
+        end: 50
+        start: 49
+        value: "!"
+      }
+    ]
+    distinct: False
+    end: 50
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[Hello_arrayMap_a_a_1_2_3-c722f938]
+  '''
+  {
+    args: [
+      {
+        end: 9
+        start: 2
+        value: "Hello, "
+      },
+      {
+        args: [
+          {
+            args: [
+              "a"
+            ]
+            end: 25
+            expr: {
+              chain: [
+                "a"
+              ]
+              end: 25
+              from_asterisk: False
+              start: 24
+            }
+            start: 19
+          },
+          {
+            end: 36
+            exprs: [
+              {
+                end: 29
+                start: 28
+                value: 1
+              },
+              {
+                end: 32
+                start: 31
+                value: 2
+              },
+              {
+                end: 35
+                start: 34
+                value: 3
+              }
+            ]
+            start: 27
+          }
+        ]
+        distinct: False
+        end: 37
+        name: "arrayMap"
+        start: 10
+      },
+      {
+        end: 39
+        start: 38
+        value: "!"
+      }
+    ]
+    distinct: False
+    end: 39
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[hello-aaf4c61d]
+  '''
+  {
+    end: 7
+    start: 2
+    value: "hello"
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[true-b8fd8208]
+  '''
+  {
+    end: 7
+    start: 3
+    value: True
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[v_event_properties_lib_version-3939e081]
+  '''
+  {
+    args: [
+      {
+        end: 4
+        start: 2
+        value: "v="
+      },
+      {
+        chain: [
+          "event",
+          "properties",
+          "$lib_version"
+        ]
+        end: 34
+        from_asterisk: False
+        start: 5
+      }
+    ]
+    distinct: False
+    end: 35
+    name: "concat"
+    start: 0
+  }
+  '''
+# ---
+# name: test_template_string_top_level_carries_outer_span[x-5d653e7f]
+  '''
+  {
+    chain: [
+      "x"
+    ]
+    end: 4
+    from_asterisk: False
+    start: 3
+  }
+  '''
+# ---
 # name: test_trailing_comma_after_joined_table_chain[SELECT_FROM_a_JOIN_b_ON_1-43ece755]
   '''
   {
@@ -15931,6 +16196,153 @@
         end: 15
         from_asterisk: False
         start: 14
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_a-487411e6]
+  '''
+  {
+    end: 31
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 31
+      start: 14
+      table: {
+        end: 30
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 29
+              start: 26
+              value: "a"
+            }
+          ]
+        ]
+        start: 15
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_a_AS_v_id_name-49f6b2eb]
+  '''
+  {
+    end: 46
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      alias: "v"
+      column_aliases: [
+        "id",
+        "name"
+      ]
+      end: 46
+      start: 14
+      table: {
+        end: 30
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 29
+              start: 26
+              value: "a"
+            }
+          ]
+        ]
+        start: 15
+      }
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_values_clause_in_from_carries_positions[SELECT_FROM_VALUES_1_george_created_2_jack_deleted-4f07d09a]
+  '''
+  {
+    end: 71
+    select: [
+      {
+        chain: [
+          "*"
+        ]
+        end: 8
+        from_asterisk: False
+        start: 7
+      }
+    ]
+    select_from: {
+      end: 71
+      start: 14
+      table: {
+        end: 70
+        rows: [
+          [
+            {
+              end: 24
+              start: 23
+              value: 1
+            },
+            {
+              end: 34
+              start: 26
+              value: "george"
+            },
+            {
+              end: 45
+              start: 36
+              value: "created"
+            }
+          ],
+          [
+            {
+              end: 50
+              start: 49
+              value: 2
+            },
+            {
+              end: 58
+              start: 52
+              value: "jack"
+            },
+            {
+              end: 69
+              start: 60
+              value: "deleted"
+            }
+          ]
+        ]
+        start: 15
       }
     }
     start: 0

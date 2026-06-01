@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
+import { KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
 
 import { BatchProcessingStep } from '../pipelines/base-batch-pipeline'
 import { drop, ok } from '../pipelines/results'
@@ -16,7 +16,7 @@ export type RateLimitOutcome = 'allowed' | 'rate_limited'
 
 export interface KeyedRateLimiterStepOptions<T> {
     /** When undefined, the step is a no-op — every input passes through `ok()`. */
-    rateLimiter?: KeyedRateLimiterService
+    rateLimiter?: KeyedRateLimiter
     /** When undefined, no `app_metrics2` rows are emitted; Prom counter still increments. */
     appMetricsAggregator?: AppMetricsAggregator
     /** Used as the `app_source` label on emitted metrics (e.g. 'exceptions'). */
@@ -85,6 +85,7 @@ export function createKeyedRateLimiterStep<T>(opts: KeyedRateLimiterStepOptions<
             requestIndexForInput[i] = perInputRequests.length
             perInputRequests.push({
                 id: key,
+                teamId: opts.getTeamId(inputs[i]),
                 cost: costFn(inputs[i]),
                 ...bucketConfigByKey.get(key),
             })

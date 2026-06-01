@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
@@ -5,7 +6,13 @@ import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/
 import { dayjs } from 'lib/dayjs'
 
 import { DateRange, LogSeverityLevel, LogsQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup, UniversalFiltersGroupValue } from '~/types'
+import {
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { zoomDateRange } from 'products/logs/frontend/components/LogsViewer/Filters/zoom-utils'
@@ -24,6 +31,34 @@ export const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export interface LogsViewerFiltersLogicProps {
     id: string
     initialFilters?: Partial<LogsViewerFilters>
+    // Filters enforced by the embedding scene. Merged into filterGroup and rendered
+    // without an X — users can't accidentally clear the scope (e.g. the person profile
+    // Logs tab pins a distinct_id filter so the tab can't fall back to project-wide logs).
+    pinnedFilters?: UniversalFiltersGroup
+}
+
+// Returns a filterGroup with pinned values prepended to the nested group, deduplicated
+// by deep equality against existing user filters.
+export function mergePinnedFilters(
+    filterGroup: UniversalFiltersGroup,
+    pinnedFilters: UniversalFiltersGroup | undefined
+): UniversalFiltersGroup {
+    if (!pinnedFilters?.values?.length) {
+        return filterGroup
+    }
+    const inner = filterGroup.values[0] as UniversalFiltersGroup | undefined
+    const innerValues = inner?.values ?? []
+    const existingNonPinned = innerValues.filter((v) => !pinnedFilters.values.some((pv) => equal(v, pv)))
+    return {
+        ...filterGroup,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [...pinnedFilters.values, ...existingNonPinned],
+            } as UniversalFiltersGroup,
+            ...filterGroup.values.slice(1),
+        ],
+    }
 }
 
 export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
@@ -47,6 +82,11 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             filters,
             pushToHistory,
         }),
+
+        // Mirror of the `pinnedFilters` prop into state so consumers (LogsFilterBar)
+        // can read it via useValues without going through the kea selector input-prop
+        // machinery (which doesn't accept optional props).
+        setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
@@ -107,6 +147,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setFilterGroup: (_, { openFilterOnInsert }) => openFilterOnInsert,
             },
         ],
+        pinnedFilters: [
+            undefined as UniversalFiltersGroup | undefined,
+            {
+                setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
     }),
 
     selectors({
@@ -164,7 +210,7 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         },
     })),
 
-    propsChanged(({ actions, props: logicProps }, oldProps) => {
+    propsChanged(({ actions, values, props: logicProps }, oldProps) => {
         if (logicProps.initialFilters && logicProps.initialFilters !== oldProps.initialFilters) {
             actions.setFilters(logicProps.initialFilters, false)
         } else if (!logicProps.initialFilters && oldProps.initialFilters) {
@@ -177,11 +223,22 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 false
             )
         }
+        // Re-merge pinned filters when the embedding scene changes them (e.g. switching
+        // between people on the person profile). Deep-equal check avoids re-merging on
+        // every render when the parent reconstructs the prop object identically.
+        if (!equal(logicProps.pinnedFilters, oldProps.pinnedFilters)) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
+            actions.setFilterGroup(mergePinnedFilters(values.filterGroup, logicProps.pinnedFilters), false)
+        }
     }),
 
-    afterMount(({ actions, props: logicProps }) => {
+    afterMount(({ actions, values, props: logicProps }) => {
         if (logicProps.initialFilters) {
             actions.setFilters(logicProps.initialFilters, false)
+        }
+        if (logicProps.pinnedFilters) {
+            actions.setPinnedFilters(logicProps.pinnedFilters)
+            actions.setFilterGroup(mergePinnedFilters(values.filterGroup, logicProps.pinnedFilters), false)
         }
     }),
 ])

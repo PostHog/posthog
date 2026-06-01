@@ -188,9 +188,9 @@ class McpDispatcher {
                 case Method.Initialize:
                     return jsonRpcResult(id, await this.handleInitialize(params, props, state!))
                 case Method.ToolsList:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!, props))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolsList(state!))
                 case Method.ToolsCall:
-                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, props, state!))
+                    return jsonRpcResult(id, await this.toolExecutor.handleToolCall(params, state!))
                 case Method.ResourcesList:
                     return jsonRpcResult(id, this.resourceCatalog.getResourcesList())
                 case Method.ResourcesRead:
@@ -227,7 +227,7 @@ class McpDispatcher {
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })
 
-            void trackInitEvent(props, state)
+            void trackInitEvent(state)
 
             return {
                 protocolVersion,

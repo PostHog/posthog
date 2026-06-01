@@ -11,7 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type { MarketingAnalyticsUtmAuditRetrieveParams, UtmAuditResponseApi } from './api.schemas'
 
 export const getMarketingAnalyticsTestMappingCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/marketing_analytics/test_mapping/`
+    return `/api/projects/${projectId}/marketing_analytics/test_mapping/`
 }
 
 export const marketingAnalyticsTestMappingCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
@@ -36,8 +36,8 @@ export const getMarketingAnalyticsUtmAuditRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/utm_audit/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/utm_audit/`
+        ? `/api/projects/${projectId}/marketing_analytics/utm_audit/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/utm_audit/`
 }
 
 /**

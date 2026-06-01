@@ -3,6 +3,7 @@ from typing import Any
 
 import posthoganalytics
 import temporalio.activity
+from asgiref.sync import sync_to_async
 from prometheus_client import Counter
 from structlog import get_logger
 
@@ -20,6 +21,7 @@ from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, Snapsho
 
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
@@ -36,6 +38,14 @@ SUBSCRIPTION_SUMMARY_FAILURE = Counter(
 SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
     "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
     "AI summary skipped because the organization has not approved AI data processing",
+)
+SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET = Counter(
+    "posthog_subscription_ai_summary_skipped_over_credit_budget_total",
+    "AI summary skipped because the organization is over its AI credit budget",
+)
+SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED = Counter(
+    "posthog_subscription_ai_summary_credit_check_failed_total",
+    "AI credit budget lookup errored; the summary was generated (fail-open)",
 )
 SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
     "posthog_subscription_ai_summary_image_skipped_total",
@@ -428,6 +438,31 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             organization_id=str(subscription.team.organization_id),
         )
         return SnapshotInsightsResult()
+
+    # Over budget: skip the summary but still deliver the rest of the subscription —
+    # graceful degradation beats failing the whole delivery. Fail open on a quota-lookup
+    # error: generate the summary rather than silently dropping it on a transient blip.
+    try:
+        is_over_credit_budget = await sync_to_async(is_team_limited, thread_sensitive=False)(
+            subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+    except Exception as e:
+        is_over_credit_budget = False
+        SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED.inc()
+        await LOGGER.awarning(
+            "snapshot_subscription_insights.credit_budget_check_failed",
+            subscription_id=inputs.subscription_id,
+            error=str(e),
+            exc_info=True,
+        )
+    if is_over_credit_budget:
+        SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET.inc()
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_over_credit_budget",
+            subscription_id=inputs.subscription_id,
+            organization_id=str(subscription.team.organization_id),
+        )
+        return SnapshotInsightsResult(summary_skipped_over_budget=True)
 
     if not inputs.delivery_id:
         return SnapshotInsightsResult()

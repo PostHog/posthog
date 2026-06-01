@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -138,6 +139,10 @@ type PostHogKafkaConsumer struct {
 	statsChan      chan CountEvent
 	parallel       int
 	Broker         *RedisEventBroker
+	// Shared across all runParsing goroutines so the log cadence is global,
+	// not per-worker. The Prometheus counter is already global; this keeps
+	// the log line consistent with it.
+	droppedNoToken atomic.Uint64
 }
 
 func NewPostHogKafkaConsumer(
@@ -190,6 +195,8 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 		go c.runParsing(ctx)
 	}
 
+	var msgCount, timeoutCount uint64
+
 	for {
 		msg, err := c.consumer.ReadMessage(15 * time.Second)
 		if err != nil {
@@ -199,6 +206,10 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 					metrics.ConnectFailure.Inc()
 				} else if inErr.IsTimeout() {
 					metrics.TimeoutConsume.Inc()
+					timeoutCount++
+					if timeoutCount == 1 || timeoutCount%60 == 0 {
+						log.Printf("Events consumer: %d timeouts so far (topic: %s)", timeoutCount, c.topic)
+					}
 					continue
 				}
 			}
@@ -207,7 +218,12 @@ func (c *PostHogKafkaConsumer) Consume(ctx context.Context) {
 			continue
 		}
 
+		msgCount++
 		metrics.MsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+		if msgCount <= 5 || msgCount%10000 == 0 {
+			log.Printf("Events message #%d: partition=%d, offset=%d",
+				msgCount, msg.TopicPartition.Partition, msg.TopicPartition.Offset)
+		}
 		c.incoming <- msg.Value
 	}
 }
@@ -220,13 +236,31 @@ func (c *PostHogKafkaConsumer) runParsing(ctx context.Context) {
 		}
 		phEvent := parse(c.geolocator, c.botClassifier, value)
 		if phEvent.Token == "" {
+			metrics.EventsDroppedNoToken.Inc()
+			n := c.droppedNoToken.Add(1)
+			if n <= 5 || n%10000 == 0 {
+				log.Printf("Events dropped (no token): count=%d", n)
+			}
 			continue
 		}
-		c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}
+		// Blocking send: matches session_recording_consumer's policy so
+		// stats stay in sync with delivered events. statsChan is buffered
+		// at 10K (see main.go); a sustained full channel signals a real
+		// problem with the stats keeper that we want to back-pressure on,
+		// not silently swallow.
+		select {
+		case c.statsChan <- CountEvent{Token: phEvent.Token, DistinctID: phEvent.DistinctId}:
+		case <-ctx.Done():
+			return
+		}
 		if c.Broker != nil {
 			c.Broker.Publish(ctx, phEvent)
 		} else {
-			c.outgoingChan <- phEvent
+			select {
+			case c.outgoingChan <- phEvent:
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }
