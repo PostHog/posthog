@@ -20,7 +20,7 @@ export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
 
 /** True when the project can query error tracking issues (matches tile setup prompt gating). */
 export function canConfigureErrorTrackingWidgetIssues(
-    team: TeamType | null | undefined,
+    team: Pick<TeamType, 'autocapture_exceptions_opt_in'> | null | undefined,
     hasSentExceptionEvent: boolean | undefined
 ): boolean {
     if (!team) {

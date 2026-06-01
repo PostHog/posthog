@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType } from '~/types'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
@@ -16,7 +17,9 @@ import * as errorTrackingWidgetUtils from './utils'
 describe('EditErrorTrackingWidgetModal', () => {
     beforeEach(() => {
         initKeaTests(true, {
-            test_account_filters: [{ key: 'email', value: '@posthog.com', operator: 'not_icontains', type: 'person' }],
+            test_account_filters: [
+                { key: 'email', value: '@posthog.com', operator: 'not_icontains', type: PropertyFilterType.Person },
+            ],
         })
         featureFlagLogic.mount()
         filterTestAccountsDefaultsLogic.mount()

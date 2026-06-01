@@ -60,7 +60,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
-export type DashboardWidgetCatalogKey = string
+export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
 /** New widget_type aliases: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_TYPE_ALIASES: Partial<Record<string, DashboardWidgetCatalogKey>> = {
@@ -80,7 +80,10 @@ export function resolveDashboardWidgetCatalogKey(widgetType: string): DashboardW
 }
 
 export function getDashboardWidgetCatalogEntry(widgetType: string): DashboardWidgetCatalogEntry | undefined {
-    return DASHBOARD_WIDGET_CATALOG[widgetType]
+    if (widgetType in DASHBOARD_WIDGET_CATALOG) {
+        return DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
+    }
+    return undefined
 }
 
 export type DashboardWidgetCatalogGroup = {

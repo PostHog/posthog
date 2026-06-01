@@ -26,6 +26,7 @@ const ISSUE: ErrorTrackingIssue = {
         occurrences: 12,
         sessions: 4,
         users: 3,
+        volume_buckets: [],
     },
 }
 

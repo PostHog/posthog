@@ -8,11 +8,7 @@ import { getDashboardWidgetDefinition } from '../../widgets/registry'
 import { WidgetCard } from './WidgetCard'
 import { WidgetCardBody } from './WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from './WidgetCardHeader'
-import {
-    mockMoreOverlay,
-    withErrorTrackingProjectState,
-    withSessionReplayProjectState,
-} from './widgetCardStoryFixtures'
+import { mockMoreOverlay, withErrorTrackingProjectState } from './widgetCardStoryFixtures'
 import { getWidgetOverviewDemoState } from './widgetOverviewStoryFixtures'
 
 // Dashboard grid row height — see DashboardItems BASE_ROW_HEIGHT.
@@ -110,11 +106,7 @@ const meta: Meta<typeof DashboardWidgetsOverview> = {
             },
         },
     },
-    decorators: [
-        withErrorTrackingProjectState(true),
-        withSessionReplayProjectState(true),
-        ...dashboardOverviewFrameDecorator,
-    ],
+    decorators: [withErrorTrackingProjectState(true), ...dashboardOverviewFrameDecorator],
 }
 
 export default meta

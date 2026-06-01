@@ -1435,7 +1435,7 @@ describe('dashboardLogic', () => {
 
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
-            expect(container.textContent).toBe('error_tracking_list widget removed')
+            expect(container.textContent).toBe('Top issues widget removed')
         })
 
         it('uses custom widget name in undo toast when set', async () => {

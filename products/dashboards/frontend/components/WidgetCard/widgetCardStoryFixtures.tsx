@@ -91,7 +91,7 @@ export function seedErrorTrackingProjectState(configured: boolean): void {
 
 /** Configured = issues can be queried (post setup). Unconfigured = ingestion prompt / settings hidden. */
 export function withErrorTrackingProjectState(configured: boolean): Decorator {
-    return (Story) => {
+    return (Story: React.ComponentType): JSX.Element => {
         seedErrorTrackingProjectState(configured)
         return <Story />
     }
