@@ -3559,7 +3559,8 @@
                 "search_llm_traces",
                 "run_hog_eval_test",
                 "diagnose_proxy",
-                "web_analytics_doctor"
+                "web_analytics_doctor",
+                "investigate_web_analytics"
             ],
             "type": "string"
         },

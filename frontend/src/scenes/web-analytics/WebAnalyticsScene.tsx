@@ -1,6 +1,7 @@
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { useInvestigateWebAnalyticsTool } from 'scenes/web-analytics/useInvestigateWebAnalyticsTool'
 import { WebAnalyticsDashboard } from 'scenes/web-analytics/WebAnalyticsDashboard'
 import { WebAnalyticsHeaderButtons } from 'scenes/web-analytics/WebAnalyticsHeaderButtons'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
@@ -21,6 +22,8 @@ export function WebAnalyticsScene(): JSX.Element {
             'Diagnose my reverse proxy setup',
         ],
     })
+    // Registers the investigator tool (current filters as context) + its suggestion chips.
+    useInvestigateWebAnalyticsTool()
 
     return (
         <>

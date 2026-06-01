@@ -87,6 +87,7 @@ import { MarketingAnalyticsTable } from '../tabs/marketing-analytics/frontend/co
 import { marketingAnalyticsLogic } from '../tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { validColumnsForTiles } from '../tabs/marketing-analytics/frontend/logic/utils'
 import { DISPLAY_MODE_OPTIONS } from '../tabs/marketing-analytics/frontend/shared'
+import { WebAnalyticsOverviewItemAction } from '../WebAnalyticsOverviewItemAction'
 
 export const toUtcOffsetFormat = (value: number): string => {
     if (value === 0) {
@@ -1575,6 +1576,13 @@ export const WebQuery = ({
         )
     }
 
+    // Overview tiles get an inline "ask Max why" affordance per metric (the action itself decides whether
+    // to render, based on the change magnitude + feature flag).
+    const overviewContext: Partial<QueryContext> =
+        query.kind === NodeKind.WebOverviewQuery
+            ? { overviewItemAction: (item) => <WebAnalyticsOverviewItemAction item={item} /> }
+            : {}
+
     if (!headerSlot) {
         return (
             <Query
@@ -1582,7 +1590,7 @@ export const WebQuery = ({
                 attachTo={attachTo}
                 query={query}
                 readOnly={true}
-                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps, ...overviewContext }}
             />
         )
     }
@@ -1595,7 +1603,7 @@ export const WebQuery = ({
                 attachTo={attachTo}
                 query={query}
                 readOnly={true}
-                context={{ ...webAnalyticsDataTableQueryContext, insightProps }}
+                context={{ ...webAnalyticsDataTableQueryContext, insightProps, ...overviewContext }}
             />
         </div>
     )

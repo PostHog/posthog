@@ -15,6 +15,7 @@ import { InsightLogicProps, TrendResult } from '~/types'
 
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
+import type { OverviewItem } from './nodes/OverviewGrid/types'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
@@ -69,6 +70,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /**
+     * Optional per-cell action for WebOverview's OverviewGrid (e.g. an inline "ask AI why" button on
+     * notable changes). Consumers decide when to render it (it may return null).
+     */
+    overviewItemAction?: (item: OverviewItem) => JSX.Element | null
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

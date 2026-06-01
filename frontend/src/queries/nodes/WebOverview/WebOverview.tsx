@@ -77,11 +77,12 @@ export function WebOverview(props: {
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
             labelFromKey={labelFromKey}
+            renderItemAction={props.context.overviewItemAction}
         />
     )
 }
 
-const labelFromKey = (key: string): string => {
+export const labelFromKey = (key: string): string => {
     switch (key) {
         case 'visitors':
             return 'Visitors'

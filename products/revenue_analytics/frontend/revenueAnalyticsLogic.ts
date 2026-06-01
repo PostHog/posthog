@@ -27,16 +27,13 @@ import { Breadcrumb, DataWarehouseSavedQuery, InsightLogicProps, InsightShortId,
 
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
+import { RevenueAnalyticsQuery } from './common'
 import type { revenueAnalyticsLogicType } from './revenueAnalyticsLogicType'
 import { revenueAnalyticsSettingsLogic } from './settings/revenueAnalyticsSettingsLogic'
 
-export enum RevenueAnalyticsQuery {
-    OVERVIEW,
-    MRR,
-    GROSS_REVENUE,
-    METRICS,
-    TOP_CUSTOMERS,
-}
+// Re-exported so existing importers (including the kea-generated *LogicType files) keep resolving it
+// from here. The canonical definition lives in ./common to avoid an import cycle with scenes/max/maxTypes.
+export { RevenueAnalyticsQuery } from './common'
 
 export const REVENUE_ANALYTICS_QUERY_TO_SHORT_ID: Record<RevenueAnalyticsQuery, InsightShortId> = {
     [RevenueAnalyticsQuery.OVERVIEW]: 'revenue-analytics-overview' as InsightShortId,

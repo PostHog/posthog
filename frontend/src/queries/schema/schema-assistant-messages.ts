@@ -499,6 +499,7 @@ export type AssistantTool =
     | 'run_hog_eval_test'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
+    | 'investigate_web_analytics'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

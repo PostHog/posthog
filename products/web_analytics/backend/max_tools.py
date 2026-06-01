@@ -1,6 +1,7 @@
 import json
 import asyncio
 import logging
+from dataclasses import asdict
 from typing import Any, Literal
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -20,6 +21,9 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
+from products.web_analytics.backend.attribution import AttributionResult, attribute_change
+from products.web_analytics.backend.weekly_digest import DigestFilterSpec, build_digest_from_spec, spec_from_filter_dict
+
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
 from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
@@ -35,6 +39,7 @@ from .prompts import (
     DATE_FIELDS_PROMPT,
     FILTER_EXAMPLES_PROMPT,
     FILTER_FIELDS_TAXONOMY_PROMPT,
+    INVESTIGATOR_PROMPT,
     PATH_CLEANING_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
@@ -59,7 +64,6 @@ class retrieve_web_analytics_property_values(BaseModel):
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
@@ -296,6 +300,148 @@ class WebAnalyticsDoctorTool(MaxTool):
             "failed_kinds": failed_kinds,
         }
         return content, artifact
+
+
+INVESTIGATE_WEB_ANALYTICS_DESCRIPTION = """
+- Investigate the current team's web analytics: identify what's notable in their traffic and, crucially,
+  explain WHY it changed — by decomposing the change across channels, entry pages, devices, countries and
+  referrers to find the segment driving it, and correlating with annotations, error spikes, and running
+  experiments. Ends by offering concrete next steps (pull session recordings of the affected users, create
+  an insight, or set an alert).
+- When to use the tool:
+  * When the user asks WHY a metric changed ("why did visitors drop", "what's driving my bounce rate")
+  * When the user asks "what changed" / "what's notable" / "any anomalies" / "investigate my traffic"
+  * When the user wants more than the dashboard shows — an explanation, not just the numbers
+    - synonyms: "recap", "overview", "what's going on with", "how is", "summarize", "dig into"
+- Do NOT use the tool:
+  * When the user wants to change filters on the page (use `filter_web_analytics` instead)
+  * When the user is debugging why their setup looks wrong or data is missing (use `web_analytics_doctor`)
+""".strip()
+
+
+class InvestigateWebAnalyticsArgs(BaseModel):
+    date_from: str | None = Field(
+        default=None,
+        description="Start of the analysis window, e.g. '-7d' or '2026-01-01'. Falls back to the filters the user is viewing, then to the last 7 days.",
+    )
+    date_to: str | None = Field(
+        default=None,
+        description="End of the analysis window. Same formats as date_from, or omit for an open-ended range up to now.",
+    )
+    compare: bool | None = Field(
+        default=None,
+        description="Whether to include period-over-period change against the prior equal-length period.",
+    )
+    filter_test_accounts: bool | None = Field(
+        default=None, description="Whether to exclude internal/test-account events from the analysis."
+    )
+    do_path_cleaning: bool | None = Field(
+        default=None, description="Whether to apply the team's path-cleaning rules before bucketing by page path."
+    )
+
+
+class InvestigateWebAnalyticsTool(MaxTool):
+    name: str = "investigate_web_analytics"
+    description: str = INVESTIGATE_WEB_ANALYTICS_DESCRIPTION
+    context_prompt_template: str = "Current web analytics filters are: {filters}"
+    args_schema: type[BaseModel] = InvestigateWebAnalyticsArgs
+
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("web_analytics", "viewer")]
+
+    def _resolve_spec(self, args: dict[str, Any]) -> DigestFilterSpec:
+        filters: dict[str, Any] = dict(self.context.get("filters") or {})
+        for key, value in args.items():
+            if value is not None:
+                filters[key] = value
+        return spec_from_filter_dict(filters)
+
+    async def _arun_impl(
+        self,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        compare: bool | None = None,
+        filter_test_accounts: bool | None = None,
+        do_path_cleaning: bool | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        spec = self._resolve_spec(
+            {
+                "date_from": date_from,
+                "date_to": date_to,
+                "compare": compare,
+                "filter_test_accounts": filter_test_accounts,
+                "do_path_cleaning": do_path_cleaning,
+            }
+        )
+        digest = await database_sync_to_async(build_digest_from_spec)(self._team, spec)
+
+        # attribute_change never raises (returns None on failure), so the investigation always renders.
+        attribution = await database_sync_to_async(attribute_change)(self._team, spec, digest)
+
+        content = _format_investigation_content(spec, digest, attribution=attribution)
+        return content, {
+            "digest": digest,
+            "attribution": asdict(attribution) if attribution else None,
+        }
+
+
+def _format_investigation_content(
+    spec: DigestFilterSpec,
+    digest: dict[str, Any],
+    *,
+    attribution: AttributionResult | None = None,
+) -> str:
+    sections = [INVESTIGATOR_PROMPT, "", "Filter context:", _format_filter_context_for_prompt(spec)]
+
+    if attribution and attribution.primary_driver:
+        sections += [
+            "",
+            "Change attribution (what's driving the visitor change):",
+            _format_attribution_for_prompt(attribution),
+        ]
+
+    sections += ["", "Data (period-over-period change present when available):", json.dumps(digest, default=str)]
+    return "\n".join(sections)
+
+
+def _format_attribution_for_prompt(attribution: AttributionResult) -> str:
+    driver = attribution.primary_driver
+    lines = [
+        f"- Overall **{attribution.metric}**: {attribution.overall_previous} → {attribution.overall_current} "
+        f"(Δ {attribution.overall_delta:+})",
+    ]
+    if driver:
+        share = f" ({driver.contribution_pct}% of the change)" if driver.contribution_pct is not None else ""
+        lines.append(
+            f"- Primary driver — **{driver.dimension} = `{driver.segment}`**: {driver.previous} → {driver.current} "
+            f"(Δ {driver.delta:+}){share}"
+        )
+    for f in attribution.per_dimension:
+        if driver and f.dimension == driver.dimension:
+            continue
+        # Other dimensions are alternative slices of the same change, not additive — show the segment and
+        # delta but no contribution %, since summing %s across overlapping slices would be meaningless.
+        lines.append(f"- Also visible by {f.dimension}: `{f.segment}` Δ {f.delta:+}")
+    return "\n".join(lines)
+
+
+def _format_filter_context_for_prompt(spec: DigestFilterSpec) -> str:
+    lines = []
+    date_from = spec.date_range.date_from or "(beginning of available data)"
+    date_to = spec.date_range.date_to or "(now)"
+    lines.append(f"- Date range: {date_from} to {date_to}")
+    lines.append(f"- Period comparison: {'on (vs prior equal-length period)' if spec.compare else 'off'}")
+    lines.append(f"- Filter test accounts: {spec.filter_test_accounts}")
+    lines.append(f"- Path cleaning: {spec.do_path_cleaning}")
+    if spec.conversion_goal is not None:
+        lines.append(f"- Conversion goal: {json.dumps(spec.conversion_goal.model_dump(), default=str)}")
+    if spec.properties:
+        lines.append(f"- Property filters: {json.dumps(spec.properties, default=str)}")
+    else:
+        lines.append("- Property filters: none")
+    return "\n".join(lines)
 
 
 def _reevaluate_one_check(team_id: int, kind: str) -> None:

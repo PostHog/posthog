@@ -15,6 +15,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
 
+import { OverviewItem } from './types'
+
+export type { OverviewItem }
+
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
 
@@ -23,17 +27,6 @@ const OVERVIEW_ITEM_CELL_CLASSES_DEFAULT = `flex-1 border p-2 bg-surface-primary
 
 // Compact classes for marketing analytics
 const OVERVIEW_ITEM_CELL_CLASSES_COMPACT = `flex-1 border p-1 bg-surface-primary rounded min-w-[6rem] h-24 flex flex-col items-center text-center justify-between`
-
-export interface OverviewItem {
-    key: string
-    value: number | string | undefined
-    previous?: number | string | undefined
-    changeFromPreviousPct?: number | undefined
-    kind: WebAnalyticsItemKind
-    isIncreaseBad?: boolean
-    warning?: string
-    warningLink?: string
-}
 
 export interface SamplingRate {
     numerator: number
@@ -50,6 +43,8 @@ interface OverviewGridProps {
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
+    /** Optional per-cell action (e.g. an inline "ask AI why" button). Consumers decide when to render it. */
+    renderItemAction?: (item: OverviewItem) => JSX.Element | null
 }
 
 export function OverviewGrid({
@@ -62,6 +57,7 @@ export function OverviewGrid({
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
+    renderItemAction,
 }: OverviewGridProps): JSX.Element {
     const filteredItems = items.filter(filterEmptyItems)
 
@@ -86,6 +82,7 @@ export function OverviewGrid({
                               usedLazyPrecompute={usedLazyPrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
+                              renderItemAction={renderItemAction}
                           />
                       ))}
             </EvenlyDistributedRows>
@@ -131,6 +128,7 @@ interface OverviewItemCellProps {
     usedLazyPrecompute: boolean
     labelFromKey: (key: string) => string
     compact: boolean
+    renderItemAction?: (item: OverviewItem) => JSX.Element | null
 }
 
 const OverviewItemCell = ({
@@ -139,10 +137,13 @@ const OverviewItemCell = ({
     usedLazyPrecompute,
     labelFromKey,
     compact,
+    renderItemAction,
 }: OverviewItemCellProps): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
 
     const label = labelFromKey(item.key)
+    // Consumers decide whether to render an action (e.g. only on notable changes); may be null.
+    const itemAction = renderItemAction?.(item)
 
     const trend =
         isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < 999999
@@ -186,7 +187,7 @@ const OverviewItemCell = ({
     return (
         <div
             className={clsx(
-                'flex-1 border bg-surface-primary rounded relative',
+                'group flex-1 border bg-surface-primary rounded relative',
                 compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30'
             )}
         >
@@ -197,6 +198,13 @@ const OverviewItemCell = ({
             ) : usedPreAggregatedTables ? (
                 <PreAggregatedBadge variant="preagg" />
             ) : null}
+            {/* Floated in the bottom-right corner and revealed on hover so it doesn't crowd the
+                header (which already carries the pre-agg badge and any warning icon). */}
+            {itemAction && (
+                <div className="absolute bottom-1 right-1 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    {itemAction}
+                </div>
+            )}
             <Tooltip title={tooltip}>
                 <div
                     className={clsx(

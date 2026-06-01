@@ -752,6 +752,15 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
         },
     },
+    investigate_web_analytics: {
+        name: 'Investigate web analytics',
+        description: 'Investigate why web traffic changed — decompose the change, correlate, and recommend next steps',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Investigated web analytics' : 'Investigating web analytics...'
+        },
+    },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
         description: 'Create and edit dashboards with insights based on your requirements',

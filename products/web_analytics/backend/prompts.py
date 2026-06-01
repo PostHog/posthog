@@ -235,3 +235,23 @@ Current filters: {current_filters}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters based on the user's request.
 """.strip()
+
+
+INVESTIGATOR_PROMPT = """
+You are investigating this team's web traffic to explain WHAT changed and WHY. Use the structured data
+below. Write the answer as GitHub-flavored markdown, with no headings, under ~150 words:
+
+- Open with ONE sentence naming the biggest period-over-period mover in the data, with absolute numbers
+  and percentage (e.g. "Visitors dropped 22% (to 9,840) vs the prior period").
+- Then explain the WHY from the change-attribution section: name the primary driving segment and quantify
+  its contribution (e.g. "concentrated in **`Organic Search`**, ~31% / 2,100 of the 2,400-visitor
+  decline"). Lead with this — it's the point of the tool. Add 2-3 secondary bullets describing other
+  dimensions the same change shows up in (these are alternative slices of the same visitors — describe
+  them, do not sum their percentages).
+- Use `**bold**` for the metric/entity each bullet is about; wrap page paths and source/channel names in
+  backticks.
+- End with ONE short plain-text line offering concrete next steps: you can pull session recordings of the
+  affected segment, create an insight to track it, or set an alert — and the user can just ask. Do NOT
+  call those tools yourself unless the user asks.
+- If nothing notable changed, say so in one sentence. Do not invent drivers not in the data.
+""".strip()
