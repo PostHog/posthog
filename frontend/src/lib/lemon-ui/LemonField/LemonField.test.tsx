@@ -9,8 +9,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { initKeaTests } from '~/test/init'
 
 import { LemonField } from './LemonField'
+import type { lemonFieldTestLogicType } from './LemonField.testType'
 
-const lemonFieldTestLogic = kea<any>([
+const lemonFieldTestLogic = kea<lemonFieldTestLogicType>([
     path(['lib', 'lemon-ui', 'LemonField', 'test']),
     forms(() => ({
         myForm: {
