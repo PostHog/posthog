@@ -190,11 +190,55 @@ describe('normalizeProcessPersonFlagStep', () => {
             }
         })
 
+        it('defaults $feature_flag_called events to personless when no $process_person_profile property is set', async () => {
+            const input: PerDistinctIdPipelineInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$feature_flag_called',
+                    properties: {
+                        $feature_flag: 'new-homepage',
+                        $feature_flag_response: 'test',
+                        $set: { email: 'user@example.com' },
+                    },
+                },
+            }
+
+            const result = await normalizeStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.processPerson).toBe(false)
+                expect(result.value.forceDisablePersonProcessing).toBe(false)
+                expect(result.value.event.properties?.$process_person_profile).toBe(false)
+                expect(result.value.event.properties?.$set).toBeUndefined()
+            }
+        })
+
         it('keeps processPerson=true when $process_person_profile=true explicitly', async () => {
             const input: PerDistinctIdPipelineInput = {
                 ...baseInput,
                 event: {
                     ...baseEvent,
+                    properties: { $process_person_profile: true },
+                },
+            }
+
+            const result = await normalizeStep(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.processPerson).toBe(true)
+                expect(result.value.forceDisablePersonProcessing).toBe(false)
+            }
+        })
+
+        it('keeps $feature_flag_called personful when $process_person_profile=true explicitly', async () => {
+            const input: PerDistinctIdPipelineInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    event: '$feature_flag_called',
                     properties: { $process_person_profile: true },
                 },
             }
