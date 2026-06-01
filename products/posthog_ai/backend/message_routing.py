@@ -34,6 +34,7 @@ from products.posthog_ai.backend.context_wrapper import (
     prune_repeated_entity_refs,
     wrap_user_message,
 )
+from products.posthog_ai.backend.sandbox_followup import lock_conversation_for_followup
 from products.posthog_ai.backend.system_prompt import build_posthog_ai_system_prompt
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_cancel
@@ -269,23 +270,75 @@ def _handle_terminal_resume(
     if task is None:
         raise exceptions.ValidationError("This conversation has no backing task to resume.")
 
+    # Built before the lock so the system-prompt assembly stays out of the narrow
+    # critical section below.
     system_prompt = async_to_sync(build_posthog_ai_system_prompt)(team, user)
 
-    extra_state: dict[str, Any] = {
-        "resume_from_run_id": str(run.id),
-        "pending_user_message": wrapped,
-        "systemPrompt": system_prompt,
-        # The full, undeduped list — survives for the life of the new Run.
-        "attached_context": attached_context,
-        "initial_permission_mode": "default",
-    }
-    # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
-    snapshot_external_id = (run.state or {}).get("snapshot_external_id")
-    if snapshot_external_id:
-        extra_state["snapshot_external_id"] = snapshot_external_id
+    # Serialize concurrent terminal-then-resume creates on this conversation (02_CORE
+    # §§ 9, 12 #6). Two tabs that both observe a terminal Run can each try to create a
+    # successor; the row-level lock makes the second tab block, then re-read the Run
+    # pointer and skip the duplicate create. The block stays narrow — only the DB
+    # decide/create happens inside it. All Temporal dispatch (workflow start, follow-up
+    # signal) is deferred until after the transaction commits so a rollback cannot
+    # orphan a workflow or signal a Run that was never persisted.
+    new_run: TaskRun | None = None
+    followup_run: TaskRun | None = None
+    with lock_conversation_for_followup(str(conversation.id), team.id) as locked_conversation:
+        # Re-resolve under the lock: a concurrent winner may have already created the
+        # successor Run while we waited for the lock.
+        current_run = locked_conversation.current_run
+        if current_run is not None and current_run.id != run.id and current_run.status in _IN_PROGRESS_STATUSES:
+            # The other tab won the race and already started a successor. Defer to
+            # signalling our message onto that live Run instead of creating a duplicate.
+            followup_run = current_run
+        else:
+            extra_state: dict[str, Any] = {
+                "resume_from_run_id": str(run.id),
+                "pending_user_message": wrapped,
+                "systemPrompt": system_prompt,
+                # The full, undeduped list — survives for the life of the new Run.
+                "attached_context": attached_context,
+                "initial_permission_mode": "default",
+            }
+            # Carry the prior Run's snapshot forward so the resume reuses its filesystem.
+            snapshot_external_id = (run.state or {}).get("snapshot_external_id")
+            if snapshot_external_id:
+                extra_state["snapshot_external_id"] = snapshot_external_id
 
-    new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            new_run = task.create_run(mode="interactive", extra_state=extra_state)
 
+    # Lost the race — signal the winner's live Run after the lock is released.
+    if followup_run is not None:
+        signal_task_followup_message(followup_run.workflow_id, wrapped, artifact_ids=[])
+        _log_user_message(followup_run, wrapped, attached_context)
+        report_user_action(
+            user,
+            "prompt sent",
+            {
+                "trace_id": trace_id,
+                "conversation_id": str(conversation.id),
+                "execution_type": "sandbox",
+                "just_created_run": False,
+            },
+            team=team,
+            request=request,
+        )
+        return Response(
+            {
+                "task_id": str(task.id),
+                "run_id": str(followup_run.id),
+                "trace_id": trace_id,
+                "run_status": followup_run.status,
+                "just_created_run": False,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    if new_run is None:
+        raise exceptions.ValidationError("Failed to resume sandbox run.")
+
+    # Side effect after the commit: starting the Temporal workflow is intentionally
+    # outside the locked transaction so a rollback cannot leave an orphaned workflow.
     execute_task_processing_workflow(
         task_id=str(task.id),
         run_id=str(new_run.id),

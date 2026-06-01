@@ -53,7 +53,6 @@ from posthog.temporal.ai.research_agent import (
 
 from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import handle_sandbox_cancel, handle_sandbox_message
-from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.agent_command import send_permission_response
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -715,14 +714,11 @@ class ConversationViewSet(
         serializer = PermissionResponseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        run_id = conversation.sandbox_run_id
-        if not run_id:
+        # Resolve the backing Run via the real task FK / derived current_run (02_CORE § 2.2),
+        # not the deprecated sandbox_run_id UUID column.
+        task_run = conversation.current_run
+        if task_run is None:
             return Response({"error": "Conversation has no active sandbox run"}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            task_run = TaskRun.objects.get(id=run_id, team=self.team)
-        except TaskRun.DoesNotExist:
-            return Response({"error": "Sandbox run no longer exists"}, status=status.HTTP_400_BAD_REQUEST)
 
         request_id = serializer.validated_data["requestId"]
         option_id = serializer.validated_data["optionId"]

@@ -22,9 +22,7 @@ class TestConversationPermission(APIBaseTest):
 
     def test_permission_delegates_with_permission_response_method(self):
         run = self._create_run()
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, sandbox_task_id=run.task.id, sandbox_run_id=run.id
-        )
+        conversation = Conversation.objects.create(user=self.user, team=self.team, task=run.task)
 
         with patch(
             "ee.api.conversation.send_permission_response",
@@ -45,9 +43,7 @@ class TestConversationPermission(APIBaseTest):
 
     def test_permission_forwards_custom_input(self):
         run = self._create_run()
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, sandbox_task_id=run.task.id, sandbox_run_id=run.id
-        )
+        conversation = Conversation.objects.create(user=self.user, team=self.team, task=run.task)
 
         with patch(
             "ee.api.conversation.send_permission_response",
@@ -73,9 +69,7 @@ class TestConversationPermission(APIBaseTest):
 
     def test_permission_502_when_agent_unreachable(self):
         run = self._create_run()
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, sandbox_task_id=run.task.id, sandbox_run_id=run.id
-        )
+        conversation = Conversation.objects.create(user=self.user, team=self.team, task=run.task)
 
         with patch(
             "ee.api.conversation.send_permission_response",

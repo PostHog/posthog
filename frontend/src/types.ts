@@ -6969,7 +6969,8 @@ export interface Conversation {
     /**
      * Runtime the conversation was created on. Stamped at create-time from the `phai-sandbox-mode`
      * flag and never re-read. Existing rows default to `'langgraph'`. See
-     * docs/internal/posthog-ai-migration/02_CORE.md § 2.
+     * docs/internal/posthog-ai-migration/02_CORE.md § 2. Values must stay aligned with the generated
+     * `AgentRuntimeEnumApi` (products/conversations/frontend/generated/api.schemas.ts).
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. */

@@ -59,6 +59,9 @@ export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 // gate (runtime config, not here). The single-exec inner tool names come in two conventions across
 // the in-flight specs/yaml — the hyphenated form (03_RICH_UI.md § 4.2) and the snake_case form
 // (MCP_TOOLS.md). We register both aliases so dispatch is robust to whichever the MCP server emits.
+// OPEN QUESTION: the final MCP yaml tool names are not yet settled (03_RICH_UI.md § 5, open #3 —
+// `query-*`/`insight-*` vs `*_insight`). Keep both alias sets until the server-side slugs are frozen,
+// then drop the unused convention here.
 
 // --- Data tools: insight (UI-A) ---
 // VisualizationArtifactAnswer renderer — create / update / query / read insight.

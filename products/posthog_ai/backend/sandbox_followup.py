@@ -23,7 +23,7 @@ def lock_conversation_for_followup(conversation_id: str, team_id: int) -> Iterat
     so the second tab blocks until the first commits, then re-reads the (now-updated) run pointer
     and skips the duplicate create.
 
-    Usage (to be wired into the `POST /sandbox/` follow-up branch when I2.5 lands)::
+    Wired into the terminal-then-resume branch of `message_routing.handle_sandbox_message`::
 
         with lock_conversation_for_followup(conversation_id, team_id) as conversation:
             # re-resolve run pointer from `conversation` here (it reflects any concurrent winner)
@@ -36,9 +36,10 @@ def lock_conversation_for_followup(conversation_id: str, team_id: int) -> Iterat
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (team_id is part of the lookup below)
         conversation = Conversation.objects.select_for_update().get(id=conversation_id, team_id=team_id)
+        current_run = conversation.current_run
         logger.debug(
             "sandbox_followup_lock_acquired",
             conversation_id=conversation_id,
-            sandbox_run_id=str(conversation.sandbox_run_id) if conversation.sandbox_run_id else None,
+            run_id=str(current_run.id) if current_run else None,
         )
         yield conversation

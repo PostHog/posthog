@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import cast
 
 from posthog.test.base import APIBaseTest
@@ -208,6 +209,50 @@ class TestHandleSandboxMessage(APIBaseTest):
         m_workflow.assert_called_once()
         assert m_workflow.call_args.kwargs["run_id"] == str(new_run.id)
         m_telemetry.assert_called_once()
+
+    def test_terminal_resume_defers_to_concurrent_winner(self):
+        # The prior Run is terminal at branch time, but while we wait for the row lock a
+        # concurrent tab creates and starts a successor Run. Under the lock we re-resolve
+        # `current_run`, see the in-progress successor, and signal it instead of creating
+        # a duplicate (02_CORE §§ 9, 12 #6).
+        task, run = self._stub_task()
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self._attach_task(task)
+
+        # The helper stands in for the concurrent winner: by the time this request takes
+        # the lock, the winner has committed an in-progress successor. The locked
+        # conversation re-read reflects it, so the branch must signal instead of create.
+        created: dict[str, TaskRun] = {}
+
+        @contextmanager
+        def _fake_lock(conversation_id, team_id):
+            winner = task.create_run(mode="interactive")
+            winner.status = TaskRun.Status.IN_PROGRESS
+            winner.save(update_fields=["status"])
+            created["winner"] = winner
+            yield Conversation.objects.get(id=conversation_id, team_id=team_id)
+
+        with (
+            patch(f"{ROUTING}.execute_task_processing_workflow") as m_workflow,
+            patch(f"{ROUTING}.signal_task_followup_message") as m_signal,
+            patch(f"{ROUTING}.build_posthog_ai_system_prompt", return_value="SYS"),
+            patch(f"{ROUTING}.report_user_action"),
+            patch(f"{ROUTING}.lock_conversation_for_followup", new=_fake_lock),
+            patch.object(TaskRun, "append_log"),
+        ):
+            request = self._request({"content": "resume please", "trace_id": "trace-race"})
+            response = handle_sandbox_message(request, self.conversation)
+
+        winner_run = created["winner"]
+        assert response.status_code == 200
+        assert response.data["just_created_run"] is False
+        assert response.data["run_id"] == str(winner_run.id)
+        # No extra successor created beyond the winner, no workflow dispatched.
+        assert task.runs.count() == 2
+        m_signal.assert_called_once()
+        assert m_signal.call_args[0][0] == winner_run.workflow_id
+        m_workflow.assert_not_called()
 
     def test_dedupes_entities_named_in_prior_run_state(self):
         task, run = self._stub_task()
