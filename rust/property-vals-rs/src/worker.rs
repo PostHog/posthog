@@ -134,7 +134,7 @@ pub(crate) async fn flush<P: Producer>(
     let to_emit: Vec<(TupleKey, u64)> = match seen_cache {
         Some(cache) => snapshot
             .into_iter()
-            .filter(|(tuple, _)| !cache.seen_or_insert(tuple))
+            .filter(|(tuple, _)| !cache.seen(tuple))
             .collect(),
         None => snapshot,
     };
@@ -150,15 +150,15 @@ pub(crate) async fn flush<P: Producer>(
         if let Err(e) = producer.produce(to_emit.clone()).await {
             metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
             error!(error = %e, "produce failed; restoring counts, retrying next flush");
-            if let Some(cache) = seen_cache {
-                for (tuple, _) in &to_emit {
-                    cache.forget(tuple);
-                }
-            }
             for (tuple, count) in to_emit {
                 aggregator.add(tuple, count);
             }
             return;
+        }
+        if let Some(cache) = seen_cache {
+            for (tuple, _) in &to_emit {
+                cache.insert(tuple);
+            }
         }
     }
 

@@ -37,18 +37,17 @@ impl SeenCache {
         Self { cache, worker }
     }
 
-    pub fn seen_or_insert(&self, key: &TupleKey) -> bool {
+    pub fn seen(&self, key: &TupleKey) -> bool {
         if self.cache.get(key).is_some() {
             metrics::counter!(SEEN_CACHE_HITS, "worker" => self.worker).increment(1);
             true
         } else {
             metrics::counter!(SEEN_CACHE_MISSES, "worker" => self.worker).increment(1);
-            self.cache.insert(key.clone(), ());
             false
         }
     }
 
-    pub fn forget(&self, key: &TupleKey) {
-        self.cache.remove(key);
+    pub fn insert(&self, key: &TupleKey) {
+        self.cache.insert(key.clone(), ());
     }
 }
