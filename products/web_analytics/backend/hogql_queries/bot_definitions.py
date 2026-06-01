@@ -287,9 +287,6 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Screaming Frog SEO Spider": BotDefinition(
         "Screaming Frog", "seo_crawler", "Bot", "Screaming Frog", documentation_url="https://www.screamingfrog.co.uk/"
     ),
-    "adidxbot": BotDefinition(
-        "Microsoft Ads", "seo_crawler", "Bot", "Microsoft", documentation_url="https://bots.fyi/d/adidxbot"
-    ),
     "PTST": BotDefinition(
         "WebPageTest", "seo_crawler", "Bot", "Catchpoint", documentation_url="https://www.webpagetest.org/"
     ),
@@ -454,7 +451,6 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "OneTrust": BotDefinition("OneTrust", "http_client", "Bot", "OneTrust"),
     # Production-validated batch (prod-us 7d, $pageview, multi-source ranked by event count)
-    "google-adwords": BotDefinition("google-adwords", "search_crawler", "Bot", "Google"),
     "Checkly": BotDefinition("Checkly", "monitoring", "Bot", "Checkly"),
     "RuxitSynthetic": BotDefinition("dynatrace-monitor", "monitoring", "Bot", "Dynatrace"),
     "Google-AdWords-Express": BotDefinition("Google-AdWords-Express", "seo_crawler", "Bot", "Google"),
@@ -471,12 +467,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "SEBot-WA": BotDefinition("SE Ranking Bot", "monitoring", "Bot", "SE Ranking"),
     "Ads-Naver": BotDefinition("adsnaver", "search_crawler", "Bot", "Naver"),
     "Better Uptime Bot": BotDefinition("Better Stack", "monitoring", "Bot", "BetterStack"),
-    "zhanzhang.toutiao.com": BotDefinition("Toutiao", "search_crawler", "Bot", "ByteDance"),
     "woorankreview": BotDefinition("WooRank", "search_crawler", "Bot", "WooRank"),
     "Viber": BotDefinition("viber-crawler", "social_crawler", "Bot", "Rakuten"),
     "Taboolabot": BotDefinition("Taboola", "seo_crawler", "Bot", "Taboola"),
     "Archive-It": BotDefinition("Internet Archive - Archive-It", "search_crawler", "Bot", "Internet Archive"),
-    "special_archiver": BotDefinition("archive.org bot", "search_crawler", "Bot", "Internet Archive"),
     "seo4ajax.com": BotDefinition("seo4ajax", "seo_crawler", "Bot", "Prerender.io"),
     "CookieHubScan": BotDefinition("cookiehub-scan", "http_client", "Automation", "CookieHub"),
     "BitSightBot": BotDefinition("BitSight", "monitoring", "Bot", "BitSight"),
@@ -484,7 +478,6 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Dataprovider": BotDefinition("Dataprovider.com", "search_crawler", "Bot", "Dataprovider"),
     "BingPreview": BotDefinition("Bing Preview", "social_crawler", "Bot", "Microsoft"),
     "Convertify": BotDefinition("Convertify", "http_client", "Automation", "Convertify"),
-    "Facebot": BotDefinition("imessage-preview", "social_crawler", "Bot", "Imessage-preview"),
     "GoogleAgent-Mariner": BotDefinition("GoogleAgent-Mariner", "ai_crawler", "AI Agent", "Google"),
     "DareBoost": BotDefinition("dareboost-crawler", "seo_crawler", "Bot", "Dareboost"),
     "AccessibleWebBot": BotDefinition("Accessible Web Bot", "monitoring", "Bot", "AccessibleWebBot"),
@@ -510,9 +503,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Foregenix": BotDefinition("Foregenix ThreatView/WebScan", "monitoring", "Bot", "Foregenix"),
     "FirecrawlAgent": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
     "Seekport": BotDefinition("seekport-crawler", "search_crawler", "Bot", "Seekport"),
-    "SiteCheck-sitecrawl": BotDefinition("Siteimprove Crawl", "seo_crawler", "Bot", "Siteimprove"),
     "ev-crawler": BotDefinition("Headline", "search_crawler", "Bot", "Headline"),
-    "W3C-checklink": BotDefinition("W3 Validator Services", "seo_crawler", "Bot", "W3"),
     "bitdiscovery": BotDefinition("Tenable.asm", "monitoring", "Bot", "Tenable.asm"),
     "SecurityHeaders": BotDefinition("SecurityHeaders", "monitoring", "Bot", "Probely"),
     "vercel-screenshot": BotDefinition("Vercel Screenshot Bot", "social_crawler", "Bot", "Vercel"),
@@ -526,7 +517,6 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "WellKnownBot": BotDefinition("wellknown-crawler", "search_crawler", "Bot", "Wellknown-crawler"),
     "OKX-dolphin-crawler": BotDefinition("OKX-dolphin-crawler", "monitoring", "Bot", "OKX"),
     "BrightEdge Crawler": BotDefinition("BrightEdge Bot", "seo_crawler", "Bot", "BrightEdge"),
-    "pinterest.com/bot": BotDefinition("Pinterest Bot", "search_crawler", "Bot", "Pinterest"),
     "Asana": BotDefinition("Asana", "search_crawler", "Bot", "Asana"),
     "Google-PageRenderer": BotDefinition("Google PageRenderer", "social_crawler", "Bot", "Google"),
     "charlotte": BotDefinition("Charlotte", "search_crawler", "Bot", "Salesforce"),
