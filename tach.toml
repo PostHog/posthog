@@ -758,6 +758,13 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+]
+from = [
+    "products.business_knowledge",
+]
+
+[[interfaces]]
+expose = [
     "backend\\.routes.*",
 ]
 from = [
