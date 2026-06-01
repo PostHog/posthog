@@ -11,6 +11,8 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+import datetime as dt
 
 from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
@@ -35,7 +37,6 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
@@ -332,22 +333,40 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
-            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
+        runner = TraceSpansQueryRunner(spans_query, self.team)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        all_results = list(response.results)
 
-        results = list(
-            time_sliced_results(
-                runner=TraceSpansQueryRunner(spans_query, self.team),
-                order_by_earliest=order_by == "earliest",
-                make_runner=make_runner,
-            )
+        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
+        # by start time; decide hasMore on the trace count, drop the spans of the overflow trace,
+        # and emit a cursor pointing at the last kept trace. `trace_start` is the SQL pagination key
+        # carried on every span row (see TraceSpansQueryRunner.to_query) — read it directly rather
+        # than re-deriving min() over the prefetched spans, which can disagree with the SQL key.
+        earliest_first = order_by == "earliest"
+        trace_start: dict[str, dt.datetime] = {span["trace_id"]: span["trace_start"] for span in all_results}
+
+        ordered_traces = sorted(
+            trace_start.items(),
+            key=lambda item: (item[1], base64.b64encode(bytes.fromhex(item[0])).decode("ascii")),
+            reverse=not earliest_first,
         )
+        has_more = len(ordered_traces) > requested_limit
+        kept_trace_ids = {tid for tid, _ in ordered_traces[:requested_limit]}
+        results = [span for span in all_results if span["trace_id"] in kept_trace_ids]
+
+        next_cursor = None
+        if has_more:
+            boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
+            next_cursor = base64.b64encode(
+                json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
+            ).decode("utf-8")
 
         return Response(
             {
                 "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
