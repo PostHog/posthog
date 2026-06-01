@@ -24,17 +24,17 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable scanner name. Unique within the team.'),
     description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'indexer'])
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
-            '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `indexer` - Indexer'
+            '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
         )
         .describe(
-            'What the scanner does: monitor, classifier, scorer, summarizer, or indexer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `indexer` - Indexer'
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
         ),
     scanner_config: zod
         .unknown()
         .describe(
-            'Type-specific configuration. Monitor\/classifier\/scorer\/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
         ),
     query: zod
         .unknown()
@@ -89,19 +89,19 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable scanner name. Unique within the team.'),
     description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'indexer'])
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
-            '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `indexer` - Indexer'
+            '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
         )
         .optional()
         .describe(
-            'What the scanner does: monitor, classifier, scorer, summarizer, or indexer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `indexer` - Indexer'
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
         ),
     scanner_config: zod
         .unknown()
         .optional()
         .describe(
-            'Type-specific configuration. Monitor\/classifier\/scorer\/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
         ),
     query: zod
         .unknown()
@@ -154,3 +154,27 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
             .describe('ID of the session recording to apply the scanner to.'),
     })
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
+
+/**
+ * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
+ */
+export const visionScannersEstimateCreateBodySamplingRateDefault = 1
+export const visionScannersEstimateCreateBodySamplingRateMin = 0
+export const visionScannersEstimateCreateBodySamplingRateMax = 1
+
+export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
+    .object({
+        query: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings.'
+            ),
+        sampling_rate: zod
+            .number()
+            .min(visionScannersEstimateCreateBodySamplingRateMin)
+            .max(visionScannersEstimateCreateBodySamplingRateMax)
+            .default(visionScannersEstimateCreateBodySamplingRateDefault)
+            .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+    })
+    .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

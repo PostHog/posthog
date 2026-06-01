@@ -17,7 +17,7 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
-import { LineChart } from '../LineChart'
+import { LineChart } from '../LineChart/LineChart'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,
@@ -111,6 +111,8 @@ export function TimeSeriesLineChart<Meta = unknown>({
         yTickFormatter,
         hideXAxis: xAxis?.hide,
         hideYAxis: yAxis?.hide,
+        xAxisLabel: xAxis?.label,
+        yAxisLabel: yAxis?.label,
         showGrid: yAxis?.showGrid,
         percentStackView,
         showCrosshair,

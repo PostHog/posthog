@@ -33,6 +33,10 @@ export function RetentionTooltip({
     const seriesData = useMemo<SeriesDatum[]>(
         () =>
             context.seriesData
+                // Each retention series is already its own row (cohort or breakdown value), so the
+                // breakdown value is carried by `label`. Don't set `breakdown_value` here — it would
+                // flip InsightTooltip into its breakdown-column pivot, which renders one column per
+                // series and leaves every other cell as "–".
                 .map((entry, idx) => ({
                     id: idx,
                     dataIndex: context.dataIndex,
@@ -41,10 +45,6 @@ export function RetentionTooltip({
                     label: entry.series.label,
                     color: entry.color,
                     count: entry.value,
-                    breakdown_value:
-                        entry.series.meta?.breakdown_value != null
-                            ? String(entry.series.meta.breakdown_value)
-                            : undefined,
                 }))
                 // Show highest values first, matching the legacy LineGraph tooltip.
                 .sort((a, b) => b.count - a.count || (a.label ?? '').localeCompare(b.label ?? ''))

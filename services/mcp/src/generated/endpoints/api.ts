@@ -73,6 +73,10 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+        tags: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
     })
     .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -136,6 +140,10 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
                 'Per-column bucket overrides for range variable materialization. Keys are column names, values are bucket keys.'
             ),
         deleted: zod.boolean().nullish().describe('Set to true to soft-delete this endpoint.'),
+        tags: zod
+            .array(zod.string())
+            .nullish()
+            .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
     })
     .describe('Schema for creating/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 

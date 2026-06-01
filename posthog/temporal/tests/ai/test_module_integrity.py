@@ -1,5 +1,5 @@
 from posthog.temporal import ai
-from posthog.temporal.llm_analytics import (
+from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
@@ -26,6 +26,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackMentionCommandWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
@@ -54,10 +55,15 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
+            "handle_posthog_code_slack_mention_command_activity",
+            "resolve_posthog_code_slack_command_user_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
+            "cascade_posthog_code_repository_activity",
+            "discover_posthog_code_repository_via_agent_activity",
             "select_posthog_code_repository_activity",
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
@@ -239,6 +245,8 @@ class TestSignalsProductModuleIntegrity:
             "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "RunSignalsScoutWorkflow",
+            "SignalsScoutCoordinatorWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -289,6 +297,8 @@ class TestSignalsProductModuleIntegrity:
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "fetch_enabled_signals_scout_runs_activity",
+            "run_signals_scout_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -301,7 +311,7 @@ class TestSignalsProductModuleIntegrity:
             )
 
 
-class TestLLMAnalyticsModuleIntegrity:
+class TestAIObservabilityModuleIntegrity:
     def test_workflows_remain_unchanged(self):
         """Ensure all expected LLMA-worker workflows are present."""
         expected_workflows = [
@@ -313,10 +323,10 @@ class TestLLMAnalyticsModuleIntegrity:
             "CheckCountTriggeredReportsWorkflow",
             "GenerateAndDeliverEvalReportWorkflow",
             "EmitEvalReportSignalWorkflow",
-            "LLMAEvaluationSamplerCoordinatorWorkflow",
-            "LLMAEvaluationSamplerWorkflow",
-            "LLMAEvaluationClusteringCoordinatorWorkflow",
-            "LLMAEvaluationClusteringWorkflow",
+            "AIObservabilityEvaluationSamplerCoordinatorWorkflow",
+            "AIObservabilityEvaluationSamplerWorkflow",
+            "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
+            "AIObservabilityEvaluationClusteringWorkflow",
             "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
@@ -331,7 +341,7 @@ class TestLLMAnalyticsModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected LLMA-worker activities are present."""
         expected_activities = [
-            "get_team_ids_for_llm_analytics",
+            "get_team_ids_for_ai_observability",
             "sample_items_in_window_activity",
             "fetch_and_format_activity",
             "summarize_and_save_activity",

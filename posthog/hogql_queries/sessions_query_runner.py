@@ -18,6 +18,7 @@ from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import Person
@@ -609,6 +610,8 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 return stmt
 
     def _calculate(self) -> SessionsQueryResponse:
+        # `SessionsQuery.select`, `where`, `orderBy` are user-supplied HogQL strings.
+        tag_contains_user_hogql()
         query_result = self.paginator.execute_hogql_query(
             query=self.to_query(),
             team=self.team,

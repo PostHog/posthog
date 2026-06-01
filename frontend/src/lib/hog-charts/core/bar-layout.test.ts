@@ -37,6 +37,24 @@ describe('hog-charts bar-layout', () => {
         ])('returns no rounding when shouldRoundCap is false', ({ isHorizontal, isPositive }) => {
             expect(cornersFor(isHorizontal, isPositive, false)).toEqual({})
         })
+
+        it.each([
+            { isHorizontal: false, isPositive: true, expected: { bottomLeft: true, bottomRight: true } },
+            { isHorizontal: false, isPositive: false, expected: { topLeft: true, topRight: true } },
+            { isHorizontal: true, isPositive: true, expected: { topLeft: true, bottomLeft: true } },
+            { isHorizontal: true, isPositive: false, expected: { topRight: true, bottomRight: true } },
+        ])('rounds the baseline end (h=$isHorizontal, +=$isPositive)', ({ isHorizontal, isPositive, expected }) => {
+            expect(cornersFor(isHorizontal, isPositive, false, true)).toEqual(expected)
+        })
+
+        it('rounds both ends as a pill when cap and baseline are both set', () => {
+            expect(cornersFor(true, true, true, true)).toEqual({
+                topLeft: true,
+                bottomLeft: true,
+                topRight: true,
+                bottomRight: true,
+            })
+        })
     })
 
     describe('computeSeriesBars — grouped', () => {
@@ -119,12 +137,59 @@ describe('hog-charts bar-layout', () => {
             expect(bars[0]?.corners).toEqual(expectedCorners)
         })
 
-        it('throws when stackedBand is omitted for non-grouped layouts', () => {
+        it('rounds both ends per band when capRoundedAtIndex/baseRoundedAtIndex are funnel-style', () => {
+            // Funnel: step 0 is 100% (no filler), step 1 splits value + filler. The value segment
+            // is the bottom of every band; it is also the visible top at step 0 (filler is zero).
+            const labels = ['0', '1']
+            const value = makeSeries({ key: 'value', data: [100, 55] })
+            const filler = makeSeries({ key: 'filler', data: [0, 45] })
+            const scales = createBarScales([value, filler], labels, dimensions, {
+                barLayout: 'stacked',
+                axisOrientation: 'horizontal',
+            })
+            const stacks = computeStackData([value, filler], labels)
+            // Per-band non-zero edges: value is bottom at both; top at step 0, filler is top at step 1.
+            const topKeyAtIndex = ['value', 'filler']
+            const bottomKeyAtIndex = ['value', 'value']
+            const valueBars = computeSeriesBars({
+                series: value,
+                labels,
+                scales,
+                layout: 'stacked',
+                isHorizontal: true,
+                stackedBand: stacks.get('value'),
+                isTopOfStack: false,
+                capRoundedAtIndex: (i) => topKeyAtIndex[i] === 'value',
+                baseRoundedAtIndex: (i) => bottomKeyAtIndex[i] === 'value',
+            })
+            const fillerBars = computeSeriesBars({
+                series: filler,
+                labels,
+                scales,
+                layout: 'stacked',
+                isHorizontal: true,
+                stackedBand: stacks.get('filler'),
+                isTopOfStack: true,
+                capRoundedAtIndex: (i) => topKeyAtIndex[i] === 'filler',
+                baseRoundedAtIndex: (i) => bottomKeyAtIndex[i] === 'filler',
+            })
+            // Step 0: value is the only segment — rounded pill on both ends.
+            expect(valueBars[0]?.corners).toEqual({
+                topLeft: true,
+                bottomLeft: true,
+                topRight: true,
+                bottomRight: true,
+            })
+            // Step 1: value rounds the baseline (left) only; filler rounds the cap (right) only.
+            expect(valueBars[1]?.corners).toEqual({ topLeft: true, bottomLeft: true })
+            expect(fillerBars[1]?.corners).toEqual({ topRight: true, bottomRight: true })
+        })
+
+        it('returns nulls when stackedBand is omitted for non-grouped layouts', () => {
             const s = makeSeries({ key: 's', data: [10] })
             const scales = createBarScales([s], ['a'], dimensions, { barLayout: 'stacked' })
-            expect(() => layoutOf({ series: s, scales, layout: 'stacked', isTopOfStack: true })).toThrow(
-                /stackedBand is required/
-            )
+            const bars = layoutOf({ series: s, scales, layout: 'stacked', isTopOfStack: true })
+            expect(bars).toEqual([null])
         })
 
         it('rounds the cap of the topmost visible series per yAxisId (multi-axis stacked)', () => {

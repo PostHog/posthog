@@ -7,7 +7,6 @@ from posthog.schema import DetectorType, IntervalType, TrendsAlertConfig, Trends
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.models import Insight
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detectors import get_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
@@ -22,6 +21,7 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.product_analytics.backend.models.insight import Insight
 
 # Minimum samples required for each detector type
 DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {

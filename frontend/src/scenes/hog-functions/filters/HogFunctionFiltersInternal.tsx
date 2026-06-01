@@ -67,6 +67,17 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$discussion_mention_created',
                 },
             ]
+        case 'health-alerts':
+            return [
+                {
+                    label: 'Health check fired',
+                    value: '$health_check_issue_firing',
+                },
+                {
+                    label: 'Health check resolved',
+                    value: '$health_check_issue_resolved',
+                },
+            ]
         default:
             return [
                 {
@@ -154,6 +165,10 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.Events]
         } else if (contextId === 'activity-log') {
             return [TaxonomicFilterGroupType.ActivityLogProperties]
+        } else if (contextId === 'logs-alerting') {
+            return [TaxonomicFilterGroupType.EventProperties]
+        } else if (contextId === 'health-alerts') {
+            return [TaxonomicFilterGroupType.EventProperties]
         }
         return []
     }, [contextId])

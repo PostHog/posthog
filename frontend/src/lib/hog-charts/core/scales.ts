@@ -3,6 +3,9 @@ import * as d3 from 'd3'
 import type { ChartDimensions, ChartScales, ResolveValueFn, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
+/** Inner padding fraction applied to the band scale when `BarChartConfig.bars.bandPadding` is unset. */
+export const DEFAULT_BAND_PADDING = 0.2
+
 type D3YScale = d3.ScaleLinear<number, number> | d3.ScaleLogarithmic<number, number>
 
 export interface ScaleSet {
@@ -319,28 +322,30 @@ export function createBarScales(
         bandPadding?: number
         groupPadding?: number
         stackedSeries?: Series[]
+        /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
+        maxBandRange?: number
     } = {}
 ): BarScaleSet {
     const {
         scaleType = 'linear',
         barLayout = 'stacked',
         axisOrientation = 'vertical',
-        bandPadding = 0.2,
+        bandPadding = DEFAULT_BAND_PADDING,
         groupPadding = 0.1,
         stackedSeries,
+        maxBandRange,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
     const tickCount = yTickCountForHeight(isHorizontal ? dimensions.plotWidth : dimensions.plotHeight)
 
+    const bandAxisStart = isHorizontal ? dimensions.plotTop : dimensions.plotLeft
+    const bandAxisExtent = isHorizontal ? dimensions.plotHeight : dimensions.plotWidth
+    const cappedExtent = maxBandRange != null ? Math.min(bandAxisExtent, maxBandRange) : bandAxisExtent
     const band = d3
         .scaleBand<string>()
         .domain(labels)
-        .range(
-            isHorizontal
-                ? [dimensions.plotTop, dimensions.plotTop + dimensions.plotHeight]
-                : [dimensions.plotLeft, dimensions.plotLeft + dimensions.plotWidth]
-        )
+        .range([bandAxisStart, bandAxisStart + cappedExtent])
         .paddingInner(bandPadding)
         .paddingOuter(bandPadding / 2)
 
