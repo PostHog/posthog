@@ -1194,7 +1194,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
                 const compactQuery = query.replace(/\s+/g, ' ').trim()
-                const truncated = compactQuery.length > 140 ? compactQuery.slice(0, 137) + '…' : compactQuery
+                const truncated = compactQuery.length > 80 ? compactQuery.slice(0, 77) + '…' : compactQuery
                 tryShowMCPHint('sql.execute', truncated ? { derivedPrompt: `Run this SQL: ${truncated}` } : undefined)
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
