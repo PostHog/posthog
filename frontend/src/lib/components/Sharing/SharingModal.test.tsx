@@ -193,4 +193,12 @@ describe('SharingModal (insight)', () => {
 
         expect(within(modal as HTMLElement).queryByText(/Show insight details/i)).toBeNull()
     })
+
+    it('gives the preview iframe an explicit background so it does not fall back to the browser backdrop', async () => {
+        render(<InsightSharingModalWrapper />)
+
+        // Without an explicit surface, a loading/errored iframe paints the UA color-scheme backdrop (light or dark by browser version)
+        const iframe = await screen.findByTitle('Shared insight preview')
+        expect(iframe).toHaveClass('bg-primary')
+    })
 })

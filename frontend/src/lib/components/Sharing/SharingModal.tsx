@@ -453,7 +453,8 @@ export function SharingModalContent({
                                                     {showPreview && (
                                                         <div className="SharingPreview border-t">
                                                             <iframe
-                                                                className="block"
+                                                                // Explicit surface so the load/error state matches the embedded page, not the UA color-scheme backdrop
+                                                                className="block bg-primary"
                                                                 {...iframeProperties}
                                                                 title="Shared insight preview"
                                                                 onLoad={() => setIframeLoaded(true)}
