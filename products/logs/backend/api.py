@@ -596,7 +596,6 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["logs"])
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
