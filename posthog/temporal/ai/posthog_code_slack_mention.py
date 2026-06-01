@@ -1334,7 +1334,7 @@ def forward_posthog_code_followup_activity(
         # — if so, let them participate; the message is still relayed in the original
         # author's name (their sandbox token, their identity to the agent), with the
         # actual sender's name prefixed onto the text so the agent sees who spoke.
-        resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts, post_feedback=False)
+        resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
                 "posthog_code_followup_unauthorized_actor",
@@ -1342,11 +1342,6 @@ def forward_posthog_code_followup_activity(
                 thread_ts=thread_ts,
                 expected=mapping.mentioning_slack_user_id,
                 actual=slack_user_id,
-            )
-            slack.client.chat_postMessage(
-                channel=channel,
-                thread_ts=thread_ts,
-                text="Only the person who started this task can send follow-up messages to the agent.",
             )
             return True
         actor_name = resolved.user.first_name or resolved.slack_email.split("@", 1)[0]

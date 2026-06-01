@@ -590,8 +590,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
 
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
-    def test_terminal_run_unauthorized_user_returns_true_with_error(self, mock_slack_cls):
+    def test_terminal_run_unauthorized_user_returns_true_with_resolver_feedback(self, mock_slack_cls, mock_resolve):
         self.task_run.status = self.TaskRun.Status.COMPLETED
         self.task_run.save()
         self._create_mapping(mentioning_user="U_ALICE")
@@ -604,8 +605,10 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Only the person who started" in call_kwargs["text"]
+        mock_resolve.assert_called_once_with(
+            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
+        )
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_terminal_run_missing_created_by_returns_true_with_error(self, mock_slack_cls):
@@ -651,8 +654,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert mapping.task_run_id == self.task_run.id
 
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
-    def test_unauthorized_actor_returns_true_with_message(self, mock_slack_cls):
+    def test_unauthorized_actor_returns_true_with_resolver_feedback(self, mock_slack_cls, mock_resolve):
         self._create_mapping(mentioning_user="U_ALICE")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -662,13 +666,14 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             inputs, "C123", "1234.5678", "U_BOB", "do something", "1234.5679"
         )
         assert result is True
-        mock_slack_instance.client.chat_postMessage.assert_called_once()
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Only the person who started" in call_kwargs["text"]
+        mock_resolve.assert_called_once_with(
+            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
+        )
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_followup_authorized_prefixes_actor_name(
         self, mock_slack_cls, mock_resolve, mock_send, mock_token
@@ -702,7 +707,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.create_sandbox_connection_token", return_value="jwt-token")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.send_user_message")
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_followup_falls_back_to_email_local_part_when_no_first_name(
         self, mock_slack_cls, mock_resolve, mock_send, mock_token
@@ -718,12 +723,12 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
         mock_send.assert_called_once_with(self.task_run, "bob: ping", auth_token="jwt-token", timeout=90)
 
-    @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user", return_value=None)
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
-    def test_cross_user_followup_unmapped_user_is_denied(self, mock_slack_cls, mock_resolve):
+    def test_cross_user_followup_unmapped_user_delegates_feedback_to_resolver(self, mock_slack_cls, mock_resolve):
         # A second Slack user who can't be resolved to a PostHog member of this team
-        # still gets the existing denial — we don't open the gate to arbitrary thread
-        # participants.
+        # still can't participate, but resolve_slack_user owns the exact feedback
+        # because it knows whether email, org membership, or team access failed.
         self._create_mapping(mentioning_user="U_ALICE")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -734,11 +739,13 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
 
         assert result is True
-        call_kwargs = mock_slack_instance.client.chat_postMessage.call_args.kwargs
-        assert "Only the person who started" in call_kwargs["text"]
+        mock_resolve.assert_called_once_with(
+            mock_slack_instance, self.integration, "U_BOB", "C123", "1234.5678"
+        )
+        mock_slack_instance.client.chat_postMessage.assert_not_called()
 
     @patch("posthog.temporal.ai.posthog_code_slack_mention.execute_task_processing_workflow")
-    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.temporal.ai.posthog_code_slack_mention.resolve_slack_user")
     @patch("posthog.temporal.ai.posthog_code_slack_mention.SlackIntegration")
     def test_cross_user_terminal_run_resume_prefixes_actor_name(
         self, mock_slack_cls, mock_resolve, mock_execute_workflow
