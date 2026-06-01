@@ -545,7 +545,11 @@ class TestGitHubCommitOnApprove:
         """Approve with commit_to_github=False should only update DB."""
         run = run_with_changes
 
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
+        # Approve the full set so the run finalizes — commit_to_github=False just skips the GitHub commit.
+        approved = [
+            {"identifier": "button--primary", "new_hash": "abc123hash"},
+            {"identifier": "card--default", "new_hash": "def456hash"},
+        ]
 
         # This should succeed without GitHub mocks
         result = logic.approve_run(

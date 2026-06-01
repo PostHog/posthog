@@ -262,15 +262,12 @@ class TestApproveRunAPI:
     def repo(self, team):
         return api.create_repo(team_id=team.id, repo_external_id=99999, repo_full_name="org/test")
 
-    def test_approve_run(self, repo, user):
-        # Create artifact first (directly via logic since API no longer exposes this)
+    def _completed_run(self, repo):
         logic.get_or_create_artifact(
             repo_id=repo.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
         )
-
-        # Create run with a changed snapshot
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=repo.id,
@@ -282,7 +279,6 @@ class TestApproveRunAPI:
             ),
             team_id=repo.team_id,
         )
-
         # Classification happens at complete_run time
         with (
             patch(
@@ -293,22 +289,46 @@ class TestApproveRunAPI:
         ):
             logic.complete_run(create_result.run_id)
         logic.finish_processing(create_result.run_id)
+        return create_result.run_id
 
-        # Per-snapshot approval is DB only — no run-level finalization
+    def test_approve_run_db_only_when_commit_disabled(self, repo, user):
+        # commit_to_github=False is the per-snapshot "Accept change" path — DB only, no finalization.
+        run_id = self._completed_run(repo)
+
         result = api.approve_run(
             ApproveRunInput(
-                run_id=create_result.run_id,
+                run_id=run_id,
                 user_id=user.id,
                 snapshots=[ApproveSnapshotInput(identifier="Button", new_hash="new_hash")],
+                commit_to_github=False,
             )
         )
 
         assert result.approved is False  # Run not finalized
         assert result.approved_at is None
 
-        # Snapshot-level approval fields were set, result preserved
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(run_id)
         button_snap = next(s for s in snapshots if s.identifier == "Button")
-        assert button_snap.result == SnapshotResult.CHANGED
+        assert button_snap.result == SnapshotResult.CHANGED  # result preserved
         assert button_snap.approved_hash == "new_hash"
+        assert button_snap.review_state == "approved"
+
+    def test_approve_run_finalizes_when_committing(self, repo, user):
+        # commit_to_github=True (the default) finalizes the run once every snapshot is approved.
+        # This repo has no PR, so no commit is pushed, but the run is still marked approved.
+        run_id = self._completed_run(repo)
+
+        result = api.approve_run(
+            ApproveRunInput(
+                run_id=run_id,
+                user_id=user.id,
+                snapshots=[ApproveSnapshotInput(identifier="Button", new_hash="new_hash")],
+            )
+        )
+
+        assert result.approved is True
+        assert result.approved_at is not None
+
+        snapshots = api.get_run_snapshots(run_id)
+        button_snap = next(s for s in snapshots if s.identifier == "Button")
         assert button_snap.review_state == "approved"

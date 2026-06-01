@@ -1940,13 +1940,17 @@ def approve_run(
     review_decision: ReviewDecision = ReviewDecision.HUMAN_APPROVED,
     commit_to_github: bool = True,
 ) -> Run:
-    """Approve snapshots and finalize the run — commit baseline, post status.
+    """Approve snapshots and commit the updated baseline to GitHub.
 
-    This is the full approval path: validate, commit to GitHub, mark
-    snapshots approved, mark removed as approved, mark run approved,
-    and post a success commit status.
+    This is the full approval path: validate, commit the approved baselines to
+    GitHub, and mark the snapshots approved. The run is finalized (marked
+    approved + success commit status) only once every actionable snapshot is
+    resolved — a partial approval persists those baselines but leaves the run
+    open and the CI gate red so the remaining changes still get reviewed.
 
-    Set commit_to_github=False only for CLI auto-approve (writes locally).
+    Set commit_to_github=False to mark the snapshots approved without committing
+    (CLI auto-approve writes the baseline locally; the per-snapshot UI action
+    records the approval in the DB).
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
@@ -1983,6 +1987,18 @@ def approve_run(
 
     # Re-evaluate quarantine at approval time
     _stamp_quarantine(run)
+
+    # Only finalize once every actionable snapshot is resolved. A partial approval
+    # (a subset of the changed/new snapshots) persists the approved baselines to
+    # GitHub but leaves the run open so the CI gate stays red until the rest is
+    # reviewed — finalizing here would green the gate over unreviewed changes.
+    fully_resolved = not any(
+        _is_unresolved(s) for s in run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all()
+    )
+    if not fully_resolved:
+        if commit_to_github:
+            _update_counts_and_post_status(run)
+        return run
 
     # Finalize run
     run.approved = True

@@ -49,19 +49,27 @@ Read tools (safe to call freely):
 | `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                      |
 | `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                      |
 
-Write tools (require explicit user confirmation — these ship the visual change):
+Write tools (NEVER call without explicit per-run human confirmation — see the gate below; these ship the visual change):
 
 | Tool                                         | Purpose                                                                                                                |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `posthog:visual-review-runs-approve-create`  | Approve `changed` / `new` snapshots in a run. Updates the baseline YAML and (by default) pushes a commit to the PR.    |
+| `posthog:visual-review-runs-approve-create`  | Approve `changed` / `new` snapshots in a run. Commits the updated baseline YAML to the PR (greens the gate).           |
 | `posthog:visual-review-runs-tolerate-create` | Mark a single changed snapshot as a known tolerated alternate. Does NOT change the baseline — use for benign variants. |
+
+> [!CAUTION]
+> **Approval requires explicit human interaction every time.** This is a hard rule, not a preference.
+> Approving rewrites the committed baseline and ships the visual change. NEVER approve on your own
+> initiative, on a standing instruction ("approve anything that looks fine"), or by inferring intent from
+> the task. You may _verify_ and _recommend_ freely; the decision to approve is the human's alone, made
+> fresh for each run. See [The approval gate](#the-approval-gate) before calling `approve-create`.
 
 Approval call shape:
 
 - `id` (required) — the run UUID. It's the route parameter, so the call fails without it.
 - `approve_all: true` — approves every `changed` and `new` snapshot in the run. Convenient when you've verified every diff is intended.
 - `snapshots: [{identifier, new_hash}]` — explicit list. `new_hash` is the `content_hash` of each snapshot's `current_artifact`. Prefer this when only some diffs are intended.
-- `commit_to_github: true` (default) — pushes the baseline-YAML update straight to the PR branch. Set false to record the approval without a commit.
+- `commit_to_github: true` (default) — commits the baseline-YAML update straight to the PR branch. This is what greens the GitHub `visual-review` check, and it works for **`new` snapshots, not just `changed` ones**. The pushed commit SHA comes back on the run's `metadata.baseline_commit_sha`; if that field is absent after a `commit_to_github: true` call, no commit landed (e.g. the run has no PR, or the PR has newer commits — a `409 sha_mismatch`) and the gate is still red. Set `false` only to record the approval in the DB without committing.
+- The run is finalized (gate goes green) only once **every** `changed`/`new` snapshot is approved. A partial `snapshots` list commits those baselines but leaves the gate red — so approve the full set when you intend to unblock the merge.
 
 Toleration call shape — both fields are required:
 
@@ -133,6 +141,28 @@ and **the actual rendered images**. The agent should look at the screenshots —
 Always include a one-line description of what you saw in the images — the user uses this to decide whether to
 trust your verdict without opening the VR UI themselves.
 
+### The approval gate
+
+Approval is the one irreversible, outward-facing action in this skill: it rewrites the baseline committed to
+the PR and greens the merge gate. Treat it like pushing to someone's branch — never automatic.
+
+Before _any_ `approve-create` call, all of these must hold:
+
+1. **You verified the diffs.** You pulled the current (and, for `changed`, baseline) PNGs and looked at them,
+   ran the flake check on anything suspect, and reached a per-snapshot verdict. Metadata alone is never enough.
+2. **You presented the verdict and waited.** Show the user, per snapshot, what changed and your recommendation,
+   then stop. Do not pre-stage the tool call.
+3. **The user explicitly approved _this_ run.** They named the snapshots or said "approve all of those" in
+   response to your verdict. A general "get the gate green", "fix the PR", or "approve anything that looks
+   right" is NOT confirmation to approve — it is permission to _investigate and recommend_. When the task
+   implies approval but the human hasn't said it for this specific run, ask; do not infer.
+
+Only then call `approve-create`. After it returns, confirm what actually happened: report
+`metadata.baseline_commit_sha` (the pushed commit) or, if absent, that no commit landed and why — never claim
+the gate is green without that SHA. A successful approval usually kicks off a fresh CI run; that's expected.
+
+If you find yourself about to approve and can't point to a specific human "yes" for this run, stop and ask.
+
 ### Flake check: "Has this story been changing?"
 
 Once you have a suspect snapshot identifier:
@@ -166,8 +196,10 @@ For triage / aggregate questions, a short table beats prose. Group by what the u
 
 ## What NOT to do
 
-- Do not approve or tolerate without explicit user confirmation. The verdict is yours to recommend; the
-  decision to ship belongs to the user. Once they say "approve those" / "tolerate that", call the tool.
+- Do not approve or tolerate without explicit, per-run human confirmation — see [The approval gate](#the-approval-gate).
+  The verdict is yours to recommend; the decision to ship belongs to the user. A broad instruction like "get the
+  gate green" or "approve anything that looks fine" authorizes investigation and a recommendation, NOT the approval
+  itself — wait for a "yes" naming this run. Once they say "approve those" / "tolerate that", call the tool.
 - Do not assume the failing GitHub check on a PR is unrelated to VR — if a `visual-review` check is red on
   a PR you're working on, that's the trigger to run this skill.
 - Do not declare a verdict from metadata alone when `result: changed`. Pull the baseline and current PNGs

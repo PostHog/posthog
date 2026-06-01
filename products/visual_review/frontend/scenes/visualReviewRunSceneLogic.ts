@@ -329,6 +329,8 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 return
             }
 
+            // Per-snapshot "Accept change" only marks the row approved in the DB. The baseline
+            // commit + run finalization happens when the reviewer clicks "Approve all changes".
             const approvalPayload = {
                 snapshots: [
                     {
@@ -336,6 +338,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                         new_hash: snapshot.current_artifact.content_hash,
                     },
                 ],
+                commit_to_github: false,
             }
 
             // Find the next pending snapshot in sorted order before the async call

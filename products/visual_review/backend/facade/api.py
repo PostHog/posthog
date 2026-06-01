@@ -489,18 +489,32 @@ def approve_all(
 
 
 def approve_run(input: contracts.ApproveRunInput, team_id: int | None = None) -> contracts.Run:
-    """Approve specific snapshots (DB only).
+    """Approve a specific list of snapshots.
 
-    For full run finalization with GitHub commit, use approve_all=true
-    which routes through auto_approve_run.
+    With ``commit_to_github=True`` (default) this is the full approval path:
+    the approved baselines are committed to the PR branch, and the run is
+    finalized once every actionable snapshot is resolved. The committed
+    baseline SHA is surfaced on ``run.metadata["baseline_commit_sha"]``.
+
+    With ``commit_to_github=False`` only the snapshot rows are marked approved
+    in the DB (the per-snapshot "Accept change" review action) — no commit is
+    pushed and the run is not finalized.
     """
     approved_snapshots = [{"identifier": s.identifier, "new_hash": s.new_hash} for s in input.snapshots]
-    run = logic.approve_snapshots(
-        run_id=input.run_id,
-        user_id=input.user_id,
-        approved_snapshots=approved_snapshots,
-        team_id=team_id,
-    )
+    if input.commit_to_github:
+        run = logic.approve_run(
+            run_id=input.run_id,
+            user_id=input.user_id,
+            approved_snapshots=approved_snapshots,
+            team_id=team_id,
+        )
+    else:
+        run = logic.approve_snapshots(
+            run_id=input.run_id,
+            user_id=input.user_id,
+            approved_snapshots=approved_snapshots,
+            team_id=team_id,
+        )
     return _to_run(run)
 
 

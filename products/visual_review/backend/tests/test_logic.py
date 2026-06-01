@@ -577,6 +577,54 @@ class TestApproveRun:
         assert snapshot.reviewed_at is not None
         assert snapshot.reviewed_by_id == user.id
 
+    def test_approve_run_partial_does_not_finalize(self, repo, user, mocker):
+        # Approving only some of the changed snapshots persists those approvals but
+        # leaves the run open so the CI gate stays red until the rest is reviewed.
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="new_a", storage_path="p/a")
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="new_b", storage_path="p/b")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "A", "content_hash": "new_a"},
+                {"identifier": "B", "content_hash": "new_b"},
+            ],
+            baseline_hashes={"A": "old_a", "B": "old_b"},
+        )
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"A": "old_a", "B": "old_b"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+
+        updated = logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "A", "new_hash": "new_a"}],
+        )
+
+        # Run is not finalized — only A is approved, B is still pending
+        assert updated.approved is False
+        assert updated.approved_at is None
+        snapshots = {s.identifier: s for s in updated.snapshots.all()}
+        assert snapshots["A"].review_state == ReviewState.APPROVED
+        assert snapshots["B"].review_state == ReviewState.PENDING
+
+        # Approving the remaining snapshot now finalizes the run
+        updated = logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "B", "new_hash": "new_b"}],
+        )
+        assert updated.approved is True
+        assert updated.approved_at is not None
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveSnapshots:

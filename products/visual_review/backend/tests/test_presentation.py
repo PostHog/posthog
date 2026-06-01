@@ -162,15 +162,13 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.json()["status"], "completed")
         mock_delay.assert_not_called()
 
-    def test_approve_run(self):
+    def _create_run_with_changed_snapshot(self):
         # Create artifact directly via logic (API no longer exposes register_artifact)
         logic.get_or_create_artifact(
             repo_id=self.vr_project.id,
             content_hash="new_hash",
             storage_path="visual_review/new_hash",
         )
-
-        # Create run with changed snapshot
         create_result = api.create_run(
             CreateRunInput(
                 repo_id=self.vr_project.id,
@@ -182,9 +180,29 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             ),
             team_id=self.team.id,
         )
+        return create_result.run_id
+
+    def test_approve_run_db_only_when_commit_disabled(self):
+        run_id = self._create_run_with_changed_snapshot()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/visual_review/runs/{create_result.run_id}/approve/",
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/approve/",
+            {
+                "snapshots": [{"identifier": "Button", "new_hash": "new_hash"}],
+                "commit_to_github": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # commit_to_github=false only records the approval in the DB — run not finalized
+        self.assertFalse(response.json()["run"]["approved"])
+
+    def test_approve_run_finalizes_when_committing(self):
+        run_id = self._create_run_with_changed_snapshot()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/approve/",
             {
                 "snapshots": [{"identifier": "Button", "new_hash": "new_hash"}],
             },
@@ -192,8 +210,8 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Per-snapshot approval is DB only — run not finalized
-        self.assertFalse(response.json()["run"]["approved"])
+        # Default commit_to_github=true finalizes the run once all snapshots are approved
+        self.assertTrue(response.json()["run"]["approved"])
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(

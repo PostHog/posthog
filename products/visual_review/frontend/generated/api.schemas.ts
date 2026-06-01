@@ -313,7 +313,7 @@ export interface ApproveRunRequestInputApi {
     snapshots?: ApproveSnapshotInputApi[]
     /** Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other. */
     approve_all?: boolean
-    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit. */
+    /** Whether to commit the updated baseline YAML to the PR branch on GitHub. Applies to both approve_all and an explicit snapshots list, and covers new snapshots (no prior baseline) as well as changed ones; this is what greens the GitHub visual-review check. The pushed commit SHA is returned on the run metadata.baseline_commit_sha field. Set to false to only record the approval in the database without pushing a commit (the gate stays red). */
     commit_to_github?: boolean
 }
 

@@ -5908,7 +5908,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. With `commit_to_github: true` (default) the approved baselines — new snapshots included — are committed to the PR branch's baseline YAML, which is what greens the GitHub visual-review check; the pushed commit SHA comes back on the run's `metadata.baseline_commit_sha`. The run is finalized only once every changed/new snapshot is approved, so a partial list persists those baselines but leaves the gate red. STOP: never approve on your own initiative. Require explicit, per-run human confirmation naming the specific snapshots first — approving ships the visual change and rewrites the committed baseline.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Approve visual review snapshots",
