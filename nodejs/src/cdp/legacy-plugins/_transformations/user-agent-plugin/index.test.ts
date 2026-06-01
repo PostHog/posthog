@@ -248,6 +248,101 @@ describe('useragent-plugin', () => {
         )
     })
 
+    test.each([
+        [
+            'Vivaldi',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Vivaldi/6.7.3329.41',
+            'Vivaldi',
+            '6.7',
+        ],
+        [
+            'Yandex',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 YaBrowser/24.4.0.0 Safari/537.36',
+            'Yandex',
+            '24.4',
+        ],
+        [
+            'Naver Whale',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Whale/3.25.232.19 Safari/537.36',
+            'Whale',
+            '3.25',
+        ],
+        [
+            'DuckDuckGo on iOS',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Ddg/17.4 Mobile/15E148 Safari/605.1.15',
+            'DuckDuckGo',
+            '17.4',
+        ],
+        [
+            'Brave on iOS',
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Brave/1.64 Safari/604.1',
+            'Brave',
+            '1.64',
+        ],
+        [
+            'Pale Moon',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:102.0) Gecko/20100101 Goanna/6.4 Firefox/102.0 PaleMoon/33.0.0',
+            'Pale Moon',
+            '33.0',
+        ],
+        [
+            'Waterfox',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0 Waterfox/115.13.0',
+            'Waterfox',
+            '115.13',
+        ],
+    ])('should detect %s fork instead of bucketing as Chrome/Firefox/Safari', (_label, ua, browser, version) => {
+        const event = {
+            properties: {
+                $useragent: ua,
+                $lib: 'posthog-node',
+            },
+        } as unknown as PluginEvent
+
+        const processedEvent = processEvent(event, makeMeta())
+        expect(processedEvent.properties!).toStrictEqual(
+            expect.objectContaining({
+                $browser: browser,
+                $browser_version: version,
+            })
+        )
+    })
+
+    test('should report a null version for the Waterfox classic-series marker', () => {
+        const event = {
+            properties: {
+                $useragent:
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:78.0) Gecko/20100101 Firefox/78.0 Waterfox/G6.0.13',
+                $lib: 'posthog-node',
+            },
+        } as unknown as PluginEvent
+
+        const processedEvent = processEvent(event, makeMeta())
+        expect(processedEvent.properties!).toStrictEqual(
+            expect.objectContaining({
+                $browser: 'Waterfox',
+                $browser_version: null,
+            })
+        )
+    })
+
+    test('should not detect desktop Brave (no UA marker) — falls through to Chrome', () => {
+        const event = {
+            properties: {
+                $useragent:
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                $lib: 'posthog-node',
+            },
+        } as unknown as PluginEvent
+
+        const processedEvent = processEvent(event, makeMeta())
+        expect(processedEvent.properties!).toStrictEqual(
+            expect.objectContaining({
+                $browser: 'chrome',
+            })
+        )
+    })
+
     describe('enableSegmentAnalyticsJs is true', () => {
         test('should add user agent details when segment_userAgent property exists', () => {
             const event = {

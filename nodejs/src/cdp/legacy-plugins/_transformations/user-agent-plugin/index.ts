@@ -93,6 +93,7 @@ export function processEvent(event: PluginEvent, { global, logger }: UserAgentMe
     }
 
     const agentInfo = detect(userAgent)
+    const browserFork = detectBrowserFork(userAgent)
     const device = detectDevice(userAgent)
     const deviceType = detectDeviceType(userAgent)
 
@@ -124,9 +125,52 @@ export function processEvent(event: PluginEvent, { global, logger }: UserAgentMe
         properties['$browser_type'] = agentInfo.type
     }
 
+    // Override $browser for Chromium / Firefox forks that detect-browser buckets
+    // as Chrome / Firefox / Safari. $os and $browser_type still come from
+    // detect-browser above.
+    if (browserFork) {
+        properties['$browser'] = browserFork.name
+        properties['$browser_version'] = browserFork.version
+    }
+
     event.properties = properties
 
     return event
+}
+
+// Chromium and Firefox forks that stamp themselves into the UA string. We detect
+// them here because detect-browser buckets them as Chrome / Firefox / Safari.
+// Ported from posthog-js so server-populated $browser matches what the SDK sets
+// client-side:
+// https://github.com/PostHog/posthog-js/blob/master/packages/core/src/utils/user-agent-utils.ts
+//
+// Desktop / Android Brave is intentionally invisible in the UA (posthog-js detects
+// it via navigator.brave, which isn't available server-side), so it still falls
+// through to Chrome here. Only Brave on iOS carries a `Brave/` marker.
+//
+// Order mirrors posthog-js: each fork's marker also contains Chrome/, Firefox/ or
+// a Safari token, so the fork must be matched before the generic browser would be.
+const BROWSER_FORKS: { name: string; marker: RegExp; versionRegex: RegExp }[] = [
+    { name: 'Vivaldi', marker: /Vivaldi\//, versionRegex: /Vivaldi\/(\d+(?:\.\d+)?)/ },
+    { name: 'Yandex', marker: /YaBrowser\//, versionRegex: /YaBrowser\/(\d+(?:\.\d+)?)/ },
+    { name: 'Whale', marker: /Whale\//, versionRegex: /Whale\/(\d+(?:\.\d+)?)/ },
+    { name: 'DuckDuckGo', marker: /DuckDuckGo\/|Ddg\//, versionRegex: /(?:DuckDuckGo|Ddg)\/(\d+(?:\.\d+)?)/ },
+    { name: 'Brave', marker: /Brave\//, versionRegex: /Brave\/(\d+(?:\.\d+)?)/ },
+    { name: 'Pale Moon', marker: /PaleMoon\//, versionRegex: /PaleMoon\/(\d+(?:\.\d+)?)/ },
+    { name: 'Waterfox', marker: /Waterfox\//, versionRegex: /Waterfox\/(\d+(?:\.\d+)?)/ },
+]
+
+// Returns the fork name and its parsed version, or null when no fork marker matches.
+// version is null when the marker is present but carries no numeric version (e.g.
+// Waterfox's `Waterfox/G6.0.13` classic-series marker) — honest rather than faked.
+function detectBrowserFork(userAgent: string): { name: string; version: string | null } | null {
+    for (const { name, marker, versionRegex } of BROWSER_FORKS) {
+        if (marker.test(userAgent)) {
+            const match = userAgent.match(versionRegex)
+            return { name, version: match ? match[1] : null }
+        }
+    }
+    return null
 }
 
 // detectDevice and detectDeviceType from https://github.com/PostHog/posthog-js/blob/9abedce5ac877caeb09205c4b693988fc09a63ca/src/utils.js#L808-L837
