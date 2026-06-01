@@ -27,9 +27,17 @@ export interface StatTile {
 export interface StatStripProps {
     tiles: StatTile[]
     className?: string
+    /**
+     * Visual density. `'default'` is the landing-page hero (text-xl values);
+     * `'sm'` is a compact variant for embedded contexts (text-base values,
+     * tighter padding) so the strip reads as a status row rather than a hero.
+     */
+    size?: 'default' | 'sm'
 }
 
-export function StatStrip({ tiles, className }: StatStripProps): React.ReactElement {
+export function StatStrip({ tiles, className, size = 'default' }: StatStripProps): React.ReactElement {
+    const tilePad = size === 'sm' ? 'px-3 py-1.5' : 'px-4 py-3'
+    const valueText = size === 'sm' ? 'text-sm' : 'text-xl'
     return (
         <div
             className={
@@ -42,7 +50,7 @@ export function StatStrip({ tiles, className }: StatStripProps): React.ReactElem
                 <div
                     key={tile.label}
                     className={
-                        'px-4 py-3' +
+                        tilePad +
                         (i > 0 ? ' border-l border-border' : '') +
                         (i >= 2 ? ' border-t border-border sm:border-t-0' : '')
                     }
@@ -50,7 +58,9 @@ export function StatStrip({ tiles, className }: StatStripProps): React.ReactElem
                     <div className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">{tile.label}</div>
                     <div
                         className={
-                            'mt-0.5 font-mono text-xl tabular-nums leading-tight ' +
+                            'mt-0.5 font-mono tabular-nums leading-tight ' +
+                            valueText +
+                            ' ' +
                             (tile.tone === 'attention' ? 'text-warning-foreground' : 'text-foreground')
                         }
                     >

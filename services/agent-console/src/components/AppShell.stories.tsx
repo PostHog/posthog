@@ -15,7 +15,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { AgentsListClient } from '../../app/agents-list-client'
 import { AgentDetailClient } from '../../app/agents/[slug]/agent-detail-client'
-import { SessionDetailClient } from '../../app/agents/[slug]/sessions/[sessionId]/session-detail-client'
 import { AppShell } from './AppShell'
 
 const meta: Meta<typeof AppShell> = {
@@ -56,11 +55,9 @@ export const AgentDetail_ReleaseConcierge: Story = {
     ),
 }
 
-/** Session detail uses one of the session fixtures. */
-export const SessionDetail: Story = {
-    render: () => (
-        <AppShell>
-            <SessionDetailClient slug="weekly-digest" sessionId="01998a01-2222-7000-8000-0000000007d2" />
-        </AppShell>
-    ),
-}
+/**
+ * Session detail now lives inline under the agent detail's sessions tab —
+ * see the dedicated `Pages/Agent Detail / SessionsWithSelection` story
+ * for the focused view. This shell-level story stays as the agent-list
+ * landing.
+ */

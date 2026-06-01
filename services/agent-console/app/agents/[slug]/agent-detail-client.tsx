@@ -3,11 +3,20 @@
 import { notFound, useRouter, useSearchParams } from 'next/navigation'
 
 import type { ChatSession } from '@posthog/agent-chat'
+import type { LogEntry } from '@posthog/agent-chat/fixtures'
 
 import { useSetDockPage, useDockStore } from '@/components/dock-context'
 import { AgentDetailSkeleton } from '@/components/PageSkeletons'
 import { useSessionTeamId } from '@/components/session-context'
-import { ApiError, getAgent, getAgentStats, listRevisions, listSessionsForAgent } from '@/lib/apiClient'
+import {
+    ApiError,
+    getAgent,
+    getAgentStats,
+    getSession,
+    listLogsForSession,
+    listRevisions,
+    listSessionsForAgent,
+} from '@/lib/apiClient'
 import { bumpReload } from '@/lib/reloadSignal'
 import { useResource } from '@/lib/useResource'
 import { AgentDetail, parseUrlState, type AgentDetailUrlState } from '@/pages/AgentDetail'
@@ -36,6 +45,23 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
 
     const onChangeUrlState = (next: Partial<AgentDetailUrlState>): void => {
         const merged: AgentDetailUrlState = { ...urlState, ...next }
+        // Tab-scoped sticky params get cleared when the user explicitly
+        // switches tabs. Without this, e.g. `?session=<id>` carried
+        // forward into `tab=configuration` would round-trip through
+        // `parseUrlState`, which snaps the tab back to `sessions`
+        // because `selectedSessionId` is truthy. Same trap applied to
+        // `edit_secret` from the connections tab. Only clear when the
+        // caller is changing the tab itself — programmatic mutations
+        // of the sticky params on the same tab should pass through.
+        if ('tab' in next && next.tab && next.tab !== urlState.tab) {
+            if (next.tab !== 'sessions') {
+                merged.selectedSessionId = null
+            }
+            if (next.tab !== 'connections') {
+                merged.editSecret = null
+                merged.callbackSessionId = null
+            }
+        }
         const params = new URLSearchParams()
         if (merged.tab !== 'overview') {
             params.set('tab', merged.tab)
@@ -48,6 +74,18 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
         }
         if (merged.filePath) {
             params.set('file', merged.filePath)
+        }
+        if (merged.editSecret) {
+            params.set('edit_secret', merged.editSecret)
+        }
+        // callbackSessionId is sticky for the whole "agent waited on a
+        // secret" flow — keep it as long as edit_secret is set so navigating
+        // between secrets in one go doesn't lose the callback target.
+        if (merged.callbackSessionId && merged.editSecret) {
+            params.set('callback_session', merged.callbackSessionId)
+        }
+        if (merged.selectedSessionId) {
+            params.set('session', merged.selectedSessionId)
         }
         const qs = params.toString()
         // `scroll: false` — the route segment never changes here, only the
@@ -65,7 +103,7 @@ export function AgentDetailClient({ slug }: { slug: string }): React.ReactElemen
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
             onBackToList={() => router.push('/')}
-            onOpenSession={(sessionId) => router.push(`/agents/${slug}/sessions/${sessionId}`)}
+            onOpenSession={(sessionId) => onChangeUrlState({ tab: 'sessions', selectedSessionId: sessionId })}
         />
     )
 }
@@ -88,7 +126,13 @@ function AgentDetailInner({
     onOpenSession: (sessionId: string) => void
 }): React.ReactElement {
     const agentRef = { id: agent.id, slug: agent.slug, name: agent.name }
-    useSetDockPage({ kind: 'agent', agent: agentRef })
+    // Drive dock context off the URL — `agent-session` when a session is
+    // open inside the sessions tab, otherwise the plain agent page.
+    useSetDockPage(
+        urlState.selectedSessionId
+            ? { kind: 'agent-session', agent: agentRef, sessionId: urlState.selectedSessionId }
+            : { kind: 'agent', agent: agentRef }
+    )
 
     const { enterPlayground } = useDockStore()
 
@@ -105,6 +149,29 @@ function AgentDetailInner({
         [teamId, slug, agent.id]
     )
     const revisions = useResource(() => listRevisions(teamId, slug), [teamId, slug])
+
+    // Selected-session fetch — only active when `?session=<id>` is set.
+    // Both calls tolerate failure: the janitor / logs endpoint may be
+    // missing locally, but we want the rest of the page to keep working.
+    const selectedSessionId = urlState.selectedSessionId
+    const selectedSession = useResource(
+        () =>
+            selectedSessionId
+                ? getSession(teamId, slug, selectedSessionId, {
+                      id: agent.id,
+                      name: agent.name,
+                      slug: agent.slug,
+                  }).catch(() => null)
+                : Promise.resolve(null),
+        [teamId, slug, selectedSessionId, agent.id]
+    )
+    const selectedLogs = useResource(
+        () =>
+            selectedSessionId
+                ? listLogsForSession(teamId, slug, selectedSessionId).catch(() => [] as LogEntry[])
+                : Promise.resolve([] as LogEntry[]),
+        [teamId, slug, selectedSessionId]
+    )
 
     if (revisions.error) {
         return (
@@ -132,6 +199,9 @@ function AgentDetailInner({
             revisions={revisions.data}
             stats={effectiveStats}
             sessions={effectiveSessions}
+            selectedSession={selectedSessionId ? (selectedSession.data ?? null) : null}
+            selectedSessionLogs={selectedLogs.data ?? []}
+            selectedSessionLoading={!!selectedSessionId && selectedSession.loading}
             urlState={urlState}
             onChangeUrlState={onChangeUrlState}
             onTryAgent={(opts) => enterPlayground(agentRef, { previewRevisionId: opts?.revisionId })}

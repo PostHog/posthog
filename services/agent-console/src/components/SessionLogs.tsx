@@ -4,9 +4,9 @@
  * trigger-shaped playback.
  *
  * Each row: level dot + service + relative-to-session-start
- * timestamp + message + collapsed structured fields. Click a row
- * with a `call_id` field to cross-link the playback's matching
- * tool-call card.
+ * timestamp + message + collapsed structured fields. Rows with a
+ * `call_id` field carry a `data-call-id` attribute so a future
+ * cross-link surface can scroll the matching row into view.
  *
  * v0 fixture-driven; v0.1 sources from PostHog logs product
  * filtered by `session_id`. The shape — pino-style structured logs
@@ -24,20 +24,36 @@ import type { LogEntry, LogLevel } from '@posthog/agent-chat/fixtures'
 
 export interface SessionLogsProps {
     logs: LogEntry[]
-    /** Cross-link: highlight the row whose `fields.call_id` matches. */
-    highlightedCallId?: string | null
-    /** Click handler — fires when user clicks a row that carries a call_id. */
-    onSelectCallId?: (callId: string) => void
     /** Reference timestamp for relative formatting (typically session.started_at). */
     sessionStartedAt?: string
+    /**
+     * When `true`, skip the rounded card wrapper + the "LOGS · N" header
+     * bar. Used when the parent (e.g. SessionDetail) already provides
+     * those chrome elements.
+     */
+    bare?: boolean
 }
 
-export function SessionLogs({
-    logs,
-    highlightedCallId,
-    onSelectCallId,
-    sessionStartedAt,
-}: SessionLogsProps): React.ReactElement {
+export function SessionLogs({ logs, sessionStartedAt, bare = false }: SessionLogsProps): React.ReactElement {
+    const body =
+        logs.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-muted-foreground">
+                No logs for this session yet.
+            </div>
+        ) : (
+            <ul className="flex-1 divide-y divide-border/60 overflow-y-auto font-mono text-[0.6875rem]">
+                {logs.map((entry, i) => (
+                    <li key={`${entry.ts}-${i}`}>
+                        <LogRow entry={entry} referenceTs={sessionStartedAt ?? logs[0]?.ts} />
+                    </li>
+                ))}
+            </ul>
+        )
+
+    if (bare) {
+        return <div className="flex h-full min-h-0 flex-col">{body}</div>
+    }
+
     return (
         <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
             <div className="flex h-9 items-center gap-2 border-b border-border bg-muted/20 px-4 text-xs">
@@ -48,50 +64,14 @@ export function SessionLogs({
                 </span>
                 <span className="ml-auto text-[0.6875rem] text-muted-foreground">filtered by session_id</span>
             </div>
-
-            {logs.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center px-4 py-8 text-center text-xs text-muted-foreground">
-                    No logs for this session yet.
-                </div>
-            ) : (
-                <ul className="flex-1 divide-y divide-border/60 overflow-y-auto font-mono text-[0.6875rem]">
-                    {logs.map((entry, i) => (
-                        <li key={`${entry.ts}-${i}`}>
-                            <LogRow
-                                entry={entry}
-                                referenceTs={sessionStartedAt ?? logs[0]?.ts}
-                                highlighted={isHighlighted(entry, highlightedCallId)}
-                                onSelectCallId={onSelectCallId}
-                            />
-                        </li>
-                    ))}
-                </ul>
-            )}
+            {body}
         </div>
     )
 }
 
-function isHighlighted(entry: LogEntry, callId?: string | null): boolean {
-    if (!callId) {
-        return false
-    }
-    const value = entry.fields?.call_id
-    return typeof value === 'string' && value === callId
-}
-
 /* ── Row ─────────────────────────────────────────────────────────── */
 
-function LogRow({
-    entry,
-    referenceTs,
-    highlighted,
-    onSelectCallId,
-}: {
-    entry: LogEntry
-    referenceTs?: string
-    highlighted: boolean
-    onSelectCallId?: (callId: string) => void
-}): React.ReactElement {
+function LogRow({ entry, referenceTs }: { entry: LogEntry; referenceTs?: string }): React.ReactElement {
     const [open, setOpen] = useState(false)
     const tone = levelTone(entry.level)
     // Tool calls correlate via the `id` field; older fixtures use `call_id`.
@@ -105,23 +85,16 @@ function LogRow({
     const preview = previewFor(entry)
 
     return (
-        <div
-            className={'transition-colors ' + (highlighted ? 'bg-info/10' : '')}
-            data-call-id={callId ?? undefined}
-            id={callId ? `log-${callId}` : undefined}
-        >
+        <div className="transition-colors" data-call-id={callId ?? undefined} id={callId ? `log-${callId}` : undefined}>
             <button
                 type="button"
                 onClick={() => {
                     if (hasFields) {
                         setOpen((o) => !o)
                     }
-                    if (callId) {
-                        onSelectCallId?.(callId)
-                    }
                 }}
                 className={
-                    (hasFields || callId ? 'cursor-pointer hover:bg-accent/40' : 'cursor-default') +
+                    (hasFields ? 'cursor-pointer hover:bg-accent/40' : 'cursor-default') +
                     ' flex w-full items-baseline gap-2 px-3 py-1.5 text-left'
                 }
             >

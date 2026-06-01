@@ -1,15 +1,30 @@
 /**
- * Top-of-dock header. Minimal — a small pill indicating the mode,
- * the subject of the conversation, a focus-mode toggle so the user
- * can pause the dock's autonomous navigation, and (when in
- * playground) an exit.
+ * Top-of-dock header. Console-specific chrome that mounts above the
+ * presentation-agnostic `<AgentChat />` via its `headerSlot` prop —
+ * mode pill, focus toggle, open-session button, settings menu,
+ * playground exit, etc. The chat lib owns the conversation; this
+ * file owns the console's framing around it.
  *
  * The header stays the same size across modes — only its content and
  * accent treatment changes — so the dock doesn't shift around as the
  * user enters / exits playground or toggles focus mode.
  */
 
-import { ExternalLinkIcon, EyeIcon, EyeOffIcon, RotateCcwIcon, SettingsIcon, XIcon } from 'lucide-react'
+'use client'
+
+import {
+    ChevronsRightIcon,
+    ExternalLinkIcon,
+    EyeIcon,
+    EyeOffIcon,
+    PanelRightIcon,
+    PictureInPictureIcon,
+    RotateCcwIcon,
+    SettingsIcon,
+    XIcon,
+} from 'lucide-react'
+
+import { describeContext, type ChatContext } from '@posthog/agent-chat'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -18,8 +33,8 @@ import {
     DropdownMenuLabel,
     DropdownMenuTrigger,
 } from '@posthog/quill'
-import type { ChatContext } from '../context'
-import { describeContext } from '../context'
+
+import type { DockMode } from '@/lib/useDockLayout'
 
 interface DockHeaderProps {
     context: ChatContext
@@ -53,6 +68,18 @@ interface DockHeaderProps {
     sessionId?: string
     /** Called when the user clicks the open-session button. */
     onOpenSession?: (sessionId: string) => void
+    /** Current dock layout mode — toggles between fixed right rail and a floating panel. */
+    dockMode?: DockMode
+    /** Called when the user picks a new dock layout mode from the header. */
+    onChangeDockMode?: (next: DockMode) => void
+    /**
+     * Optional dock-hide control. When provided, the header renders a
+     * small "hide dock" button. The shortcut hint surfaces in the
+     * tooltip so the user discovers `⌘.` / `Ctrl+.`.
+     */
+    onHideDock?: () => void
+    /** Display string for the hide shortcut (e.g. `⌘.` or `Ctrl+.`). */
+    hideShortcutHint?: string
 }
 
 export function DockHeader({
@@ -67,6 +94,10 @@ export function DockHeader({
     onRenderMarkdownChange,
     sessionId,
     onOpenSession,
+    dockMode,
+    onChangeDockMode,
+    onHideDock,
+    hideShortcutHint,
 }: DockHeaderProps): React.ReactElement {
     const { mode, subject } = describeContext(context)
     const isPlayground = context.mode === 'playground'
@@ -74,20 +105,25 @@ export function DockHeader({
 
     // Playground mode gets a strongly-tinted bar so it's impossible to
     // confuse "talking *to* the agent" with the ambient concierge chat.
-    // Uses the brand-orange primary tone (high chroma) at low opacity
-    // for the surface, full-strength for the badge + accent line.
     const containerClass = isPlayground
         ? 'flex items-center gap-2 border-b-2 border-primary bg-primary/10 px-4 py-2.5'
         : 'flex items-center gap-2 border-b border-border px-4 py-2.5'
 
     return (
-        <div className={containerClass}>
+        // `data-dock-drag-handle` lets a host frame (e.g. the floating
+        // dock panel) opt into dragging the chat around by this row.
+        // The host gates its mousedown handler on this attribute and
+        // ignores clicks that bubble from interactive descendants.
+        <div className={containerClass} data-dock-drag-handle="">
             {isPlayground ? (
                 <span
                     className="inline-flex items-center gap-1 rounded-md bg-primary px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-primary-foreground"
                     aria-label="Playground mode"
                 >
-                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground" aria-hidden />
+                    <span
+                        className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary-foreground"
+                        aria-hidden
+                    />
                     Playground
                 </span>
             ) : (
@@ -128,7 +164,10 @@ export function DockHeader({
                     role="status"
                     title={`Reconnecting to the event stream (attempt ${reconnectAttempt}).`}
                 >
-                    <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70" aria-hidden />
+                    <span
+                        className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-muted-foreground/70"
+                        aria-hidden
+                    />
                     Reconnecting…
                 </span>
             ) : null}
@@ -152,12 +191,13 @@ export function DockHeader({
                 </button>
             ) : null}
 
+            {onChangeDockMode ? <DockModeToggle mode={dockMode ?? 'rail'} onChange={onChangeDockMode} /> : null}
+
             {onRenderMarkdownChange ? (
-                <SettingsMenu
-                    renderMarkdown={renderMarkdown ?? true}
-                    onRenderMarkdownChange={onRenderMarkdownChange}
-                />
+                <SettingsMenu renderMarkdown={renderMarkdown ?? true} onRenderMarkdownChange={onRenderMarkdownChange} />
             ) : null}
+
+            {onHideDock ? <HideDockButton onHide={onHideDock} shortcutHint={hideShortcutHint} /> : null}
 
             {!isPlayground && onNewSession ? (
                 <button
@@ -189,9 +229,6 @@ export function DockHeader({
 }
 
 function shortRevisionId(id: string): string {
-    // Mirrors `short()` in the console's RevisionsBrowser — last 8 chars of
-    // the trailing UUID segment. Short enough to read in the header pill,
-    // unique enough to disambiguate sibling drafts at a glance.
     return id.split('-').at(-1)?.slice(0, 8) ?? id.slice(0, 8)
 }
 
@@ -228,6 +265,45 @@ function SettingsMenu({
                 </DropdownMenuGroup>
             </DropdownMenuContent>
         </DropdownMenu>
+    )
+}
+
+function HideDockButton({ onHide, shortcutHint }: { onHide: () => void; shortcutHint?: string }): React.ReactElement {
+    const label = shortcutHint ? `Hide dock (${shortcutHint})` : 'Hide dock'
+    return (
+        <button
+            type="button"
+            onClick={onHide}
+            aria-label={label}
+            title={label}
+            className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+            <ChevronsRightIcon className="h-3 w-3" />
+        </button>
+    )
+}
+
+function DockModeToggle({
+    mode,
+    onChange,
+}: {
+    mode: DockMode
+    onChange: (next: DockMode) => void
+}): React.ReactElement {
+    const isFloating = mode === 'floating'
+    const Icon = isFloating ? PanelRightIcon : PictureInPictureIcon
+    const next: DockMode = isFloating ? 'rail' : 'floating'
+    const label = isFloating ? 'Dock to side' : 'Float dock'
+    return (
+        <button
+            type="button"
+            onClick={() => onChange(next)}
+            aria-label={label}
+            title={label}
+            className="inline-flex h-6 cursor-pointer items-center justify-center rounded-md border border-border bg-background px-1.5 text-[0.6875rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+            <Icon className="h-3 w-3" />
+        </button>
     )
 }
 

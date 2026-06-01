@@ -37,40 +37,32 @@ const noop = (): void => undefined
 
 export const ChatTestRun: Story = {
     args: {
-        agent: weeklyDigest,
         session: chatTestRun,
         logs: listLogsForSessionFixture(chatTestRun.id),
-        onBackToList: noop,
-        onBackToAgent: noop,
+        onClose: noop,
     },
 }
 
 export const SlackThread: Story = {
     args: {
-        agent: releaseConcierge,
         session: slackQuestion,
         logs: listLogsForSessionFixture(slackQuestion.id),
-        onBackToList: noop,
-        onBackToAgent: noop,
+        onClose: noop,
     },
 }
 
 export const CronFire: Story = {
     args: {
-        agent: weeklyDigest,
         session: cronFire,
         logs: listLogsForSessionFixture(cronFire.id),
-        onBackToList: noop,
-        onBackToAgent: noop,
+        onClose: noop,
     },
 }
 
 export const FailedSession: Story = {
     args: {
-        agent: weeklyDigest,
         session: failedRun,
         logs: listLogsForSessionFixture(failedRun.id),
-        onBackToList: noop,
-        onBackToAgent: noop,
+        onClose: noop,
     },
 }

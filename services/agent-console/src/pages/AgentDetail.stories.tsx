@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import {
     getAgentStatsFixture,
+    listLogsForSessionFixture,
     listSessionsForAgentFixture,
     weeklyDigest,
     weeklyDigestRevisions,
@@ -15,6 +16,13 @@ const meta: Meta<typeof AgentDetail> = {
     parameters: {
         layout: 'fullscreen',
     },
+    decorators: [
+        (Story) => (
+            <div className="h-screen">
+                <Story />
+            </div>
+        ),
+    ],
 }
 
 export default meta
@@ -29,13 +37,22 @@ const overviewUrlState: AgentDetailUrlState = {
     revisionId: weeklyDigest.live_revision,
     section: null,
     filePath: null,
+    editSecret: null,
+    callbackSessionId: null,
+    selectedSessionId: null,
 }
+
+const weeklyDigestSessions = listSessionsForAgentFixture(weeklyDigest.id)
+const firstSession = weeklyDigestSessions[0]
 
 const sharedArgs = {
     agent: weeklyDigest,
     revisions: weeklyDigestRevisions,
     stats: getAgentStatsFixture(weeklyDigest.id),
-    sessions: listSessionsForAgentFixture(weeklyDigest.id),
+    sessions: weeklyDigestSessions,
+    selectedSession: null,
+    selectedSessionLogs: [],
+    selectedSessionLoading: false,
     urlState: overviewUrlState,
     onChangeUrlState,
     onTryAgent,
@@ -50,6 +67,26 @@ export const Configuration: Story = {
     args: {
         ...sharedArgs,
         urlState: { ...overviewUrlState, tab: 'configuration' },
+    },
+}
+
+export const Sessions: Story = {
+    args: {
+        ...sharedArgs,
+        urlState: { ...overviewUrlState, tab: 'sessions' },
+    },
+}
+
+export const SessionsWithSelection: Story = {
+    args: {
+        ...sharedArgs,
+        urlState: {
+            ...overviewUrlState,
+            tab: 'sessions',
+            selectedSessionId: firstSession?.id ?? null,
+        },
+        selectedSession: firstSession ?? null,
+        selectedSessionLogs: firstSession ? listLogsForSessionFixture(firstSession.id) : [],
     },
 }
 

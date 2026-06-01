@@ -22,13 +22,15 @@ type Filter = (typeof FILTERS)[number]
 
 export interface SessionsListProps {
     sessions: ChatSession[]
+    /** When set, the matching row gets an active background — drives the master-detail view. */
+    selectedSessionId?: string | null
     onOpenSession?: (sessionId: string) => void
 }
 
 const LIVE_STATES = new Set(['idle', 'streaming', 'awaiting_approval', 'awaiting_client_tool', 'disconnected'])
 const FAILED_STATES = new Set(['failed', 'error', 'cancelled'])
 
-export function SessionsList({ sessions, onOpenSession }: SessionsListProps): React.ReactElement {
+export function SessionsList({ sessions, selectedSessionId, onOpenSession }: SessionsListProps): React.ReactElement {
     const [filter, setFilter] = useState<Filter>('all')
 
     const filtered = useMemo(() => {
@@ -75,7 +77,11 @@ export function SessionsList({ sessions, onOpenSession }: SessionsListProps): Re
                 <ul className="divide-y divide-border rounded-md border border-border bg-card">
                     {filtered.map((s) => (
                         <li key={s.id}>
-                            <SessionRow session={s} onClick={() => onOpenSession?.(s.id)} />
+                            <SessionRow
+                                session={s}
+                                selected={selectedSessionId === s.id}
+                                onClick={() => onOpenSession?.(s.id)}
+                            />
                         </li>
                     ))}
                 </ul>
@@ -84,7 +90,15 @@ export function SessionsList({ sessions, onOpenSession }: SessionsListProps): Re
     )
 }
 
-function SessionRow({ session, onClick }: { session: ChatSession; onClick?: () => void }): React.ReactElement {
+function SessionRow({
+    session,
+    selected,
+    onClick,
+}: {
+    session: ChatSession
+    selected?: boolean
+    onClick?: () => void
+}): React.ReactElement {
     const tone = stateTone(session.state)
     // Prefer the user's task; the list endpoint only returns a preview
     // (last assistant text), so fall back to that when there's no
@@ -95,29 +109,41 @@ function SessionRow({ session, onClick }: { session: ChatSession; onClick?: () =
         <button
             type="button"
             onClick={onClick}
-            className="group flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+            aria-current={selected ? 'true' : undefined}
+            className={
+                'group relative flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 pl-4 text-left transition-colors focus-visible:outline-none ' +
+                (selected ? 'bg-accent text-foreground' : 'hover:bg-accent/50 focus-visible:bg-accent/50')
+            }
         >
+            {/* Active rail — left stripe + faint outline so the selected row reads at a glance, even on dense lists. */}
+            {selected ? (
+                <span
+                    aria-hidden
+                    className="pointer-events-none absolute inset-y-1 left-0 w-[3px] rounded-r bg-info-foreground"
+                />
+            ) : null}
             <span className={`mt-1.5 inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${tone.dotClass}`} aria-hidden />
             <div className="min-w-0 flex-1">
-                <p className="line-clamp-1 text-sm">{taskLine}</p>
-                <div className="mt-0.5 flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
+                <p className={'line-clamp-1 text-sm ' + (selected ? 'font-medium' : '')}>{taskLine}</p>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.6875rem] text-muted-foreground">
                     <span>{tone.label}</span>
-                    <span>·</span>
+                    <span aria-hidden>·</span>
                     <span className="truncate">{session.principal.displayName}</span>
+                    <span aria-hidden>·</span>
+                    <span className="font-mono tabular-nums">${session.usage.costUsd.toFixed(3)}</span>
+                    <span aria-hidden>·</span>
+                    <span className="font-mono tabular-nums">{duration}</span>
+                    <span aria-hidden>·</span>
+                    <span>{startedLabel(session)}</span>
                     {session.error ? (
                         <>
-                            <span>·</span>
+                            <span aria-hidden>·</span>
                             <span className="truncate text-destructive-foreground">{session.error}</span>
                         </>
                     ) : null}
                 </div>
             </div>
-            <div className="flex shrink-0 items-center gap-4 text-[0.6875rem] text-muted-foreground">
-                <span className="font-mono tabular-nums">${session.usage.costUsd.toFixed(3)}</span>
-                <span className="hidden font-mono tabular-nums sm:inline">{duration}</span>
-                <span className="hidden md:inline">{startedLabel(session)}</span>
-                <ChevronRightIcon className="h-3.5 w-3.5 text-muted-foreground/60 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
-            </div>
+            <ChevronRightIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
         </button>
     )
 }

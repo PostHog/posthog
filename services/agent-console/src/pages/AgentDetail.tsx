@@ -9,14 +9,20 @@
  * Four tabs:
  *   - **Overview** — landing summary (stats + recent activity + trigger synopsis).
  *   - **Configuration** — app-level settings + revisions browser (master-detail).
- *   - **Sessions** — per-agent session list with filter chips.
+ *   - **Sessions** — master-detail; list on the left, selected session on the
+ *     right (driven by `?session=<id>`), pinned to viewport height.
  *   - **Memory** — file explorer over the agent's S3-backed memory store.
  *
  * URL params honored:
- *   `?tab=overview|configuration|sessions|memory`
+ *   `?tab=overview|configuration|connections|sessions|memory`
  *   `?revision=<id>`          (configuration tab — selected revision)
  *   `?section=<spec section>` (configuration tab — highlighted spec row)
  *   `?file=<path>`            (configuration tab — selected bundle file)
+ *   `?edit_secret=<KEY>`      (connections tab — open the editor for a key)
+ *   `?callback_session=<id>`  (connections tab — notify this chat session
+ *                              via a window event after a save / clear; the
+ *                              dock's runner picks it up and resumes the agent)
+ *   `?session=<id>`           (sessions tab — selected session)
  */
 
 'use client'
@@ -25,16 +31,16 @@ import { AlertTriangleIcon, ChevronRightIcon, PlayIcon } from 'lucide-react'
 import { useMemo } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
-import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats } from '@posthog/agent-chat/fixtures'
+import type { AgentApplicationFixture, AgentRevisionFixture, AgentStats, LogEntry } from '@posthog/agent-chat/fixtures'
 import { Tabs, TabsContent, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { AgentDescription } from '@/components/AgentDescription'
 import { AgentOverview } from '@/components/AgentOverview'
-import { ApplicationSettings } from '@/components/ApplicationSettings'
 import { ConnectionsTab } from '@/components/ConnectionsTab'
 import { MemoryClassic } from '@/components/MemoryClassic'
 import { RevisionsBrowser } from '@/components/RevisionsBrowser'
 import { SessionsList } from '@/components/SessionsList'
+import { SessionDetail } from '@/pages/SessionDetail'
 
 type TabKey = 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory'
 
@@ -45,11 +51,41 @@ export type AgentDetailUrlState = {
     revisionId: string | null
     section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
     filePath: string | null
+    /**
+     * Name of a secret to open the editor for. Lives on the connections
+     * tab. When set without `tab=connections` we still snap the tab — a
+     * deep link is allowed to be terse.
+     */
+    editSecret: string | null
+    /**
+     * Optional chat session id to notify on save / clear. Pure
+     * carry-through param — `parseUrlState` doesn't validate the id
+     * shape because the dock owns session lookups.
+     */
+    callbackSessionId: string | null
+    /**
+     * Selected session for the master-detail view on the sessions tab.
+     * When set we snap to `tab=sessions` so a deep link like `?session=…`
+     * lands somewhere useful.
+     */
+    selectedSessionId: string | null
 }
 
 export function parseUrlState(searchParams: URLSearchParams, defaultRevisionId: string | null): AgentDetailUrlState {
     const tabParam = searchParams.get('tab')
-    const tab: TabKey = TABS.includes(tabParam as TabKey) ? (tabParam as TabKey) : 'overview'
+    const editSecret = searchParams.get('edit_secret')
+    const callbackSessionId = searchParams.get('callback_session')
+    const selectedSessionId = searchParams.get('session')
+    // edit_secret implies the connections tab; ?session= implies the
+    // sessions tab — the URL contracts for the concierge's deep links
+    // are just `?edit_secret=KEY` and `?session=<id>`.
+    const tab: TabKey = editSecret
+        ? 'connections'
+        : selectedSessionId
+          ? 'sessions'
+          : TABS.includes(tabParam as TabKey)
+            ? (tabParam as TabKey)
+            : 'overview'
     const revisionId = searchParams.get('revision') ?? defaultRevisionId
     const sectionParam = searchParams.get('section')
     const section =
@@ -61,7 +97,7 @@ export function parseUrlState(searchParams: URLSearchParams, defaultRevisionId: 
             ? sectionParam
             : null
     const filePath = searchParams.get('file')
-    return { tab, revisionId, section, filePath }
+    return { tab, revisionId, section, filePath, editSecret, callbackSessionId, selectedSessionId }
 }
 
 export interface AgentDetailProps {
@@ -69,6 +105,12 @@ export interface AgentDetailProps {
     revisions: AgentRevisionFixture[]
     stats: AgentStats
     sessions: ChatSession[]
+    /** Fetched detail for `urlState.selectedSessionId`. `null` while loading or unset. */
+    selectedSession: ChatSession | null
+    /** Logs for the selected session — best-effort, may be empty. */
+    selectedSessionLogs: LogEntry[]
+    /** Loading state for the selected-session fetch — drives the right pane's skeleton. */
+    selectedSessionLoading: boolean
     urlState: AgentDetailUrlState
     onChangeUrlState: (next: Partial<AgentDetailUrlState>) => void
     onTryAgent?: (opts?: { revisionId?: string }) => void
@@ -82,6 +124,9 @@ export function AgentDetail({
     revisions,
     stats,
     sessions,
+    selectedSession,
+    selectedSessionLogs,
+    selectedSessionLoading,
     urlState,
     onChangeUrlState,
     onTryAgent,
@@ -95,7 +140,6 @@ export function AgentDetail({
     )
     const defaultRevisionId = agent.live_revision ?? sortedRevisions[0]?.id ?? null
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null
-    const referenceRevision = liveRevision ?? sortedRevisions[0] ?? null
     const recentSessions = useMemo(() => sessions.slice(0, 5), [sessions])
 
     const tab = urlState.tab
@@ -110,83 +154,178 @@ export function AgentDetail({
           : null
 
     return (
-        <div className="mx-auto max-w-5xl px-6 py-6">
-            <Breadcrumb name={agent.name} onBackToList={onBackToList} />
+        <div className="flex h-full min-h-0 flex-col">
+            <div className="mx-auto w-full max-w-5xl shrink-0 px-6 pt-6">
+                <Breadcrumb name={agent.name} onBackToList={onBackToList} />
 
-            <header className="mt-3 flex items-start justify-between gap-4">
-                <div className="min-w-0 space-y-1">
-                    <h1 className="text-xl font-medium tracking-tight">{agent.name}</h1>
-                    <AgentDescription description={agent.description} />
-                </div>
-                <TryInPlaygroundButton
-                    enabled={canPlayground}
-                    disabledReason={playgroundDisabledReason}
-                    onClick={() => onTryAgent?.()}
-                />
-            </header>
+                <header className="mt-3 flex items-start justify-between gap-4">
+                    <div className="min-w-0 space-y-1">
+                        <h1 className="text-xl font-medium tracking-tight">{agent.name}</h1>
+                        <AgentDescription description={agent.description} />
+                    </div>
+                    <TryInPlaygroundButton
+                        enabled={canPlayground}
+                        disabledReason={playgroundDisabledReason}
+                        onClick={() => onTryAgent?.()}
+                    />
+                </header>
 
-            {!liveRevision ? (
-                <NoLiveRevisionBanner
-                    hasDrafts={sortedRevisions.length > 0}
-                    onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })}
-                />
-            ) : !liveRevisionHasChatTrigger ? (
-                <NoChatTriggerBanner onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })} />
-            ) : null}
-
-            <Tabs value={tab} onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })} className="mt-5">
-                <TabsList variant="line">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
-                    <TabsTrigger value="configuration">Configuration</TabsTrigger>
-                    <TabsTrigger value="connections">Connections</TabsTrigger>
-                    <TabsTrigger value="sessions">
-                        Sessions
-                        {sessions.length > 0 ? (
-                            <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
-                        ) : null}
-                    </TabsTrigger>
-                    <TabsTrigger value="memory">Memory</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="overview" className="mt-4">
-                    <AgentOverview
-                        agent={agent}
-                        liveRevision={liveRevision}
-                        stats={stats}
-                        recentSessions={recentSessions}
-                        onOpenSession={onOpenSession}
+                {!liveRevision ? (
+                    <NoLiveRevisionBanner
+                        hasDrafts={sortedRevisions.length > 0}
                         onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })}
-                        onOpenSessions={() => onChangeUrlState({ tab: 'sessions' })}
+                    />
+                ) : !liveRevisionHasChatTrigger ? (
+                    <NoChatTriggerBanner onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })} />
+                ) : null}
+            </div>
+
+            <Tabs
+                value={tab}
+                onValueChange={(v) => onChangeUrlState({ tab: v as TabKey })}
+                className="mt-5 flex min-h-0 flex-1 flex-col"
+            >
+                <div className="mx-auto w-full max-w-5xl shrink-0 px-6">
+                    <TabsList variant="line">
+                        <TabsTrigger value="overview">Overview</TabsTrigger>
+                        <TabsTrigger value="configuration">Configuration</TabsTrigger>
+                        <TabsTrigger value="connections">Connections</TabsTrigger>
+                        <TabsTrigger value="sessions">
+                            Sessions
+                            {sessions.length > 0 ? (
+                                <span className="ml-1.5 text-[0.6875rem] text-muted-foreground">{sessions.length}</span>
+                            ) : null}
+                        </TabsTrigger>
+                        <TabsTrigger value="memory">Memory</TabsTrigger>
+                    </TabsList>
+                </div>
+
+                <TabsContent value="overview" className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="mx-auto max-w-5xl px-6 pb-6 pt-4">
+                        <AgentOverview
+                            agent={agent}
+                            liveRevision={liveRevision}
+                            stats={stats}
+                            recentSessions={recentSessions}
+                            onOpenSession={onOpenSession}
+                            onOpenConfiguration={() => onChangeUrlState({ tab: 'configuration' })}
+                            onOpenSessions={() => onChangeUrlState({ tab: 'sessions' })}
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="configuration" className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="mx-auto max-w-5xl space-y-4 px-6 pb-6 pt-4">
+                        <RevisionsBrowser
+                            agent={agent}
+                            revisions={revisions}
+                            selectedRevisionId={selectedRevId}
+                            onSelectRevision={(id) => onChangeUrlState({ revisionId: id })}
+                            highlightedSection={urlState.section}
+                            focusedBundlePath={urlState.filePath}
+                            onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
+                            onMutated={onRevisionsMutated}
+                            onTryDraft={(revisionId) => onTryAgent?.({ revisionId })}
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="connections" className="min-h-0 flex-1 overflow-y-auto">
+                    <div className="mx-auto max-w-5xl px-6 pb-6 pt-4">
+                        <ConnectionsTab
+                            agent={agent}
+                            revisions={revisions}
+                            editingSecret={urlState.editSecret}
+                            callbackSessionId={urlState.callbackSessionId}
+                            onChangeEditingSecret={(key) =>
+                                onChangeUrlState(
+                                    key ? { editSecret: key } : { editSecret: null, callbackSessionId: null }
+                                )
+                            }
+                        />
+                    </div>
+                </TabsContent>
+
+                <TabsContent value="sessions" className="min-h-0 flex-1 overflow-hidden">
+                    <SessionsTabBody
+                        sessions={sessions}
+                        selectedSessionId={urlState.selectedSessionId}
+                        selectedSession={selectedSession}
+                        selectedSessionLogs={selectedSessionLogs}
+                        selectedSessionLoading={selectedSessionLoading}
+                        onSelectSession={(id) => onChangeUrlState({ selectedSessionId: id })}
                     />
                 </TabsContent>
 
-                <TabsContent value="configuration" className="mt-4 space-y-4">
-                    <ApplicationSettings agent={agent} referenceRevision={referenceRevision} />
-                    <RevisionsBrowser
-                        agent={agent}
-                        revisions={revisions}
-                        selectedRevisionId={selectedRevId}
-                        onSelectRevision={(id) => onChangeUrlState({ revisionId: id })}
-                        highlightedSection={urlState.section}
-                        focusedBundlePath={urlState.filePath}
-                        onSelectBundleFile={(path) => onChangeUrlState({ filePath: path })}
-                        onMutated={onRevisionsMutated}
-                        onTryDraft={(revisionId) => onTryAgent?.({ revisionId })}
-                    />
-                </TabsContent>
-
-                <TabsContent value="connections" className="mt-4">
-                    <ConnectionsTab agent={agent} revisions={revisions} />
-                </TabsContent>
-
-                <TabsContent value="sessions" className="mt-4">
-                    <SessionsList sessions={sessions} onOpenSession={onOpenSession} />
-                </TabsContent>
-
-                <TabsContent value="memory" className="mt-4">
-                    <MemoryClassic slug={agent.slug} />
+                <TabsContent value="memory" className="min-h-0 flex-1 overflow-hidden">
+                    <div className="h-full px-6 pb-6 pt-4">
+                        <MemoryClassic slug={agent.slug} />
+                    </div>
                 </TabsContent>
             </Tabs>
+        </div>
+    )
+}
+
+/* ── Sessions tab body ──────────────────────────────────────────── */
+
+function SessionsTabBody({
+    sessions,
+    selectedSessionId,
+    selectedSession,
+    selectedSessionLogs,
+    selectedSessionLoading,
+    onSelectSession,
+}: {
+    sessions: ChatSession[]
+    selectedSessionId: string | null
+    selectedSession: ChatSession | null
+    selectedSessionLogs: LogEntry[]
+    selectedSessionLoading: boolean
+    onSelectSession: (id: string | null) => void
+}): React.ReactElement {
+    // No selection → list takes the whole tab (centered + capped) so the
+    // common "browse" path keeps the familiar full-width feel.
+    if (!selectedSessionId) {
+        return (
+            <div className="mx-auto h-full w-full max-w-5xl overflow-y-auto px-6 pb-6 pt-4">
+                <SessionsList
+                    sessions={sessions}
+                    selectedSessionId={null}
+                    onOpenSession={(id) => onSelectSession(id)}
+                />
+            </div>
+        )
+    }
+    // Master-detail. Full bleed so playback + logs get room on the right.
+    return (
+        <div className="grid h-full grid-cols-[minmax(280px,360px)_minmax(0,1fr)] divide-x divide-border">
+            <aside className="flex min-h-0 flex-col overflow-hidden">
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                    <SessionsList
+                        sessions={sessions}
+                        selectedSessionId={selectedSessionId}
+                        onOpenSession={(id) => onSelectSession(id)}
+                    />
+                </div>
+            </aside>
+            <main className="min-h-0 overflow-hidden">
+                {selectedSession ? (
+                    <SessionDetail
+                        session={selectedSession}
+                        logs={selectedSessionLogs}
+                        onClose={() => onSelectSession(null)}
+                    />
+                ) : selectedSessionLoading ? (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Loading session…
+                    </div>
+                ) : (
+                    <div className="flex h-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+                        Couldn't load that session.
+                    </div>
+                )}
+            </main>
         </div>
     )
 }

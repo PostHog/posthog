@@ -31,6 +31,23 @@ export const Empty: Story = {
     args: { sessions: [], onOpenSession },
 }
 
+export const Selected: Story = {
+    args: {
+        sessions: weeklyDigestSessions,
+        selectedSessionId: weeklyDigestSessions[1]?.id ?? null,
+        onOpenSession,
+    },
+}
+
+export const NarrowColumn: Story = {
+    decorators: [(Story) => <div className="w-[340px]">{Story()}</div>],
+    args: {
+        sessions: weeklyDigestSessions,
+        selectedSessionId: weeklyDigestSessions[0]?.id ?? null,
+        onOpenSession,
+    },
+}
+
 export const OnlyCompleted: Story = {
     args: {
         sessions: weeklyDigestSessions.filter((s) => s.state === 'completed'),

@@ -45,10 +45,24 @@ const config: StorybookConfig = {
                 ...config.resolve?.alias,
                 '@': path.resolve(__dirname, '../src'),
                 // Storybook runs under Vite, not Next.js. The shell + page
-                // clients call `useRouter()` etc. — stub them out so the
-                // real components mount cleanly in stories.
+                // clients call `useRouter()` / `<Link>` etc. — stub them out
+                // so the real components mount cleanly in stories. `next/link`
+                // matters in particular because the real module reads
+                // `process.env.*` at module init and crashes the browser
+                // bundle with `ReferenceError: process is not defined`.
                 'next/navigation': path.resolve(__dirname, './mocks/next-navigation.tsx'),
+                'next/link': path.resolve(__dirname, './mocks/next-link.tsx'),
             },
+        }
+        // Vite pre-bundles deps in `node_modules/.cache/sb-vite/deps/`
+        // before applying `resolve.alias`. Excluding the next/* modules
+        // here keeps them out of the pre-bundle, so the alias above is
+        // what actually resolves the import. (If you ever see the same
+        // `process is not defined` error from a fresh next/* import, add
+        // it here too.)
+        config.optimizeDeps = {
+            ...config.optimizeDeps,
+            exclude: [...(config.optimizeDeps?.exclude ?? []), 'next/link', 'next/navigation'],
         }
         return config
     },

@@ -20,18 +20,25 @@ export type { JsonViewProps } from './components/JsonView'
 
 export { Markdown } from './components/Markdown'
 
+export { Labeled, PartRenderer, ThinkingPart, ToolCallCard } from './components/parts'
+export type { ClientToolOutcome, PartRendererProps, PartTextVariant, ToolCallCardProps } from './components/parts'
+
 export { describeContext, getStarterPrompts } from './context'
 export type { ChatContext, ConciergePageContext, StarterPrompt } from './context'
 
 export { useFakeRunner } from './fake-runner'
 export type { FakeRunnerControls, Script, ScriptStep, UseFakeRunnerOpts } from './fake-runner'
 
+export { isRenderHandler } from './types'
 export type {
     AgentApplicationRef,
     AssistantTurn,
     AssistantTurnPart,
     ChatSession,
     ClientToolHandler,
+    ClientToolRenderCallbacks,
+    ClientToolRenderHandler,
+    ClientToolSyncHandler,
     FocusArgs,
     FocusResult,
     PendingApproval,

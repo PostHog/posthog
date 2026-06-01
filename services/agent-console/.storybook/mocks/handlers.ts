@@ -147,13 +147,25 @@ export const handlers = [
         return HttpResponse.json(session)
     }),
 
-    /* Console-only endpoints (mocked; Phase C builds them on Django). */
+    /* Console-only endpoints (mocked; Phase C builds them on Django).
+     * Both stats endpoints emit the WIRE shape (the same `AggregateStatsWire`
+     * the Django/janitor endpoints return). `apiClient.getAgentStats` /
+     * `getFleetStats` rename fields on the way to the UI-facing
+     * `AgentStats` / `FleetStats` types, so mocking the wire here keeps
+     * the prod path under test. */
     http.get(`${PROJECT_PREFIX}/agent_applications/:slug/stats/`, ({ params }) => {
         const stats = getAgentStatsStore(params.slug as string)
         if (!stats) {
             return HttpResponse.json({ error: 'not_found' }, { status: 404 })
         }
-        return HttpResponse.json(stats)
+        const failureRate = stats.failureRate24h ?? 0
+        return HttpResponse.json({
+            liveCount: stats.liveCount,
+            sessionsInWindowCount: stats.sessions24hCount,
+            spendInWindowUsd: stats.spend24hUsd,
+            lastActivityAt: stats.lastActivityAt ?? null,
+            failedInWindowCount: Math.round(failureRate * stats.sessions24hCount),
+        })
     }),
 
     http.get(`${PROJECT_PREFIX}/agent_applications/:slug/sessions/:sessionId/logs/`, ({ params }) => {
@@ -161,7 +173,14 @@ export const handlers = [
     }),
 
     http.get(`${PROJECT_PREFIX}/agent_fleet/stats/`, () => {
-        return HttpResponse.json(getFleetStatsStore())
+        const stats = getFleetStatsStore()
+        return HttpResponse.json({
+            liveCount: stats.liveSessionCount,
+            sessionsInWindowCount: stats.sessions24hCount,
+            spendInWindowUsd: stats.spend24hUsd,
+            lastActivityAt: null,
+            failedInWindowCount: 0,
+        })
     }),
 
     http.get(`${PROJECT_PREFIX}/agent_fleet/live_sessions/`, () => {

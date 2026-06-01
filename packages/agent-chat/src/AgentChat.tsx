@@ -1,26 +1,27 @@
 /**
- * `<AgentChat />` — the ambient chat dock.
+ * `<AgentChat />` — the agent conversation surface.
  *
- * Lives pinned in the app shell. Renders one of three views:
+ * Renders one of:
  *  - Waiting (no turns yet) → contextual greeting + starter prompts.
  *  - Active (turns present) → conversation transcript.
- *  - Approval / error / disconnected — overlays on top of the transcript.
+ *  - Approval / error / disconnected → inline overlays on the transcript.
  *
- * Two modes:
- *  - `concierge` — the management AI; what it shows depends on the
- *    page the user is on (passed via `context.page`).
- *  - `playground` — explicit, talking *to* an agent. Visually flagged
- *    in the header; sticky across navigation.
+ * Presentation-mode agnostic: this component fills its parent and
+ * carries no chrome of its own (no rounded card, no max-width, no
+ * fixed dock header). Hosts wrap it for their layout — a side rail,
+ * a floating overlay, a fullscreen panel — and inject any chrome via
+ * the `headerSlot` prop. The two surfaces today are the console's
+ * embedded dock and storybook's standalone frames.
  *
- * v0 is mocked — `session` is fixture data; `onSend` etc. are no-ops
- * unless the parent wires them. v0.2 replaces the prop-driven session
- * with an internal controller against the real ingress.
+ * v0 is fixture-driven — `session` is the source of truth; `onSend`
+ * etc. are no-ops unless the host wires them. v0.2 replaces the
+ * prop-driven session with an internal controller against ingress.
  */
 
 import { ArrowUpIcon, SquareIcon, XIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { ApprovalCard } from './components/ApprovalCard'
-import { DockHeader } from './components/DockHeader'
+import type { ClientToolOutcome } from './components/parts'
 import { TurnRow } from './components/Turn'
 import { WaitingState } from './components/WaitingState'
 import type { ChatContext, StarterPrompt } from './context'
@@ -34,15 +35,29 @@ export interface AgentChatProps {
     /** Override starter prompts; defaults derived from `context`. */
     starterPrompts?: StarterPrompt[]
     /**
+     * Optional chrome rendered above the transcript. Used by hosts to
+     * drop in a header (mode pill, exit-playground button, settings
+     * menu, etc.). When unset, the transcript starts at the top of the
+     * container — fine for stories and minimal embeds.
+     */
+    headerSlot?: React.ReactNode
+    /**
      * Handlers for the `kind: "client"` tools this agent's spec declares.
-     * v0 doesn't invoke them at render time (results are baked into the
-     * fixture); accepted so the API shape is stable across v0 → v0.2.
+     * Two shapes (see `ClientToolHandler`):
+     *   - sync `handle` — invoked by the host's runner outside this
+     *     component; the chat surface never calls it.
+     *   - inline `render` — the chat surface renders the supplied UI
+     *     next to the matching `tool_call` part while the call is
+     *     unresolved. Use `onClientToolResolve` to wire submissions
+     *     back to the runner.
      */
     handlers?: ClientToolHandler[]
-    /** Current focus-mode state — when off, the dock header narrates instead of navigating. */
-    followingEnabled?: boolean
-    /** Notified when the user toggles focus mode from the dock header. */
-    onFollowingChange?: (next: boolean) => void
+    /**
+     * Wired to the host's runner: when a render-style client tool's
+     * inline UI submits, the chat calls this to post the result back.
+     * In `useRealRunner` this is `runner.resolveClientTool`.
+     */
+    onClientToolResolve?: (callId: string, outcome: ClientToolOutcome) => void
     onSend?: (text: string) => void
     /**
      * Called when the user clicks Stop mid-stream. The host should
@@ -54,17 +69,6 @@ export interface AgentChatProps {
     onApprove?: (callId: string) => void
     onDeny?: (callId: string) => void
     onReconnect?: () => void
-    onExitPlayground?: () => void
-    /** Concierge-mode reset — clear the chat back to waiting state. */
-    onNewSession?: () => void
-    /**
-     * Open the underlying session detail (logs / transcript / playback)
-     * for the in-flight session. The dock surfaces a small "open in
-     * session view" affordance in the header when the session has a
-     * real id (not the placeholder `pending`). Host provides the
-     * navigation — usually `router.push(`/agents/<slug>/sessions/<id>`)`.
-     */
-    onOpenSession?: (sessionId: string) => void
     /**
      * Transport-level error from the underlying runner (e.g. a failed
      * `/run` request, ingress 5xx, lost SSE connection). Distinct from
@@ -76,20 +80,11 @@ export interface AgentChatProps {
     /** Called when the user dismisses the transport error banner. */
     onDismissTransportError?: () => void
     /**
-     * Non-zero when the SSE listen stream is reconnecting after a
-     * transient drop. The dock surfaces a quiet "Reconnecting…" pill
-     * so the user knows the gap before the next event is recovery, not
-     * a stall. Reset to 0 once a fresh event arrives.
-     */
-    reconnectAttempt?: number
-    /**
      * Render assistant text as markdown when true. Off → plain
-     * `whitespace-pre-wrap`. Persisted + toggled by the host (the
-     * settings dropdown in the dock header writes through).
+     * `whitespace-pre-wrap`. Hosts persist + toggle the preference and
+     * pass it through; the chat lib itself only consumes the value.
      */
     renderMarkdown?: boolean
-    /** Notified when the user toggles the markdown setting in the dock header. */
-    onRenderMarkdownChange?: (next: boolean) => void
 }
 
 /**
@@ -111,21 +106,17 @@ export function AgentChat({
     context,
     session,
     starterPrompts,
-    followingEnabled,
-    onFollowingChange,
+    headerSlot,
+    handlers,
+    onClientToolResolve,
     onSend,
     onStop,
     onApprove,
     onDeny,
     onReconnect,
-    onExitPlayground,
-    onNewSession,
-    onOpenSession,
     transportError,
     onDismissTransportError,
-    reconnectAttempt,
     renderMarkdown = true,
-    onRenderMarkdownChange,
 }: AgentChatProps): React.ReactElement {
     const [draft, setDraft] = useState('')
     const inputId = useId()
@@ -148,10 +139,6 @@ export function AgentChat({
     const effectivePrompts = starterPrompts ?? getStarterPrompts(context)
     const turnCount = session.turns.length
 
-    // Wire a scroll listener once — it updates the sticky-to-bottom
-    // flag based on the user's actual viewport position. 40px tolerance
-    // so scrollbar twitch / a stray wheel tick doesn't drop us off the
-    // tail.
     useEffect(() => {
         const el = scrollRef.current
         if (!el) {
@@ -165,9 +152,6 @@ export function AgentChat({
         return () => el.removeEventListener('scroll', onScroll)
     }, [])
 
-    // A new turn (user message, assistant turn boundary) forces a
-    // re-stick — sending your own message always pulls you back to the
-    // bottom regardless of where you'd scrolled to.
     useEffect(() => {
         stuckToBottomRef.current = true
         const el = scrollRef.current
@@ -176,9 +160,6 @@ export function AgentChat({
         }
     }, [turnCount])
 
-    // Follow streaming content: every render, if the user hasn't
-    // scrolled away, keep them pinned to the bottom. Cheap — runs on
-    // every assistant_text_delta but only mutates scrollTop if needed.
     useEffect(() => {
         if (!stuckToBottomRef.current) {
             return
@@ -201,26 +182,14 @@ export function AgentChat({
 
     return (
         <div
-            className="flex h-full w-full flex-col bg-background"
+            className="flex h-full w-full flex-col"
             data-slot="agent-chat"
             data-mode={context.mode}
             data-state={session.state}
         >
-            <DockHeader
-                context={context}
-                followingEnabled={followingEnabled}
-                onFollowingChange={onFollowingChange}
-                onExitPlayground={onExitPlayground}
-                onNewSession={onNewSession}
-                busy={sending}
-                reconnectAttempt={reconnectAttempt}
-                renderMarkdown={renderMarkdown}
-                onRenderMarkdownChange={onRenderMarkdownChange}
-                sessionId={session.id !== 'pending' ? session.id : undefined}
-                onOpenSession={onOpenSession}
-            />
+            {headerSlot}
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto">
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
                 {transportError ? (
                     <div className="px-4 pt-4">
                         <TransportErrorBanner error={transportError} onDismiss={onDismissTransportError} />
@@ -231,7 +200,14 @@ export function AgentChat({
                 ) : (
                     <div className="space-y-3 px-4 py-4">
                         {session.turns.map((turn) => (
-                            <TurnRow key={turn.id} turn={turn} renderMarkdown={renderMarkdown} />
+                            <TurnRow
+                                key={turn.id}
+                                turn={turn}
+                                renderMarkdown={renderMarkdown}
+                                handlers={handlers}
+                                sessionId={session.id}
+                                onClientToolResolve={onClientToolResolve}
+                            />
                         ))}
                         {session.pendingApprovals.map((a) => (
                             <ApprovalCard key={a.callId} approval={a} onApprove={onApprove} onDeny={onDeny} />
@@ -290,11 +266,6 @@ function ErrorBanner({ message }: { message: string }): React.ReactElement {
     )
 }
 
-/**
- * Maps a known wire-level error to friendly title + body. Falls back
- * to the raw `detail` (or a generic line) so callers don't need to
- * pre-stringify anything.
- */
 function describeTransportError(err: TransportError): { title: string; body: string } {
     const code = err.code ?? ''
     const detail = err.detail?.trim() || ''
@@ -394,7 +365,7 @@ function Footer({
 }): React.ReactElement {
     const showStop = sending && onStop !== undefined
     return (
-        <div className="border-t border-border bg-background">
+        <div className="border-t border-border">
             <form
                 className="flex items-end gap-2 px-3 py-2.5"
                 onSubmit={(e) => {

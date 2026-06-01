@@ -19,55 +19,52 @@
  *   - **webhook** → Webhook banner with source + path, then assistant turns.
  *   - **(missing trigger)** → falls back to chat-style.
  *
- * Cross-linking: every tool-call part has a `callId` that matches a
- * field on the SessionLogs pane. Click handlers surface `callId` via
- * `onSelectCallId` so the parent can scroll the log pane to match.
+ * The per-part rendering (text / thinking / tool calls) comes from
+ * `@posthog/agent-chat`'s shared `<PartRenderer>` so this view and the
+ * live chat dock evolve together — tool-call cards expand inline,
+ * thinking-blocks collapse the same way, etc. This file owns only the
+ * trigger shells (chat bubbles, Slack thread, cron / webhook banners)
+ * and the playback-local Timestamp + EmptyTranscript helpers.
  */
 
 'use client'
 
-import { BotIcon, CalendarClockIcon, ChevronDownIcon, ChevronRightIcon, HashIcon, WebhookIcon } from 'lucide-react'
-import { useState } from 'react'
+import { BotIcon, CalendarClockIcon, HashIcon, WebhookIcon } from 'lucide-react'
 
-import type { AssistantTurnPart, ChatSession, SessionTrigger, Turn } from '@posthog/agent-chat'
-import { JsonView } from '@posthog/agent-chat'
+import type { ChatSession, SessionTrigger, Turn } from '@posthog/agent-chat'
+import { PartRenderer } from '@posthog/agent-chat'
 
 export interface SessionPlaybackProps {
     session: ChatSession
-    /** Highlight the turn part referencing this callId (cross-link from logs). */
-    highlightedCallId?: string | null
-    /** Fired when the user clicks a tool-call card — scrolls the log pane to match. */
-    onSelectCallId?: (callId: string) => void
+    /**
+     * When `true`, skip the rounded card wrapper — used when the
+     * parent (e.g. SessionDetail) already provides one. The trigger
+     * header still renders since it's contextual content, not chrome.
+     */
+    bare?: boolean
 }
 
-export function SessionPlayback({
-    session,
-    highlightedCallId,
-    onSelectCallId,
-}: SessionPlaybackProps): React.ReactElement {
+export function SessionPlayback({ session, bare = false }: SessionPlaybackProps): React.ReactElement {
     const trigger: SessionTrigger = session.trigger ?? { kind: 'chat' }
 
-    return (
-        <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">
+    const body = (
+        <>
             <TriggerHeader trigger={trigger} agentName={session.application.name} />
             <div className="flex-1 overflow-y-auto px-4 py-4">
                 {trigger.kind === 'slack' ? (
-                    <SlackThread
-                        session={session}
-                        trigger={trigger}
-                        highlightedCallId={highlightedCallId}
-                        onSelectCallId={onSelectCallId}
-                    />
+                    <SlackThread session={session} trigger={trigger} />
                 ) : (
-                    <ChatTranscript
-                        session={session}
-                        highlightedCallId={highlightedCallId}
-                        onSelectCallId={onSelectCallId}
-                    />
+                    <ChatTranscript session={session} />
                 )}
             </div>
-        </div>
+        </>
     )
+
+    if (bare) {
+        return <div className="flex h-full min-h-0 flex-col">{body}</div>
+    }
+
+    return <div className="flex h-full flex-col overflow-hidden rounded-md border border-border bg-card">{body}</div>
 }
 
 /* ── Trigger header ─────────────────────────────────────────────── */
@@ -120,41 +117,20 @@ function TriggerHeader({ trigger, agentName }: { trigger: SessionTrigger; agentN
 
 /* ── Chat (Claude-style) ────────────────────────────────────────── */
 
-function ChatTranscript({
-    session,
-    highlightedCallId,
-    onSelectCallId,
-}: {
-    session: ChatSession
-    highlightedCallId?: string | null
-    onSelectCallId?: (callId: string) => void
-}): React.ReactElement {
+function ChatTranscript({ session }: { session: ChatSession }): React.ReactElement {
     if (session.turns.length === 0) {
         return <EmptyTranscript />
     }
     return (
         <div className="space-y-5">
             {session.turns.map((turn) => (
-                <ChatTurn
-                    key={turn.id}
-                    turn={turn}
-                    highlightedCallId={highlightedCallId}
-                    onSelectCallId={onSelectCallId}
-                />
+                <ChatTurn key={turn.id} turn={turn} />
             ))}
         </div>
     )
 }
 
-function ChatTurn({
-    turn,
-    highlightedCallId,
-    onSelectCallId,
-}: {
-    turn: Turn
-    highlightedCallId?: string | null
-    onSelectCallId?: (callId: string) => void
-}): React.ReactElement {
+function ChatTurn({ turn }: { turn: Turn }): React.ReactElement {
     if (turn.kind === 'user') {
         return (
             <div className="flex justify-end">
@@ -169,12 +145,7 @@ function ChatTurn({
             <Timestamp ts={turn.timestamp} />
             <div className="space-y-2">
                 {turn.parts.map((part, i) => (
-                    <PartRenderer
-                        key={i}
-                        part={part}
-                        highlightedCallId={highlightedCallId}
-                        onSelectCallId={onSelectCallId}
-                    />
+                    <PartRenderer key={i} part={part} textVariant="bubble" />
                 ))}
             </div>
         </div>
@@ -186,13 +157,9 @@ function ChatTurn({
 function SlackThread({
     session,
     trigger,
-    highlightedCallId,
-    onSelectCallId,
 }: {
     session: ChatSession
     trigger: Extract<SessionTrigger, { kind: 'slack' }>
-    highlightedCallId?: string | null
-    onSelectCallId?: (callId: string) => void
 }): React.ReactElement {
     const userTurn = session.turns.find((t) => t.kind === 'user')
     const assistantTurns = session.turns.filter((t) => t.kind === 'assistant') as Array<
@@ -213,13 +180,7 @@ function SlackThread({
                 </div>
                 <div className="space-y-3">
                     {assistantTurns.map((turn) => (
-                        <SlackAssistantReply
-                            key={turn.id}
-                            turn={turn}
-                            agentName={session.application.name}
-                            highlightedCallId={highlightedCallId}
-                            onSelectCallId={onSelectCallId}
-                        />
+                        <SlackAssistantReply key={turn.id} turn={turn} agentName={session.application.name} />
                     ))}
                     {assistantTurns.length === 0 ? (
                         <div className="text-xs italic text-muted-foreground">No replies yet.</div>
@@ -263,13 +224,9 @@ function SlackMessage({
 function SlackAssistantReply({
     turn,
     agentName,
-    highlightedCallId,
-    onSelectCallId,
 }: {
     turn: Extract<Turn, { kind: 'assistant' }>
     agentName: string
-    highlightedCallId?: string | null
-    onSelectCallId?: (callId: string) => void
 }): React.ReactElement {
     return (
         <div className="flex items-start gap-2.5">
@@ -284,13 +241,7 @@ function SlackAssistantReply({
                 </div>
                 <div className="mt-1 space-y-2">
                     {turn.parts.map((part, i) => (
-                        <PartRenderer
-                            key={i}
-                            part={part}
-                            highlightedCallId={highlightedCallId}
-                            onSelectCallId={onSelectCallId}
-                            slack
-                        />
+                        <PartRenderer key={i} part={part} textVariant="plain" />
                     ))}
                 </div>
             </div>
@@ -318,123 +269,7 @@ function SlackAvatar({ name, bot = false }: { name: string; bot?: boolean }): Re
     )
 }
 
-/* ── Shared part renderer ───────────────────────────────────────── */
-
-function PartRenderer({
-    part,
-    highlightedCallId,
-    onSelectCallId,
-    slack = false,
-}: {
-    part: AssistantTurnPart
-    highlightedCallId?: string | null
-    onSelectCallId?: (callId: string) => void
-    slack?: boolean
-}): React.ReactElement {
-    if (part.kind === 'text') {
-        return (
-            <div
-                className={
-                    slack
-                        ? 'whitespace-pre-wrap text-sm leading-relaxed'
-                        : 'whitespace-pre-wrap rounded-2xl rounded-tl-md bg-muted/40 px-3 py-2 text-sm leading-relaxed'
-                }
-            >
-                {part.text}
-            </div>
-        )
-    }
-    if (part.kind === 'thinking') {
-        return <ThinkingPart text={part.text} />
-    }
-    return <ToolCallCard part={part} highlighted={highlightedCallId === part.callId} onSelectCallId={onSelectCallId} />
-}
-
-function ThinkingPart({ text }: { text: string }): React.ReactElement {
-    const [open, setOpen] = useState(false)
-    return (
-        <button
-            type="button"
-            onClick={() => setOpen((o) => !o)}
-            className="flex w-full cursor-pointer items-start gap-1.5 rounded-md px-1.5 py-1 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/30"
-        >
-            {open ? (
-                <ChevronDownIcon className="mt-0.5 h-3 w-3 shrink-0" />
-            ) : (
-                <ChevronRightIcon className="mt-0.5 h-3 w-3 shrink-0" />
-            )}
-            <span className={open ? 'whitespace-pre-wrap' : 'line-clamp-1'}>
-                <span className="font-medium text-foreground/70">Thinking · </span>
-                {text}
-            </span>
-        </button>
-    )
-}
-
-function ToolCallCard({
-    part,
-    highlighted,
-    onSelectCallId,
-}: {
-    part: Extract<AssistantTurnPart, { kind: 'tool_call' }>
-    highlighted: boolean
-    onSelectCallId?: (callId: string) => void
-}): React.ReactElement {
-    const [open, setOpen] = useState(false)
-    const inFlight = part.result === undefined
-    const failed = part.result !== undefined && !part.result.ok
-    const dotClass = inFlight ? 'bg-muted-foreground/60 animate-pulse' : failed ? 'bg-destructive' : 'bg-success'
-
-    return (
-        <div
-            className={
-                'rounded-md border text-xs transition-colors ' +
-                (highlighted ? 'border-info bg-info/10' : 'border-border/60 bg-muted/20')
-            }
-            data-call-id={part.callId}
-            id={`call-${part.callId}`}
-        >
-            <button
-                type="button"
-                onClick={() => {
-                    setOpen((o) => !o)
-                    onSelectCallId?.(part.callId)
-                }}
-                className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1.5 text-left"
-            >
-                <span className={`inline-flex h-1.5 w-1.5 shrink-0 rounded-full ${dotClass}`} aria-hidden />
-                <code className="truncate font-medium">{part.toolId}</code>
-                {part.fulfillment === 'client' ? (
-                    <span className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">client</span>
-                ) : null}
-                <span className="ml-auto text-muted-foreground">
-                    {open ? <ChevronDownIcon className="h-3 w-3" /> : <ChevronRightIcon className="h-3 w-3" />}
-                </span>
-            </button>
-            {open ? (
-                <div className="space-y-2 border-t border-border/60 px-2.5 py-2">
-                    <Labeled label="args">
-                        <JsonView value={part.args} expandToLevel={1} />
-                    </Labeled>
-                    {part.result !== undefined ? (
-                        <Labeled label="result">
-                            <JsonView value={part.result} expandToLevel={1} />
-                        </Labeled>
-                    ) : null}
-                </div>
-            ) : null}
-        </div>
-    )
-}
-
-function Labeled({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
-    return (
-        <div>
-            <div className="mb-1 text-[0.625rem] uppercase tracking-wide text-muted-foreground">{label}</div>
-            {children}
-        </div>
-    )
-}
+/* ── Playback-local helpers ─────────────────────────────────────── */
 
 function Timestamp({ ts, inline = false }: { ts: string; inline?: boolean }): React.ReactElement {
     const formatted = new Date(ts).toLocaleString(undefined, { hour: '2-digit', minute: '2-digit' })

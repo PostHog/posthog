@@ -12,9 +12,20 @@
 
 'use client'
 
-import { BotIcon, ExternalLinkIcon, LogOutIcon, MonitorIcon, MoonIcon, SunIcon, WalletIcon } from 'lucide-react'
+import {
+    BotIcon,
+    ExternalLinkIcon,
+    LibraryIcon,
+    LogOutIcon,
+    MonitorIcon,
+    MoonIcon,
+    SunIcon,
+    WalletIcon,
+} from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useCallback, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import {
     DropdownMenu,
@@ -36,8 +47,12 @@ import {
     useTheme,
 } from '@posthog/quill'
 
+import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, DockLayoutProvider, useDockLayout } from '@/lib/useDockLayout'
+
 import { Dock } from './Dock'
 import { DockContextProvider } from './dock-context'
+import { DockShowAffordance } from './DockShowAffordance'
+import { FloatingDockPanel } from './FloatingDockPanel'
 import { FocusContextProvider } from './focus-context'
 import { PostHogMark } from './PostHogMark'
 import { SessionGate, SessionProvider, usePosthogBaseUrl, useSessionUser } from './session-context'
@@ -50,27 +65,13 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
                 <TooltipProvider delay={150}>
                     <DockContextProvider>
                         <FocusContextProvider>
-                            <TopLoadingBar />
-                            <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-                                <Sidebar />
-                                <ResizablePanelGroup
-                                    orientation="horizontal"
-                                    defaultLayout={{ main: 70, dock: 30 }}
-                                    className="flex-1"
-                                >
-                                    <ResizablePanel id="main" minSize="520px">
-                                        <main className="h-full overflow-y-auto">
-                                            <SessionGate>{children}</SessionGate>
-                                        </main>
-                                    </ResizablePanel>
-                                    <ResizableHandle withHandle />
-                                    <ResizablePanel id="dock" minSize="360px" maxSize="720px">
-                                        <div className="h-full border-l border-border">
-                                            <Dock />
-                                        </div>
-                                    </ResizablePanel>
-                                </ResizablePanelGroup>
-                            </div>
+                            <DockLayoutProvider>
+                                <TopLoadingBar />
+                                <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
+                                    <Sidebar />
+                                    <ShellBody>{children}</ShellBody>
+                                </div>
+                            </DockLayoutProvider>
                         </FocusContextProvider>
                     </DockContextProvider>
                 </TooltipProvider>
@@ -79,9 +80,96 @@ export function AppShell({ children }: { children: React.ReactNode }): React.Rea
     )
 }
 
+/**
+ * Picks one of two layouts based on the user's dock-mode preference:
+ *  - `rail` (default) → resizable two-pane split with the dock pinned right.
+ *  - `floating` → main content fills the shell; the dock renders as a
+ *    `<FloatingDockPanel />` overlay on top, freely draggable.
+ *
+ * `<Dock />` is rendered ONCE inside the shell and portaled into the
+ * active chrome's slot. That keeps its runner / session state alive
+ * across mode-toggle and visibility-toggle — switching docked ↔
+ * floating no longer drops the running chat. Main content lives at a
+ * stable React-tree position too for the same reason.
+ *
+ * The Dock falls back to a hidden parking node when no slot is active
+ * (i.e. while the dock is hidden) so it stays mounted between every
+ * toggle.
+ */
+function ShellBody({ children }: { children: React.ReactNode }): React.ReactElement {
+    const { layout, setFloating, setVisible } = useDockLayout()
+
+    // Callback refs feed React state so a re-render fires when the
+    // active dock slot mounts. Without state we'd portal into stale refs.
+    const [railSlot, setRailSlot] = useState<HTMLDivElement | null>(null)
+    const [floatingSlot, setFloatingSlot] = useState<HTMLDivElement | null>(null)
+    const [parkingSlot, setParkingSlot] = useState<HTMLDivElement | null>(null)
+
+    const railSlotRef = useCallback((node: HTMLDivElement | null) => setRailSlot(node), [])
+    const floatingSlotRef = useCallback((node: HTMLDivElement | null) => setFloatingSlot(node), [])
+    const parkingSlotRef = useCallback((node: HTMLDivElement | null) => setParkingSlot(node), [])
+
+    // Always pick a non-null target so React never sees `<Portal>` go
+    // away — `<Dock />` stays mounted even mid-toggle.
+    const dockTarget =
+        layout.visible && layout.mode === 'rail'
+            ? railSlot
+            : layout.visible && layout.mode === 'floating'
+              ? floatingSlot
+              : parkingSlot
+
+    const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+    const shortcutHint = isMac ? DOCK_TOGGLE_KEY_HINT : DOCK_TOGGLE_KEY_HINT_PC
+
+    return (
+        <>
+            {/* Main + rail chrome. The rail slot only renders when the user
+             *  is in rail mode AND the dock is visible — otherwise the
+             *  whole panel + handle collapse so main takes the full width. */}
+            <ResizablePanelGroup orientation="horizontal" defaultLayout={{ main: 70, dock: 30 }} className="flex-1">
+                <ResizablePanel id="main" minSize="520px">
+                    <main className="h-full overflow-y-auto">
+                        <SessionGate>{children}</SessionGate>
+                    </main>
+                </ResizablePanel>
+                {layout.mode === 'rail' && layout.visible ? (
+                    <>
+                        <ResizableHandle withHandle />
+                        <ResizablePanel id="dock" minSize="360px" maxSize="720px">
+                            <div ref={railSlotRef} className="h-full border-l border-border" />
+                        </ResizablePanel>
+                    </>
+                ) : null}
+            </ResizablePanelGroup>
+
+            {/* Floating chrome. Same idea — only renders when active so the
+             *  rail layout isn't fighting a phantom overlay. */}
+            {layout.mode === 'floating' && layout.visible ? (
+                <FloatingDockPanel floating={layout.floating} setFloating={setFloating}>
+                    <div ref={floatingSlotRef} className="h-full" />
+                </FloatingDockPanel>
+            ) : null}
+
+            {/* Parking spot for the Dock when no visible slot is active.
+             *  Off-screen, but kept in the DOM so React keeps the runner mounted. */}
+            <div ref={parkingSlotRef} className="sr-only" aria-hidden />
+
+            {/* Show-dock affordance — only when hidden. */}
+            {!layout.visible ? (
+                <DockShowAffordance layout={layout} onShow={() => setVisible(true)} shortcutHint={shortcutHint} />
+            ) : null}
+
+            {/* The one and only `<Dock />` instance. createPortal teleports
+             *  its DOM into the active slot without React unmounting it. */}
+            {dockTarget && createPortal(<Dock />, dockTarget)}
+        </>
+    )
+}
+
 function Sidebar(): React.ReactElement {
     const pathname = usePathname() ?? '/'
     const isAgents = pathname === '/' || pathname.startsWith('/agents')
+    const isRegistry = pathname.startsWith('/registry')
     const isBilling = pathname.startsWith('/billing')
     const posthogBaseUrl = usePosthogBaseUrl()
 
@@ -114,6 +202,21 @@ function Sidebar(): React.ReactElement {
                     }
                 >
                     <BotIcon className="h-4 w-4" />
+                </Link>
+            </SidebarTooltip>
+
+            <SidebarTooltip label="Tools & skills">
+                <Link
+                    href="/registry"
+                    aria-label="Tools & skills"
+                    aria-current={isRegistry ? 'page' : undefined}
+                    className={
+                        isRegistry
+                            ? 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-accent text-foreground'
+                            : 'inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }
+                >
+                    <LibraryIcon className="h-4 w-4" />
                 </Link>
             </SidebarTooltip>
 

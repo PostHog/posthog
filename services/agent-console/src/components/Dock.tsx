@@ -35,13 +35,23 @@ import type {
 import { conciergeScripts, fallbackScript, waitingSession } from '@posthog/agent-chat/fixtures'
 
 import { IngressError } from '@/lib/agentIngressClient'
-import { ApiError, getAgent } from '@/lib/apiClient'
+import { ApiError, getAgent, setEnvKey } from '@/lib/apiClient'
 import { bumpReload } from '@/lib/reloadSignal'
+import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, useDockLayout } from '@/lib/useDockLayout'
 
 import { useDockStore } from './dock-context'
+import { DockHeader } from './DockHeader'
 import { useFocusStore } from './focus-context'
+import { SecretInline } from './SecretInline'
 import { useSession } from './session-context'
 import { useRealRunner } from './useRealRunner'
+
+/** Platform-aware shortcut hint passed to every DockHeader. Computed at
+ *  module load — runs client-side because this file is 'use client'. */
+const DOCK_HIDE_HINT =
+    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+        ? DOCK_TOGGLE_KEY_HINT
+        : DOCK_TOGGLE_KEY_HINT_PC
 
 /**
  * Translate the runner's `Error` into the wire-aware shape AgentChat
@@ -115,43 +125,55 @@ function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string |
         case 'file':
             return `/agents/${slug}?tab=configuration&file=${encodeURIComponent(args.path)}`
         case 'session':
-            return `/agents/${slug}/sessions/${encodeURIComponent(args.sessionId)}`
+            return `/agents/${slug}?tab=sessions&session=${encodeURIComponent(args.sessionId)}`
         default:
             return null
     }
 }
 
-function useFocusHandler(context: ChatContext): ClientToolHandler<FocusArgs, FocusResult> {
+function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, FocusResult>[] {
     const focus = useFocusStore()
     const router = useRouter()
-    return useMemo(
-        () => ({
-            id: 'focus',
-            handle: (args) => {
-                if (!focus.enabled) {
-                    return { focused: false, reason: 'user_paused_follow' }
-                }
-                const contextSlug =
-                    context.mode === 'concierge' && 'agent' in context.page
-                        ? context.page.agent.slug
-                        : context.mode === 'playground'
-                          ? context.agent.slug
-                          : undefined
-                const url = urlForFocus(args, contextSlug)
-                if (!url) {
-                    return { focused: false, reason: 'unresolved_target' }
-                }
-                router.push(url)
-                bumpReload()
-                return { focused: true, kind: args.kind }
+    return useMemo(() => {
+        const dispatch = (args: FocusArgs): FocusResult => {
+            if (!focus.enabled) {
+                return { focused: false, reason: 'user_paused_follow' }
+            }
+            const contextSlug =
+                context.mode === 'concierge' && 'agent' in context.page
+                    ? context.page.agent.slug
+                    : context.mode === 'playground'
+                      ? context.agent.slug
+                      : undefined
+            const url = urlForFocus(args, contextSlug)
+            if (!url) {
+                return { focused: false, reason: 'unresolved_target' }
+            }
+            router.push(url)
+            bumpReload()
+            return { focused: true, kind: args.kind }
+        }
+        return [
+            {
+                id: 'focus_tab',
+                handle: (a: { tab: 'overview' | 'configuration' | 'sessions' }) => dispatch({ kind: 'tab', ...a }),
             },
-        }),
-        [context, focus, router]
-    )
+            { id: 'focus_file', handle: (a: { path: string }) => dispatch({ kind: 'file', ...a }) },
+            { id: 'focus_revision', handle: (a: { revisionId: string }) => dispatch({ kind: 'revision', ...a }) },
+            { id: 'focus_session', handle: (a: { sessionId: string }) => dispatch({ kind: 'session', ...a }) },
+            {
+                id: 'focus_spec_section',
+                handle: (a: { section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' }) =>
+                    dispatch({ kind: 'spec_section', ...a }),
+            },
+        ] as unknown as ClientToolHandler<FocusArgs, FocusResult>[]
+    }, [context, focus, router])
 }
 
 function useDockHandlers(context: ChatContext): ClientToolHandler[] {
-    const focusHandler = useFocusHandler(context)
+    const focusHandlers = useFocusHandlers(context)
+    const { info } = useSession()
+    const teamId = info?.teamId ?? null
     const toastHandler = useMemo<ClientToolHandler<ToastArgs, ToastResult>>(
         () => ({
             id: 'toast',
@@ -162,6 +184,55 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
             },
         }),
         []
+    )
+    /**
+     * `set_secret` — render-style client tool. The agent invokes it
+     * with `{ agent_slug, secret, mode?, purpose? }` and the chat
+     * surface mounts an inline form next to the tool-call card. The
+     * user submits, the form PUTs `env_keys/<KEY>/`, and the runner
+     * posts the success / failure outcome back. Same wire path as a
+     * sync handler — the only difference is the UI moment in between.
+     *
+     * `agent_slug` is required and not inferred from page context.
+     * Ambient-state inference (e.g. "the agent the user is looking at
+     * right now") goes stale the moment they navigate; explicit
+     * targeting keeps the call stable for the lifetime of the form.
+     * The concierge already has the slug at hand via `get_context` or
+     * the session-start envelope, and it can manage agents other than
+     * the one currently on screen.
+     */
+    const setSecretHandler = useMemo<ClientToolHandler>(
+        () => ({
+            id: 'set_secret',
+            render: (args, callbacks) => {
+                const a = args as { agent_slug?: string; secret?: string; mode?: 'set' | 'rotate'; purpose?: string }
+                if (!a.agent_slug) {
+                    callbacks.reject('missing_arg: agent_slug')
+                    return null
+                }
+                if (!a.secret) {
+                    callbacks.reject('missing_arg: secret')
+                    return null
+                }
+                if (teamId == null) {
+                    callbacks.reject('no_team_in_session')
+                    return null
+                }
+                const slug = a.agent_slug
+                return (
+                    <SecretInline
+                        agentSlug={slug}
+                        secret={a.secret}
+                        mode={a.mode}
+                        purpose={a.purpose}
+                        onSetSecret={(key, value) => setEnvKey(teamId, slug, key, value).then(() => undefined)}
+                        onResolve={(body) => callbacks.resolve(body)}
+                        onReject={(reason) => callbacks.reject(reason)}
+                    />
+                )
+            },
+        }),
+        [teamId]
     )
     // get_context returns the host's current view info — same shape as the
     // Phase A envelope plus follow-mode + client kind so the agent can
@@ -191,8 +262,8 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
         [context, focusEnabled]
     )
     return useMemo<ClientToolHandler[]>(
-        () => [focusHandler, toastHandler, getContextHandler] as unknown as ClientToolHandler[],
-        [focusHandler, toastHandler, getContextHandler]
+        () => [...focusHandlers, toastHandler, getContextHandler, setSecretHandler] as unknown as ClientToolHandler[],
+        [focusHandlers, toastHandler, getContextHandler, setSecretHandler]
     )
 }
 
@@ -254,27 +325,45 @@ function PlaygroundDock({
     })
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
+    const { layout, setMode, setVisible } = useDockLayout()
+
+    const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
 
     return (
         <AgentChat
             context={context}
             session={runner.session}
             handlers={handlers}
-            followingEnabled={focus.enabled}
-            onFollowingChange={focus.setEnabled}
-            onExitPlayground={() => {
-                void runner.reset()
-                exitPlayground()
-            }}
-            onNewSession={() => void runner.reset()}
+            onClientToolResolve={runner.resolveClientTool}
+            headerSlot={
+                <DockHeader
+                    context={context}
+                    followingEnabled={focus.enabled}
+                    onFollowingChange={focus.setEnabled}
+                    onExitPlayground={() => {
+                        void runner.reset()
+                        exitPlayground()
+                    }}
+                    onNewSession={() => void runner.reset()}
+                    onOpenSession={(sessionId) =>
+                        router.push(`/agents/${agentRef.slug}?tab=sessions&session=${encodeURIComponent(sessionId)}`)
+                    }
+                    busy={sending}
+                    reconnectAttempt={runner.reconnectAttempt}
+                    renderMarkdown={renderMarkdown}
+                    onRenderMarkdownChange={setRenderMarkdown}
+                    sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
+                    dockMode={layout.mode}
+                    onChangeDockMode={setMode}
+                    onHideDock={() => setVisible(false)}
+                    hideShortcutHint={DOCK_HIDE_HINT}
+                />
+            }
             onSend={(text) => void runner.send(text)}
             onStop={runner.stop}
-            onOpenSession={(sessionId) => router.push(`/agents/${agentRef.slug}/sessions/${sessionId}`)}
             transportError={transportError}
             onDismissTransportError={runner.clearError}
-            reconnectAttempt={runner.reconnectAttempt}
             renderMarkdown={renderMarkdown}
-            onRenderMarkdownChange={setRenderMarkdown}
         />
     )
 }
@@ -419,22 +508,40 @@ function RealConciergeDock({
         [context, runner]
     )
 
+    const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
+    const { layout, setMode, setVisible } = useDockLayout()
+
     return (
         <AgentChat
             context={context}
             session={runner.session}
             handlers={handlers}
-            followingEnabled={focus.enabled}
-            onFollowingChange={focus.setEnabled}
-            onNewSession={() => void runner.reset()}
+            onClientToolResolve={runner.resolveClientTool}
+            headerSlot={
+                <DockHeader
+                    context={context}
+                    followingEnabled={focus.enabled}
+                    onFollowingChange={focus.setEnabled}
+                    onNewSession={() => void runner.reset()}
+                    onOpenSession={(sessionId) =>
+                        router.push(`/agents/${agentRef.slug}?tab=sessions&session=${encodeURIComponent(sessionId)}`)
+                    }
+                    busy={sending}
+                    reconnectAttempt={runner.reconnectAttempt}
+                    renderMarkdown={renderMarkdown}
+                    onRenderMarkdownChange={setRenderMarkdown}
+                    sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
+                    dockMode={layout.mode}
+                    onChangeDockMode={setMode}
+                    onHideDock={() => setVisible(false)}
+                    hideShortcutHint={DOCK_HIDE_HINT}
+                />
+            }
             onSend={send}
             onStop={runner.stop}
-            onOpenSession={(sessionId) => router.push(`/agents/${agentRef.slug}/sessions/${sessionId}`)}
             transportError={transportError}
             onDismissTransportError={runner.clearError}
-            reconnectAttempt={runner.reconnectAttempt}
             renderMarkdown={renderMarkdown}
-            onRenderMarkdownChange={setRenderMarkdown}
         />
     )
 }
@@ -452,17 +559,31 @@ function FixtureConciergeDock(): React.ReactElement {
         handlers,
     })
 
+    const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
+    const { layout, setMode, setVisible } = useDockLayout()
+
     return (
         <AgentChat
             context={context}
             session={runner.session}
             handlers={handlers}
-            followingEnabled={focus.enabled}
-            onFollowingChange={focus.setEnabled}
-            onNewSession={() => runner.reset()}
+            headerSlot={
+                <DockHeader
+                    context={context}
+                    followingEnabled={focus.enabled}
+                    onFollowingChange={focus.setEnabled}
+                    onNewSession={() => runner.reset()}
+                    busy={sending}
+                    renderMarkdown={renderMarkdown}
+                    onRenderMarkdownChange={setRenderMarkdown}
+                    dockMode={layout.mode}
+                    onChangeDockMode={setMode}
+                    onHideDock={() => setVisible(false)}
+                    hideShortcutHint={DOCK_HIDE_HINT}
+                />
+            }
             onSend={runner.send}
             renderMarkdown={renderMarkdown}
-            onRenderMarkdownChange={setRenderMarkdown}
         />
     )
 }
