@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -49,7 +48,6 @@ class TicketViewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-@extend_schema(tags=["conversations"])
 class TicketViewViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,

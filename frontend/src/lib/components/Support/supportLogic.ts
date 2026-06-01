@@ -587,8 +587,8 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
             const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
             if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {
