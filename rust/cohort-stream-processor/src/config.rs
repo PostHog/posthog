@@ -1,10 +1,4 @@
-//! Service configuration, loaded from environment variables via `envconfig`
-//! (pattern mirrors `rust/feature-flags/src/config.rs` and the shuffler's `config.rs`).
-//!
-//! PR 1.3 adds the Postgres reader and filter-catalog refresh knobs. The Kafka topics/consumer
-//! groups, RocksDB path and tuning, sweep interval + `safety_margin_ms`, S3 checkpoint
-//! settings, cascade caps, and kill-switch list are added by their respective Phase 1–3 PRs
-//! (TDD §6) as each subsystem is wired in.
+//! Service configuration, loaded from environment variables via `envconfig`.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -24,7 +18,7 @@ pub struct Config {
     #[envconfig(default = "0.0.0.0")]
     pub bind_host: String,
 
-    /// Port for the observability HTTP server. Overridden by the Helm values in PR 1.11.
+    /// Port for the observability HTTP server.
     #[envconfig(default = "3323")]
     pub bind_port: u16,
 
@@ -57,17 +51,14 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub filter_catalog_refresh_jitter_secs: u64,
 
-    // ── Partition routing (PR 1.5) ────────────────────────────────────────
-    /// Bounded buffer, in sub-batches, for each per-partition worker channel. This is the
-    /// backpressure knob (§2.3): once a worker is this far behind the router, routing to *that*
-    /// partition blocks instead of growing memory unbounded, while other partitions keep flowing.
-    /// The buffer is per active partition, so peak in-flight scales with the assigned partition
-    /// count. Consumed by PR 1.7 when it constructs the [`crate::partitions::PartitionRouter`].
+    // ── Partition routing ─────────────────────────────────────────────────
+    /// Bounded buffer (in sub-batches) per per-partition worker channel: the backpressure knob.
+    /// Routing to a partition this far behind blocks rather than growing memory unbounded. Per
+    /// active partition, so peak in-flight scales with the assigned partition count.
     #[envconfig(default = "1024")]
     pub partition_channel_buffer: usize,
 
     // ── Kafka (shared) ─────────────────────────────────────────────────────
-    /// Bootstrap servers, mirroring the shuffler's naming/defaults.
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
@@ -81,30 +72,26 @@ pub struct Config {
     pub kafka_client_rack: String,
 
     // ── Consumer (input: cohort_stream_events) ─────────────────────────────
-    /// The hot-path input topic. Named specifically (not `input_topic`) so later PRs can add
-    /// sibling topics (`cohort_cascade_events`, `cohort_stream_seed_events`, …) without ambiguity.
+    /// The hot-path input topic. Named specifically (not `input_topic`) so sibling topics can be
+    /// added without ambiguity.
     #[envconfig(default = "cohort_stream_events")]
     pub cohort_stream_events_topic: String,
 
     #[envconfig(default = "cohort-stream-processor")]
     pub kafka_consumer_group: String,
 
-    /// A new consumer group on a high-volume live topic starts at the tail rather than replaying
-    /// the topic's retention; the parity harness (PR 1.9/1.10) defines its window forward from
-    /// processor start. Matches the shuffler.
+    /// Start at the tail, not the topic's retention: the parity window runs forward from start.
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
     // ── Producer (output: cohort_membership_changed_shadow) ────────────────
-    /// The shadow output topic for membership changes (TDD §4.7). Distinct from the legacy
-    /// `cohort_membership_changed` so the new pipeline can run side-by-side for parity (M1); the
-    /// M4 cut-over may retarget this to the real topic.
+    /// The shadow output topic, distinct from the legacy `cohort_membership_changed` so the new
+    /// pipeline can run side-by-side for parity.
     #[envconfig(default = "cohort_membership_changed_shadow")]
     pub cohort_membership_changed_topic: String,
 
-    /// **Load-bearing** (key design point 1): `murmur2_random` co-partitions a given `person_id`
-    /// key identically to the Node/Python producers, so the shadow topic partitions the same way
-    /// the legacy producer does. Mirrors the shuffler; exposed as config only so ops can pin it.
+    /// **Load-bearing**: `murmur2_random` co-partitions a `person_id` key identically to the
+    /// Node/Python producers, so the shadow topic partitions the same way the legacy producer does.
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: String,
 
@@ -147,8 +134,7 @@ impl Config {
         (self.pg_statement_timeout_ms != 0).then_some(self.pg_statement_timeout_ms)
     }
 
-    /// Pool config for the catalog reader: small (defaults min 1 / max 5) since the only query
-    /// is the periodic `SELECT … FROM posthog_cohort` refresh.
+    /// Pool config for the catalog reader: small, since the only query is the periodic refresh.
     pub fn pool_config(&self) -> PoolConfig {
         PoolConfig {
             min_connections: self.min_pg_connections,
@@ -169,8 +155,7 @@ impl Config {
         Duration::from_millis(self.offset_commit_interval_ms)
     }
 
-    /// RocksDB settings for the state store. Only the path is configurable today; the cache /
-    /// write-buffer / open-files knobs use [`StoreConfig::default`] pending the §5.1 sizing work.
+    /// RocksDB settings for the state store. Only the path is configurable; the rest use defaults.
     pub fn store_config(&self) -> StoreConfig {
         StoreConfig {
             path: PathBuf::from(&self.store_path),
@@ -180,11 +165,10 @@ impl Config {
 
     /// Build the `rdkafka` client config for the `cohort_stream_events` group consumer.
     ///
-    /// Auto-commit and auto-offset-store are **off**: the consume loop marks each partition's
-    /// offset only once its sub-batch is routed, and the commit tick turns the
+    /// Auto-commit and auto-offset-store are **off**: the consume loop marks offsets only once a
+    /// sub-batch is routed, and the commit tick turns the
     /// [`OffsetTracker`](crate::partitions::OffsetTracker) snapshot into the committed
-    /// `TopicPartitionList`. The session/heartbeat/poll defaults are lifted from
-    /// `kafka-deduplicator`'s `for_batch_consumer`.
+    /// `TopicPartitionList`.
     pub fn consumer_client_config(&self) -> ClientConfig {
         let mut config = ClientConfig::new();
         config
@@ -212,10 +196,8 @@ impl Config {
         config
     }
 
-    /// Common Kafka connection + producer config for the `cohort_membership_changed_shadow`
-    /// producer, mirroring the shuffler's `build_kafka_config`. The partitioner is always set (the
-    /// default `murmur2_random` is load-bearing for cross-runtime co-partitioning); the producer
-    /// queue / timeout knobs use the same conservative values as other PostHog producers.
+    /// Kafka connection + producer config for the `cohort_membership_changed_shadow` producer. The
+    /// partitioner is always set — `murmur2_random` is load-bearing for cross-runtime co-partitioning.
     pub fn build_kafka_config(&self) -> KafkaConfig {
         KafkaConfig {
             kafka_hosts: self.kafka_hosts.clone(),
@@ -338,7 +320,6 @@ mod tests {
     #[test]
     fn build_kafka_config_pins_the_murmur2_partitioner() {
         let kafka = test_config().build_kafka_config();
-        // The partitioner is load-bearing for cross-runtime co-partitioning of the shadow topic.
         assert_eq!(
             kafka.kafka_producer_partitioner.as_deref(),
             Some("murmur2_random"),

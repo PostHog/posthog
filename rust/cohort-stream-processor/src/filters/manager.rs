@@ -1,9 +1,9 @@
-//! `FilterCatalog` + atomic swap + refresh loop (TDD §2.7).
+//! `FilterCatalog` + atomic swap + refresh loop.
 //!
 //! Mirrors `rust/cohort-event-shuffler/src/filter_team_index.rs`: a lock-free
-//! [`arc_swap::ArcSwap`] snapshot, an `is_loaded` fail-closed gate, and a jittered refresh
-//! task registered as a `lifecycle` component without a liveness deadline (a refresh outage
-//! keeps the last good snapshot rather than killing the service — staleness is safe).
+//! [`arc_swap::ArcSwap`] snapshot, an `is_loaded` fail-closed gate, and a jittered refresh task.
+//! The refresh task has no liveness deadline — a refresh outage keeps the last good snapshot rather
+//! than killing the service, since staleness is safe.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -22,8 +22,8 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
 
-/// The in-memory view of all realtime cohorts, keyed by team. Each team's filters are an `Arc`
-/// so the hot path (PR 1.6) can cheaply hold a per-team handle across an event batch.
+/// The in-memory view of all realtime cohorts, keyed by team. Each team's filters are an `Arc` so
+/// the hot path can cheaply hold a per-team handle across an event batch.
 #[derive(Debug, Default)]
 pub struct FilterCatalog {
     teams: HashMap<TeamId, Arc<TeamFilters>>,
@@ -41,7 +41,6 @@ impl FilterCatalog {
         self.teams.get(&team_id)
     }
 
-    /// Number of teams with ≥1 realtime cohort.
     pub fn team_count(&self) -> usize {
         self.teams.len()
     }
@@ -54,7 +53,7 @@ impl FilterCatalog {
             .sum()
     }
 
-    /// Build a catalog from `team → TeamFilters` pairs — the construction seam used by
+    /// The construction seam used by
     /// [`build_catalog_from_rows`](crate::filters::loader::build_catalog_from_rows) and tests.
     pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
         Self {
@@ -73,11 +72,10 @@ pub struct CatalogStats {
     pub unique_conditions: usize,
 }
 
-/// Lock-free, atomically-swapped catalog handle. Hot-path reads via [`load`](Self::load) are
-/// wait-free; a refresh swaps a fresh `Arc<FilterCatalog>` without blocking readers.
-///
-/// Starts **empty and unloaded** so the pipeline fails closed until the first successful
-/// refresh — mirroring the shuffler's `TeamIndex`.
+/// Lock-free, atomically-swapped catalog handle: hot-path reads via [`load`](Self::load) are
+/// wait-free, and a refresh swaps a fresh `Arc<FilterCatalog>` without blocking readers. Starts
+/// empty and unloaded so the pipeline fails closed until the first successful refresh, mirroring the
+/// shuffler's `TeamIndex`.
 pub struct CatalogHandle {
     catalog: ArcSwap<FilterCatalog>,
     loaded: AtomicBool,
@@ -96,21 +94,20 @@ impl CatalogHandle {
         self.catalog.load()
     }
 
-    /// True once the first refresh has succeeded. Before that the catalog is empty and
-    /// consumers should treat every team as having no realtime cohorts.
+    /// True once the first refresh has succeeded. Before that the catalog is empty and consumers
+    /// should treat every team as having no realtime cohorts.
     pub fn is_loaded(&self) -> bool {
         self.loaded.load(Ordering::Acquire)
     }
 
-    /// Build an already-loaded handle from a prebuilt catalog — the test seam (mirrors
-    /// `TeamIndex::from_teams`). Production loads via [`refresh`](Self::refresh).
+    /// Build an already-loaded handle from a prebuilt catalog — the test seam; production loads via
+    /// [`refresh`](Self::refresh).
     pub fn from_catalog(catalog: FilterCatalog) -> Self {
         let handle = Self::new();
         handle.store(catalog);
         handle
     }
 
-    /// Set the gauges, install the snapshot, and mark the handle loaded.
     fn store(&self, catalog: FilterCatalog) {
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
@@ -118,7 +115,7 @@ impl CatalogHandle {
         self.loaded.store(true, Ordering::Release);
     }
 
-    /// Query `posthog_cohort`, rebuild the catalog, and swap it in. Returns the snapshot counts.
+    /// Query `posthog_cohort`, rebuild the catalog, and swap it in.
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, FilterError> {
         let rows = load_realtime_cohorts(pool).await?;
         let catalog = build_catalog_from_rows(rows);
@@ -137,9 +134,8 @@ impl Default for CatalogHandle {
     }
 }
 
-/// Periodic catalog refresh task (TDD §2.7). Sleeps `interval ± jitter` to spread DB load
-/// across pods. On failure it keeps serving the previous snapshot — staleness is safe — and
-/// retries on the next tick. `tokio::select!`s on the shutdown signal for a clean exit.
+/// Periodic catalog refresh task. Sleeps `interval ± jitter` to spread DB load across pods. On
+/// failure it keeps serving the previous snapshot (staleness is safe) and retries next tick.
 pub async fn run_refresh_loop(
     catalog: Arc<CatalogHandle>,
     pool: PgPool,
@@ -254,12 +250,8 @@ mod tests {
         }
     }
 
-    /// Live-DB smoke test of the refresh path (SQL + jsonb decode + build + atomic swap).
-    /// `#[ignore]` because the shuffler precedent runs this crate's CI without Postgres; run it
-    /// against a local stack with `cargo test -p cohort-stream-processor -- --ignored`. It
-    /// asserts the query decodes into `CohortRow` and `is_loaded` flips. The full
-    /// insert/mutate/re-derive/cleanup flow is covered by the local end-to-end verification
-    /// step rather than a (separate) CI Postgres harness — flagged for the reviewer.
+    /// Live-DB smoke test of the refresh path. `#[ignore]` because CI runs this crate without
+    /// Postgres; run against a local stack with `cargo test -p cohort-stream-processor -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn refresh_builds_catalog_from_live_postgres() {

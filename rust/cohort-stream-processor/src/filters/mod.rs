@@ -1,15 +1,9 @@
-//! Filter catalog: the in-memory view of realtime cohorts (TDD §2.7).
+//! Filter catalog: the in-memory view of realtime cohorts.
 //!
-//! Loads `posthog_cohort` filters, parses each cohort's tree (without the SQL-only
-//! sibling-merge optimization), derives each leaf's `LeafStateKey`, and builds the
-//! `condition_hash` reverse indices — refreshed every 5 min (±1 min jitter) with an atomic
-//! `Arc<FilterCatalog>` swap. Submodules:
-//! - `manager`         — 5-min refresh + atomic catalog swap (PR 1.3)
-//! - `loader`          — `SELECT id, team_id, filters FROM posthog_cohort …` (PR 1.3)
-//! - `tree`            — parsed per-cohort filter tree (PR 1.3)
-//! - `reverse_index`   — `condition_hash → [LeafStateKey]` and `→ [cohort_id]` (PR 1.3)
-//! - `leaf_classifier` — person | behavioral | cohort; skips cohort at Stage 1 (PR 1.3)
-//! - `cohort_graph`    — reference graph + Tarjan SCC cycle detection (PR 3.3, deferred)
+//! Loads `posthog_cohort` filters, parses each cohort's tree (without the SQL-only sibling-merge
+//! optimization, so Stage 2 can re-walk the original leaves), derives each leaf's `LeafStateKey`,
+//! and builds the `condition_hash` reverse indices — refreshed every 5 min (±1 min jitter) with an
+//! atomic `Arc<FilterCatalog>` swap.
 
 pub mod leaf_classifier;
 pub mod loader;
@@ -28,12 +22,12 @@ pub use tree::{
     CohortRefLeafConfig, CohortTree, FilterNode, LeafSink, PersonLeafConfig,
 };
 
-/// Team identifier — matches the `posthog_cohort.team_id` integer column and sibling crates.
-/// (`Stage1Key.team_id` is `u64` per §4.1.0 and is converted at the store boundary in PR 1.6.)
+/// Team identifier (`posthog_cohort.team_id`). `Stage1Key.team_id` is `u64`, converted at the store
+/// boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TeamId(pub i32);
 
-/// Cohort identifier — matches the `posthog_cohort.id` integer column.
+/// Cohort identifier (`posthog_cohort.id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CohortId(pub i32);
 

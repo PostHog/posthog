@@ -1,19 +1,8 @@
-//! Choosing a leaf's [`StateVariant`] and eviction window from its config (TDD §4.1, §4.1.1).
+//! Choosing a leaf's [`StateVariant`] and eviction window from its config.
 //!
-//! [`pick_state_variant`] is invoked once per behavioral leaf at filter-load time. PR 1.6
-//! implements only `performed_event → BehavioralSingle`; `performed_event_multiple` (the bucket
-//! variants) is deferred to PR 2.1 and returns [`UnsupportedVariant::MultipleDeferred`] so the
-//! classifier drops the leaf — keeping the parity invariant that an unsupported variant never
-//! reaches the worker.
-//!
-//! ## Time intervals are fixed-seconds, not calendar
-//!
-//! [`TimeInterval::seconds`] reproduces `INTERVAL_TO_SECONDS`
-//! (`posthog/queries/foss_cohort_query.py:25`) exactly — `month = 30d`, `year = 365d` — because
-//! that constant is the cross-runtime windowing contract. Calendar month/year arithmetic
-//! (`chrono`) would diverge from the existing pipeline. There is **no minute-rejection** in
-//! PR 1.6: that rule is save-time and specific to `performed_event_multiple` (D8), which is
-//! deferred — `performed_event` accepts all six intervals.
+//! Time intervals are fixed-seconds, not calendar: [`TimeInterval::seconds`] reproduces
+//! `INTERVAL_TO_SECONDS` exactly (`month = 30d`, `year = 365d`) as the cross-runtime windowing
+//! contract. Calendar month/year arithmetic would diverge from the existing pipeline.
 
 use crate::filters::tree::{BehavioralLeafConfig, BehavioralValue};
 use crate::stage1::state::StateVariant;
@@ -31,8 +20,7 @@ pub enum TimeInterval {
 }
 
 impl TimeInterval {
-    /// The fixed number of seconds in this interval, byte-for-byte equal to
-    /// `posthog/queries/foss_cohort_query.py:25`'s `INTERVAL_TO_SECONDS`.
+    /// The fixed number of seconds in this interval, equal to Python's `INTERVAL_TO_SECONDS`.
     pub fn seconds(self) -> i64 {
         match self {
             Self::Minute => 60,
@@ -44,8 +32,7 @@ impl TimeInterval {
         }
     }
 
-    /// Parse the wire string (the value stored in the cohort filter JSON), or [`None`] for an
-    /// unrecognized one.
+    /// Parse the wire string, or [`None`] for an unrecognized one.
     pub fn from_wire(s: &str) -> Option<Self> {
         Some(match s {
             "minute" => Self::Minute,
@@ -59,26 +46,19 @@ impl TimeInterval {
     }
 }
 
-/// How a [`StateVariant::BehavioralSingle`] leaf's eviction deadline is derived. Stored per leaf in
-/// the catalog ([`crate::filters::reverse_index::LeafStateMeta`]) and consulted by the worker when
-/// it folds an event in. Eviction *firing* is PR 2.2–2.3; PR 1.6 only computes the deadline.
+/// How a [`StateVariant::BehavioralSingle`] leaf's eviction deadline is derived.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvictionWindow {
-    /// A rolling window of `seconds` relative to each matching event (`time_value × interval`).
+    /// A rolling window of `seconds` relative to each matching event.
     Relative { seconds: i64 },
-    /// A fixed end instant (epoch ms) from `explicit_datetime_to`; [`None`] when the bound could
-    /// not be parsed (treated as "never evict" until the explicit-window machinery lands).
+    /// A fixed end instant (epoch ms); [`None`] when unparseable (treated as "never evict").
     Explicit { to_ms: Option<i64> },
 }
 
 impl EvictionWindow {
-    /// The earliest epoch-ms at which state seeded by the newest matching event (at
-    /// `newest_event_ms`) may be evicted.
-    ///
-    /// For a relative window this is `newest_event_ms + seconds`; for an explicit window it is the
-    /// fixed end instant, or [`i64::MAX`] ("never") when that instant is absent/unparseable. Pass
-    /// the *newest* matching event time so a late (out-of-order) event cannot pull the deadline
-    /// earlier.
+    /// The earliest epoch-ms at which state seeded by the newest matching event may be evicted.
+    /// Pass the *newest* matching event time so a late (out-of-order) event cannot pull the
+    /// deadline earlier.
     pub fn earliest_eviction_at_ms(self, newest_event_ms: i64) -> i64 {
         match self {
             Self::Relative { seconds } => {
@@ -89,26 +69,20 @@ impl EvictionWindow {
     }
 }
 
-/// Why a behavioral leaf has no PR 1.6 state representation. The classifier maps any of these to
-/// [`LeafDropReason::UnsupportedStateVariant`](crate::filters::leaf_classifier::LeafDropReason),
-/// so the leaf is dropped + counted and never reaches the worker.
+/// Why a behavioral leaf has no supported state representation; the classifier drops + counts it so
+/// it never reaches the worker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum UnsupportedVariant {
-    /// `performed_event_multiple` — the bucket state variants are PR 2.1.
     #[error("performed_event_multiple bucket state is deferred to PR 2.1")]
     MultipleDeferred,
-    /// A `performed_event` leaf with neither a relative window (`time_value` + valid
-    /// `time_interval`) nor any `explicit_datetime[_to]` — no window can be derived.
     #[error("performed_event leaf has no resolvable window")]
     MissingWindow,
-    /// A behavioral value that does not produce realtime bytecode (the classifier already drops
-    /// these earlier; handled here defensively so the match is total).
+    /// Handled defensively so the match is total — the classifier drops these earlier.
     #[error("behavioral value does not contribute realtime bytecode")]
     NonRealtimeValue,
 }
 
-/// Pick the [`StateVariant`] and eviction window for a behavioral leaf, or the reason it is
-/// unsupported in PR 1.6.
+/// Pick the [`StateVariant`] and eviction window for a behavioral leaf, or why it is unsupported.
 pub fn pick_state_variant(
     leaf: &BehavioralLeafConfig,
 ) -> Result<(StateVariant, Option<EvictionWindow>), UnsupportedVariant> {
@@ -125,8 +99,8 @@ pub fn pick_state_variant(
     }
 }
 
-/// Derive the eviction window. An `explicit_datetime[_to]` leaf uses the explicit end bound;
-/// otherwise a relative `time_value × time_interval` window. A leaf with neither is unsupported.
+/// An `explicit_datetime[_to]` leaf uses the explicit end bound; otherwise a relative
+/// `time_value × time_interval` window. A leaf with neither is unsupported.
 fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, UnsupportedVariant> {
     if leaf.explicit_datetime.is_some() || leaf.explicit_datetime_to.is_some() {
         let to_ms = leaf
@@ -140,8 +114,7 @@ fn eviction_window(leaf: &BehavioralLeafConfig) -> Result<EvictionWindow, Unsupp
         .as_deref()
         .and_then(TimeInterval::from_wire)
         .ok_or(UnsupportedVariant::MissingWindow)?;
-    // A negative or absent time_value clamps to 0 (a degenerate zero-length window) rather than
-    // overflowing or going negative — the LeafStateKey already pins the exact stored value.
+    // A negative or absent time_value clamps to 0 rather than going negative.
     let time_value = i64::from(leaf.time_value.unwrap_or(0).max(0));
     Ok(EvictionWindow::Relative {
         seconds: time_value.saturating_mul(interval.seconds()),
@@ -181,7 +154,7 @@ mod tests {
 
     #[test]
     fn interval_seconds_match_the_python_constants() {
-        // Golden vs INTERVAL_TO_SECONDS (foss_cohort_query.py:25) — month=30d, year=365d.
+        // Golden vs INTERVAL_TO_SECONDS — month=30d, year=365d.
         assert_eq!(TimeInterval::Minute.seconds(), 60);
         assert_eq!(TimeInterval::Hour.seconds(), 3_600);
         assert_eq!(TimeInterval::Day.seconds(), 86_400);
@@ -237,7 +210,6 @@ mod tests {
             pick_state_variant(&leaf(BehavioralValue::PerformedEvent, None, None)),
             Err(UnsupportedVariant::MissingWindow),
         );
-        // An unrecognized interval string is also unresolvable.
         assert_eq!(
             pick_state_variant(&leaf(
                 BehavioralValue::PerformedEvent,

@@ -1,38 +1,15 @@
-//! `convertClickhouseRawEventToFilterGlobals` port (TDD §2.4, M8.c).
+//! Rust port of `convertClickhouseRawEventToFilterGlobals`: turn a [`CohortStreamEvent`] into the
+//! HogVM globals dict that compiled cohort bytecode reads.
 //!
-//! Two pure builders turn a [`CohortStreamEvent`] into the HogVM globals dict the compiled
-//! cohort bytecode reads. They are the faithful Rust port of the Node functions:
-//! - [`build_behavioral_globals`] ⇔ `convertClickhouseRawEventToFilterGlobals`
-//!   (`nodejs/src/cdp/utils/hog-function-filtering.ts:101-223`)
-//! - [`build_person_property_globals`] ⇔ the inline `personGlobals` object
-//!   (`nodejs/src/cdp/consumers/cdp-precalculated-filters.consumer.ts:254-262`)
+//! The Rust VM errors on a missing *top-level* global but reads a missing *nested* key as `null`,
+//! so every top-level key Node emits must be present even though supported cohort bytecode only
+//! reads `event` and `properties.*`. Group/derived fields the shuffler drops are emitted as Node's
+//! empty defaults rather than reconstructed; safe because supported realtime cohorts never filter
+//! on groups, `elements_chain`, or `timestamp`.
 //!
-//! ## Why the full top-level key set (behavioral)
-//!
-//! The Rust VM treats a missing *top-level* global as an error (`UnknownGlobal`,
-//! `rust/common/hogvm/src/vm.rs:133`) but a missing *nested* key as `null` (`vm.rs:124-128`).
-//! So every top-level key Node emits must be present for any behavioral bytecode to resolve its
-//! globals, even though supported cohort bytecode only ever reads `event` and `properties.*`.
-//!
-//! ## Node-parity divergences (all safe by construction)
-//!
-//! The shuffler intentionally drops group properties, `person_mode`, `created_at` and
-//! `project_id` (`cohort-event-shuffler/src/event.rs:4-5`, TDD §2.2). We therefore emit Node's
-//! *empty* group defaults (`$group_N = null`, `group_N = {properties: {}}`) rather than
-//! reconstructing them — which matches Node exactly for events without group properties, and is
-//! irrelevant for events with them because supported realtime cohorts never filter on groups,
-//! `elements_chain`, or `timestamp` (a supported leaf's bytecode consumes only its `key` plus
-//! `event_filters` over `properties.*` / `person.properties.*` — `posthog/cdp/filters.py`). The
-//! `elements_chain_*` derived fields are likewise emitted as static `""`/`[]` (Node computes them
-//! lazily and supported bytecode never reads them).
-//!
-//! ## Malformed payloads skip the event (not substitute `{}`)
-//!
-//! Node parses `properties` / `person_properties` with `JSON.parse`, which throws on malformed
-//! input; the throw is caught per-message (`consumer.ts:200`) and the *whole event* is skipped —
-//! no filter runs. The builders mirror this: a present, non-empty payload that fails to parse
-//! returns [`GlobalsError`] (and increments `stage1_globals_parse_error_total{field}`) so the Stage 1
-//! caller (PR 1.6) skips the event, rather than silently substituting an empty object.
+//! A present-but-malformed `properties`/`person_properties` payload returns [`GlobalsError`] so the
+//! caller skips the whole event — mirroring Node's caught `JSON.parse` throw — rather than
+//! substituting an empty object.
 
 use chrono::{DateTime, NaiveDateTime};
 use metrics::counter;
@@ -41,9 +18,7 @@ use serde_json::{json, Value};
 use crate::consumers::events::CohortStreamEvent;
 use crate::observability::metrics::STAGE1_GLOBALS_PARSE_ERROR;
 
-/// A raw `properties` / `person_properties` payload that was present but not valid JSON. The
-/// Stage 1 caller treats this as a per-event skip (Node parity, `consumer.ts:200`); `field`
-/// identifies which payload failed, for logging.
+/// A present-but-malformed `properties`/`person_properties` payload; the caller skips the event.
 #[derive(Debug, thiserror::Error)]
 #[error("failed to parse event `{field}` as JSON: {source}")]
 pub struct GlobalsError {
@@ -53,9 +28,6 @@ pub struct GlobalsError {
 }
 
 /// Build the full behavioral globals dict (Node's `convertClickhouseRawEventToFilterGlobals`).
-///
-/// Returns [`GlobalsError`] if `properties` or `person_properties` is present, non-empty, but
-/// malformed, so the caller skips the event exactly as Node does.
 pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let properties = parse_optional_json(event.properties.as_deref(), "properties")?;
     let person_properties =
@@ -64,8 +36,7 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     let elements_chain = elements_chain(event, &properties);
     let timestamp = normalize_timestamp(&event.timestamp);
 
-    // `person.id` is the *person* id, never the distinct id — see TDD §2.4. Built once and
-    // shared into `pdi` (clone) so both spots are identical, à la Node's single `personProperties`.
+    // `person.id` is the *person* id, never the distinct id.
     let person = json!({ "id": event.person_id.as_str(), "properties": person_properties });
     let pdi = json!({
         "distinct_id": event.distinct_id.as_str(),
@@ -77,7 +48,6 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
         "event": event.event.as_str(),
         "uuid": event.uuid.as_str(),
         "elements_chain": elements_chain,
-        // Static defaults: Node computes these lazily and supported bytecode never reads them.
         "elements_chain_href": "",
         "elements_chain_texts": [],
         "elements_chain_ids": [],
@@ -87,7 +57,6 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
         "person": person,
         "pdi": pdi,
         "distinct_id": event.distinct_id.as_str(),
-        // Group fields are dropped by the shuffler (TDD §2.2); emit Node's empty defaults.
         "$group_0": null,
         "$group_1": null,
         "$group_2": null,
@@ -102,12 +71,8 @@ pub fn build_behavioral_globals(event: &CohortStreamEvent) -> Result<Value, Glob
     }))
 }
 
-/// Build the small, strict person-property globals dict (Node's inline `personGlobals`).
-///
-/// The Stage 1 caller (PR 1.6) invokes this only when `person_properties` is present and
-/// non-empty (Node's guard, `consumer.ts:251`); a `None` or empty payload is handled defensively
-/// as an empty object. Node literally feeds `team_id` into `project.id` (`consumer.ts:260`) — matched
-/// here for byte parity, not because it is conceptually a project id.
+/// Build the small, strict person-property globals dict (Node's inline `personGlobals`). Node
+/// feeds `team_id` into `project.id` verbatim, matched here for byte parity.
 pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value, GlobalsError> {
     let person_properties =
         parse_optional_json(event.person_properties.as_deref(), "person_properties")?;
@@ -118,12 +83,10 @@ pub fn build_person_property_globals(event: &CohortStreamEvent) -> Result<Value,
     }))
 }
 
-/// Parse a raw JSON payload, mirroring Node's `event.x ? parseJSON(x) : {}`: a missing (`None`) or
-/// empty-string payload is JS-falsy and is never parsed → `{}`; `Some(valid)` → the parsed value
-/// passed through as-is (a non-object behaves identically to Node); a present, non-empty payload
-/// that fails to parse → [`GlobalsError`] plus the parse-error counter.
+/// Parse a raw JSON payload, mirroring Node's `event.x ? parseJSON(x) : {}`: a `None` or
+/// empty-string payload is JS-falsy and yields `{}`; a present-but-malformed payload returns
+/// [`GlobalsError`] plus the parse-error counter.
 fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, GlobalsError> {
-    // JS truthiness: an empty string is falsy, so Node never parses it (`x ? parseJSON(x) : {}`).
     let Some(raw) = raw.filter(|s| !s.is_empty()) else {
         return Ok(json!({}));
     };
@@ -133,9 +96,7 @@ fn parse_optional_json(raw: Option<&str>, field: &'static str) -> Result<Value, 
     })
 }
 
-/// `event.elements_chain ?? properties['$elements_chain']` (`hog-function-filtering.ts:103`).
-/// Falls back to `null` (Node's `undefined`) when neither is present; the top-level key must
-/// still exist so any nested access resolves to null rather than erroring.
+/// `event.elements_chain ?? properties['$elements_chain']`, falling back to `null`.
 fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     match &event.elements_chain {
         Some(chain) => Value::String(chain.clone()),
@@ -146,15 +107,12 @@ fn elements_chain(event: &CohortStreamEvent, properties: &Value) -> Value {
     }
 }
 
-/// Normalize the ClickHouse-format timestamp to ISO 8601, matching Node's
-/// `DateTime.fromISO(ts).isValid ? ts : clickHouseTimestampToISO(ts)` (`hog-function-filtering.ts:106`).
+/// Normalize a ClickHouse-format timestamp to ISO 8601, matching Node's
+/// `DateTime.fromISO(ts).isValid ? ts : clickHouseTimestampToISO(ts)`.
 ///
-/// An already-valid RFC 3339 string passes through unchanged; otherwise the ClickHouse format
-/// `"%Y-%m-%d %H:%M:%S%.f"` is parsed as UTC and re-emitted with millisecond precision and a `Z`
-/// suffix — byte-identical to Luxon `.toISO()` on a UTC `DateTime` (verified: `.789000` →
-/// `.789Z`, sub-millisecond digits truncated). No supported bytecode reads `timestamp`; this is
-/// ported for fidelity and pinned by a fixture to forestall a latent divergence. A value that
-/// matches neither shape passes through unchanged.
+/// An already-valid RFC 3339 string passes through; otherwise the ClickHouse form is parsed as UTC
+/// and re-emitted with millisecond precision and a `Z` suffix — byte-identical to Luxon `.toISO()`
+/// (sub-millisecond digits truncated). A value matching neither shape passes through unchanged.
 fn normalize_timestamp(raw: &str) -> String {
     if DateTime::parse_from_rfc3339(raw).is_ok() {
         return raw.to_string();
@@ -168,7 +126,6 @@ fn normalize_timestamp(raw: &str) -> String {
 mod tests {
     use super::*;
 
-    /// A fully-populated event with both payloads present.
     fn event() -> CohortStreamEvent {
         CohortStreamEvent {
             team_id: 42,
@@ -238,7 +195,6 @@ mod tests {
         assert_eq!(globals["pdi"]["person_id"], json!("p-123"));
         assert_eq!(globals["pdi"]["person"]["id"], json!("p-123"));
         assert_eq!(globals["elements_chain"], json!("a:href=\"/x\""));
-        // Group + derived defaults.
         assert_eq!(globals["$group_0"], Value::Null);
         assert_eq!(globals["group_0"], json!({ "properties": {} }));
         assert_eq!(globals["elements_chain_texts"], json!([]));
@@ -273,7 +229,7 @@ mod tests {
 
     #[test]
     fn empty_string_payload_parses_to_empty_object() {
-        // Node treats `""` as falsy → `{}` (`hog-function-filtering.ts:101,116`), not an error.
+        // Node treats `""` as falsy → `{}`, not an error.
         assert_eq!(
             parse_optional_json(Some(""), "properties").unwrap(),
             json!({})
@@ -297,8 +253,8 @@ mod tests {
 
     #[test]
     fn person_globals_treat_empty_string_person_properties_as_empty_object() {
-        // In isolation the builder is Node-faithful for `""` (the worker guards this case out
-        // before calling, but the builder must not error if invoked directly).
+        // The worker guards `""` out before calling, but the builder must not error if invoked
+        // directly.
         let mut e = event();
         e.person_properties = Some(String::new());
         let globals = build_person_property_globals(&e).unwrap();
@@ -329,7 +285,6 @@ mod tests {
 
     #[test]
     fn non_object_properties_pass_through_as_is() {
-        // Node assigns whatever parseJSON returns; a JSON array stays an array.
         let mut e = event();
         e.properties = Some("[1, 2, 3]".to_string());
         let globals = build_behavioral_globals(&e).unwrap();
@@ -352,7 +307,7 @@ mod tests {
 
     #[test]
     fn clickhouse_timestamp_normalizes_to_iso_millis_z() {
-        // Pinned byte-for-byte against Luxon `.toISO()`: microseconds truncate to milliseconds.
+        // Pinned byte-for-byte against Luxon `.toISO()`.
         assert_eq!(
             normalize_timestamp("2026-05-26 12:34:56.789000"),
             "2026-05-26T12:34:56.789Z"

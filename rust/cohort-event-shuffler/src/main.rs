@@ -38,16 +38,15 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    // The lifecycle manager owns signal trapping, graceful-shutdown coordination, and the
-    // readiness/liveness probes. Register every component before starting the monitor.
+    // Register every component before starting the monitor.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(30))
         .build();
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
-    // The consumer owns the liveness deadline: a wedged loop or a persistent produce failure
-    // (no successful batch within deadline × stall_threshold) trips coordinated shutdown.
+    // The consumer owns the liveness deadline: no successful batch within deadline × stall_threshold
+    // trips coordinated shutdown.
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
@@ -55,9 +54,8 @@ async fn async_main(config: Config) -> Result<()> {
             .with_liveness_deadline(Duration::from_secs(60))
             .with_stall_threshold(3),
     );
-    // The team-index refresh task is monitored only for clean shutdown, not liveness: a refresh
-    // outage must not kill the service (it keeps serving the last good snapshot — staleness is
-    // safe, TDD §2.4). An unexpected exit still signals the manager via the process-scope guard.
+    // No liveness deadline: a refresh outage must not kill the service (staleness is safe). An
+    // unexpected exit still signals the manager via the process-scope guard.
     let team_index_handle = manager.register(
         "team-index",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
@@ -72,9 +70,8 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    // Build all infrastructure before starting the monitor. A startup failure here returns
-    // before the monitor thread is running, so the dropped handles are harmless no-ops and the
-    // process exits non-zero for K8s to restart.
+    // Build all infrastructure before starting the monitor: a failure here returns before the
+    // monitor runs, so the dropped handles are harmless no-ops and the process exits non-zero.
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
@@ -96,7 +93,6 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    // Team-index refresh loop.
     let refresh_index = team_index.clone();
     let refresh_pool = pool.clone();
     let refresh_interval = config.team_index_refresh_interval();
@@ -112,7 +108,6 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // Consume → filter → re-key → produce loop.
     let shuffler = EventShuffler::new(
         consumer,
         producer,
@@ -125,7 +120,6 @@ async fn async_main(config: Config) -> Result<()> {
         shuffler.process().await;
     });
 
-    // Observability server (runs until graceful shutdown begins).
     let app = observability::health::router(SERVICE_NAME, readiness, liveness, recorder_handle);
     let bind = config.bind_address();
     info!(address = %bind, "observability server starting");
@@ -145,7 +139,7 @@ async fn async_main(config: Config) -> Result<()> {
     Ok(())
 }
 
-/// Log a redacted startup summary. Deliberately omits `database_url` (carries credentials).
+/// Deliberately omits `database_url`, which carries credentials.
 fn log_startup(config: &Config) {
     info!(
         service = SERVICE_NAME,
@@ -161,7 +155,6 @@ fn log_startup(config: &Config) {
 }
 
 /// JSON structured logging in production; human-readable when `RUST_LOG` requests debug.
-/// Mirrors `rust/ingestion-consumer/src/main.rs`.
 fn init_tracing() {
     let is_debug = std::env::var("RUST_LOG")
         .map(|v| v.contains("debug"))

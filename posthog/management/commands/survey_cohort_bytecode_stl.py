@@ -1,21 +1,4 @@
-"""Survey the HogVM bytecode of production realtime cohorts (Behavioral Cohorts rebuild, M0).
-
-This is the keystone Phase-0 measurement: it walks every `cohort_type='realtime' AND
-deleted=false` cohort's `filters` JSON, disassembles each leaf's compiled `bytecode`, and
-aggregates two histograms:
-
-  (a) STL-function frequency — how often each `CALL_GLOBAL "<name>"` appears, and how many
-      distinct cohorts use it.
-  (b) opcode frequency — how often each opcode is used, and how many distinct cohorts use it.
-
-It then cross-references both against the Rust HogVM's capabilities to produce the
-`rust_gaps` section — the authoritative input that sizes the M8.a missing-natives work
-(predicted minimum: just `isNull`). Output is written to `cohort_bytecode_survey.json`.
-
-Run against a fresh `posthog_cohort` snapshot so the result is reproducible:
-
-    ./manage.py survey_cohort_bytecode_stl --output cohort_bytecode_survey.json
-"""
+"""Survey HogVM bytecode (STL functions + opcodes) across realtime cohorts, flagging Rust HogVM gaps."""
 
 import json
 from collections import Counter, defaultdict
@@ -33,10 +16,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTEC
 
 logger = structlog.get_logger(__name__)
 
-# Number of inline operands that follow each opcode in the flat bytecode list. Sourced from
-# common/hogvm/python/debugger.py:color_bytecode (the authoritative disassembler) and
-# common/hogvm/python/operation.py. CLOSURE is variable-length and handled separately below.
-# MOD is included here (color_bytecode omits it, but it is a valid 0-operand binary op).
+# Inline operands following each opcode in the flat bytecode list (CLOSURE is variable-length, handled separately).
 FIXED_OPERAND_COUNTS: dict[Operation, int] = {
     Operation.GET_GLOBAL: 1,
     Operation.CALL_GLOBAL: 2,
@@ -96,15 +76,12 @@ FIXED_OPERAND_COUNTS: dict[Operation, int] = {
     Operation.CLOSE_UPVALUE: 0,
 }
 
-# Snapshot of the Rust HogVM's evaluation surface, used only to annotate the survey with the
-# `rust_gaps` section. Source of truth: rust/common/hogvm/src/stl.rs (regenerate the natives
-# list via `bin/dump_hogvmrs_stl`). Cross-check these against the Rust source when reading the
-# survey — they are a snapshot, not a live import (kept here to avoid a cross-product import).
+# Snapshot of rust/common/hogvm/src/stl.rs (regenerate via `bin/dump_hogvmrs_stl`); a snapshot avoids a cross-product import.
 RUST_NATIVE_STL: frozenset[str] = frozenset(
     {
         "toString",
         "typeof",
-        "isNull",  # added in M8.a
+        "isNull",
         "values",
         "length",
         "arrayPushBack",
@@ -121,25 +98,20 @@ RUST_NATIVE_STL: frozenset[str] = frozenset(
         "match",
         "extractRegex",
         "JSONExtract",
-        "toDateTime",  # added for is_date_before/after/exact cohort leaves
-        "toDate",  # added for is_date_before/after/exact cohort leaves
+        "toDateTime",
+        "toDate",
         "multiSearchAnyCaseInsensitive",
         "randomFloat",
     }
 )
-# Hog-bytecode-backed STL functions (rust/common/hogvm/src/stl.rs:hog_stl).
 RUST_HOG_STL: frozenset[str] = frozenset(
     {"arrayCount", "arrayExists", "arrayFilter", "arrayMap", "arrayReduce", "sortableSemver"}
 )
 RUST_SUPPORTED_STL: frozenset[str] = RUST_NATIVE_STL | RUST_HOG_STL
 
-# `sortableSemver`'s hog body itself calls these natives, which are NOT registered in the Rust
-# STL — so any cohort that uses a SEMVER_* operator is transitively blocked until they land
-# (TDD §5.2). A cohort's top-level bytecode only shows `sortableSemver`, so we surface the
-# transitive gap explicitly.
+# `sortableSemver`'s hog body calls these unregistered natives, transitively blocking any SEMVER_* cohort.
 SORTABLE_SEMVER_TRANSITIVE_DEPS: frozenset[str] = frozenset({"empty", "splitByString", "toInt"})
 
-# Opcodes the Rust HogVM dispatch returns NotImplemented for (rust/common/hogvm/src/vm.rs).
 RUST_NOT_IMPLEMENTED_OPCODES: frozenset[Operation] = frozenset(
     {Operation.DECLARE_FN, Operation.IN_COHORT, Operation.NOT_IN_COHORT}
 )
@@ -148,13 +120,12 @@ RUST_NOT_IMPLEMENTED_OPCODES: frozenset[Operation] = frozenset(
 def iter_instructions(bytecode: list[Any]) -> Iterator[tuple[Operation, list[Any]]]:
     """Disassemble a HogVM bytecode program, yielding (opcode, operands) per instruction.
 
-    Mirrors the operand layout of common/hogvm/python/debugger.py:color_bytecode. Raises
-    ValueError on an unknown opcode or truncated instruction so a malformed program is
+    Raises ValueError on an unknown opcode or truncated instruction so a malformed program is
     recorded as a walk failure rather than silently miscounted.
     """
     n = len(bytecode)
     ip = 0
-    # Skip the header: "_H" carries a trailing version int; "_h" (v0) does not.
+    # "_H" carries a trailing version int; "_h" (v0) does not.
     if n > 0 and bytecode[0] == HOGQL_BYTECODE_IDENTIFIER:
         ip = 2
     elif n > 0 and bytecode[0] == HOGQL_BYTECODE_IDENTIFIER_V0:
@@ -193,7 +164,6 @@ def iter_bytecode_leaves(properties: Any) -> Iterator[dict[str, Any]]:
         for child in properties["values"]:
             yield from iter_bytecode_leaves(child)
         return
-    # Leaf node.
     if properties.get("bytecode"):
         yield properties
 

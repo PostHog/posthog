@@ -1,8 +1,5 @@
-//! Focused coverage for the `isNull` native added for behavioral-cohort bytecode.
-//!
-//! `isNull` is emitted by the `null_safe_comparisons=True` bytecode wrapper that every
-//! cohort numeric-comparison leaf compiles through, so it must agree byte-for-byte with the
-//! Python reference (`args[0] is None`) and TypeScript (`null || undefined`) implementations.
+//! Coverage for the `isNull` native, emitted by the `null_safe_comparisons=True` wrapper that every
+//! cohort numeric-comparison leaf compiles through, so it must agree with the Python/TS references.
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use serde_json::{json, Value};
@@ -21,7 +18,6 @@ fn run(bytecode: Vec<Value>, globals: Value) -> Value {
     sync_execute(&ctx, false).expect("execution succeeds")
 }
 
-/// Build `isNull(<pushed-value-bytecode>)` and return.
 fn is_null_of(push_value: &[Value]) -> Vec<Value> {
     let mut bc = vec![json!("_H"), json!(1)];
     bc.extend_from_slice(push_value);
@@ -36,7 +32,10 @@ fn is_null_of(push_value: &[Value]) -> Vec<Value> {
 
 #[test]
 fn is_null_of_null_literal_is_true() {
-    assert_eq!(run(is_null_of(&[json!(OP_NULL)]), json!({})), Value::Bool(true));
+    assert_eq!(
+        run(is_null_of(&[json!(OP_NULL)]), json!({})),
+        Value::Bool(true)
+    );
 }
 
 #[test]
@@ -51,10 +50,8 @@ fn is_null_of_string_literal_is_false() {
     assert_eq!(run(is_null_of(&push_str), json!({})), Value::Bool(false));
 }
 
-/// The reason `isNull` is on the cohort critical path: a person property that does not exist
-/// resolves to null via GET_GLOBAL, and the null-safe comparison wrapper guards on it.
-/// GET_GLOBAL pushes the path segments in reverse, then reads `count` of them
-/// (e.g. `person.properties.email` -> STRING "email", STRING "properties", STRING "person", GET_GLOBAL 3).
+/// A missing person property resolves to null via GET_GLOBAL — the case the null-safe wrapper guards.
+/// GET_GLOBAL takes the path segments pushed in reverse, then a count.
 fn push_person_property(prop: &str) -> Vec<Value> {
     vec![
         json!(OP_STRING),

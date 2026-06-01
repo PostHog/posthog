@@ -1,10 +1,10 @@
-//! The service's own filter-tree types and parser (TDD §2.7).
+//! The service's own filter-tree types and parser.
 //!
-//! These types deliberately do **not** depend on the feature-flags crate — they borrow only
-//! the serde field names. The tree is parsed **as-is**: no `_merge_sibling_single_property_groups`
-//! and no `_preprocess_property_groups`, so Stage 2 can re-walk the original leaves later. Each
-//! kept leaf caches its derived [`LeafStateKey`] and (for behavioral leaves) its resolved
-//! [`StateVariant`] so the hot path never re-derives them.
+//! These types deliberately do not depend on the feature-flags crate — they borrow only the serde
+//! field names. The tree is parsed as-is (no `_merge_sibling_single_property_groups`, no
+//! `_preprocess_property_groups`) so Stage 2 can re-walk the original leaves later. Each kept leaf
+//! caches its [`LeafStateKey`] and (for behavioral leaves) its [`StateVariant`] so the hot path
+//! never re-derives them.
 
 use std::sync::Arc;
 
@@ -32,8 +32,8 @@ pub enum BehavioralValue {
 }
 
 impl BehavioralValue {
-    /// The wire string (the value stored in the cohort filter JSON). Hashed into the
-    /// [`LeafStateKey`], so it is part of the cross-runtime contract.
+    /// The wire string stored in the cohort filter JSON. Hashed into the [`LeafStateKey`], so it is
+    /// part of the cross-runtime contract.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PerformedEvent => "performed_event",
@@ -46,14 +46,14 @@ impl BehavioralValue {
         }
     }
 
-    /// Whether this value produces realtime bytecode (and therefore a `conditionHash`). Only
-    /// the two non-temporal types do; the rest cannot be evaluated incrementally at Stage 1.
-    /// Mirrors `build_behavioral_event_expr` (`posthog/cdp/filters.py:329-350`).
+    /// Whether this value produces realtime bytecode (and a `conditionHash`). Only the two
+    /// non-temporal types do; the rest cannot be evaluated incrementally at Stage 1. Mirrors
+    /// `build_behavioral_event_expr` (`posthog/cdp/filters.py:329-350`).
     pub fn contributes_bytecode(self) -> bool {
         matches!(self, Self::PerformedEvent | Self::PerformedEventMultiple)
     }
 
-    /// Parse a wire string into a value, or `None` for an unrecognized (schema-drift) string.
+    /// Parse a wire string, or `None` for an unrecognized (schema-drift) string.
     pub fn from_wire(s: &str) -> Option<Self> {
         let value = match s {
             "performed_event" => Self::PerformedEvent,
@@ -69,10 +69,9 @@ impl BehavioralValue {
     }
 }
 
-/// A behavioral leaf, carrying every input to [`LeafStateKey::for_behavioral`]. `operator` is
-/// kept as a raw string because the LSK hashes the raw string and the feature-flags
-/// `OperatorType` enum lacks `eq` (which `performed_event_multiple` uses); a typed comparator
-/// is PR 1.6's concern.
+/// A behavioral leaf, carrying every input to [`LeafStateKey::for_behavioral`]. `operator` is a raw
+/// string because the LSK hashes the raw string and the feature-flags `OperatorType` enum lacks
+/// `eq` (which `performed_event_multiple` uses).
 #[derive(Debug, Clone)]
 pub struct BehavioralLeafConfig {
     pub condition_hash: [u8; 16],
@@ -84,34 +83,28 @@ pub struct BehavioralLeafConfig {
     pub operator: Option<String>,
     pub explicit_datetime: Option<String>,
     pub explicit_datetime_to: Option<String>,
-    /// Derived once at parse time via [`with_state_key`](Self::with_state_key) and then
-    /// immutable for the lifetime of the snapshot.
+    /// Derived once via [`with_state_key`](Self::with_state_key), then immutable.
     pub leaf_state_key: LeafStateKey,
-    /// Resolved once at classify time via [`pick_state_variant`](crate::stage1::pick_state::pick_state_variant)
-    /// and recorded by [`with_state_variant`](Self::with_state_variant). [`None`] only while the
-    /// struct is mid-construction (the literal-then-builder pattern); a kept leaf always carries
-    /// `Some`, since a leaf whose variant is unsupported is dropped rather than kept.
+    /// [`None`] only while the struct is mid-construction (literal-then-builder); a kept leaf always
+    /// carries `Some`, since an unsupported variant is dropped rather than kept.
     pub state_variant: Option<StateVariant>,
-    /// The leaf's inline compiled bytecode (sibling to `conditionHash` in the filter JSON), the
-    /// program PR 1.6 feeds to [`crate::hogvm::evaluate`]. `Arc` so tree clones / ArcSwap snapshots
-    /// share one allocation. Excluded from [`LeafStateKey`] (the LSK hashes `condition_hash`, which
-    /// already is `sha256(bytecode)`), and never read by [`with_state_key`].
+    /// The leaf's inline bytecode fed to [`crate::hogvm::evaluate`]. `Arc` so tree clones / ArcSwap
+    /// snapshots share one allocation. Excluded from [`LeafStateKey`], which hashes `condition_hash`
+    /// (already `sha256(bytecode)`).
     pub bytecode: Arc<Vec<Value>>,
 }
 
 impl BehavioralLeafConfig {
-    /// Derive and cache the [`LeafStateKey`] from this leaf's discriminating fields. The only
-    /// correct way to finish constructing the type: the cached key must always be consistent
-    /// with the fields it hashes, so callers build the struct literal and end with this call.
+    /// Derive and cache the [`LeafStateKey`]. The only correct way to finish constructing the type:
+    /// the cached key must stay consistent with the fields it hashes, so callers build the struct
+    /// literal and end with this call.
     #[must_use]
     pub fn with_state_key(mut self) -> Self {
         self.leaf_state_key = LeafStateKey::for_behavioral(&self);
         self
     }
 
-    /// Record the leaf's resolved [`StateVariant`]. The classifier calls this after
-    /// [`pick_state_variant`](crate::stage1::pick_state::pick_state_variant) accepts the leaf, so a
-    /// kept behavioral leaf always carries `Some(variant)`.
+    /// Record the leaf's resolved [`StateVariant`].
     #[must_use]
     pub fn with_state_variant(mut self, variant: StateVariant) -> Self {
         self.state_variant = Some(variant);
@@ -119,19 +112,18 @@ impl BehavioralLeafConfig {
     }
 }
 
-/// A person-property leaf. The raw JSON is retained so Stage 2 can re-walk the original
-/// predicate; Stage 1 needs the `condition_hash` / `leaf_state_key` and the `bytecode`.
+/// A person-property leaf. The raw JSON is retained so Stage 2 can re-walk the original predicate.
 #[derive(Debug, Clone)]
 pub struct PersonLeafConfig {
     pub condition_hash: [u8; 16],
     pub leaf_state_key: LeafStateKey,
-    /// The leaf's inline compiled bytecode — see [`BehavioralLeafConfig::bytecode`].
+    /// See [`BehavioralLeafConfig::bytecode`].
     pub bytecode: Arc<Vec<Value>>,
     pub raw: Value,
 }
 
-/// A reference to another cohort. Has no `conditionHash` at Stage 1 (cohort refs are skipped
-/// during HogVM evaluation, `manager.ts:142`); `negation` is meaningful here (§2.7).
+/// A reference to another cohort. No `conditionHash` at Stage 1 — cohort refs are skipped during
+/// HogVM evaluation (`manager.ts:142`).
 #[derive(Debug, Clone)]
 pub struct CohortRefLeafConfig {
     pub referenced_cohort_id: CohortId,
@@ -165,8 +157,7 @@ impl CohortLeaf {
         }
     }
 
-    /// The leaf's inline compiled bytecode, or `None` for a cohort reference (cohort refs are
-    /// skipped during HogVM evaluation, `manager.ts:142`).
+    /// The leaf's inline bytecode, or `None` for a cohort reference (no bytecode).
     pub fn bytecode(&self) -> Option<&Arc<Vec<Value>>> {
         match self {
             Self::PersonProperty(leaf) => Some(&leaf.bytecode),
@@ -201,15 +192,13 @@ pub struct CohortTree {
     pub root: FilterNode,
 }
 
-/// Receives the indexable side effects of a parse so parsing and index-building happen in one
-/// pass. [`crate::filters::reverse_index::TeamFiltersBuilder`] is the production implementation;
-/// tests use a lightweight collecting sink.
+/// Receives the indexable side effects of a parse so parsing and index-building happen in one pass.
+/// [`crate::filters::reverse_index::TeamFiltersBuilder`] is the production implementation; tests use
+/// a lightweight collecting sink.
 pub trait LeafSink {
-    /// A kept, state-keyed leaf (person property or behavioral): records the
-    /// `condition_hash → leaf_state_key`, `condition_hash → cohort_id`, and
-    /// `condition_hash → bytecode` edges and the per-team `conditionHash` dedup membership in one
-    /// call. `bytecode` is borrowed; the implementation clones the `Arc` only on first insert per
-    /// `conditionHash` (identical across cohorts since `conditionHash = sha256(bytecode)`).
+    /// Records a kept, state-keyed leaf's `condition_hash → {leaf_state_key, cohort_id, bytecode}`
+    /// edges and its `conditionHash` dedup membership. `bytecode` is borrowed; the implementation
+    /// clones the `Arc` only on first insert per `conditionHash`.
     fn record_state_keyed(
         &mut self,
         cohort_id: CohortId,
@@ -225,9 +214,9 @@ pub trait LeafSink {
 /// Parse a cohort's `filters` JSON into a [`CohortTree`], emitting index side effects through
 /// `sink`. Returns [`FilterError::MissingProperties`] if `filters.properties` is absent.
 ///
-/// A node is a group iff its `type` is `"AND"`/`"OR"` and `values` is an array (recurse);
-/// anything else is a leaf classified by [`classify_leaf`]. Dropped leaves produce no node; an
-/// empty group after drops is **kept** to preserve the AND/OR identity for Stage 2 (D-5).
+/// A node is a group iff its `type` is `"AND"`/`"OR"` and `values` is an array; anything else is a
+/// leaf. Dropped leaves produce no node; an empty group after drops is **kept** to preserve the
+/// AND/OR identity for Stage 2.
 pub fn parse_cohort_tree(
     cohort_id: CohortId,
     team_id: TeamId,
@@ -240,8 +229,8 @@ pub fn parse_cohort_tree(
             cohort_id: cohort_id.0,
         })?;
 
-    // Real cohort `properties` are always a group; a degenerate single-leaf root that drops
-    // out leaves no node, so fall back to an empty AND group rather than failing the cohort.
+    // A degenerate single-leaf root that drops out leaves no node; fall back to an empty AND group
+    // rather than failing the cohort.
     let root = parse_node(cohort_id, properties, sink).unwrap_or_else(|| FilterNode::Group {
         op: BoolOp::And,
         children: Vec::new(),
@@ -267,8 +256,7 @@ fn parse_node(cohort_id: CohortId, node: &Value, sink: &mut dyn LeafSink) -> Opt
 
     match classify_leaf(node) {
         LeafClass::Keep(leaf) => {
-            // Kept leaves are person/behavioral, which always carry all three; the guard is purely
-            // defensive against a future variant.
+            // Kept leaves always carry all three; the guard is defensive against a future variant.
             if let (Some(hash), Some(lsk), Some(bytecode)) = (
                 leaf.condition_hash(),
                 leaf.leaf_state_key(),
@@ -308,9 +296,8 @@ mod tests {
         dropped: Vec<LeafDropReason>,
     }
 
-    // Bytecode capture into the indices is exercised against the real `TeamFiltersBuilder` in
-    // `reverse_index` / the `filter_catalog` integration test; this sink only needs to observe the
-    // state-keyed/dropped edges, so it ignores the bytecode argument.
+    // Bytecode capture is covered against the real `TeamFiltersBuilder` elsewhere; this sink only
+    // observes the state-keyed/dropped edges, so it ignores the bytecode argument.
     impl LeafSink for CollectingSink {
         fn record_state_keyed(
             &mut self,
@@ -426,7 +413,6 @@ mod tests {
 
     #[test]
     fn dropped_leaf_produces_no_node_but_keeps_the_group() {
-        // A behavioral leaf with no conditionHash is dropped; the enclosing group survives.
         let filters = json!({
             "properties": {
                 "type": "AND",

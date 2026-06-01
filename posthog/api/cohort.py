@@ -450,13 +450,10 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
-# A fixed namespace for `pg_advisory_xact_lock(namespace, project_id)` so cohort-save locks never
-# collide with other advisory locks; the project id is the second key.
+# First key of `pg_advisory_xact_lock(namespace, project_id)`, kept distinct from other advisory locks.
 COHORT_SAVE_ADVISORY_LOCK_NAMESPACE = int.from_bytes(hashlib.sha256(b"cohort_save").digest()[:4], "big", signed=True)
 
-# Time spent waiting to acquire the per-project cohort-save lock. No project_id label: it would be
-# unbounded-cardinality; the lock is uncontended in the common case, so the distribution is enough
-# to spot contention, and the (rare) contended save is logged with its project id.
+# No project_id label (unbounded cardinality); the rare contended save is logged with its project id instead.
 COHORT_SAVE_ADVISORY_LOCK_WAIT = Histogram(
     "posthog_cohort_save_advisory_lock_wait_seconds",
     "Time spent waiting for the per-project cohort-save advisory lock (loop-check + save serialization)",
@@ -464,10 +461,8 @@ COHORT_SAVE_ADVISORY_LOCK_WAIT = Histogram(
 
 
 def _acquire_cohort_save_lock(project_id: int) -> None:
-    """Serialize concurrent cohort saves within a project so the loop check sees a consistent
-    dependency graph — closing the TOCTOU where two concurrent saves each pass `will_create_loops`
-    and together form a cycle. Transaction-scoped (`pg_advisory_xact_lock`): released automatically
-    on commit or rollback. Must be called inside a `transaction.atomic()` block.
+    """Serialize cohort saves per project, closing the TOCTOU where two concurrent saves each pass
+    `will_create_loops` and together form a cycle. Transaction-scoped; must run inside `transaction.atomic()`.
     """
     started = time.monotonic()
     with connection.cursor() as cursor:
@@ -482,7 +477,6 @@ def _acquire_cohort_save_lock(project_id: int) -> None:
 
 
 def _iter_filter_leaves(node: Any) -> Iterator[dict]:
-    """Yield every leaf node of a cohort filter tree, descending through ``AND``/``OR`` groups."""
     if not isinstance(node, dict):
         return
     if node.get("type") in ("AND", "OR"):
@@ -658,11 +652,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
         person_ids = validated_data.pop("_create_static_person_ids", None)
 
-        # Persist + loop-check under a per-project advisory lock so concurrent saves can't race into
-        # a cohort-reference cycle. Creating inside the atomic (rather than checking a transient
-        # before create) preserves `CohortManager.create`'s `groups` normalization; a detected loop
-        # rolls the insert back. Side effects (calculation enqueue, activity, analytics) run *after*
-        # the commit — ATOMIC_REQUESTS is off, so nothing irreversible may run inside the block.
+        # Loop-check serialized with the advisory lock; a detected loop rolls the insert back. No
+        # irreversible side effect may run inside the block — ATOMIC_REQUESTS is off.
         with transaction.atomic():
             _acquire_cohort_save_lock(self.context["get_team"]().project_id)
             cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
@@ -930,13 +921,8 @@ class CohortSerializer(serializers.ModelSerializer):
         return raw
 
     def _reject_unsupported_realtime_intervals(self, raw: dict) -> None:
-        """Reject behavioral leaves the realtime pipeline cannot represent. A
-        ``performed_event_multiple`` with a ``minute`` window has no supported Stage 1 state variant,
-        so it must be rejected at save time — *not* in the pydantic validator, whose raise is
-        swallowed by the broad ``try/except`` in
-        :func:`validate_filters_and_compute_realtime_support` (which would then save the cohort with
-        ``cohort_type=None`` instead of surfacing the error).
-        """
+        """Reject `performed_event_multiple` + `minute` here, not in the pydantic validator: that
+        raise is swallowed by `validate_filters_and_compute_realtime_support`'s broad try/except."""
         for leaf in _iter_filter_leaves(raw.get("properties")):
             if (
                 leaf.get("type") == "behavioral"
@@ -1164,9 +1150,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif not cohort.is_static:
             cohort.is_calculating = True
 
-        # Loop-check + save under the same per-project advisory lock as create, so a concurrent
-        # save can't slip a cohort-reference cycle past the check. Narrow block: the calculation
-        # enqueue and analytics below run after commit (no irreversible work inside the atomic).
+        # Narrow block: the calculation enqueue and analytics below run after commit (no irreversible work inside).
         with transaction.atomic():
             _acquire_cohort_save_lock(cohort.team.project_id)
             if will_create_loops(cohort):

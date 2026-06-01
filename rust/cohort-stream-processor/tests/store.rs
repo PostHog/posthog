@@ -1,6 +1,4 @@
-//! PR 1.2 acceptance, end-to-end against a real RocksDB in a temp dir, through the public API
-//! only: per-CF point writes, atomic cross-CF `WriteBatch`, the secondary-index merge operator,
-//! `delete_partition` isolation, and reopen-after-flush persistence.
+//! End-to-end tests against a real RocksDB in a temp dir, through the public API only.
 
 use cohort_stream_processor::store::{
     Cf, CohortStore, IndexOp, LeafStateKey, OpaqueCf, PersonIndexKey, Stage1Key, Stage2Key,
@@ -54,7 +52,6 @@ fn stage2_key(partition: u16, team: u64, cohort: u64, p: u128) -> Stage2Key {
     }
 }
 
-/// Acceptance 1 — point writes and reads on each CF; misses read as absent/empty.
 #[test]
 fn point_writes_and_reads_per_cf() {
     let dir = TempDir::new().unwrap();
@@ -82,13 +79,11 @@ fn point_writes_and_reads_per_cf() {
     );
     assert_eq!(store.get_person_index(&pix).unwrap(), vec![lsk(1)]);
 
-    // Raw read through the generic accessor agrees with the typed one.
     assert_eq!(
         store.get(Cf::Stage1, &s1.encode()).unwrap().as_deref(),
         Some(&b"stage1-value"[..])
     );
 
-    // Absent keys: `None` for opaque CFs, empty set for the person index.
     assert!(store
         .get_stage1(&stage1_key(0, 100, 1, 999))
         .unwrap()
@@ -99,9 +94,7 @@ fn point_writes_and_reads_per_cf() {
         .is_empty());
 }
 
-/// The typed escape hatch: a raw put by pre-encoded key bytes lands in the addressed opaque CF and
-/// reads back through both the generic and typed accessors. `cf_person_index` is merge-only and not
-/// an `OpaqueCf` variant, so a raw put to it cannot be expressed here (it would not compile).
+/// `cf_person_index` is merge-only (not an `OpaqueCf` variant), so a raw put to it would not compile.
 #[test]
 fn put_raw_writes_to_the_addressed_opaque_cf() {
     let dir = TempDir::new().unwrap();
@@ -131,8 +124,6 @@ fn put_raw_writes_to_the_addressed_opaque_cf() {
     );
 }
 
-/// Acceptance 2 — the §2.5:301 invariant: a `cf_stage1` put and its `cf_person_index` append are
-/// applied in one atomic `WriteBatch`, and both are visible afterward.
 #[test]
 fn cross_cf_write_batch_is_atomic() {
     let dir = TempDir::new().unwrap();
@@ -152,16 +143,14 @@ fn cross_cf_write_batch_is_atomic() {
     assert_eq!(store.get_person_index(&pix).unwrap(), vec![lsk(9)]);
 }
 
-/// Acceptance 3 — append/remove through the real merge operator, forcing on-disk collapse with a
-/// flush. Removing every entry must read back as empty — not a "Merge operator failed" error,
-/// which is what returning `None` from `full_merge` would produce.
+/// Removing every entry must read back as empty, not a "Merge operator failed" error (which is what
+/// returning `None` from `full_merge` would produce).
 #[test]
 fn secondary_index_merge_append_and_remove() {
     let dir = TempDir::new().unwrap();
     let store = open_store(&dir);
     let pix = person_index_key(1, 300, 5);
 
-    // Three appends, each its own batch → three separate merge operands.
     for leaf in [10u8, 20, 30] {
         store
             .write_batch(|b| b.merge_person_index(&pix, IndexOp::Append(lsk(leaf))))
@@ -172,7 +161,7 @@ fn secondary_index_merge_append_and_remove() {
         vec![lsk(10), lsk(20), lsk(30)]
     );
 
-    // Remove the middle one, flush to force the operator to collapse into an SST, read back.
+    // Flush forces the operator to collapse into an SST before the read-back.
     store
         .write_batch(|b| b.merge_person_index(&pix, IndexOp::Remove(lsk(20))))
         .unwrap();
@@ -182,7 +171,6 @@ fn secondary_index_merge_append_and_remove() {
         vec![lsk(10), lsk(30)]
     );
 
-    // Remove the rest → empty set must read back as empty (the merge-`None` correctness case).
     store
         .write_batch(|b| {
             b.merge_person_index(&pix, IndexOp::Remove(lsk(10)));
@@ -193,8 +181,6 @@ fn secondary_index_merge_append_and_remove() {
     assert_eq!(store.get_person_index(&pix).unwrap(), vec![]);
 }
 
-/// Acceptance 4 — `delete_partition` reclaims exactly one partition across all three CFs while a
-/// neighbouring partition (identical but for the partition prefix) is untouched.
 #[test]
 fn delete_partition_isolates_other_partitions() {
     let dir = TempDir::new().unwrap();
@@ -214,7 +200,6 @@ fn delete_partition_isolates_other_partitions() {
 
     store.delete_partition(0).unwrap();
 
-    // Partition 0 is gone across every CF...
     assert!(store
         .get_stage1(&stage1_key(0, 100, 1, 7))
         .unwrap()
@@ -228,7 +213,6 @@ fn delete_partition_isolates_other_partitions() {
         .unwrap()
         .is_empty());
 
-    // ...and partition 1 survives across every CF.
     assert_eq!(
         store
             .get_stage1(&stage1_key(1, 100, 1, 7))
@@ -251,7 +235,6 @@ fn delete_partition_isolates_other_partitions() {
     );
 }
 
-/// Acceptance 5 — data written + flushed survives closing and reopening the DB at the same path.
 #[test]
 fn data_survives_reopen() {
     let dir = TempDir::new().unwrap();
@@ -269,7 +252,7 @@ fn data_survives_reopen() {
             })
             .unwrap();
         store.flush().unwrap();
-    } // store drops here, closing the DB and releasing its lock
+    } // drop releases the DB lock so the reopen below can acquire it
 
     let reopened = CohortStore::open(&config).unwrap();
     assert_eq!(

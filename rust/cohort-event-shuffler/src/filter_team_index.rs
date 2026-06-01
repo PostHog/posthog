@@ -1,14 +1,11 @@
-//! In-memory index of teams with ≥1 realtime-supported cohort (TDD §2.2, step 3).
+//! In-memory index of teams with ≥1 realtime-supported cohort, consulted by the consumer's team
+//! gate. Refreshed on a `refresh_secs ± jitter` poll and swapped atomically via
+//! [`arc_swap::ArcSwap`] so hot-path reads are lock-free and a refresh never blocks the consumer.
 //!
-//! The consumer consults [`TeamIndex::contains`] before forwarding an event — the team gate
-//! that mirrors `realtime-supported-filter-manager-cdp.ts:219-222`. The set is refreshed on a
-//! `refresh_secs ± jitter` poll and swapped atomically via [`arc_swap::ArcSwap`], so the hot
-//! path reads are lock-free and a refresh never blocks the consumer.
-//!
-//! Staleness is safe by design (key design point 4): the gate is defense-in-depth and Stage 1
-//! re-checks team membership (TDD §2.4), so a ≤5-min-stale snapshot only over-forwards briefly.
-//! The index starts **empty and unloaded**, so nothing is forwarded until the first successful
-//! refresh — avoiding a cold-start flood if the DB is briefly unreachable at boot.
+//! Staleness is safe: the gate is defense-in-depth and the downstream processor re-checks
+//! membership, so a stale snapshot only over-forwards briefly. The index starts empty and unloaded
+//! so nothing is forwarded until the first refresh — avoiding a cold-start flood if the DB is
+//! briefly unreachable at boot.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,15 +22,12 @@ use tracing::{info, warn};
 
 use crate::observability::metrics::ACTIVE_TEAMS;
 
-/// Teams with ≥1 realtime-supported cohort. Mirrors the Node filter manager's predicate
-/// (`realtime-supported-filter-manager-cdp.ts:77-91`): `cohort_type='realtime'`, not deleted,
-/// non-null `filters`. Projected to `DISTINCT team_id` because the shuffler only needs the
-/// gate, not the per-cohort filter payloads.
+/// Must match the Node filter manager's predicate (`cohort_type='realtime'`, not deleted, non-null
+/// `filters`); projected to `DISTINCT team_id` since the shuffler only needs the gate.
 const TEAMS_WITH_REALTIME_COHORTS_SQL: &str = "SELECT DISTINCT team_id \
      FROM posthog_cohort \
      WHERE cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL";
 
-/// Lock-free, atomically-swapped set of realtime-cohort teams.
 pub struct TeamIndex {
     teams: ArcSwap<HashSet<i32>>,
     loaded: AtomicBool,
@@ -47,18 +41,15 @@ impl TeamIndex {
         }
     }
 
-    /// True if `team_id` has ≥1 realtime cohort as of the last successful refresh.
     pub fn contains(&self, team_id: i32) -> bool {
         self.teams.load().contains(&team_id)
     }
 
-    /// True once the first refresh has succeeded. Before that the set is empty and the
-    /// consumer should forward nothing.
+    /// False until the first refresh succeeds, while the set is empty and nothing should forward.
     pub fn is_loaded(&self) -> bool {
         self.loaded.load(Ordering::Acquire)
     }
 
-    /// Number of teams in the current snapshot.
     pub fn len(&self) -> usize {
         self.teams.load().len()
     }
@@ -67,23 +58,19 @@ impl TeamIndex {
         self.len() == 0
     }
 
-    /// Build an already-loaded index from an explicit team set. Production loads via
-    /// [`refresh`](Self::refresh) against `posthog_cohort`; this constructor is the seam for
-    /// tests (and any future static-config mode) that need a populated index without a DB.
+    /// Test seam: an already-loaded index without a DB. Production loads via [`refresh`](Self::refresh).
     pub fn from_teams(teams: impl IntoIterator<Item = i32>) -> Self {
         let index = Self::new();
         index.store(teams.into_iter().collect());
         index
     }
 
-    /// Atomically install a new snapshot, mark the index loaded, and publish the gauge.
     fn store(&self, teams: HashSet<i32>) {
         gauge!(ACTIVE_TEAMS).set(teams.len() as f64);
         self.teams.store(Arc::new(teams));
         self.loaded.store(true, Ordering::Release);
     }
 
-    /// Query `posthog_cohort` and swap in the fresh team set. Returns the team count.
     pub async fn refresh(&self, pool: &PgPool) -> Result<usize> {
         let rows: Vec<i32> = sqlx::query_scalar(TEAMS_WITH_REALTIME_COHORTS_SQL)
             .fetch_all(pool)
@@ -101,14 +88,12 @@ impl Default for TeamIndex {
     }
 }
 
-/// Periodic team-index refresh task (TDD §2.2). Sleeps `interval ± jitter` between refreshes
-/// to spread DB load across pods (matches the Node `LazyLoader` jitter at
-/// `realtime-supported-filter-manager-cdp.ts:38-39`). On failure it keeps serving the previous
-/// snapshot — staleness is safe — and retries on the next tick.
+/// Sleeps `interval ± jitter` between refreshes to spread DB load across pods. On failure it keeps
+/// serving the previous snapshot — staleness is safe — and retries next tick.
 ///
-/// Registered as a `lifecycle` component without a liveness deadline: a refresh outage must not
-/// kill the service (that would stop forwarding entirely, which is worse than a stale gate). An
-/// unexpected exit of this task, however, drops the process-scope guard and signals the manager.
+/// Registered without a liveness deadline: a refresh outage must not kill the service (that stops
+/// forwarding entirely, worse than a stale gate). An unexpected exit still drops the process-scope
+/// guard and signals the manager.
 pub async fn run_refresh_loop(
     index: Arc<TeamIndex>,
     pool: PgPool,
@@ -136,14 +121,13 @@ pub async fn run_refresh_loop(
     }
 }
 
-/// A sleep duration uniformly in `[interval - jitter, interval + jitter]`.
 fn next_interval(interval: Duration, jitter: Duration) -> Duration {
     if jitter.is_zero() {
         return interval;
     }
     let lo = interval.saturating_sub(jitter).as_millis() as u64;
     let hi = interval.saturating_add(jitter).as_millis() as u64;
-    // Scoped so the non-Send `ThreadRng` is dropped before any later await in the caller.
+    // Drop the non-Send `ThreadRng` before returning so it never spans an await.
     let millis = rand::thread_rng().gen_range(lo..=hi);
     Duration::from_millis(millis)
 }

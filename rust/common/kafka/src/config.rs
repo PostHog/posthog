@@ -45,11 +45,8 @@ pub struct KafkaConfig {
 
     pub kafka_producer_sticky_partitioning_linger_ms: Option<u32>,
 
-    // Partitioner algorithm, e.g. "murmur2_random" for Kafka-Java/python-kafka/Node parity.
-    // None means "let librdkafka pick its default" (`consistent_random`, CRC32-based).
-    // Set this on every producer that must co-partition a keyed topic with messages
-    // produced by another runtime (the behavioral-cohorts pipeline relies on this so its
-    // Rust and Node producers route the same key to the same partition).
+    // Set to "murmur2_random" to co-partition a keyed topic with Kafka-Java/python-kafka/Node
+    // producers; `None` uses librdkafka's CRC32-based default, which routes keys differently.
     pub kafka_producer_partitioner: Option<String>,
 }
 

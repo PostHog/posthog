@@ -1,11 +1,6 @@
-//! Coverage for ordering-comparison coercion (F3): `Gt`/`GtEq`/`Lt`/`LtEq` over mixed scalar types.
-//!
-//! Cohort numeric leaves (`bc_num gt 10`) compile the threshold as a **string** constant, so the
-//! comparison is `Number <op> String`. The reference Python (`unify_comparison_types`) and TS
-//! (`unifyComparisonTypes`) coerce String→Number only when the other side is a number, compare two
-//! strings lexicographically, and let an unparseable numeric coercion fall through to a falsy
-//! result (Python raises → caught; TS → `NaN`). This VM matches that exactly — the pre-fix code
-//! instead errored on *any* non-`Number` operand, so every numeric person cohort silently failed.
+//! Coverage for ordering-comparison coercion (`Gt`/`GtEq`/`Lt`/`LtEq`) over mixed scalar types.
+//! Cohort numeric leaves compile the threshold as a string constant, so this must match the Python
+//! (`unify_comparison_types`) and TS (`unifyComparisonTypes`) coercion exactly.
 
 use hogvm::{sync_execute, ExecutionContext, Program, VmFailure};
 use serde_json::{json, Value};
@@ -23,7 +18,7 @@ const OP_INTEGER: i64 = 33;
 const OP_FLOAT: i64 = 34;
 const OP_RETURN: i64 = 38;
 
-/// `left <op> right`. The compiler emits `visit(right), visit(left), op`, so result = `op(left, right)`.
+/// `left <op> right`. The compiler emits operands as `[right…, left…, op]`.
 fn compare(left: &[Value], right: &[Value], op: i64) -> Vec<Value> {
     let mut bc = vec![json!("_H"), json!(1)];
     bc.extend_from_slice(right);
@@ -61,7 +56,7 @@ fn boolean(b: bool) -> Vec<Value> {
 
 #[test]
 fn number_vs_numeric_string_coerces_the_string() {
-    // The exact F3 cohort case: `bc_num gt "10"` (threshold compiled as a string).
+    // The exact cohort case: `bc_num gt "10"` (threshold compiled as a string).
     assert_eq!(
         run(compare(&int(20), &string("10"), OP_GT)),
         Value::Bool(true)
@@ -70,7 +65,6 @@ fn number_vs_numeric_string_coerces_the_string() {
         run(compare(&int(5), &string("10"), OP_GT)),
         Value::Bool(false)
     );
-    // Symmetric: string on the left coerces too.
     assert_eq!(
         run(compare(&string("20"), &int(10), OP_GT)),
         Value::Bool(true)
@@ -83,7 +77,6 @@ fn number_vs_numeric_string_coerces_the_string() {
 
 #[test]
 fn every_ordering_op_coerces_numeric_strings() {
-    // 20 vs 10 across all four ordering ops, with the threshold as a string.
     for (op, expected) in [
         (OP_GT, true),
         (OP_GT_EQ, true),
@@ -96,7 +89,6 @@ fn every_ordering_op_coerces_numeric_strings() {
             "op {op}",
         );
     }
-    // Equal values: `>=` / `<=` are true, `>` / `<` are false.
     for (op, expected) in [
         (OP_GT, false),
         (OP_GT_EQ, true),
@@ -125,13 +117,12 @@ fn float_string_coercion_works() {
 
 #[test]
 fn both_strings_compare_lexicographically() {
-    // Documented residual divergence from ClickHouse: two strings compare lexicographically (matching
-    // Python/TS), NOT numerically. "20" > "10" agrees with numeric here…
+    // Residual divergence from ClickHouse: two strings compare lexicographically (matching Python/TS),
+    // NOT numerically — so "9" > "100" here though 9 < 100 numerically.
     assert_eq!(
         run(compare(&string("20"), &string("10"), OP_GT)),
         Value::Bool(true)
     );
-    // …but "9" > "100" is true lexicographically ('9' > '1') though 9 < 100 numerically.
     assert_eq!(
         run(compare(&string("9"), &string("100"), OP_GT)),
         Value::Bool(true)
@@ -164,8 +155,7 @@ fn bool_number_coercion_maps_true_one_false_zero() {
 
 #[test]
 fn number_vs_unparseable_string_errors() {
-    // `5 > "abc"`: the string can't coerce to a number. The VM errors (Python raises `TypeError`,
-    // TS yields `NaN`); the cohort executor's `evaluate` coerces that error to `false`.
+    // An unparseable string errors (Python raises, TS yields NaN); the cohort executor coerces it to `false`.
     assert!(run_result(compare(&int(5), &string("abc"), OP_GT)).is_err());
     assert!(run_result(compare(&string("abc"), &int(5), OP_LT)).is_err());
 }
@@ -184,6 +174,5 @@ fn pure_numeric_comparisons_are_unchanged() {
         run(compare(&int(10), &float(10.0), OP_GT_EQ)),
         Value::Bool(true)
     );
-    // Equality is untouched by the F3 change.
     assert_eq!(run(compare(&int(10), &int(10), OP_EQ)), Value::Bool(true));
 }

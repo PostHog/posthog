@@ -1,9 +1,7 @@
-//! Observability HTTP surface (TDD §2.3):
-//! - `GET /_health`  liveness — always 200; the `lifecycle` monitor owns health internally
-//!   and triggers coordinated shutdown on stall rather than relying on K8s liveness kills.
-//! - `GET /_ready`   readiness — 200 while running, 503 once graceful shutdown begins.
-//! - `GET /metrics`  Prometheus exposition (only when the recorder is installed).
-//! - `GET /`         service identity.
+//! Observability HTTP surface: `/_health`, `/_ready`, `/metrics`, `/`.
+//!
+//! `/_health` always returns 200: the `lifecycle` monitor owns health internally and triggers
+//! coordinated shutdown on stall, rather than relying on K8s liveness kills.
 
 use std::future::ready;
 

@@ -40,28 +40,22 @@ async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
 
-    // The lifecycle manager owns signal trapping, graceful-shutdown coordination, and the
-    // readiness/liveness probes. PR 1.3 registered the observability server and the filter
-    // catalog refresh task; PR 1.7 adds the `cohort_stream_events` consumer. The remaining
-    // partition-sweep and checkpoint tasks (TDD §2.3) are registered here as later PRs build
-    // them out. The generous shutdown timeout leaves room for the final RocksDB checkpoint
-    // flush a stateful worker needs.
+    // The generous shutdown timeout leaves room for the final RocksDB checkpoint flush.
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(90))
         .build();
 
     let metrics_handle =
         manager.register("metrics", ComponentOptions::new().is_observability(true));
-    // The catalog refresh task is monitored only for clean shutdown, not liveness: a refresh
-    // outage must not kill the service (it keeps serving the last good snapshot — staleness is
-    // safe, §2.7). An unexpected exit still signals the manager via the process-scope guard.
+    // Monitored for clean shutdown, not liveness: a refresh outage must not kill the service, which
+    // keeps serving the last good snapshot.
     let catalog_handle_lifecycle = manager.register(
         "filter-catalog",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
     );
-    // The consumer owns the liveness deadline: a wedged consume loop or a sustained broker outage
-    // (no successful poll within deadline × stall_threshold) trips coordinated shutdown. Its
-    // graceful window covers draining the per-partition worker channels and the final commit.
+    // The consumer owns the liveness deadline: a wedged consume loop or sustained broker outage
+    // trips coordinated shutdown. Its graceful window covers draining worker channels and the
+    // final commit.
     let consumer_handle = manager.register(
         "consumer",
         ComponentOptions::new()
@@ -79,9 +73,8 @@ async fn async_main(config: Config) -> Result<()> {
         None
     };
 
-    // Build all infrastructure before starting the monitor. A startup failure here returns
-    // before the monitor thread is running, so the dropped handles are harmless no-ops and the
-    // process exits non-zero for K8s to restart.
+    // Build all infrastructure before starting the monitor: a failure here returns before the
+    // monitor thread runs, so the dropped handles are harmless no-ops and the process exits non-zero.
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating posthog_cohort database pool")?;
 
@@ -98,17 +91,13 @@ async fn async_main(config: Config) -> Result<()> {
         ),
     }
 
-    // State store + partition routing infrastructure. The `StreamConsumer` subscribes here but does
-    // not fetch until `process()` polls it (after the monitor starts), so building it before the
-    // monitor keeps the "fallible infra fails fast, dropped handles are no-ops" discipline above.
+    // The `StreamConsumer` subscribes here but does not fetch until `process()` polls it after the
+    // monitor starts, so building it now keeps the fail-fast discipline above.
     let store = CohortStore::open(&config.store_config()).context("opening RocksDB state store")?;
     let router = PartitionRouter::new(config.partition_channel_buffer);
-    // Shared across the per-partition workers (each marks its own offsets after producing) and the
-    // consumer's commit loop.
     let offset_tracker = Arc::new(OffsetTracker::new());
 
-    // Shadow-topic output producer. `KafkaMembershipSink::new` pings broker metadata, so a bad
-    // Kafka config fails fast here (before the monitor starts), matching the shuffler's producer.
+    // `KafkaMembershipSink::new` pings broker metadata, so a bad Kafka config fails fast here.
     let kafka_config = config.build_kafka_config();
     let sink: Arc<dyn MembershipSink> = Arc::new(
         KafkaMembershipSink::new(
@@ -129,7 +118,6 @@ async fn async_main(config: Config) -> Result<()> {
 
     let guard = manager.monitor_background();
 
-    // Filter catalog refresh loop.
     let refresh_catalog = catalog.clone();
     let refresh_pool = pool.clone();
     let refresh_interval = config.filter_catalog_refresh_interval();
@@ -145,9 +133,8 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    // Consume → route → Stage 1 → produce → commit loop. The dispatcher shares the same
-    // atomically-swapped catalog snapshot the refresh loop maintains (a cheap `Arc` clone), and
-    // hands the shadow sink + offset tracker to each per-partition worker it spawns.
+    // The dispatcher shares the catalog snapshot the refresh loop swaps, and hands the sink + offset
+    // tracker to each per-partition worker it spawns.
     let dispatcher = EventDispatcher::new(router, offset_tracker, store, catalog.clone(), sink);
     let events_consumer = CohortStreamEventsConsumer::new(
         stream_consumer,
@@ -160,7 +147,6 @@ async fn async_main(config: Config) -> Result<()> {
     );
     tokio::spawn(events_consumer.process());
 
-    // Observability server (runs until graceful shutdown begins).
     let app = observability::health::router(SERVICE_NAME, readiness, liveness, recorder_handle);
     let bind = config.bind_address();
     info!(address = %bind, "observability server starting");

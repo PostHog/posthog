@@ -17,7 +17,7 @@ from posthog.models.cohort.cohort import Cohort, CohortType
 
 from common.hogvm.python.operation import Operation
 
-# Opcode values used to hand-build synthetic bytecode (mirror common/hogvm/python/operation.py).
+# Opcode values mirror common/hogvm/python/operation.py.
 GET_GLOBAL, CALL_GLOBAL, AND, PLUS = 1, 2, 3, 6
 GT, IN_COHORT = 13, 27
 TRUE, NULL, STRING, INTEGER, RETURN = 29, 31, 32, 33, 38
@@ -99,7 +99,7 @@ class TestBytecodeWalker(BaseTest):
                     "type": "OR",
                     "values": [
                         {"type": "behavioral", "conditionHash": "h2", "bytecode": ["_H", 1, TRUE, RETURN]},
-                        {"type": "person", "conditionHash": "h3"},  # no bytecode -> skipped
+                        {"type": "person", "conditionHash": "h3"},
                     ],
                 },
             ],
@@ -111,7 +111,6 @@ class TestBytecodeWalker(BaseTest):
 class TestAggregateSurvey(BaseTest):
     def test_aggregates_histograms_and_rust_gaps(self):
         rows = [
-            # isNull: supported native.
             (
                 1,
                 2,
@@ -128,7 +127,6 @@ class TestAggregateSurvey(BaseTest):
                     }
                 },
             ),
-            # inCohort: CALL_GLOBAL name missing from the Rust STL.
             (
                 2,
                 2,
@@ -145,7 +143,6 @@ class TestAggregateSurvey(BaseTest):
                     }
                 },
             ),
-            # IN_COHORT: opcode the Rust VM returns NotImplemented for.
             (
                 3,
                 7,
@@ -162,7 +159,6 @@ class TestAggregateSurvey(BaseTest):
                     }
                 },
             ),
-            # sortableSemver: present in Rust hog_stl but transitively needs empty/splitByString/toInt.
             (
                 4,
                 7,
@@ -179,7 +175,6 @@ class TestAggregateSurvey(BaseTest):
                     }
                 },
             ),
-            # Truncated bytecode -> recorded as a walk failure, does not crash the survey.
             (
                 5,
                 7,
@@ -219,14 +214,13 @@ class TestAggregateSurvey(BaseTest):
         self.assertEqual(result["walk_failures"][0]["cohort_id"], 5)
 
     def test_real_compiler_bytecode_is_walked_and_isnull_is_supported(self):
-        # Compile a real person-property numeric comparison; it wraps the GT in isNull guards.
         from posthog.api.cohort import generate_cohort_filter_bytecode
 
         bytecode, error, condition_hash = generate_cohort_filter_bytecode(
             {"key": "age", "type": "person", "value": 13, "operator": "gt"}, self.team
         )
         self.assertIsNone(error)
-        assert bytecode is not None  # narrow for mypy
+        assert bytecode is not None
 
         row = (
             101,
@@ -248,9 +242,8 @@ class TestAggregateSurvey(BaseTest):
         stl_names = {entry["name"] for entry in result["stl_functions"]}
         self.assertIn("isNull", stl_names)
         opcode_names = {entry["opcode"] for entry in result["opcodes"]}
-        self.assertIn("GT", opcode_names)  # the actual comparison survives disassembly
+        self.assertIn("GT", opcode_names)
 
-        # isNull is now a supported native (M8.a), and a person-property comparison needs nothing else.
         self.assertEqual(result["rust_gaps"]["missing_stl_natives"], [])
         self.assertEqual(result["rust_gaps"]["not_implemented_opcodes_used"], [])
 

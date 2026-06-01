@@ -1,8 +1,7 @@
-//! Consume → filter → re-key → produce loop for `clickhouse_events_json` (TDD §2.2).
+//! Consume → filter → re-key → produce loop for `clickhouse_events_json`.
 //!
-//! Mirrors the gating in `cdp-precalculated-filters.consumer.ts` (drop events with no
-//! `person_id`, `:187-194`) and `realtime-supported-filter-manager-cdp.ts` (skip teams with no
-//! realtime cohorts, `:219-222`), then re-keys the survivors by `(team_id, person_id)`.
+//! Drops events with no `person_id`, skips teams with no realtime cohorts, then re-keys the
+//! survivors by `(team_id, person_id)` to match the Node CDP precalculated-filters gating.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,26 +21,18 @@ use crate::observability::metrics::{
 };
 use crate::producer::CohortStreamProducer;
 
-/// Outcome of the per-event gate (TDD §2.2, steps 2–3). An explicit enum — rather than a bool —
-/// so the consumer can emit a distinct metric per drop reason. `Forward` carries the extracted
-/// `person_id` so the forward path needs neither a clone nor a second `Option` check.
+/// A distinct variant per outcome so the consumer can emit a per-reason metric; `Forward` carries
+/// the moved-out `person_id` so the forward path needs no clone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ForwardDecision {
-    /// Forward: the event has a `person_id` (carried here) and its team has ≥1 realtime cohort.
     Forward { person_id: String },
-    /// Drop: no `person_id` — the re-key has no routing key (`consumer.ts:187-194`).
     DropNoPersonId,
-    /// Skip: the team has no realtime cohorts (`realtime-supported-filter-manager-cdp.ts:219-222`).
     SkipTeamGate,
 }
 
-/// Classify an event against the gate, extracting the routing key on the forward path. Takes
-/// `&mut` so the `person_id` can be *moved* out of the event into [`ForwardDecision::Forward`]
-/// (no clone) when both gates pass. The `take()` runs before the team check, but a non-forwarded
-/// event is discarded by the caller, so the mutation is unobservable. Depends only on the event
-/// and the team snapshot, so it stays exhaustively unit-testable without Kafka or Postgres.
-/// `person_id` is checked first because a missing routing key disqualifies the event regardless
-/// of the team gate.
+/// `&mut` so `person_id` can be moved out (no clone) when both gates pass; the caller discards any
+/// non-forwarded event, so the `take()` before the team check is unobservable. `person_id` is
+/// checked first because a missing routing key disqualifies the event regardless of the team gate.
 pub fn classify(event: &mut ClickHouseEvent, team_index: &TeamIndex) -> ForwardDecision {
     let Some(person_id) = event.person_id.take() else {
         return ForwardDecision::DropNoPersonId;
@@ -52,7 +43,6 @@ pub fn classify(event: &mut ClickHouseEvent, team_index: &TeamIndex) -> ForwardD
     ForwardDecision::Forward { person_id }
 }
 
-/// The stateless consume → filter → re-key → produce worker.
 pub struct EventShuffler {
     consumer: SingleTopicConsumer,
     producer: CohortStreamProducer,
@@ -81,9 +71,8 @@ impl EventShuffler {
         }
     }
 
-    /// Run until the lifecycle handle signals shutdown. A successful batch (even an empty poll)
-    /// heartbeats liveness, so an idle topic stays healthy and only a wedged loop or a
-    /// persistent produce failure trips the stall detector.
+    /// A successful batch (even an empty poll) heartbeats liveness, so an idle topic stays healthy
+    /// and only a wedged loop or a persistent produce failure trips the stall detector.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!("shuffler consume loop starting");
@@ -107,10 +96,9 @@ impl EventShuffler {
         info!("shuffler consume loop stopped");
     }
 
-    /// One consume → filter → produce → commit cycle. Returns the number of events consumed.
     async fn process_batch(&self) -> Result<usize> {
-        // Fail-closed until the team index loads once (key design point 4): don't consume — and
-        // advance offsets past — events while the gate would forward nothing.
+        // Fail-closed until the team index loads once: don't consume — and advance offsets past —
+        // events while the gate would forward nothing.
         if !self.team_index.is_loaded() {
             tokio::time::sleep(Duration::from_millis(200)).await;
             return Ok(0);
@@ -134,7 +122,7 @@ impl EventShuffler {
             let (mut event, offset) = match result {
                 Ok(pair) => pair,
                 Err(err) => {
-                    // Poison pills (empty/undeserializable) are auto-stored by the consumer.
+                    // Poison pills are already offset-stored by the consumer; just log.
                     log_recv_error(&err);
                     continue;
                 }
@@ -168,17 +156,12 @@ impl EventShuffler {
             counter!(EVENTS_SKIPPED_TEAM_GATE).increment(skipped);
         }
 
-        // At-least-once ordering (key design point 2): produce and await acks BEFORE storing the
-        // source offsets. On a produce failure we record it and bail without committing this
-        // batch; `process()` then logs, backs off, and continues. Because `recv()` has already
-        // advanced the fetch position past the failed offsets, the bailed batch is NOT redelivered
-        // in-process — only a failure persistent enough to trip the liveness stall (deadline 60s ×
-        // stall_threshold 3 ≈ 180s of consecutive failing batches, main.rs:51-57) forces the
-        // restart that replays from the last committed offset. A transient failure that recovers
-        // sooner can be committed over by a later successful batch, so those events are not
-        // re-forwarded. This is the accepted codebase-wide at-least-once tradeoff (mirrors
-        // ingestion-consumer); downstream Stage 1 dedups any replayed duplicates via per-key
-        // offset tracking (PR 1.5), keyed on source_offset/source_partition.
+        // At-least-once: produce and await acks BEFORE storing source offsets, and bail without
+        // committing on any produce failure. `recv()` has already advanced the fetch position past
+        // the failed offsets, so the bailed batch is only replayed on a restart (triggered by a
+        // failure persistent enough to trip the liveness stall) — a transient failure that recovers
+        // gets committed over by a later batch, dropping those events. Accepted codebase-wide
+        // tradeoff; the downstream processor dedups replays via source_offset/source_partition.
         let forward_count = forwardable.len();
         if forward_count > 0 {
             let produce_results = self.producer.forward(forwardable).await;
@@ -253,7 +236,6 @@ mod tests {
                 vec![2],
                 ForwardDecision::SkipTeamGate,
             ),
-            // A missing person_id disqualifies the event even when the team is gated.
             (
                 "no person precedence",
                 None,
@@ -261,7 +243,6 @@ mod tests {
                 vec![2],
                 ForwardDecision::DropNoPersonId,
             ),
-            // An empty (but loaded) index forwards nothing.
             (
                 "empty index",
                 Some("p"),
@@ -280,7 +261,6 @@ mod tests {
 
     #[test]
     fn unloaded_index_forwards_nothing() {
-        // Before the first refresh the index is empty, so the gate skips everything.
         let index = TeamIndex::new();
         let mut event = sample_clickhouse_event(2, Some("p"));
         assert_eq!(classify(&mut event, &index), ForwardDecision::SkipTeamGate);

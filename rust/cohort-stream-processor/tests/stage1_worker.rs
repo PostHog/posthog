@@ -1,20 +1,11 @@
-//! PR 1.6 acceptance: the Stage 1 single-condition worker, driven end-to-end against a real
-//! RocksDB through the public API (no Kafka). Synthetic events flow through
+//! The Stage 1 single-condition worker, driven end-to-end against a real RocksDB through the public
+//! API (no Kafka). Synthetic events flow through
 //! [`process_event`](cohort_stream_processor::workers::process_event); one case is driven through a
 //! spawned [`Stage1Worker`](cohort_stream_processor::workers::Stage1Worker) + a test channel to
 //! cover the drain loop and post-commit emission.
 //!
-//! Parse-layer behaviors from the §2.4 audit are covered by the in-crate classifier / catalog
-//! tests and are cited rather than duplicated here:
-//! - behavioral / person globals **shape** (full behavioral key set; person `project.id == team_id`)
-//!   — `hogvm::globals` unit tests (`behavioral_globals_*`, `person_globals_are_the_small_strict_shape`).
-//! - dropping leaves with no bytecode / conditionHash, skipping cohort-ref leaves, and behavioral
-//!   `negation` being excluded from the key — `filters::leaf_classifier` / `filters::tree` /
-//!   `stage1::key` unit tests and `tests/filter_catalog.rs`.
-//!
-//! What is exercised here is strictly worker-observable: which writes and transitions a sequence of
-//! events produces, replay idempotence, the out-of-order argMax tiebreaker, and the whole-event
-//! skip reasons.
+//! Parse-layer behaviors (globals shape, dropped/cohort-ref leaves, key derivation) are covered by
+//! the in-crate classifier / catalog tests and `tests/filter_catalog.rs`, not duplicated here.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -40,14 +31,9 @@ use uuid::Uuid;
 
 const TEAM: i32 = 7;
 const PARTITION_ID: u16 = 0;
-/// The shared conditionHash for the behavioral leaves (16 ASCII chars).
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
-/// A distinct conditionHash for the person leaf.
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
-/// `2026-05-26 12:34:56.789Z` in epoch ms — the base event's timestamp.
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
-
-// ── Fixtures ────────────────────────────────────────────────────────────────────
 
 fn temp_store() -> (TempDir, CohortStore) {
     let dir = TempDir::new().unwrap();
@@ -59,11 +45,8 @@ fn temp_store() -> (TempDir, CohortStore) {
     (dir, store)
 }
 
-/// Mirror [`EventDispatcher::dispatch`](cohort_stream_processor::consumers::EventDispatcher): raise
-/// the per-partition dispatch ceiling, *then* route the event to the worker's channel. The F1 clamp
-/// in [`OffsetTracker::mark_processed`] caps a processed offset to what was dispatched, so a test
-/// driving a worker directly must establish the ceiling the same way the dispatcher does — and
-/// *before* the send, since the worker may process (and mark) as soon as it receives the message.
+/// Raise the dispatch ceiling *before* sending: `mark_processed` clamps a processed offset to what
+/// was dispatched, and the worker may mark as soon as it receives the message.
 async fn dispatch_to_worker(
     tracker: &OffsetTracker,
     tx: &mpsc::Sender<Vec<ShuffleMessage>>,
@@ -185,8 +168,6 @@ fn person_event(
     }
 }
 
-// ── Key + state helpers ──────────────────────────────────────────────────────────
-
 fn stage1_key(lsk: LeafStateKey, person: Uuid) -> Stage1Key {
     Stage1Key {
         partition_id: PARTITION_ID,
@@ -233,12 +214,9 @@ fn transition_kind(filters: &TeamFilters, transition: &LeafTransition) -> &'stat
     }
 }
 
-// ── C1 regression (headline) ─────────────────────────────────────────────────────
-
 #[test]
 fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     let (_dir, store) = temp_store();
-    // Two cohorts, both performed_event on $pageview, windows 7d vs 30d → one conditionHash, two LSKs.
     let filters = build_team_filters(vec![
         (CohortId(1), cohort(vec![behavioral_leaf(7)])),
         (CohortId(2), cohort(vec![behavioral_leaf(30)])),
@@ -256,7 +234,7 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
 
     let alice = person(1);
 
-    // First match: one eval fans out to both LSKs → two Entered, independent state.
+    // One eval fans out to both LSKs → two Entered, independent state.
     let first = event(alice, 1, 10);
     let out = process_event(PARTITION_ID, &store, &filters, &first).unwrap();
     assert_eq!(out.skipped, None);
@@ -280,7 +258,6 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
         "the two deadlines differ by exactly (30-7) days",
     );
 
-    // Second match (later event): no new transitions, both deadlines advance with the new event.
     let later_ts = "2026-05-27 12:34:56.789000";
     let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
     let second = CohortStreamEvent {
@@ -301,8 +278,7 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     assert_eq!(advanced[0], later_ms + 7 * 86_400 * 1000);
     assert_eq!(advanced[1], later_ms + 30 * 86_400 * 1000);
 
-    // Replay the first event (lower offset, same partition): idempotent — no transition, deadlines
-    // stay at the second event's values.
+    // Replay the first event (lower offset): idempotent, no regression.
     let out = process_event(PARTITION_ID, &store, &filters, &first).unwrap();
     assert!(out.transitions.is_empty());
     let mut after_replay: Vec<i64> = lsks
@@ -313,8 +289,6 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     assert_eq!(after_replay, advanced, "replay must not regress state");
 }
 
-// ── Late (out-of-order) behavioral event must not regress the eviction deadline ────
-
 #[test]
 fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     let (_dir, store) = temp_store();
@@ -322,7 +296,7 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
     let alice = person(1);
 
-    // The newest-by-event-time match arrives first (offset 10), at a LATER ts than BASE_TS.
+    // Newest-by-event-time arrives first (offset 10), at a later ts than BASE_TS.
     let later_ts = "2026-05-27 12:34:56.789000";
     let later_ms = clickhouse_timestamp_to_millis(later_ts).unwrap();
     let newest = CohortStreamEvent {
@@ -338,8 +312,7 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
         "deadline seeded off the newest event",
     );
 
-    // A late event (EARLIER ts, higher offset 11) is applied — not a replay — but must NOT pull the
-    // deadline earlier: it tracks the newest matching event, not this one.
+    // A late event (earlier ts, higher offset) is applied — not a replay — but must not regress the deadline.
     let earlier_ts = "2026-05-25 12:34:56.789000";
     let late = CohortStreamEvent {
         timestamp: earlier_ts.to_string(),
@@ -357,8 +330,6 @@ fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
         "a late lower-ts event must not regress the deadline below newest_ms + window",
     );
 }
-
-// ── 10k synthetic events + replay idempotence ────────────────────────────────────
 
 #[test]
 fn ten_thousand_events_then_replay_is_idempotent() {
@@ -382,8 +353,7 @@ fn ten_thousand_events_then_replay_is_idempotent() {
         }
     }
 
-    // First pass: every person's first event enters both leaves (behavioral match + person match);
-    // every later event is a no-op flip-wise. So exactly one of each per person.
+    // Each person's first event enters both leaves; later events are flip no-ops. One enter each.
     let (mut behavioral_entered, mut person_entered, mut unexpected) = (0, 0, 0);
     for ev in &events {
         let out = process_event(PARTITION_ID, &store, &filters, ev).unwrap();
@@ -400,7 +370,6 @@ fn ten_thousand_events_then_replay_is_idempotent() {
     assert_eq!(person_entered, persons.len());
     assert_eq!(unexpected, 0);
 
-    // Every person has both leaf-state rows and a person index listing both LSKs.
     for &p in &persons {
         for lsk in filters.by_lsk.keys() {
             assert!(
@@ -414,7 +383,6 @@ fn ten_thousand_events_then_replay_is_idempotent() {
         );
     }
 
-    // Replay the exact same 10k (same source offsets): zero new transitions, byte-identical state.
     let before = snapshot_state(&store, &filters, &persons);
     let mut replay_transitions = 0;
     for ev in &events {
@@ -431,8 +399,6 @@ fn ten_thousand_events_then_replay_is_idempotent() {
     );
 }
 
-/// All stored Stage 1 bytes keyed by `(person, leaf_state_key)` — the unit of the replay
-/// byte-identity check.
 type StateSnapshot = BTreeMap<(u128, [u8; 16]), Vec<u8>>;
 
 fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) -> StateSnapshot {
@@ -447,8 +413,6 @@ fn snapshot_state(store: &CohortStore, filters: &TeamFilters, persons: &[Uuid]) 
     map
 }
 
-// ── Out-of-order person events: argMax keeps the latest by event time ─────────────
-
 #[test]
 fn out_of_order_person_events_keep_the_latest_by_event_time() {
     let (_dir, store) = temp_store();
@@ -456,14 +420,12 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
     let bob = person(1);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
-    // Newest-by-event-time arrives first and matches.
     let newest_ts = "2026-05-26 12:00:00.000000";
     let newest = person_event(bob, "u@p.com", newest_ts, 1, 100);
     let out = process_event(PARTITION_ID, &store, &filters, &newest).unwrap();
     assert_eq!(out.transitions.len(), 1, "first write enters");
 
-    // An older event (earlier ts) arrives later (higher offset) with a non-matching value — it is
-    // stale by the argMax tiebreaker, so it neither flips membership nor overwrites the value.
+    // An older event arriving later is stale by the argMax tiebreaker: neither flips nor overwrites.
     let older = person_event(bob, "nope@x.com", "2026-05-25 12:00:00.000000", 1, 101);
     let out = process_event(PARTITION_ID, &store, &filters, &older).unwrap();
     assert!(out.transitions.is_empty(), "stale event emits nothing");
@@ -483,8 +445,6 @@ fn out_of_order_person_events_keep_the_latest_by_event_time() {
     }
 }
 
-// ── §2.4 audit: worker-observable emission + skip semantics ───────────────────────
-
 #[test]
 fn whole_event_skips_carry_distinct_reasons() {
     let (_dir, store) = temp_store();
@@ -493,7 +453,6 @@ fn whole_event_skips_carry_distinct_reasons() {
         cohort(vec![behavioral_leaf(7), person_leaf()]),
     )]);
 
-    // (label, mutation that triggers the skip, expected reason).
     type SkipCase = (&'static str, fn(&mut CohortStreamEvent), SkipReason);
     let cases: [SkipCase; 5] = [
         (
@@ -531,7 +490,6 @@ fn whole_event_skips_carry_distinct_reasons() {
         assert!(out.transitions.is_empty(), "{name}");
     }
 
-    // A team with no Stage 1 conditions (here, an empty catalog) skips with NoConditions.
     let empty = TeamFiltersBuilder::default().freeze();
     let out = process_event(PARTITION_ID, &store, &empty, &event(person(1), 1, 0)).unwrap();
     assert_eq!(out.skipped, Some(SkipReason::NoConditions));
@@ -544,7 +502,6 @@ fn behavioral_records_and_emits_only_on_match() {
     let lsk = filters.by_condition_to_lsk[&BEHAVIORAL_HASH][0];
     let alice = person(1);
 
-    // Non-matching event name: no transition, no state row.
     let non_match = CohortStreamEvent {
         event: "$autocapture".to_string(),
         ..event(alice, 1, 0)
@@ -557,7 +514,6 @@ fn behavioral_records_and_emits_only_on_match() {
         "no write on non-match"
     );
 
-    // Matching event: one Entered + a state row.
     let out = process_event(PARTITION_ID, &store, &filters, &event(alice, 1, 1)).unwrap();
     assert_eq!(out.transitions.len(), 1);
     assert!(state_at(&store, lsk, alice).is_some());
@@ -570,7 +526,6 @@ fn person_records_every_event_with_no_false_to_false_transition() {
     let carol = person(1);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
-    // A non-matching person event still writes a row, but does not emit (false → false).
     let miss = person_event(carol, "nope@x.com", "2026-05-26 12:00:00.000000", 1, 10);
     let out = process_event(PARTITION_ID, &store, &filters, &miss).unwrap();
     assert!(out.transitions.is_empty(), "no false→false transition");
@@ -579,7 +534,6 @@ fn person_records_every_event_with_no_false_to_false_transition() {
         other => panic!("expected PersonProperty, got {other:?}"),
     }
 
-    // A later matching event flips to a member → exactly one Entered.
     let hit = person_event(carol, "u@p.com", "2026-05-26 13:00:00.000000", 1, 11);
     let out = process_event(PARTITION_ID, &store, &filters, &hit).unwrap();
     assert_eq!(out.transitions.len(), 1);
@@ -596,7 +550,6 @@ fn person_property_flip_to_non_match_emits_left() {
     let out = process_event(PARTITION_ID, &store, &filters, &enter).unwrap();
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
 
-    // Later non-match (newer event time + higher offset) flips true → false → Left.
     let leave = person_event(dave, "nope@x.com", "2026-05-26 13:00:00.000000", 1, 11);
     let out = process_event(PARTITION_ID, &store, &filters, &leave).unwrap();
     assert_eq!(out.transitions.len(), 1);
@@ -614,8 +567,7 @@ fn person_path_is_inactive_for_null_or_empty_person_properties() {
     let erin = person(1);
     let lsk = LeafStateKey::for_person_property(&PERSON_HASH);
 
-    // Both a null and an empty-string payload are JS-falsy → the person path never runs, so the
-    // event is a processed no-op (no row, no transition) — identical for both.
+    // Null and empty-string are both JS-falsy → person path never runs → processed no-op, no row.
     for (offset, payload) in [(10, None), (11, Some(String::new()))] {
         let ev = CohortStreamEvent {
             person_properties: payload,
@@ -634,7 +586,6 @@ fn person_path_is_inactive_for_null_or_empty_person_properties() {
 #[test]
 fn empty_person_properties_does_not_skip_a_behavioral_match() {
     let (_dir, store) = temp_store();
-    // A team carrying BOTH a behavioral and a person leaf.
     let filters = build_team_filters(vec![(
         CohortId(1),
         cohort(vec![behavioral_leaf(7), person_leaf()]),
@@ -643,9 +594,8 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
     let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
     let alice = person(1);
 
-    // Empty-string person_properties is JS-falsy: Node parses the behavioral globals'
-    // person_properties as {} (not an error) and skips the person path entirely. Pre-fix this
-    // skipped the WHOLE event with GlobalsParseError, dropping the behavioral match.
+    // Empty-string person_properties is JS-falsy: Node skips the person path but still runs the
+    // behavioral one, so it must not skip the whole event and drop the behavioral match.
     let ev = CohortStreamEvent {
         person_properties: Some(String::new()),
         ..event(alice, 1, 0)
@@ -656,7 +606,6 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
         out.skipped, None,
         "empty person_properties is not a whole-event skip"
     );
-    // The behavioral leaf matched on `event == "$pageview"` and entered.
     assert_eq!(out.transitions.len(), 1);
     assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
     assert_eq!(
@@ -667,7 +616,6 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
         state_at(&store, behavioral_lsk, alice).is_some(),
         "behavioral row written"
     );
-    // The person path stayed inactive (Node-parity guard) — no row, even though behavioral ran.
     assert!(
         state_at(&store, person_lsk, alice).is_none(),
         "empty person_properties → person path inactive, no row",
@@ -677,7 +625,6 @@ fn empty_person_properties_does_not_skip_a_behavioral_match() {
 #[test]
 fn non_boolean_person_result_coerces_to_false() {
     let (_dir, store) = temp_store();
-    // A person bytecode that yields a non-bool integer → coerced to `false` (Node parity).
     let nonbool = person_leaf_with_bytecode(json!(["_H", 1, 33, 42]));
     let filters = build_team_filters(vec![(CohortId(1), cohort(vec![nonbool]))]);
     let frank = person(1);
@@ -693,13 +640,10 @@ fn non_boolean_person_result_coerces_to_false() {
     }
 }
 
-// ── Spawned worker: drain loop + post-commit emission ─────────────────────────────
-
 #[tokio::test]
 async fn spawned_worker_drains_a_batch_and_commits_state() {
     let (_dir, store) = temp_store();
-    // A multi-leaf cohort: state is written for both leaves, but neither leaf alone maps to the
-    // (composite) cohort, so the shadow sink stays empty — the offset still advances.
+    // Multi-leaf cohort: neither leaf alone maps to the composite cohort, so the sink stays empty.
     let filters = build_team_filters(vec![(
         CohortId(1),
         cohort(vec![behavioral_leaf(7), person_leaf()]),
@@ -723,7 +667,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     );
 
     dispatch_to_worker(&tracker, &tx, event(alice, 1, 0), 0).await;
-    // Dropping the sender closes the channel; the worker drains the queued batch and exits.
+    // Closing the channel makes the worker drain the queued batch and exit.
     drop(tx);
     worker.join().await.unwrap();
 
@@ -736,7 +680,6 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
             .len(),
         2
     );
-    // Multi-leaf cohort → no per-cohort shadow output, but the offset advances all the same.
     assert!(sink.changes().is_empty());
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
@@ -765,8 +708,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         tracker.clone(),
     );
 
-    // Team 999 is not in the catalog → the worker skips before touching the store, but the offset
-    // still advances (a skipped event must not wedge the partition).
+    // Skipped before touching the store, but the offset must still advance (no partition wedge).
     let unknown = CohortStreamEvent {
         team_id: 999,
         ..event(alice, 1, 0)
@@ -792,16 +734,11 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     );
 }
 
-// ── PR 1.8: produce-before-commit offset gating (single-leaf cohort, via CaptureSink) ───
-//
-// Note on store errors: a `process_event` `Err(StoreError)` is, at the worker level, identical to
-// an empty sub-batch — `handle_event` returns no changes and the offset advances via `max_offset`
-// (a corrupt-event skip that replay won't fix, matching PR 1.7). That path is exercised by
-// `worker_advances_offset_on_empty_transition_subbatch`; inducing a real RocksDB backend error
-// deterministically is not worth a dedicated test.
+// A `process_event` `Err(StoreError)` is, at the worker level, identical to an empty sub-batch (no
+// changes, offset advances via `max_offset`), so it needs no dedicated test beyond
+// `worker_advances_offset_on_empty_transition_subbatch`.
 
-/// A single-leaf behavioral cohort (`CohortId(1)`) → a matching `$pageview` produces exactly one
-/// `entered` change for that cohort, so the produce path is exercised end to end.
+/// A single-leaf cohort so a matching `$pageview` produces exactly one `entered` change.
 fn single_leaf_catalog() -> Arc<CatalogHandle> {
     catalog_of(build_team_filters(vec![(
         CohortId(1),
@@ -842,8 +779,7 @@ async fn worker_produces_changes_and_advances_offset() {
 
 #[tokio::test]
 async fn worker_advances_offset_on_empty_transition_subbatch() {
-    // The critical case: a non-matching event produces no transitions/changes, yet the offset MUST
-    // still advance so a no-op (or poison) event can't wedge the partition.
+    // A no-op (or poison) event must not wedge the partition: the offset still advances.
     let (_dir, store) = temp_store();
     let sink = CaptureSink::new();
     let tracker = Arc::new(OffsetTracker::new());
@@ -858,7 +794,6 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
         tracker.clone(),
     );
 
-    // A non-$pageview event: the behavioral leaf does not match → no transition → empty buffer.
     let non_match = CohortStreamEvent {
         event: "$autocapture".to_string(),
         ..event(person(1), 1, 0)
@@ -877,7 +812,6 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
 
 #[tokio::test]
 async fn worker_holds_offset_when_the_only_flush_fails() {
-    // A produce error must hold the sub-batch's offset back so Kafka replays it.
     let (_dir, store) = temp_store();
     let sink = CaptureSink::failing_first(1);
     let tracker = Arc::new(OffsetTracker::new());
@@ -892,7 +826,6 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
         tracker.clone(),
     );
 
-    // One matching event → one change → produce FAILS → offset held, nothing recorded.
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
     drop(tx);
     worker.join().await.unwrap();
@@ -907,7 +840,6 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
 
 #[tokio::test]
 async fn worker_keeps_processing_after_a_produce_failure() {
-    // After a failed flush the worker must NOT wedge: the next sub-batch still produces and marks.
     let (_dir, store) = temp_store();
     let sink = CaptureSink::failing_first(1);
     let tracker = Arc::new(OffsetTracker::new());
@@ -922,14 +854,12 @@ async fn worker_keeps_processing_after_a_produce_failure() {
         tracker.clone(),
     );
 
-    // First sub-batch fails its produce; the second succeeds.
     dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
     dispatch_to_worker(&tracker, &tx, event(person(2), 1, 1), 11).await;
     drop(tx);
     worker.join().await.unwrap();
 
-    // The second sub-batch produced and advanced the offset past it; the held first event relies on
-    // Kafka replay (the monotonic tracker reflects the later success).
+    // The second flush's success advances the offset to 12; the held first event relies on replay.
     assert_eq!(
         tracker.committable_offsets().get(&(PARTITION_ID as i32)),
         Some(&12)

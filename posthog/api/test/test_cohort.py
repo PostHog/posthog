@@ -2472,8 +2472,7 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     def test_create_cohort_referencing_a_looping_cohort_is_rejected_and_rolled_back(self, _patch_capture):
-        # Plant an A↔B cycle via the ORM (which doesn't run the loop check). Creating a cohort that
-        # references into the cycle must be rejected — and rolled back, not left half-saved.
+        # Plant an A↔B cycle via the ORM, which skips the loop check.
         def cohort_ref(cohort_id: int) -> list:
             return [{"properties": [{"type": "cohort", "value": cohort_id, "key": "id"}]}]
 

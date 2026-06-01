@@ -1,12 +1,11 @@
-//! Raw leaf JSON → classified leaf (TDD §2.7).
+//! Raw leaf JSON → classified leaf.
 //!
-//! Mirrors the Node filter manager's leaf gate (`realtime-supported-filter-manager-cdp.ts`)
-//! and the save-time bytecode rules (`posthog/cdp/filters.py`): only leaves that produced
-//! realtime bytecode (and therefore a `conditionHash`) are state-keyed; cohort references are
-//! kept in the tree but not indexed; everything else is dropped with a reason for the counter.
+//! Mirrors the Node filter manager's leaf gate (`realtime-supported-filter-manager-cdp.ts`) and the
+//! save-time bytecode rules (`posthog/cdp/filters.py`): only leaves that produced realtime bytecode
+//! (and therefore a `conditionHash`) are state-keyed; cohort references are kept in the tree but
+//! not indexed; everything else is dropped with a reason for the counter.
 //!
-//! Optional predicate fields are read as-is — absent fields hash as `""`/`0` per the
-//! [`LeafStateKey`] contract. Save-time default normalization (§4.10) is deferred.
+//! Absent optional predicate fields hash as `""`/`0` per the [`LeafStateKey`] contract.
 
 use std::sync::Arc;
 
@@ -24,24 +23,19 @@ use crate::stage1::pick_state::pick_state_variant;
 pub enum LeafDropReason {
     /// No `conditionHash`, or one that is not a 16-character string.
     MissingConditionHash,
-    /// No inline `bytecode`, or a `bytecode` that is not a JSON array. The leaf is not
-    /// realtime-executable, mirroring Node's gate (`manager.ts:137`, which requires *both*
-    /// `conditionHash` and `bytecode`).
+    /// No inline array `bytecode`. Node gates on `conditionHash` *and* `bytecode` (`manager.ts:137`).
     MissingBytecode,
     /// A behavioral `value` outside the two bytecode-producing types.
     UnsupportedBehavioralValue,
     /// A behavioral leaf keyed by an action id (integer `key`) — never produced bytecode.
     BehavioralActionKey,
-    /// A supported, bytecode-bearing behavioral leaf whose Stage 1 state variant is not
-    /// implemented in PR 1.6 — `performed_event_multiple` (bucket variants are PR 2.1) or a
-    /// `performed_event` with no resolvable window. Dropping it here upholds the parity invariant
-    /// that an unsupported variant never reaches the worker
-    /// ([`pick_state_variant`](crate::stage1::pick_state::pick_state_variant)).
+    /// A bytecode-bearing behavioral leaf whose Stage 1 state variant is not yet representable
+    /// (`performed_event_multiple`, or a `performed_event` with no resolvable window). Dropped here
+    /// so an unsupported variant never reaches the worker.
     UnsupportedStateVariant,
-    /// A leaf whose `type` is neither `person`, `behavioral`, nor `cohort`. Node's filter manager
-    /// (`realtime-supported-filter-manager-cdp.ts:146-159`) logs "Unknown filter type, skipping" and
-    /// drops it; we match that (F5) rather than guessing it is a person leaf. Canonical cohorts always
-    /// carry an explicit `type`, so this only fires on genuinely malformed/unexpected input.
+    /// A `type` outside `{person, behavioral, cohort}`. Matches Node, which logs and skips
+    /// (`realtime-supported-filter-manager-cdp.ts:146-159`); canonical cohorts always carry a
+    /// `type`, so this only fires on malformed input.
     UnknownLeafType,
     /// A leaf that matches none of the recognized shapes.
     MalformedLeaf,
@@ -61,29 +55,24 @@ impl LeafDropReason {
     }
 }
 
-/// The outcome of classifying one leaf. `Keep` is a state-keyed leaf (indexed); `CohortRef`
-/// is kept in the tree but not indexed; `Drop` is counted and produces no node.
+/// The outcome of classifying one leaf: a state-keyed `Keep`, an unindexed `CohortRef` kept in the
+/// tree, or a counted `Drop` that produces no node.
 pub enum LeafClass {
     Keep(CohortLeaf),
     Drop(LeafDropReason),
     CohortRef(CohortRefLeafConfig),
 }
 
-/// Classify a single leaf node by its `type`.
 pub fn classify_leaf(node: &Value) -> LeafClass {
     match node.get("type").and_then(Value::as_str) {
         Some("behavioral") => classify_behavioral(node),
         Some("cohort") => classify_cohort_ref(node),
         Some("person") => classify_person(node),
-        // Unknown/absent `type`: drop it (F5), matching Node's filter manager. Previously such a leaf
-        // was treated as a person filter if it carried a `conditionHash`, which diverged from the old
-        // pipeline — Node skips any leaf whose `type ∉ {person, behavioral, cohort}`.
         _ => LeafClass::Drop(LeafDropReason::UnknownLeafType),
     }
 }
 
 fn classify_behavioral(node: &Value) -> LeafClass {
-    // 1. The value must be one of the two bytecode-producing behavioral types.
     let value = match node
         .get("value")
         .and_then(Value::as_str)
@@ -93,23 +82,21 @@ fn classify_behavioral(node: &Value) -> LeafClass {
         _ => return LeafClass::Drop(LeafDropReason::UnsupportedBehavioralValue),
     };
 
-    // 2. An integer `key` is an action id; action-keyed behavioral leaves never produced
-    //    bytecode (`filters.py:341` returns None), so drop them with a distinct reason.
+    // An integer `key` is an action id; action-keyed behavioral leaves never produced bytecode
+    // (`filters.py:341` returns None).
     if node.get("key").is_some_and(Value::is_number) {
         return LeafClass::Drop(LeafDropReason::BehavioralActionKey);
     }
 
-    // 3. Require a 16-char conditionHash (schema-drift guard).
     let Some(condition_hash) = condition_hash_bytes(node.get("conditionHash")) else {
         return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
 
-    // 4. Require inline array bytecode (Node gates on conditionHash *and* bytecode together).
+    // Node gates on conditionHash *and* bytecode together.
     let Some(bytecode) = bytecode_array(node.get("bytecode")) else {
         return LeafClass::Drop(LeafDropReason::MissingBytecode);
     };
 
-    // 5. A non-empty string event key (guaranteed when bytecode exists, defended explicitly).
     let Some(event_key) = node
         .get("key")
         .and_then(Value::as_str)
@@ -134,9 +121,6 @@ fn classify_behavioral(node: &Value) -> LeafClass {
     }
     .with_state_key();
 
-    // 6. Resolve the Stage 1 state variant. Variants PR 1.6 cannot represent yet
-    //    (`performed_event_multiple`, windowless `performed_event`) are dropped here so they never
-    //    reach the worker.
     match pick_state_variant(&leaf) {
         Ok((variant, _window)) => {
             LeafClass::Keep(CohortLeaf::Behavioral(leaf.with_state_variant(variant)))
@@ -155,11 +139,10 @@ fn classify_cohort_ref(node: &Value) -> LeafClass {
     }
 }
 
-/// Cohort-reference negation has two equivalent encodings, both of which invert the Stage 2
-/// membership bit: an explicit `negation: true`, or `operator: "not_in"` (the exclusion form
-/// the insight/query path emits). Mirrors `posthog/cdp/filters.py:103`
-/// (`is_negated = prop.get("negation") or prop.get("operator") == "not_in"`) and TDD §2.7 — the
-/// raw node is not retained on `CohortRefLeafConfig`, so both signals must be resolved here.
+/// Cohort-ref negation has two equivalent encodings that both invert the Stage 2 membership bit:
+/// explicit `negation: true`, or `operator: "not_in"` (the insight/query path's exclusion form).
+/// Mirrors `posthog/cdp/filters.py:103`. Resolved here because the raw node is not retained on
+/// `CohortRefLeafConfig`.
 fn cohort_ref_negation(node: &Value) -> bool {
     let explicit = node
         .get("negation")
@@ -184,8 +167,7 @@ fn classify_person(node: &Value) -> LeafClass {
     }))
 }
 
-/// The 16 ASCII bytes of the hex `conditionHash` string. The hash is `sha256(bytecode)[:16]`,
-/// i.e. exactly 16 ASCII hex chars; the bytes are carried verbatim (not hex-decoded) so the
+/// The 16 ASCII bytes of the hex `conditionHash` string, carried verbatim (not hex-decoded) so the
 /// [`LeafStateKey`] maps 1:1. Anything other than a 16-byte string is rejected.
 fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     let hash = value?.as_str()?;
@@ -199,17 +181,16 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
     }
 }
 
-/// The leaf's inline compiled `bytecode` as a shared `Arc<Vec<Value>>`, or `None` if it is absent
-/// or not a JSON array. Wrapped in `Arc` (a cold 5-minute path) so tree clones / ArcSwap snapshots
-/// share one allocation, consistent with commit `0359855` ("avoid deep-cloning"). The bytecode
-/// itself is not hex-decoded or validated here — `Program::new` validates it at evaluation time.
+/// The leaf's inline `bytecode`, or `None` if absent or not an array. `Arc` so tree clones /
+/// ArcSwap snapshots share one allocation. Not validated here — `Program::new` does that at
+/// evaluation time.
 fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
     let array = value?.as_array()?;
     Some(Arc::new(array.clone()))
 }
 
-/// A referenced cohort id, stored as a JSON number or a string-encoded int (`cohort.py` does
-/// `int(cohort_id)`); accept either, mirroring that coercion.
+/// A referenced cohort id as a JSON number or string-encoded int, mirroring `cohort.py`'s
+/// `int(cohort_id)` coercion.
 fn cohort_id_from_value(value: Option<&Value>) -> Option<i32> {
     let value = value?;
     if let Some(number) = value.as_i64() {
@@ -235,8 +216,7 @@ mod tests {
 
     const HASH: &str = "0123456789abcdef";
 
-    /// A representative compiled program (`event == "$pageview"`); the exact ops are irrelevant
-    /// to classification — only that `bytecode` is present and array-valued.
+    /// A representative program; only that `bytecode` is present and array-valued matters here.
     fn bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
@@ -265,7 +245,6 @@ mod tests {
         assert_eq!(leaf.time_value, Some(7));
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
         assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
-        // PR 1.6 resolves and caches the variant; performed_event → BehavioralSingle.
         assert_eq!(
             leaf.state_variant,
             Some(crate::stage1::state::StateVariant::BehavioralSingle),
@@ -274,8 +253,6 @@ mod tests {
 
     #[test]
     fn performed_event_multiple_is_dropped_as_unsupported_variant() {
-        // The bucket variants are PR 2.1; in PR 1.6 the leaf is dropped at classify so it never
-        // reaches the worker.
         let node = json!({
             "type": "behavioral",
             "value": "performed_event_multiple",
@@ -295,8 +272,6 @@ mod tests {
 
     #[test]
     fn performed_event_without_window_is_dropped_as_unsupported_variant() {
-        // A performed_event with neither relative window nor explicit datetime has no derivable
-        // window, so its state variant cannot be resolved.
         let node = json!({
             "type": "behavioral",
             "value": "performed_event",
@@ -390,7 +365,7 @@ mod tests {
 
     #[test]
     fn behavioral_without_bytecode_is_dropped() {
-        // conditionHash present but no inline bytecode → not realtime-executable (Node manager.ts:137).
+        // conditionHash present but no bytecode → not realtime-executable (Node manager.ts:137).
         let node = json!({
             "type": "behavioral",
             "value": "performed_event",
@@ -451,10 +426,6 @@ mod tests {
 
     #[test]
     fn cohort_ref_negation_honors_not_in_operator() {
-        // `operator: "not_in"` is the exclusion encoding the insight/query path emits; it must
-        // invert the membership bit exactly like an explicit `negation: true`
-        // (mirrors `posthog/cdp/filters.py:103`). The raw node is dropped at parse time, so this
-        // is the only chance to resolve it.
         let not_in = json!({ "type": "cohort", "value": 7, "operator": "not_in" });
         let LeafClass::CohortRef(config) = classify_leaf(&not_in) else {
             panic!("expected a cohort ref");
@@ -462,14 +433,12 @@ mod tests {
         assert_eq!(config.referenced_cohort_id, CohortId(7));
         assert!(config.negation, "`operator: not_in` must set negation");
 
-        // Either signal alone is sufficient; both together is still negated.
         let both = json!({ "type": "cohort", "value": 7, "operator": "not_in", "negation": true });
         let LeafClass::CohortRef(config) = classify_leaf(&both) else {
             panic!("expected a cohort ref");
         };
         assert!(config.negation);
 
-        // A non-exclusion operator leaves the bit unset.
         let in_op = json!({ "type": "cohort", "value": 7, "operator": "in" });
         let LeafClass::CohortRef(config) = classify_leaf(&in_op) else {
             panic!("expected a cohort ref");
@@ -488,8 +457,6 @@ mod tests {
 
     #[test]
     fn unknown_type_is_dropped_even_with_condition_hash() {
-        // F5: a leaf whose `type` is not person/behavioral/cohort is dropped, matching Node — even
-        // when it carries a conditionHash + bytecode (the old code kept it as a person filter).
         let node = json!({
             "type": "event",
             "key": "$pageview",

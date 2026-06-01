@@ -1,9 +1,4 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
-//!
-//! Flat struct plus `build_*` helpers, mirroring `rust/flags-consumer/src/config.rs`.
-//! `ConsumerConfig` has no useful field-level defaults (group/topic are service-specific),
-//! so a nested derive would be awkward; the helpers compose the common-kafka configs
-//! explicitly instead.
 
 use std::time::Duration;
 
@@ -15,20 +10,15 @@ const POOL_NAME: &str = "posthog_cohort";
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
-    // ── Observability ─────────────────────────────────────────────────────
-    /// Host for the observability HTTP server (`/_health`, `/_ready`, `/metrics`).
     #[envconfig(default = "0.0.0.0")]
     pub bind_host: String,
 
-    /// Port for the observability HTTP server. Overridden by the Helm values in PR 1.11.
     #[envconfig(default = "3322")]
     pub bind_port: u16,
 
-    /// Install the Prometheus recorder and expose `/metrics`.
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
 
-    // ── Kafka (shared) ────────────────────────────────────────────────────
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
 
@@ -41,35 +31,27 @@ pub struct Config {
     #[envconfig(default = "")]
     pub kafka_client_id: String,
 
-    // ── Consumer (input: clickhouse_events_json) ──────────────────────────
     #[envconfig(default = "clickhouse_events_json")]
     pub input_topic: String,
 
     #[envconfig(default = "cohort-event-shuffler")]
     pub kafka_consumer_group: String,
 
-    /// A new consumer group on a high-volume live topic starts at the tail rather than
-    /// replaying days of history; historical population is the seed topic's job (TDD §4.4).
+    /// Start at the tail: historical population is the seed topic's job, not a days-long replay.
     #[envconfig(default = "latest")]
     pub kafka_consumer_offset_reset: String,
 
-    // ── Producer (output: cohort_stream_events) ───────────────────────────
     #[envconfig(default = "cohort_stream_events")]
     pub output_topic: String,
 
-    /// **Load-bearing** (key design point 1): must be `murmur2_random` so this Rust producer
-    /// co-partitions a given `(team_id, person_id)` identically to the Node-produced
-    /// `person_merge_events` and the future seed/cascade producers. Changing it silently
-    /// breaks cross-topic / cross-runtime partition affinity. Exposed as config only so ops
-    /// can pin it explicitly per environment.
+    /// Must be `murmur2_random` to co-partition `(team_id, person_id)` identically to the
+    /// Node-produced `person_merge_events`; other values silently break cross-runtime affinity.
     #[envconfig(default = "murmur2_random")]
     pub kafka_producer_partitioner: String,
 
     #[envconfig(default = "none")]
     pub kafka_compression_codec: String,
 
-    // ── Postgres (posthog_cohort realtime team index) ─────────────────────
-    /// DSN for the main PostHog database that owns `posthog_cohort`.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
 
@@ -82,23 +64,19 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub pg_acquire_timeout_secs: u64,
 
-    /// Statement timeout for the team-index SELECT (ms). `0` → database default.
+    /// `0` → database default.
     #[envconfig(default = "5000")]
     pub pg_statement_timeout_ms: u64,
 
-    // ── Team index refresh ────────────────────────────────────────────────
     #[envconfig(default = "300")]
     pub team_index_refresh_secs: u64,
 
     #[envconfig(default = "60")]
     pub team_index_refresh_jitter_secs: u64,
 
-    // ── Batching ──────────────────────────────────────────────────────────
-    /// Max events pulled per consume→filter→produce cycle.
     #[envconfig(default = "1000")]
     pub recv_batch_size: usize,
 
-    /// Max wait before a partial batch is processed.
     #[envconfig(default = "500")]
     pub recv_batch_timeout_ms: u64,
 }
@@ -124,8 +102,6 @@ impl Config {
         (self.pg_statement_timeout_ms != 0).then_some(self.pg_statement_timeout_ms)
     }
 
-    /// Pool config for the team-index reader: small (defaults min 1 / max 5) since the only
-    /// query is the periodic `SELECT DISTINCT team_id` refresh.
     pub fn pool_config(&self) -> PoolConfig {
         PoolConfig {
             min_connections: self.min_pg_connections,
@@ -138,9 +114,6 @@ impl Config {
         }
     }
 
-    /// Common Kafka connection + producer config. The partitioner is always set (the default
-    /// is `murmur2_random`); the producer queue/timeout knobs use the same conservative
-    /// values as other PostHog producers.
     pub fn build_kafka_config(&self) -> KafkaConfig {
         KafkaConfig {
             kafka_hosts: self.kafka_hosts.clone(),
@@ -163,9 +136,8 @@ impl Config {
         }
     }
 
-    /// Consumer config for `clickhouse_events_json`. Auto-commit is disabled: the loop stores
-    /// offsets manually only after the forwarded envelopes are ack'd, then commits per batch
-    /// (TDD at-least-once ordering, key design point 2).
+    /// Auto-commit is disabled: the loop stores offsets manually only after envelopes are ack'd,
+    /// then commits per batch (at-least-once ordering).
     pub fn build_consumer_config(&self) -> ConsumerConfig {
         ConsumerConfig {
             kafka_consumer_group: self.kafka_consumer_group.clone(),

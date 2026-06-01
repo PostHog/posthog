@@ -1,9 +1,8 @@
-//! Observability HTTP surface (TDD §2.3):
-//! - `GET /_health`  liveness — always 200; the `lifecycle` monitor owns health internally
-//!   and triggers coordinated shutdown on stall rather than relying on K8s liveness kills.
-//! - `GET /_ready`   readiness — 200 while running, 503 once graceful shutdown begins.
-//! - `GET /metrics`  Prometheus exposition (only when the recorder is installed).
-//! - `GET /`         service identity.
+//! Observability HTTP surface.
+//!
+//! `/_health` always returns 200: the `lifecycle` monitor owns health internally and triggers
+//! coordinated shutdown on stall rather than relying on K8s liveness kills. `/_ready` flips to 503
+//! once graceful shutdown begins.
 
 use std::future::ready;
 
@@ -13,7 +12,7 @@ use axum::Router;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics_exporter_prometheus::PrometheusHandle;
 
-/// Build the observability router. Pass `metrics = None` to omit `/metrics`.
+/// `metrics = None` omits the `/metrics` route.
 pub fn router(
     service_name: &'static str,
     readiness: ReadinessHandler,

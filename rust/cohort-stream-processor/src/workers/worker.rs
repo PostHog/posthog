@@ -1,24 +1,17 @@
-//! The long-lived per-partition Stage 1 worker (TDD §2.3, §2.5, §6.1 PR 1.8).
+//! The long-lived per-partition Stage 1 worker.
 //!
-//! [`Stage1Worker::spawn`] takes ownership of one partition's channel `Receiver` (handed out by
-//! [`PartitionRouter::add_partition`](crate::partitions::router::PartitionRouter::add_partition))
-//! and drains it on a dedicated tokio task, applying each event through [`process_event`]. It
-//! mirrors `kafka-deduplicator`'s `partition_worker.rs::run_worker`: a `while let Some(batch) =
-//! recv().await` loop, sync state mutation inline (async WAL keeps writes sub-ms — no
-//! `spawn_blocking` in M1), and **log-and-continue** on a store error so one bad event never wedges
-//! the partition.
+//! [`Stage1Worker::spawn`] drains one partition's channel on a dedicated tokio task, applying each
+//! event through [`process_event`]. State mutation is inline (async WAL keeps writes sub-ms, so no
+//! `spawn_blocking`), and a store error is logged-and-continued so one bad event never wedges the
+//! partition.
 //!
-//! ## Produce before commit (PR 1.8)
+//! ## Produce before commit
 //!
-//! The worker owns the offset commit, because the transitions are computed here, after the durable
-//! state write. Per drained sub-batch it: applies each event, projects the resulting transitions
-//! into membership changes ([`map_transition`]), flushes them to the [`MembershipSink`], and only
-//! then marks the sub-batch's `cohort_stream_events` offset processed (the established shuffler
-//! idiom: produce → await acks → commit only on full success, else hold for Kafka replay). The
-//! per-partition offset is tracked over **all** messages — including skipped/errored ones — so a
-//! poison event advances rather than wedges the partition; **only a produce failure holds the
-//! offset back** (the shadow output must be durable before its offset is committed). Re-produce on
-//! replay is idempotent for the per-cohort parity diff.
+//! Per drained sub-batch the worker produces membership changes, awaits all acks, and only then
+//! marks the sub-batch's offset processed. The per-partition offset is tracked over **all**
+//! messages — including skipped/errored ones — so a poison event advances rather than wedges the
+//! partition; **only a produce failure holds the offset back**, since the shadow output must be
+//! durable before its offset commits. Re-produce on replay is idempotent for the parity diff.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -48,8 +41,8 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::CohortStore;
 use crate::workers::event_path::{process_event, SkipReason};
 
-/// A long-lived worker owning one partition's RocksDB-backed Stage 1 state. Spawned per assigned
-/// partition; the task ends when the channel `Sender` is dropped (the router's shutdown signal).
+/// A long-lived worker owning one partition's Stage 1 state. The task ends when the channel
+/// `Sender` is dropped (the router's shutdown signal).
 pub struct Stage1Worker {
     partition_id: u16,
     handle: JoinHandle<()>,
@@ -57,9 +50,8 @@ pub struct Stage1Worker {
 
 impl Stage1Worker {
     /// Spawn a worker draining `receiver` for `partition_id`. `store`, `catalog`, `sink`, and
-    /// `tracker` are shared handles (cheap `Arc` clones), so every partition's worker reads the
-    /// same DB and filter snapshot, produces through the same sink, and records offsets in the same
-    /// tracker the consumer's commit loop reads.
+    /// `tracker` are shared `Arc` handles; in particular the `tracker` is the one the consumer's
+    /// commit loop reads.
     pub fn spawn(
         partition_id: u16,
         receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
@@ -82,21 +74,18 @@ impl Stage1Worker {
         }
     }
 
-    /// The partition this worker owns.
     pub fn partition_id(&self) -> u16 {
         self.partition_id
     }
 
-    /// Wait for the worker to finish draining and exit. Resolves once the channel `Sender` has been
-    /// dropped and the loop has processed everything queued.
+    /// Resolves once the channel `Sender` is dropped and the loop has drained everything queued.
     pub async fn join(self) -> Result<(), tokio::task::JoinError> {
         self.handle.await
     }
 }
 
-/// The drain loop. One sub-batch at a time, one event at a time, in arrival order — the
-/// per-partition ordering guarantee the affinity model rests on. Each sub-batch is produced and
-/// acked before its offset is marked (produce before commit).
+/// The drain loop. Events are processed in arrival order — the per-partition ordering guarantee the
+/// affinity model rests on — and each sub-batch is produced and acked before its offset is marked.
 async fn run_worker(
     partition_id: u16,
     mut receiver: mpsc::Receiver<Vec<ShuffleMessage>>,
@@ -108,17 +97,15 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker started");
 
     while let Some(batch) = receiver.recv().await {
-        // Stamp `last_updated` once for the whole drained sub-batch — the per-(cohort, person)
-        // parity diff is insensitive to sub-millisecond skew, and it keeps the flush consistent.
+        // One `last_updated` for the whole sub-batch: the parity diff is insensitive to sub-ms skew.
         let last_updated = now_last_updated();
         let mut buffer = OutputBuffer::new();
         let mut max_offset: Option<i64> = None;
 
         for message in batch {
             let ShuffleMessage::Event { event, cse_offset } = message;
-            // Track the max offset over ALL messages — even a skipped/errored event must advance the
-            // offset so a poison event can't wedge the partition (matching PR 1.7). Only a produce
-            // failure (below) holds it back.
+            // Over ALL messages, including skipped/errored ones, so a poison event can't wedge the
+            // partition. Only a produce failure (below) holds the offset back.
             max_offset = Some(max_offset.map_or(cse_offset, |current| current.max(cse_offset)));
             buffer.extend(handle_event(
                 partition_id,
@@ -130,7 +117,7 @@ async fn run_worker(
         }
 
         let Some(max_offset) = max_offset else {
-            continue; // empty sub-batch — nothing to produce or mark
+            continue;
         };
 
         if !buffer.is_empty() {
@@ -145,7 +132,7 @@ async fn run_worker(
                     errors,
                     "produce to cohort_membership_changed_shadow failed; holding offset for replay",
                 );
-                continue; // hold the offset back — Kafka replays, state + re-produce are idempotent
+                continue; // hold the offset; Kafka replays and re-produce is idempotent
             }
             if entered > 0 {
                 counter!(OUTPUT_MEMBERSHIP_CHANGES_EMITTED, "status" => MembershipStatus::Entered.as_str())
@@ -157,10 +144,9 @@ async fn run_worker(
             }
         }
 
-        // Success (or an empty buffer): the sub-batch's shadow output is durable, so its offset is
-        // safe to commit. `+ 1` is the next offset to consume. The tracker clamps the mark to the
-        // dispatch ceiling; a clamp that bites means we tried to commit past an undispatched offset
-        // (the F1 invariant), which must be surfaced rather than silently swallowed.
+        // Shadow output is durable, so the offset is safe to commit; `+ 1` is the next offset to
+        // consume. A clamp to the dispatch ceiling means we tried to commit past an undispatched
+        // offset and must surface it.
         if let MarkOutcome::CappedAheadOfDispatch =
             tracker.mark_processed(partition_id as i32, max_offset + 1)
         {
@@ -176,8 +162,7 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Tally a flush's changes by status for the `output_membership_changes_emitted_total{status}`
-/// counter.
+/// Tally `(entered, left)` for the `output_membership_changes_emitted_total{status}` counter.
 fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
     changes
         .iter()
@@ -187,10 +172,9 @@ fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
         })
 }
 
-/// Process one event end to end, returning the membership changes it produced (empty when the event
-/// is skipped, errors, or flips no single-leaf cohort). Emits the event-level metrics. A team absent
-/// from the catalog is the worker's own preflight skip; everything else flows through
-/// [`process_event`].
+/// Process one event end to end, returning the membership changes it produced (empty when skipped,
+/// errored, or flipping no single-leaf cohort) and emitting the event-level metrics. A team absent
+/// from the catalog is the worker's own preflight skip.
 fn handle_event(
     partition_id: u16,
     store: &CohortStore,
@@ -227,11 +211,9 @@ fn handle_event(
             changes
         }
         Err(error) => {
-            // The store already counted the backend failure (store_errors_total). The offset still
-            // advances (via max_offset) — this is a corrupt-event skip that replay won't fix, so it
-            // must not wedge the partition. Only a produce error holds the offset. Count it as a
-            // skip too (F9), so the conservation identity `consumed == processed + Σskipped` stays
-            // exact even under store errors (otherwise the event vanishes from both tallies).
+            // The offset still advances: this is a corrupt-event skip that replay won't fix, so it
+            // must not wedge the partition. Counted as a skip (on top of store_errors_total) so the
+            // conservation identity `consumed == processed + Σskipped` stays exact.
             counter!(STAGE1_EVENTS_SKIPPED, "reason" => "store_error").increment(1);
             warn!(
                 partition_id,
@@ -244,9 +226,8 @@ fn handle_event(
     }
 }
 
-/// Map a transition to its `stage1_transitions_total{kind}` label by resolving the leaf's variant
-/// in the current snapshot. `behavioral_left` is impossible in M1 (no eviction yet) and an unknown
-/// LSK shouldn't occur, so those combinations emit no metric.
+/// Map a transition to its `stage1_transitions_total{kind}` label. `behavioral_left` is impossible
+/// without eviction, and an unknown LSK shouldn't occur, so those emit no metric.
 fn transition_metric_label(
     filters: &TeamFilters,
     transition: &LeafTransition,

@@ -1,21 +1,12 @@
-//! End-to-end test for the `cohort_stream_events` consumer (PR 1.7) against a **real** Kafka broker.
+//! End-to-end tests for the `cohort_stream_events` consumer against a **real** Kafka broker.
 //!
-//! `#[ignore]`d by default — consistent with the crate's live-Postgres catalog test
-//! (`filters::manager::tests::refresh_builds_catalog_from_live_postgres`). The consumer joins a
-//! consumer group, commits a `TopicPartitionList`, and reads its own committed offsets back, none of
-//! which the in-process `MockCluster` exercises faithfully. Run against a local stack with:
+//! `#[ignore]`d by default: the consumer joins a consumer group, commits a `TopicPartitionList`,
+//! and reads its own committed offsets back, none of which the in-process `MockCluster` exercises
+//! faithfully. Run against a local stack with:
 //!
 //! ```sh
 //! cargo test -p cohort-stream-processor --test events_consumer -- --ignored
 //! ```
-//!
-//! It produces JSON `CohortStreamEvent` envelopes, runs the real consumer against a tempfile
-//! `CohortStore` and an in-memory catalog seeded with a behavioral `$pageview` cohort, then asserts
-//! the two acceptance points: (a) Stage 1 state rows are written for the matching events, and
-//! (b) the committed offsets advance to cover every produced event.
-//!
-//! The routing / lazy-spawn / offset-marking logic is additionally covered by the CI-runnable
-//! (no-Kafka) unit tests in `src/consumers/events.rs`; this proves the wiring end-to-end.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -57,8 +48,7 @@ fn bootstrap_servers() -> String {
     std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
 }
 
-/// A team with a single `performed_event` behavioral leaf on `$pageview` (window 7d) — every
-/// `$pageview` matches and enters. Seeded straight into an in-memory catalog (no Postgres).
+/// A team with a single `performed_event` behavioral leaf on `$pageview` — every `$pageview` enters.
 fn behavioral_catalog() -> CatalogHandle {
     let leaf = json!({
         "type": "behavioral",
@@ -80,7 +70,6 @@ fn behavioral_catalog() -> CatalogHandle {
     )]))
 }
 
-/// The behavioral leaf's `LeafStateKey`, read back through the catalog the way the worker derives it.
 fn behavioral_lsk(catalog: &CatalogHandle) -> LeafStateKey {
     let snapshot = catalog.load();
     let team = snapshot.team(TeamId(TEAM)).expect("team in catalog");
@@ -130,8 +119,7 @@ async fn create_topic(topic: &str) {
     tokio::time::sleep(Duration::from_millis(500)).await;
 }
 
-/// Produce `EVENTS_PER_PERSON` events for each of `PERSONS` persons, keyed `"{team}:{person}"` so a
-/// person's events co-partition. Returns the total produced.
+/// Keyed `"{team}:{person}"` so a person's events co-partition. Returns the total produced.
 async fn produce_events(topic: &str) -> usize {
     let producer: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -160,8 +148,6 @@ async fn produce_events(topic: &str) -> usize {
     total
 }
 
-/// Build the consumer under test: a fresh group reading from the start of the topic, a tempfile
-/// store, the seeded catalog, and a fast commit cadence so committed offsets advance promptly.
 fn build_consumer(
     topic: &str,
     group: &str,
@@ -200,8 +186,7 @@ fn build_consumer(
     )
 }
 
-/// Common Kafka config for the shadow producer in the broker-gated tests, mirroring the service's
-/// `Config::build_kafka_config` (the `murmur2_random` partitioner is load-bearing).
+/// Mirrors the service's `Config::build_kafka_config`; the `murmur2_random` partitioner is load-bearing.
 fn shadow_kafka_config() -> KafkaConfig {
     KafkaConfig {
         kafka_hosts: bootstrap_servers(),
@@ -224,8 +209,7 @@ fn shadow_kafka_config() -> KafkaConfig {
     }
 }
 
-/// Drain up to `expected` membership changes off the shadow topic, decoding each into a
-/// [`CohortMembershipChange`]. Returns whatever it gathered before the deadline.
+/// Drain up to `expected` membership changes off the shadow topic, or whatever arrives by deadline.
 async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembershipChange> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -249,14 +233,14 @@ async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembers
                 }
             }
             Ok(Err(err)) => panic!("shadow recv error: {err}"),
-            Err(_) => {} // 2s poll tick elapsed with no message; re-check the deadline
+            Err(_) => {} // poll tick elapsed with no message; re-check the deadline
         }
     }
     changes
 }
 
-/// Sum of `Offset::Offset` committed across every partition — equals the number of consumed events
-/// for a fresh topic starting at offset 0 (committed = next-offset-to-consume).
+/// Sum of committed offsets across partitions; for a fresh topic this equals the events consumed
+/// (committed == next-offset-to-consume).
 fn committed_sum(consumer: &StreamConsumer, topic: &str) -> i64 {
     let mut tpl = TopicPartitionList::new();
     for partition in 0..NUM_PARTITIONS {
@@ -274,8 +258,7 @@ fn committed_sum(consumer: &StreamConsumer, topic: &str) -> i64 {
         .sum()
 }
 
-/// Count persons whose behavioral leaf entered, scanning every topic partition (the store key's
-/// `partition_id`) since a person's partition depends on the producer's key hash.
+/// Scans every partition because a person's partition depends on the producer's key hash.
 fn entered_persons(store: &CohortStore, lsk: LeafStateKey) -> usize {
     (1..=PERSONS)
         .filter(|&n| {
@@ -321,8 +304,8 @@ async fn consumes_routes_and_commits_end_to_end() {
     let catalog = behavioral_catalog();
     let lsk = behavioral_lsk(&catalog);
 
-    // A standalone-but-not-subscribed consumer in the same group reads committed offsets without
-    // triggering a rebalance of the consumer under test (an OffsetFetch RPC, not a group join).
+    // Not subscribed, so reading committed offsets is an OffsetFetch RPC, not a group join that
+    // would rebalance the consumer under test.
     let verifier: StreamConsumer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("group.id", &group)
@@ -340,8 +323,7 @@ async fn consumes_routes_and_commits_end_to_end() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // This test asserts state rows + committed input offsets, not the shadow output, so a capture
-    // sink (which always acks) suffices to drive the produce-before-commit offset marking.
+    // CaptureSink always acks, which is enough to drive produce-before-commit offset marking here.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -353,7 +335,6 @@ async fn consumes_routes_and_commits_end_to_end() {
     );
     let task = tokio::spawn(consumer.process());
 
-    // (b) Wait until every produced event has been consumed, routed, and its offset committed.
     let deadline = Duration::from_secs(60);
     let start = Instant::now();
     loop {
@@ -368,19 +349,17 @@ async fn consumes_routes_and_commits_end_to_end() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
 
-    // Stop the consumer: dropping the router drains the workers (applying all routed state) before
-    // the final commit, so state is durable by the time `process()` returns.
+    // Dropping the router drains the workers before the final commit, so state is durable once
+    // `process()` returns.
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
 
-    // (a) Every person entered the behavioral leaf exactly once.
     assert_eq!(
         entered_persons(&store, lsk),
         PERSONS as usize,
         "every produced person should have entered the behavioral leaf",
     );
 
-    // (b) The committed offsets cover every produced event (re-read after the final sync commit).
     assert_eq!(
         committed_sum(&verifier, &topic),
         total as i64,
@@ -415,7 +394,6 @@ async fn produces_membership_changes_and_commits_offsets() {
         .create()
         .expect("create verifier consumer");
 
-    // The real Kafka sink, producing to the shadow topic.
     let sink: Arc<dyn MembershipSink> = Arc::new(
         KafkaMembershipSink::new(&shadow_kafka_config(), shadow_topic.clone())
             .await
@@ -443,7 +421,6 @@ async fn produces_membership_changes_and_commits_offsets() {
     );
     let task = tokio::spawn(consumer.process());
 
-    // Wait until every produced input event has been consumed, produced downstream, and committed.
     let start = Instant::now();
     loop {
         if committed_sum(&verifier, &input_topic) == total as i64 {
@@ -459,9 +436,8 @@ async fn produces_membership_changes_and_commits_offsets() {
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
 
-    // (a) Exactly one `entered` change per distinct person landed on the shadow topic: the first
-    // `$pageview` per person enters the single-leaf cohort; the repeats are already members. Because
-    // an offset is committed only after its produce is acked, every change is on the topic by now.
+    // One entered per person: the first `$pageview` enters, repeats are already members. Produce-
+    // before-commit guarantees every change is on the topic now that offsets are committed.
     let changes = drain_shadow_changes(&shadow_topic, PERSONS as usize).await;
     assert_eq!(
         changes.len(),
@@ -478,14 +454,11 @@ async fn produces_membership_changes_and_commits_offsets() {
         );
     }
 
-    // (b) Committed input offsets cover every produced event.
     assert_eq!(committed_sum(&verifier, &input_topic), total as i64);
 }
 
-/// Produce `n` distinct-person events **one at a time** with a `gap` between each, so sends straddle
-/// many commit deadlines — the bursty/low-traffic arrival pattern that triggers F1. Each person
-/// produces a single matching `$pageview` (so it enters the behavioral leaf exactly once). Returns
-/// the total produced.
+/// One event at a time with a `gap`, so sends straddle commit deadlines (the low-traffic pattern).
+/// Each distinct person produces one matching `$pageview`. Returns the total produced.
 async fn produce_events_trickle(topic: &str, n: usize, gap: Duration) -> usize {
     let producer: FutureProducer = ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
@@ -509,7 +482,6 @@ async fn produce_events_trickle(topic: &str, n: usize, gap: Duration) -> usize {
     n
 }
 
-/// Count, across every topic partition, how many of persons `1..=n` entered the behavioral leaf.
 fn entered_persons_range(store: &CohortStore, lsk: LeafStateKey, n: usize) -> usize {
     (1..=n as u128)
         .filter(|&i| {
@@ -539,13 +511,8 @@ fn entered_persons_range(store: &CohortStore, lsk: LeafStateKey, n: usize) -> us
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn trickled_events_are_never_silently_dropped() {
-    // F1 regression. An earlier consume loop raced `consume_batch` against a periodic commit tick in
-    // one `select!`; when the tick won it cancelled the in-flight `consume_batch`, dropped its
-    // buffered (already `recv()`'d) events, and then committed *past* them on the next batch — ~10%
-    // silent loss under bursty/low-traffic arrival. Producing one event at a time with a gap shorter
-    // than the commit interval makes nearly every send straddle a commit boundary mid-accumulation —
-    // exactly that trigger. The decisive check is committed-past-with-missing-state: every distinct
-    // person must have entered AND every offset must be committed. Fails before the fix, passes after.
+    // Regression: a commit tick cancelling an in-flight `consume_batch` in the same `select!` drops
+    // its already-`recv()`'d events while committing past them.
     const N: usize = 60;
 
     let suffix = Uuid::new_v4();
@@ -580,9 +547,8 @@ async fn trickled_events_are_never_silently_dropped() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // Start the consumer *before* producing so it is live during the sparse arrival (the F1
-    // condition). A short 300ms commit interval against ~120ms inter-event gaps puts many sends
-    // mid-accumulation across a commit boundary.
+    // Consumer must be live before producing: a 300ms commit interval against ~120ms gaps puts many
+    // sends mid-accumulation across a commit boundary.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -596,7 +562,6 @@ async fn trickled_events_are_never_silently_dropped() {
 
     let total = produce_events_trickle(&topic, N, Duration::from_millis(120)).await;
 
-    // Wait until committed offsets cover every produced event.
     let start = Instant::now();
     loop {
         if committed_sum(&verifier, &topic) == total as i64 {
@@ -613,7 +578,6 @@ async fn trickled_events_are_never_silently_dropped() {
     shutdown_handle.request_shutdown();
     task.await.expect("consumer task panicked");
 
-    // Decisive: no event was consumed-and-committed but silently dropped before processing.
     assert_eq!(
         entered_persons_range(&store, lsk, N),
         N,
@@ -626,10 +590,8 @@ async fn trickled_events_are_never_silently_dropped() {
     );
 }
 
-/// A test [`MembershipSink`] that blocks its **first** flush until released, recording everything it
-/// is given. Used to prove "produce before commit": while the first flush is parked, the worker has
-/// not yet marked its offset, so no commit tick can advance the committed offset past the blocked
-/// event.
+/// Blocks its first flush until released: while parked, the worker hasn't marked its offset, so no
+/// commit tick can advance past the blocked event.
 struct BarrierSink {
     entered: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
@@ -638,9 +600,8 @@ struct BarrierSink {
 }
 
 impl BarrierSink {
-    /// Returns the sink plus the `entered` (worker reached the flush) and `release` (let it proceed)
-    /// signals. `tokio::sync::Notify` is permit-based for `notify_one`, so the test and worker may
-    /// signal in either order without losing the wake-up.
+    /// `Notify` is permit-based for `notify_one`, so test and worker may signal in either order
+    /// without losing the wake-up.
     fn new() -> (
         Arc<Self>,
         Arc<tokio::sync::Notify>,
@@ -735,7 +696,7 @@ async fn does_not_commit_past_a_blocked_produce() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
 
-    // Fast commit cadence so a commit tick certainly fires while the produce is blocked.
+    // Fast cadence so a commit tick fires while the produce is blocked.
     let consumer = build_consumer(
         &topic,
         &group,
@@ -747,13 +708,11 @@ async fn does_not_commit_past_a_blocked_produce() {
     );
     let task = tokio::spawn(consumer.process());
 
-    // Wait until the worker has reached the (blocked) flush.
     tokio::time::timeout(Duration::from_secs(30), entered.notified())
         .await
         .expect("worker reached the produce barrier");
 
-    // Let several commit ticks fire while blocked. The worker has not marked its offset yet, so the
-    // committed offset must NOT have advanced past the event whose produce is still in flight.
+    // The worker hasn't marked its offset, so several commit ticks must not advance past the event.
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
         committed_sum(&verifier, &topic),
@@ -766,7 +725,6 @@ async fn does_not_commit_past_a_blocked_produce() {
         "the blocked flush has recorded nothing yet",
     );
 
-    // Release the flush; now the offset is allowed to advance.
     release.notify_one();
 
     let start = Instant::now();

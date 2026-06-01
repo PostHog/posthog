@@ -1,25 +1,22 @@
-//! `cf_person_index` maintenance via a non-associative RocksDB merge operator (TDD §2.5:301).
+//! `cf_person_index` maintenance via a non-associative RocksDB merge operator.
 //!
-//! The hot path appends a [`LeafStateKey`] to a person's leaf-state set **without a read**, in
-//! the same `WriteBatch` as the `cf_stage1` put. Both append *and* remove are required, so the
-//! operator cannot be associative (operand format ≠ value format):
+//! The hot path appends a [`LeafStateKey`] to a person's set without a read, in the same
+//! `WriteBatch` as the `cf_stage1` put. Append *and* remove are both needed, so the operator is
+//! non-associative (operand format ≠ value format):
 //!
-//! - **Value** — the person's set, a sorted, de-duplicated, packed `[u8; 16] × N` (untagged).
-//! - **Operand** — a 17-byte `[tag u8][lsk 16]` ([`IndexOp`]); a `partial_merge` may concatenate
-//!   several into one longer log, which is itself a valid operand.
+//! - **Value** — the set, a sorted, de-duplicated, packed `[u8; 16] × N` (untagged).
+//! - **Operand** — a 17-byte `[tag u8][lsk 16]` ([`IndexOp`]); a concatenation of several is itself
+//!   a valid operand.
 //!
-//! ### Two invariants this module is built around
+//! Two correctness rules:
 //!
-//! 1. **Never panic.** The merge fns run on RocksDB compaction/flush threads; a panic across the
-//!    FFI boundary is undefined behavior. Every decode is length-checked and skips (with a
-//!    metric) rather than indexing or unwrapping.
-//! 2. **Never return `None`.** Returning `None` from `full_merge` signals a *merge failure* to
-//!    RocksDB — it surfaces a `"Merge operator failed"` error on the next read, **not** a key
-//!    drop (verified against `rocksdb-0.24.0` `tests/test_merge_operator.rs::failed_merge_test`).
-//!    The empty set therefore encodes to an empty value, which reads back as "no states" — the
-//!    same observable result a missing key gives the migration read.
+//! 1. **Never panic.** The merge fns run on RocksDB compaction/flush threads; a panic across that
+//!    FFI boundary is UB. Every decode is length-checked and skips (with a metric).
+//! 2. **Never return `None`.** `None` from `full_merge` signals a *merge failure* (a
+//!    `"Merge operator failed"` error on the next read), not a key drop. The empty set therefore
+//!    encodes to an empty value, which reads back as "no states" — same as a missing key.
 //!
-//! Append-present and remove-absent are natural `BTreeSet` no-ops, so replay is idempotent.
+//! Append-present and remove-absent are `BTreeSet` no-ops, so replay is idempotent.
 
 use std::collections::BTreeSet;
 
@@ -29,12 +26,10 @@ use rocksdb::MergeOperands;
 use crate::observability::metrics::STORE_MERGE_MALFORMED_TOTAL;
 use crate::stage1::key::LeafStateKey;
 
-/// On-disk name of the operator. RocksDB treats the name as a forward-compatibility contract,
-/// so bumping the set/operand format means bumping the `_vN` suffix.
+/// RocksDB treats the operator name as a forward-compat contract: bump `_vN` on any format change.
 pub const PERSON_INDEX_MERGE_OPERATOR_NAME: &str = "cf_person_index_merge_v1";
 
 const LSK_LEN: usize = 16;
-/// `[tag u8][lsk 16]`.
 const OPERAND_LEN: usize = 1 + LSK_LEN;
 const TAG_APPEND: u8 = 0;
 const TAG_REMOVE: u8 = 1;
@@ -47,7 +42,6 @@ pub enum IndexOp {
 }
 
 impl IndexOp {
-    /// Encode to the fixed 17-byte operand. Allocation-free.
     pub fn encode(&self) -> [u8; OPERAND_LEN] {
         let (tag, lsk) = match self {
             IndexOp::Append(lsk) => (TAG_APPEND, lsk),
@@ -60,16 +54,12 @@ impl IndexOp {
     }
 }
 
-/// Decode a stored `cf_person_index` value into the person's leaf-state keys (sorted, unique).
-///
-/// Defensive and infallible, mirroring the merge fns: a trailing partial entry is dropped with
-/// a metric rather than erroring the read path. A missing key (empty slice) yields an empty
-/// vec — "no states".
+/// Decode a stored `cf_person_index` value into sorted, unique leaf-state keys. Infallible: a
+/// trailing partial entry is dropped (with a metric) rather than erroring; empty yields "no states".
 pub fn decode_person_index(value: &[u8]) -> Vec<LeafStateKey> {
     decode_packed(value).into_iter().map(LeafStateKey).collect()
 }
 
-/// `full_merge`: fold the base value and the ordered operand logs into the final set.
 pub(crate) fn full_merge(
     _key: &[u8],
     existing: Option<&[u8]>,
@@ -78,10 +68,8 @@ pub(crate) fn full_merge(
     Some(collapse(existing, operands))
 }
 
-/// `partial_merge`: concatenate operand logs without the base value. RocksDB only ever re-feeds
-/// the result as another operand (`existing` is always `None` here —
-/// `rocksdb-0.24.0` `merge_operator.rs:151`), so a concatenation of valid 17-byte logs is itself
-/// a valid operand.
+/// Concatenate operand logs without a base value. RocksDB only re-feeds the result as another
+/// operand (`existing` is always `None`), so a concatenation of valid logs is itself valid.
 pub(crate) fn partial_merge(
     _key: &[u8],
     _existing: Option<&[u8]>,
@@ -90,8 +78,8 @@ pub(crate) fn partial_merge(
     Some(concat_logs(operands))
 }
 
-/// Fold `existing` + ordered `operands` into the encoded set. Shared by [`full_merge`] and the
-/// unit tests (which can't construct a `MergeOperands`, whose constructor is private).
+/// Fold `existing` + ordered `operands` into the encoded set. Takes an iterator (not
+/// `MergeOperands`) so the tests, which can't construct one, can share it.
 fn collapse<'a>(existing: Option<&[u8]>, operands: impl IntoIterator<Item = &'a [u8]>) -> Vec<u8> {
     let mut set: BTreeSet<[u8; LSK_LEN]> = existing
         .map(|bytes| decode_packed(bytes).into_iter().collect())
@@ -102,8 +90,8 @@ fn collapse<'a>(existing: Option<&[u8]>, operands: impl IntoIterator<Item = &'a 
     encode_set(&set)
 }
 
-/// Concatenate the operand logs, skipping any whose length isn't a whole number of 17-byte
-/// entries (so one malformed operand can't misalign the entries of the others).
+/// Concatenate operand logs, skipping any not a whole number of entries so one malformed operand
+/// can't misalign the rest.
 fn concat_logs<'a>(operands: impl IntoIterator<Item = &'a [u8]>) -> Vec<u8> {
     let mut combined = Vec::new();
     for operand in operands {
@@ -116,17 +104,16 @@ fn concat_logs<'a>(operands: impl IntoIterator<Item = &'a [u8]>) -> Vec<u8> {
     combined
 }
 
-/// Apply a 17-byte-entry operand log to the set in iteration order.
 fn apply_operand_log(set: &mut BTreeSet<[u8; LSK_LEN]>, log: &[u8]) {
     let mut entries = log.chunks_exact(OPERAND_LEN);
     for entry in &mut entries {
-        // `chunks_exact(OPERAND_LEN)` yields exactly `OPERAND_LEN` bytes; the `else` arm is
-        // therefore unreachable, but keeps the decode panic-free by construction.
+        // `chunks_exact` guarantees `OPERAND_LEN` bytes, so the `else` is unreachable; it only keeps
+        // the decode panic-free by construction.
         let [tag, lsk_bytes @ ..] = entry else {
             continue;
         };
         let mut lsk = [0u8; LSK_LEN];
-        lsk.copy_from_slice(lsk_bytes); // `lsk_bytes` is exactly LSK_LEN (OPERAND_LEN - 1).
+        lsk.copy_from_slice(lsk_bytes); // `lsk_bytes` is exactly LSK_LEN, so this can't panic.
         match *tag {
             TAG_APPEND => {
                 set.insert(lsk);
@@ -152,8 +139,7 @@ fn encode_set(set: &BTreeSet<[u8; LSK_LEN]>) -> Vec<u8> {
     out
 }
 
-/// Decode the packed value into raw 16-byte keys, dropping a trailing partial entry (with a
-/// metric). Returns entries in stored order — which [`encode_set`] keeps sorted and unique.
+/// Decode the packed value into raw 16-byte keys, dropping a trailing partial entry (with a metric).
 fn decode_packed(bytes: &[u8]) -> Vec<[u8; LSK_LEN]> {
     let mut out = Vec::with_capacity(bytes.len() / LSK_LEN);
     let mut chunks = bytes.chunks_exact(LSK_LEN);
@@ -208,7 +194,7 @@ mod tests {
         assert_eq!(decode_person_index(&value), vec![]);
     }
 
-    /// Order matters: removing before the matching append is a no-op, so the key survives.
+    /// Removing before the matching append is a no-op, so the key survives.
     #[test]
     fn remove_then_append_keeps_the_key() {
         let value = collapse(None, [&remove(1)[..], &append(1)[..]]);
@@ -217,7 +203,6 @@ mod tests {
 
     #[test]
     fn duplicate_appends_are_deduplicated_and_sorted() {
-        // Feed out of order with a dup; expect sorted, unique output.
         let value = collapse(None, [&append(2)[..], &append(1)[..], &append(2)[..]]);
         assert_eq!(decode_person_index(&value), vec![lsk(1), lsk(2)]);
     }
@@ -229,8 +214,7 @@ mod tests {
         assert_eq!(decode_person_index(&value), vec![lsk(2)]);
     }
 
-    /// `partial_merge` grouping must not change the final set: collapsing the concatenated log
-    /// yields the same result as collapsing the operands one by one (full and partial grouping).
+    /// `partial_merge` grouping must not change the final set, whatever the grouping.
     #[test]
     fn partial_merge_grouping_is_invariant() {
         let ops: [&[u8]; 3] = [&append(1), &append(2), &remove(1)];
@@ -245,13 +229,11 @@ mod tests {
 
     #[test]
     fn malformed_operand_length_does_not_panic_or_corrupt() {
-        // A short operand and a base with a trailing partial entry are both skipped, leaving the
-        // well-formed appends intact.
         let value = collapse(None, [&append(1)[..], &[0u8; 5][..], &append(2)[..]]);
         assert_eq!(decode_person_index(&value), vec![lsk(1), lsk(2)]);
 
         let mut corrupt_base = collapse(None, [&append(9)[..]]);
-        corrupt_base.push(0xFF); // trailing partial 16-byte entry
+        corrupt_base.push(0xFF);
         let value = collapse(Some(&corrupt_base), [&append(8)[..]]);
         assert_eq!(decode_person_index(&value), vec![lsk(8), lsk(9)]);
     }
@@ -259,7 +241,7 @@ mod tests {
     #[test]
     fn unknown_operand_tag_is_skipped() {
         let mut bad = [0u8; OPERAND_LEN];
-        bad[0] = 99; // neither append nor remove
+        bad[0] = 99;
         let value = collapse(None, [&append(1)[..], &bad[..]]);
         assert_eq!(decode_person_index(&value), vec![lsk(1)]);
     }

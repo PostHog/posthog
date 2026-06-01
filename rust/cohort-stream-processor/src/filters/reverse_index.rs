@@ -1,10 +1,9 @@
-//! Per-team reverse indices and dedup set (TDD §2.7).
+//! Per-team reverse indices and dedup set.
 //!
-//! [`TeamFiltersBuilder`] implements [`LeafSink`] so a cohort's tree parse populates the
-//! indices in the same pass. The two `conditionHash`-keyed maps serve the two consumers:
-//! Stage 1 (condition → leaf states to update) and Stage 2 / cleanup (condition → owning
-//! cohorts). `Vec` (not `SmallVec`) is used for the value lists — `smallvec` is not a
-//! workspace dependency and this is a cold 5-minute path (D-1).
+//! [`TeamFiltersBuilder`] implements [`LeafSink`] so a cohort's tree parse populates the indices in
+//! the same pass. The two `conditionHash`-keyed maps serve the two consumers: Stage 1 (condition →
+//! leaf states to update) and Stage 2 / cleanup (condition → owning cohorts). Value lists are `Vec`
+//! (not `SmallVec`): `smallvec` is not a workspace dependency and this is a cold 5-minute path.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -20,11 +19,11 @@ use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::{pick_state_variant, EvictionWindow};
 use crate::stage1::state::StateVariant;
 
-/// Per-`LeafStateKey` worker metadata, derived from a leaf's config at freeze time: the state
-/// representation and (for behavioral leaves) the eviction window. The worker reads it to pick the
-/// apply path and compute deadlines without re-deriving anything on the hot path. Two leaves that
-/// share a `LeafStateKey` agree on this by construction (the key hashes exactly the fields it
-/// depends on), so a last-write-wins insert during the freeze walk is safe.
+/// Per-`LeafStateKey` worker metadata derived at freeze time: the state representation and (for
+/// behavioral leaves) the eviction window, so the worker picks the apply path and computes
+/// deadlines without re-deriving on the hot path. Two leaves sharing a `LeafStateKey` agree on this
+/// by construction (the key hashes exactly the fields it depends on), so a last-write-wins insert
+/// during the freeze walk is safe.
 #[derive(Debug, Clone, Copy)]
 pub struct LeafStateMeta {
     pub variant: StateVariant,
@@ -34,41 +33,33 @@ pub struct LeafStateMeta {
 /// A team's frozen filter view: two reverse indices, the dedup set, and the parsed trees.
 #[derive(Debug, Default)]
 pub struct TeamFilters {
-    /// `conditionHash → [LeafStateKey]`. On a HogVM match, Stage 1 enumerates which leaf
-    /// states to update — one conditionHash can fan out to several windows/thresholds.
+    /// `conditionHash → [LeafStateKey]`. On a HogVM match, Stage 1 enumerates which leaf states to
+    /// update — one conditionHash can fan out to several windows/thresholds.
     pub by_condition_to_lsk: HashMap<[u8; 16], Vec<LeafStateKey>>,
-    /// `conditionHash → [CohortId]`. Stage 2 / cleanup walks back from a condition to the
-    /// cohorts that contain a leaf with it.
+    /// `conditionHash → [CohortId]` for the Stage 2 / cleanup walk back to owning cohorts.
     pub by_condition_to_cohorts: HashMap<[u8; 16], Vec<CohortId>>,
-    /// `conditionHash → bytecode`. PR 1.6's hot path fetches the program here, builds the globals,
-    /// and calls [`crate::hogvm::evaluate`] once per unique conditionHash per event. One entry per
-    /// conditionHash: the bytecode is identical across cohorts/leaves that share it, since
-    /// `conditionHash = sha256(bytecode)`.
+    /// `conditionHash → bytecode`, fed to [`crate::hogvm::evaluate`] once per unique conditionHash
+    /// per event. One entry per conditionHash: bytecode is identical across leaves that share it,
+    /// since `conditionHash = sha256(bytecode)`.
     pub by_condition_to_bytecode: HashMap<[u8; 16], Arc<Vec<Value>>>,
-    /// Distinct conditionHashes for this team — preserves the per-team HogVM dedup
-    /// (`manager.ts:109-113`): one execution per unique conditionHash per event.
+    /// Distinct conditionHashes for this team — preserves the per-team HogVM dedup of one execution
+    /// per unique conditionHash per event (`manager.ts:109-113`).
     pub unique_condition_hashes: HashSet<[u8; 16]>,
-    /// `LeafStateKey → LeafStateMeta`. The worker's per-leaf state contract: which variant to apply
-    /// and, for behavioral leaves, the eviction window. Built in [`freeze`](TeamFiltersBuilder::freeze)
-    /// by walking the parsed trees (no change to [`LeafSink`]).
+    /// `LeafStateKey → LeafStateMeta`: the worker's per-leaf state contract (which variant to apply
+    /// and, for behavioral leaves, the eviction window).
     pub by_lsk: HashMap<LeafStateKey, LeafStateMeta>,
-    /// conditionHashes whose leaves are behavioral (`performed_event`). The worker builds the
-    /// behavioral globals and runs these only when this set is non-empty. Disjoint from
+    /// conditionHashes whose leaves are behavioral. Disjoint from
     /// [`person_property_conditions`](Self::person_property_conditions) — the two leaf kinds compile
     /// to different bytecode, so they never share a conditionHash. Mirrors the Node consumer's
-    /// separate behavioral / person-property lists (`cdp-precalculated-filters.consumer.ts:217`).
+    /// separate lists (`cdp-precalculated-filters.consumer.ts:217`).
     pub behavioral_conditions: HashSet<[u8; 16]>,
     /// conditionHashes whose leaves are person-property filters.
     pub person_property_conditions: HashSet<[u8; 16]>,
-    /// `LeafStateKey → [CohortId]` — the **M1 stopgap** that maps a leaf flip directly to a
-    /// cohort membership change (PR 1.8). A cohort is present iff its filter tree is exactly one
-    /// supported, state-keyed leaf, so that leaf's predicate *is* the cohort's membership and the
-    /// output producer can emit a per-cohort change without Stage 2 boolean composition.
-    ///
-    /// Keyed by [`LeafStateKey`] (not `condition_hash`) so it is window/threshold-precise — a 7d
-    /// and a 30d leaf sharing one conditionHash get distinct keys and never cross-fire (the PR 1.6
-    /// C1 invariant). Restricted to single-leaf cohorts so a leaf flip never toggles a composite
-    /// cohort (Stage 2's job, M3 / PR 3.2, which extends this with the cascade).
+    /// `LeafStateKey → [CohortId]`, mapping a leaf flip directly to a cohort membership change. Only
+    /// single-leaf cohorts qualify — that leaf's predicate *is* the cohort's membership, so the
+    /// output producer emits a per-cohort change without Stage 2 composition. Keyed by
+    /// [`LeafStateKey`] (not `condition_hash`) so a 7d and a 30d leaf sharing one conditionHash get
+    /// distinct keys and never cross-fire.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// Parsed trees by cohort, retained for the Stage 2 re-walk.
     pub cohorts: HashMap<CohortId, CohortTree>,
@@ -101,8 +92,8 @@ impl LeafSink for TeamFiltersBuilder {
             .entry(condition_hash)
             .or_default()
             .insert(cohort_id);
-        // First-wins: every leaf sharing this conditionHash carries identical bytecode, so the Arc
-        // is cloned at most once per conditionHash.
+        // First-wins: leaves sharing a conditionHash carry identical bytecode, so the Arc is cloned
+        // at most once per conditionHash.
         self.by_condition_to_bytecode
             .entry(condition_hash)
             .or_insert_with(|| Arc::clone(bytecode));
@@ -115,8 +106,8 @@ impl LeafSink for TeamFiltersBuilder {
 }
 
 impl TeamFiltersBuilder {
-    /// Parse one cohort and fold it into the team's indices. A parse error (e.g. missing
-    /// `properties`) is returned to the caller, which counts and skips the cohort.
+    /// Parse one cohort and fold it into the team's indices. A parse error is returned to the
+    /// caller, which counts and skips the cohort.
     pub fn add_cohort(
         &mut self,
         cohort_id: CohortId,
@@ -128,9 +119,8 @@ impl TeamFiltersBuilder {
         Ok(())
     }
 
-    /// Freeze into an immutable [`TeamFilters`], turning the dedup `HashSet`s into sorted
-    /// `Vec`s for deterministic iteration and deriving the per-leaf worker indices
-    /// ([`by_lsk`](TeamFilters::by_lsk) + the two condition-kind sets) by walking the parsed trees.
+    /// Freeze into an immutable [`TeamFilters`]: sort the dedup `HashSet`s into `Vec`s for
+    /// deterministic iteration and derive the per-leaf worker indices by walking the parsed trees.
     pub fn freeze(self) -> TeamFilters {
         let mut by_lsk = HashMap::new();
         let mut behavioral_conditions = HashSet::new();
@@ -144,10 +134,8 @@ impl TeamFiltersBuilder {
                 &mut behavioral_conditions,
                 &mut person_property_conditions,
             );
-            // Index single-leaf cohorts for the PR 1.8 output fan-out. Guard on `by_lsk` so a lone
-            // behavioral leaf whose `pick_state_variant` failed (and so was not recorded above) is
-            // excluded — the two maps stay consistent: a cohort is mapped only if its leaf actually
-            // carries worker metadata.
+            // Guard on `by_lsk` so a cohort is mapped only if its leaf actually carries worker
+            // metadata — keeps the two maps consistent when `pick_state_variant` dropped a leaf.
             if let Some(lsk) = single_supported_leaf(&tree.root) {
                 if by_lsk.contains_key(&lsk) {
                     by_lsk_to_single_leaf_cohorts
@@ -157,7 +145,6 @@ impl TeamFiltersBuilder {
                 }
             }
         }
-        // Sort each cohort list for deterministic iteration, matching `sorted_vec_map`.
         for cohorts in by_lsk_to_single_leaf_cohorts.values_mut() {
             cohorts.sort_unstable();
         }
@@ -177,17 +164,12 @@ impl TeamFiltersBuilder {
 }
 
 /// The [`LeafStateKey`] of a cohort whose filter tree is **exactly one** state-keyed leaf, or
-/// [`None`] otherwise (zero leaves, two or more leaves, or a lone cohort-reference leaf).
-///
-/// Walks the tree counting [`FilterNode::Leaf`] nodes (recursing through groups) and short-circuits
-/// as soon as a second leaf is seen. For exactly one leaf it returns that leaf's
-/// [`leaf_state_key`](CohortLeaf::leaf_state_key) — which is [`None`] for a cohort reference, so a
-/// single cohort-ref cohort is correctly excluded (cohort refs are not state-keyed; `tree.rs`). The
-/// single-leaf restriction is what makes a leaf transition equal a whole-cohort membership change in
-/// M1, before Stage 2 boolean composition exists.
+/// [`None`] otherwise (zero leaves, ≥2 leaves, or a lone cohort-reference leaf — cohort refs have no
+/// `leaf_state_key`). The single-leaf restriction is what makes a leaf transition equal a
+/// whole-cohort membership change, before Stage 2 boolean composition exists.
 fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
-    /// Running tally of leaves seen so far; `One` carries the single leaf's key (which may itself
-    /// be `None` for a cohort ref) so the final answer needs no second lookup.
+    /// `One` carries the single leaf's key (itself `None` for a cohort ref) so the final answer
+    /// needs no second lookup.
     enum LeafCount {
         Zero,
         One(Option<LeafStateKey>),
@@ -204,7 +186,7 @@ fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
                 let mut acc = acc;
                 for child in children {
                     if matches!(acc, LeafCount::Many) {
-                        return LeafCount::Many; // already disqualified — stop descending
+                        return LeafCount::Many;
                     }
                     acc = walk(child, acc);
                 }
@@ -220,8 +202,8 @@ fn single_supported_leaf(root: &FilterNode) -> Option<LeafStateKey> {
 }
 
 /// Recursively record each state-keyed leaf's [`LeafStateMeta`] and condition-kind membership.
-/// Behavioral leaves re-run [`pick_state_variant`] (a cold 5-minute path) to recover the variant +
-/// window; a kept leaf always succeeds, since the classifier dropped any unsupported variant.
+/// Behavioral leaves re-run [`pick_state_variant`] to recover the variant + window; a kept leaf
+/// always succeeds, since the classifier dropped any unsupported variant.
 fn collect_leaf_meta(
     node: &FilterNode,
     by_lsk: &mut HashMap<LeafStateKey, LeafStateMeta>,
@@ -283,9 +265,8 @@ mod tests {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
 
-    /// A `performed_event` leaf on `$pageview` with a tunable window — the only field of the three
-    /// (value/window) that the conditionHash does not encode, so different windows fan out to
-    /// distinct LeafStateKeys under one conditionHash.
+    /// A `performed_event` leaf on `$pageview` with a tunable window. The conditionHash does not
+    /// encode the window, so different windows fan out to distinct LeafStateKeys under one hash.
     fn behavioral_performed_event(time_value: i64) -> Value {
         json!({
             "type": "behavioral",
@@ -294,8 +275,7 @@ mod tests {
             "time_value": time_value,
             "time_interval": "day",
             "conditionHash": "0123456789abcdef",
-            // Identical across windows: the bytecode encodes only the event matcher, so leaves
-            // sharing a conditionHash share bytecode (conditionHash = sha256(bytecode)).
+            // Identical across windows: leaves sharing a conditionHash share bytecode.
             "bytecode": behavioral_bytecode(),
         })
     }
@@ -318,7 +298,6 @@ mod tests {
     #[test]
     fn identical_leaves_dedupe_to_single_entries() {
         let mut builder = TeamFiltersBuilder::default();
-        // Same cohort, the same leaf twice → one LSK, one cohort, one unique hash.
         let filters = wrap(vec![
             behavioral_performed_event(7),
             behavioral_performed_event(7),
@@ -352,16 +331,12 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze();
 
-        // Same conditionHash, but two distinct windows → two leaf state keys.
         assert_eq!(frozen.by_condition_to_lsk[&HASH].len(), 2);
-        // Both owning cohorts recorded, sorted.
         assert_eq!(
             frozen.by_condition_to_cohorts[&HASH],
             vec![CohortId(1), CohortId(2)]
         );
-        // Still one unique conditionHash (the HogVM dedup unit).
         assert_eq!(frozen.unique_condition_hashes.len(), 1);
-        // ...and exactly one captured bytecode (first-wins; identical per conditionHash).
         assert_eq!(frozen.by_condition_to_bytecode.len(), 1);
     }
 
@@ -396,10 +371,8 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze();
 
-        // One behavioral + one person leaf, each with its own LeafStateMeta.
         assert_eq!(frozen.by_lsk.len(), 2);
 
-        // The behavioral leaf's LSK carries BehavioralSingle + a 7-day relative window.
         let beh_lsk = frozen.by_condition_to_lsk[&HASH][0];
         let beh_meta = frozen.by_lsk[&beh_lsk];
         assert_eq!(beh_meta.variant, StateVariant::BehavioralSingle);
@@ -410,7 +383,6 @@ mod tests {
             })
         );
 
-        // The person leaf's LSK is its conditionHash, carrying PersonProperty + no window.
         let per_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
         let per_meta = frozen.by_lsk[&per_lsk];
         assert_eq!(per_meta.variant, StateVariant::PersonProperty);
@@ -447,7 +419,6 @@ mod tests {
 
     #[test]
     fn freeze_recurses_into_nested_groups() {
-        // by_lsk must be populated from leaves nested under inner groups, not just the root.
         let mut builder = TeamFiltersBuilder::default();
         let filters = json!({
             "properties": {
@@ -466,8 +437,6 @@ mod tests {
         assert_eq!(frozen.by_lsk.len(), 1);
         assert_eq!(frozen.behavioral_conditions, HashSet::from([HASH]));
     }
-
-    // ── by_lsk_to_single_leaf_cohorts (PR 1.8 output fan-out) ──────────────────
 
     fn cohort_ref() -> Value {
         json!({ "type": "cohort", "value": 99, "negation": false })
@@ -494,8 +463,8 @@ mod tests {
 
     #[test]
     fn c1_two_single_leaf_cohorts_same_hash_different_windows_map_to_their_own_lsk() {
-        // The headline C1 case: one conditionHash, two windows → two distinct LSKs, each owning
-        // exactly its own cohort. Reusing `by_condition_to_cohorts[HASH]` would wrongly return both.
+        // Reusing the conditionHash-keyed index would wrongly return both cohorts; the LSK-keyed
+        // index splits them by window.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -513,13 +482,11 @@ mod tests {
             .unwrap();
         let frozen = builder.freeze();
 
-        // The conditionHash-keyed index returns both cohorts — the wrong index for output fan-out.
         assert_eq!(
             frozen.by_condition_to_cohorts[&HASH],
             vec![CohortId(1), CohortId(2)]
         );
 
-        // The LSK-keyed index splits them: each window's key maps to exactly its own cohort.
         let lsks = &frozen.by_condition_to_lsk[&HASH];
         assert_eq!(lsks.len(), 2);
         let mut owners: Vec<Vec<CohortId>> = lsks
@@ -532,8 +499,7 @@ mod tests {
 
     #[test]
     fn identical_single_leaf_cohorts_share_one_lsk_sorted() {
-        // Two cohorts whose single leaf is byte-identical share a LeafStateKey → both listed,
-        // sorted (added out of order to prove the sort).
+        // Added out of order to prove the result is sorted.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -560,7 +526,6 @@ mod tests {
 
     #[test]
     fn multi_leaf_cohort_is_not_indexed() {
-        // A two-leaf cohort needs Stage 2 composition, so no single leaf determines its membership.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(
@@ -579,7 +544,6 @@ mod tests {
 
     #[test]
     fn single_cohort_ref_cohort_is_not_indexed() {
-        // A lone cohort reference is not state-keyed (no LeafStateKey), so it can't map a leaf flip.
         let mut builder = TeamFiltersBuilder::default();
         builder
             .add_cohort(CohortId(1), TeamId(7), &wrap(vec![cohort_ref()]))
@@ -591,7 +555,6 @@ mod tests {
 
     #[test]
     fn nested_single_leaf_cohort_is_indexed() {
-        // The lone leaf may sit under nested groups; the walk still finds exactly one.
         let mut builder = TeamFiltersBuilder::default();
         let filters = json!({
             "properties": {
@@ -613,8 +576,7 @@ mod tests {
 
     #[test]
     fn empty_all_dropped_cohort_is_not_indexed() {
-        // A cohort whose only leaf is dropped (no conditionHash) freezes to an empty group → zero
-        // leaves → not a single-leaf cohort.
+        // The only leaf drops (no conditionHash), leaving an empty group → zero leaves → not indexed.
         let mut builder = TeamFiltersBuilder::default();
         let dropped =
             json!({ "type": "behavioral", "key": "$pageview", "value": "performed_event" });

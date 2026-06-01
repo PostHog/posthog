@@ -1,147 +1,117 @@
-//! Prometheus recorder setup and the service's metric vocabulary. The ~35 application
-//! metrics (TDD §8.1) are registered by the pipeline modules as they are built; this
-//! installs the global recorder, returns the render handle consumed by `GET /metrics`,
-//! and owns the metric-name constants so every emitter uses the same series.
+//! Prometheus recorder setup and the metric-name constants every emitter shares.
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
-// ── Filter catalog (PR 1.3) ───────────────────────────────────────────────────
+// ── Filter catalog ─────────────────────────────────────────────────────────────
 /// Teams with ≥1 realtime cohort in the current catalog snapshot (gauge).
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter). **Rebuild-driven:** the catalog is
-/// rebuilt on every periodic refresh, which re-drops the same unsupported leaves, so this counter
-/// grows by `≈(dropped leaves)` per refresh. Its absolute value is **not** a current dropped-leaf
-/// count — alert/graph on its `rate`, not its level. (`filter_catalog_unique_conditions` /
-/// `filter_catalog_teams` are gauges that *do* reflect the current snapshot.)
+/// Leaves dropped during parse, labelled by `reason` (counter). Rebuild-driven (re-dropped every
+/// refresh), so graph its rate, not its level.
 pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
 /// Cohorts skipped because their filter tree failed to parse (counter).
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
 
-// ── Store (PR 1.2) ─────────────────────────────────────────────────────────────
-/// RocksDB batch commits (multi-CF `WriteBatch`, `delete_partition`, …), labelled by
-/// `op` (counter).
+// ── Store ──────────────────────────────────────────────────────────────────────
+/// RocksDB batch commits, labelled by `op` (counter).
 pub const STORE_WRITE_BATCH_TOTAL: &str = "store_write_batch_total";
 /// Latency of a committed RocksDB write, labelled by `op` (histogram, seconds).
 pub const STORE_WRITE_DURATION_SECONDS: &str = "store_write_duration_seconds";
 /// RocksDB operations that returned an error, labelled by `op` (counter).
 pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
-/// Malformed inputs the `cf_person_index` merge operator skipped instead of panicking
-/// (a panic on a compaction thread is FFI UB), labelled by `kind` (counter).
+/// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
+/// Skipped rather than panicked because a panic on a compaction thread is FFI UB.
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
-// ── HogVM executor (PR 1.4) ───────────────────────────────────────────────────
-/// A cohort bytecode invoked a `CALL_GLOBAL`/symbol with no registered Rust native — i.e.
-/// the M0 survey missed it. Labelled by `name`; a non-zero value means a cohort may be
-/// silently evaluating to `false` (counter).
+// ── HogVM executor ─────────────────────────────────────────────────────────────
+/// Cohort bytecode invoked a symbol with no registered Rust native, labelled by `name` (counter).
+/// Non-zero means a cohort may be silently evaluating to `false`.
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
 /// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
-/// `properties`/`person_properties` JSON parse failure; the event is skipped, matching Node
-/// (consumer.ts:200). Labelled by `field` (counter).
+/// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter). The event is
+/// skipped, matching Node (consumer.ts:200).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
 
-// ── Partition routing (PR 1.5) ─────────────────────────────────────────────────
-/// Partitions with a live worker channel registered on the router (gauge). Re-set on every
-/// `add_partition` / `remove_partition`, so it tracks the worker-affinity fan-out width.
+// ── Partition routing ──────────────────────────────────────────────────────────
+/// Partitions with a live worker channel registered on the router (gauge).
 pub const PARTITIONS_ACTIVE: &str = "partitions_active";
-/// Messages dropped while routing because the target partition had no live worker — almost
-/// always a partition revoked mid-rebalance, or a worker that dropped its receiver. Labelled by
-/// `reason` (counter). A sustained non-zero rate outside rebalances means routing is losing work.
+/// Messages dropped while routing because the target partition had no live worker, labelled by
+/// `reason` (counter). Usually a partition revoked mid-rebalance.
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
-/// Sub-batches queued in a partition worker's channel, measured send-side as
-/// `buffer − available_capacity`. Labelled by `partition` (gauge). The router's view of
-/// per-partition backpressure; rising depth means a worker is falling behind the consumer.
+/// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 
-// ── Stage 1 worker (PR 1.6) ────────────────────────────────────────────────────
-/// Events the worker fully processed (passed preflight + applied state). Together with
-/// [`STAGE1_EVENTS_SKIPPED`] this accounts for every event the worker dequeued (counter).
+// ── Stage 1 worker ─────────────────────────────────────────────────────────────
+/// Events fully processed; with [`STAGE1_EVENTS_SKIPPED`] accounts for every dequeued event
+/// (counter).
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
-/// Events skipped whole, labelled by `reason`
-/// (`null_person_id`|`unparseable_person_id`|`no_team_filters`|`no_conditions`|
-/// `globals_parse_error`|`bad_timestamp`|`store_error`) (counter). `store_error` is the worker's
-/// RocksDB-failure skip (the backend error is *also* counted in `store_errors_total`); counting it
-/// here keeps the conservation identity `consumed == processed + Σskipped` exact under store errors.
+/// Events skipped whole, labelled by `reason` (counter). `store_error` is also counted in
+/// `store_errors_total`; counting it here keeps `consumed == processed + Σskipped` exact.
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
-/// HogVM evaluations performed, labelled by `kind` (`behavioral`|`person_property`) — one per
-/// unique conditionHash per event, preserving the Node consumer's dedup unit (counter).
+/// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
-/// Leaf membership flips emitted, labelled by `kind`
-/// (`behavioral_entered`|`person_entered`|`person_left`). `behavioral_left` is intentionally
-/// omitted until sweep eviction (PR 2.2–2.3) so it cannot appear prematurely (counter).
+/// Leaf membership flips emitted, labelled by `kind` (counter). `behavioral_left` is omitted until
+/// sweep eviction exists, so it cannot appear prematurely.
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_stage1` records written, labelled by `variant` (counter).
 pub const STAGE1_STATE_WRITES: &str = "stage1_state_writes_total";
-/// First-time `cf_person_index` appends (one per newly-seen `(person, leaf_state_key)`) (counter).
+/// First-time `cf_person_index` appends, one per newly-seen `(person, leaf_state_key)` (counter).
 pub const STAGE1_PERSON_INDEX_APPENDS: &str = "stage1_person_index_appends_total";
-/// Per-key applies skipped because the source `(partition, offset)` was already folded in — Kafka
-/// replay idempotence. Labelled by `variant` (counter).
+/// Applies skipped because the source `(partition, offset)` was already folded in, labelled by
+/// `variant` (counter).
 pub const STAGE1_REPLAY_SKIPPED: &str = "stage1_replay_skipped_total";
-/// Person-property applies dropped by the event-time argMax tiebreaker (an out-of-order event
-/// older than the last write) (counter).
+/// Person-property applies dropped by the event-time argMax tiebreaker (counter).
 pub const STAGE1_ARGMAX_STALE: &str = "stage1_argmax_stale_total";
-/// Applies skipped because the leaf's resolved variant is not one PR 1.6 can apply — a
-/// belt-and-suspenders guard against a stale catalog once PR 2.1 lands. Labelled by `variant`
-/// (counter).
+/// Applies skipped because the leaf's resolved variant is unsupported, labelled by `variant`
+/// (counter). A defensive guard against a stale catalog.
 pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant_skipped_total";
-/// Stored `cf_stage1` values that failed to decode; the offending key is skipped, never panicked
-/// (counter).
+/// Stored `cf_stage1` values that failed to decode; the key is skipped, not panicked (counter).
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
 
-// ── `cohort_stream_events` consumer (PR 1.7) ──────────────────────────────────
+// ── `cohort_stream_events` consumer ────────────────────────────────────────────
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
-/// Events routed to a per-partition worker (one per dispatched message). Sits between
-/// [`COHORT_STREAM_EVENTS_CONSUMED`] and `stage1_events_processed_total` in the conservation chain:
-/// `consumed == dispatched` must hold (any gap is a consume-side loss — the F1 signature), and
-/// `dispatched == processed + Σskipped + route_errors` accounts for every dispatched event (counter).
+/// Events routed to a per-partition worker (counter). Conservation chain: `consumed == dispatched`
+/// and `dispatched == processed + Σskipped + route_errors`.
 pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
-/// A worker tried to mark an offset **past** what the dispatcher routed to it, so the
-/// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it. A non-zero rate is the exact F1
-/// signature (committing past consumed-but-undispatched offsets) and should page (counter).
+/// A worker tried to mark an offset past what the dispatcher routed to it, so the
+/// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it (counter). A non-zero rate should
+/// page.
 pub const COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH: &str =
     "cohort_stream_offset_ahead_of_dispatch_total";
-/// Messages whose payload was missing or failed to deserialize into a `CohortStreamEvent`; the
-/// message is skipped and its offset still advances (the shuffler never emits these) (counter).
+/// Messages with a present-but-unparseable payload; skipped, offset still advances (counter).
 pub const COHORT_STREAM_DESERIALIZE_ERRORS: &str = "cohort_stream_deserialize_errors_total";
-/// Messages with a `None` (zero-byte) payload, skipped without deserializing. Distinct from
-/// [`COHORT_STREAM_DESERIALIZE_ERRORS`] (which is a present-but-unparseable payload) so neither is a
-/// blind spot in the conservation accounting. The shuffler never emits these (counter).
+/// Messages with a `None` (zero-byte) payload, skipped (counter). Distinct from
+/// [`COHORT_STREAM_DESERIALIZE_ERRORS`] so neither is a conservation blind spot.
 pub const COHORT_STREAM_EMPTY_PAYLOAD: &str = "cohort_stream_empty_payload_total";
-/// Kafka transport errors returned by `recv()` while consuming. A sustained non-zero rate
-/// suppresses the liveness heartbeat, so the stall detector eventually restarts the pod (counter).
+/// Kafka transport errors from `recv()` (counter). A sustained rate suppresses the liveness
+/// heartbeat, so the stall detector eventually restarts the pod.
 pub const COHORT_STREAM_KAFKA_RECV_ERRORS: &str = "cohort_stream_kafka_recv_errors_total";
 /// Offset commits accepted by Kafka (counter).
 pub const COHORT_STREAM_OFFSET_COMMITS: &str = "cohort_stream_offset_commits_total";
-/// Offset commit attempts Kafka rejected; logged and retried on the next tick (counter).
+/// Offset commit attempts Kafka rejected; retried on the next tick (counter).
 pub const COHORT_STREAM_OFFSET_COMMIT_ERRORS: &str = "cohort_stream_offset_commit_errors_total";
-/// Stage 1 workers lazily spawned on first delivery of a partition (counter). In single-replica
-/// M1 this rises to the assigned partition count once and then stays flat.
+/// Stage 1 workers lazily spawned on first delivery of a partition (counter).
 pub const COHORT_STREAM_WORKERS_SPAWNED: &str = "cohort_stream_workers_spawned_total";
-/// Per-partition routing failures surfaced by the router (no live worker / closed channel); the
-/// partition's offset is held back so Kafka replays it (counter).
+/// Per-partition routing failures (no live worker / closed channel); the offset is held back so
+/// Kafka replays it (counter).
 pub const COHORT_STREAM_ROUTE_ERRORS: &str = "cohort_stream_route_errors_total";
-/// Events accumulated per consume → route cycle (histogram). The fill ratio against
-/// `recv_batch_size` shows whether the loop is batch- or timeout-bound.
+/// Events accumulated per consume → route cycle (histogram).
 pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_size";
 
-// ── Output producer (PR 1.8) ───────────────────────────────────────────────────
+// ── Output producer ────────────────────────────────────────────────────────────
 /// Membership changes produced to `cohort_membership_changed_shadow`, labelled by `status`
-/// (`entered`|`left`) (counter). Counted only after a fully-acked flush, so it tracks the
-/// shadow pipeline's observable, parity-comparable output volume.
+/// (counter). Counted only after a fully-acked flush.
 pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
-/// Leaf transitions that mapped to zero output cohorts, labelled by `reason`
-/// (`multi_leaf_cohort`) (counter). In M1 a single leaf flip only determines a single-leaf
-/// cohort's membership; a transition for a leaf that belongs only to multi-leaf (Stage 2)
-/// cohorts produces no shadow output yet and is counted here.
+/// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter). A single
+/// leaf flip only determines a single-leaf cohort's membership.
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
-/// Produce failures to `cohort_membership_changed_shadow` (counter). On any error the worker
-/// holds the sub-batch's offset back so Kafka replays it; re-produce is idempotent for the
-/// per-cohort parity diff.
+/// Produce failures to `cohort_membership_changed_shadow` (counter). The worker holds the offset
+/// back so Kafka replays; re-produce is idempotent for the parity diff.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
 /// Install the global Prometheus recorder. Call once at startup.

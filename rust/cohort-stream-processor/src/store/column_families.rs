@@ -1,7 +1,4 @@
-//! Column-family registry (TDD §2.5:300-302).
-//!
-//! PR 1.2 ships the three state CFs. The four cross-partition-merge CFs (`cf_merge_*`, §4.5.1)
-//! are PR 3.1 and slot into [`cf_options`] as one match arm each.
+//! Column-family registry.
 
 use rocksdb::{BlockBasedOptions, Cache, ColumnFamilyDescriptor, DBCompressionType, Options};
 
@@ -10,16 +7,15 @@ use super::secondary_index::{full_merge, partial_merge, PERSON_INDEX_MERGE_OPERA
 
 /// Stage 1 per-leaf state: `(partition_id, team_id, leaf_state_key, person_id) → StatefulRecord`.
 pub const CF_STAGE1: &str = "cf_stage1";
-/// Per-person secondary index used by cross-partition merge migration: `… → set<LeafStateKey>`.
+/// Per-person secondary index: `… → set<LeafStateKey>`.
 pub const CF_PERSON_INDEX: &str = "cf_person_index";
 /// Stage 2 membership: `(partition_id, team_id, cohort_id, person_id) → Stage2State`.
 pub const CF_STAGE2: &str = "cf_stage2";
 
-/// Bloom filter bits per key — 10 bits ≈ 1% false-positive rate (matches kafka-deduplicator).
+/// 10 bits ≈ 1% false-positive rate.
 const BLOOM_FILTER_BITS_PER_KEY: f64 = 10.0;
 
-/// The state column families this process owns. Iteration order is the canonical order for
-/// fan-out operations (e.g. [`super::rocks::CohortStore::delete_partition`]).
+/// `Cf::ALL` iteration order is the canonical fan-out order (e.g. `delete_partition`).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Cf {
     Stage1,
@@ -28,10 +24,8 @@ pub enum Cf {
 }
 
 impl Cf {
-    /// Every column family, in canonical order.
     pub const ALL: [Cf; 3] = [Cf::Stage1, Cf::PersonIndex, Cf::Stage2];
 
-    /// The on-disk name RocksDB keys this CF by.
     pub const fn as_str(self) -> &'static str {
         match self {
             Cf::Stage1 => CF_STAGE1,
@@ -43,10 +37,9 @@ impl Cf {
 
 /// A column family whose value is caller-owned opaque bytes — safe for a raw `put`.
 ///
-/// `cf_person_index` is merge-only: its value format (packed `[u8; 16] × N`) is owned by the
-/// merge operator, so a raw `put` of arbitrary bytes there would silently corrupt the set on the
-/// next merge. It is therefore deliberately *not* a variant here, which makes a raw put to the
-/// merge CF unrepresentable (it won't compile) rather than a runtime footgun.
+/// `cf_person_index` is deliberately *not* a variant: it is merge-only (value format owned by the
+/// merge operator), so excluding it makes a raw put to the merge CF fail to compile rather than
+/// silently corrupt the set.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum OpaqueCf {
     Stage1,
@@ -54,7 +47,6 @@ pub enum OpaqueCf {
 }
 
 impl OpaqueCf {
-    /// The full-set [`Cf`] this opaque CF corresponds to.
     pub const fn cf(self) -> Cf {
         match self {
             OpaqueCf::Stage1 => Cf::Stage1,
@@ -69,8 +61,6 @@ impl From<OpaqueCf> for Cf {
     }
 }
 
-/// Build the descriptor for each CF. The shared block `cache` is attached to every CF's block
-/// options; RocksDB clones and retains it for the DB's lifetime, so the caller need not.
 pub fn descriptors(config: &StoreConfig, cache: &Cache) -> Vec<ColumnFamilyDescriptor> {
     Cf::ALL
         .iter()
@@ -78,9 +68,6 @@ pub fn descriptors(config: &StoreConfig, cache: &Cache) -> Vec<ColumnFamilyDescr
         .collect()
 }
 
-/// Per-CF options: sound shared defaults (lz4 + bloom + sized block cache), plus the merge
-/// operator on `cf_person_index` only. Compaction/write-buffer-manager tuning is deferred to
-/// the §5.1 M9 measurement — this ships defaults, not premature knobs.
 fn cf_options(cf: Cf, config: &StoreConfig, cache: &Cache) -> Options {
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_block_cache(cache);

@@ -1,16 +1,9 @@
-//! The leaf membership predicate over [`Stage1State`] (TDD §4.1).
-//!
-//! "Is this person currently in this leaf's set?" is a pure function of the stored state. PR 1.6
-//! covers the two M1 variants; the count-comparator (`gte`/`lte`/… over bucket sums) for
-//! `performed_event_multiple` is PR 2.1. Centralising it here keeps the worker's transition
-//! detection ("did the predicate flip?") reading the *same* definition the sweep and Stage 2 will.
+//! The leaf membership predicate over [`Stage1State`], centralised so the worker's transition
+//! detection, the sweep, and Stage 2 all read the same definition.
 
 use crate::stage1::state::Stage1State;
 
 /// Whether `state` currently satisfies its leaf predicate.
-///
-/// - [`Stage1State::BehavioralSingle`] → `has_match` (any matching event in the live window).
-/// - [`Stage1State::PersonProperty`] → `matches` (the last-write-wins boolean).
 pub fn predicate(state: &Stage1State) -> bool {
     match state {
         Stage1State::BehavioralSingle { has_match, .. } => *has_match,

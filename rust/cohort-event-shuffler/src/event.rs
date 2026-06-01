@@ -1,31 +1,22 @@
-//! The `cohort_stream_events` envelope (TDD §4.3) and the canonical re-key derivation.
+//! The `cohort_stream_events` envelope and the canonical re-key derivation.
 //!
-//! The shuffler forwards a *thin* copy of each [`ClickHouseEvent`] — only the fields Stage 1's
-//! bytecode evaluation needs — keyed by [`partition_key`]. Group properties, `person_mode`,
-//! `created_at`, `project_id` and similar are intentionally dropped (TDD §2.2).
+//! Forwards only the fields the downstream bytecode evaluation needs; group properties,
+//! `person_mode`, `created_at`, `project_id` and similar are intentionally dropped.
 
 use common_types::ClickHouseEvent;
 use serde::{Deserialize, Serialize};
 
-/// The single source of truth for the `cohort_stream_events` re-key string.
-///
-/// Every producer that targets a topic co-partitioned with `cohort_stream_events`
-/// (the future seed, merge, and cascade producers — TDD §4.4/§4.5/§4.8) **must** derive
-/// its key with this function. Combined with the `murmur2_random` partitioner and a fixed
-/// 64-partition count, this is what guarantees that a given `(team_id, person_id)` always
-/// lands on the same partition — and therefore the same Stage 1 worker — across topics and
-/// across runtimes (Rust here, Node for `person_merge_events`). See key design point 1.
+/// Single source of truth for the re-key string. Every producer targeting a topic co-partitioned
+/// with `cohort_stream_events` must use this so a given `(team_id, person_id)` lands on the same
+/// partition — and downstream worker — across topics and runtimes (Rust here, Node for
+/// `person_merge_events`), given the shared `murmur2_random` partitioner and 64-partition count.
 #[inline]
 pub fn partition_key(team_id: i32, person_id: &str) -> String {
     format!("{team_id}:{person_id}")
 }
 
-/// The re-keying envelope published to `cohort_stream_events`.
-///
-/// Field names mirror TDD §4.3 exactly so the Stage 1 consumer (PR 1.7) can deserialize a
-/// matching struct. `source_partition` / `source_offset` carry the upstream
-/// `clickhouse_events_json` coordinates so Stage 1 can make non-idempotent counter
-/// increments replay-safe via per-key offset tracking (TDD §2.5, key design point 2).
+/// `source_partition` / `source_offset` carry the upstream `clickhouse_events_json` coordinates so
+/// the downstream processor can make counter increments replay-safe via per-key offset tracking.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortStreamEvent {
     pub team_id: i32,
@@ -42,13 +33,9 @@ pub struct CohortStreamEvent {
 }
 
 impl CohortStreamEvent {
-    /// Build the forwarded envelope from a source event and its Kafka coordinates.
-    ///
-    /// Infallible: [`crate::consumer::classify`] has already proved the event carries a
-    /// `person_id` and moved it out, handing it back here — so there is no `Option` to re-check.
-    /// Takes `event` by value and *moves* every owned field out of it; the caller drops the
-    /// source event immediately after, so the bytes — including the unbounded `properties` /
-    /// `person_properties` JSON payloads — are moved rather than cloned.
+    /// Takes `person_id` already extracted by [`crate::consumer::classify`] (so no `Option` to
+    /// re-check) and moves every owned field out of `event` — including the unbounded `properties`
+    /// / `person_properties` JSON — rather than cloning.
     pub fn from_clickhouse(
         event: ClickHouseEvent,
         person_id: String,
@@ -70,15 +57,11 @@ impl CohortStreamEvent {
         }
     }
 
-    /// The Kafka message key for this envelope: [`partition_key`] over its own
-    /// `(team_id, person_id)`.
     pub fn partition_key(&self) -> String {
         partition_key(self.team_id, &self.person_id)
     }
 }
 
-/// Shared test fixture: a fully-populated `ClickHouseEvent` for the given team and
-/// (optional) person. Used by both this module's tests and the consumer's tests.
 #[cfg(test)]
 pub(crate) fn sample_clickhouse_event(team_id: i32, person_id: Option<&str>) -> ClickHouseEvent {
     use common_types::PersonMode;
@@ -137,7 +120,7 @@ mod tests {
     #[test]
     fn from_clickhouse_maps_every_field() {
         let event = sample_event(42, Some("01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee"));
-        // from_clickhouse consumes the event, so capture the uuid string first.
+        // from_clickhouse consumes the event, so capture the uuid first.
         let expected_uuid = event.uuid.to_string();
         let envelope = CohortStreamEvent::from_clickhouse(
             event,
@@ -208,7 +191,7 @@ mod tests {
         ] {
             assert!(obj.contains_key(key), "envelope is missing key `{key}`");
         }
-        // The replay-idempotence coordinates must be numeric, not strings.
+        // Replay coordinates must serialize numeric, not as strings.
         assert_eq!(obj["source_offset"], serde_json::json!(12345));
         assert_eq!(obj["source_partition"], serde_json::json!(17));
     }

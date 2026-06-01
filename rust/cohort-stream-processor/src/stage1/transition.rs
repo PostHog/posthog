@@ -1,11 +1,8 @@
-//! Stage 1 leaf transitions (TDD §4.1).
+//! Stage 1 leaf transitions.
 //!
-//! When a leaf's [`predicate`](crate::stage1::predicate::predicate) flips, the worker emits a
-//! [`LeafTransition`] *after* the backing state is durably committed (the plan's "no transition
-//! without durable state behind it" rule). PR 1.6 only surfaces these — Stage 2 composition,
-//! cascade, and the `cohort_membership_changed` produce are later PRs. In M1 the behavioral path
-//! never clears a match, so only [`TransitionKind::Left`] from the person-property path appears;
-//! [`TransitionKind::Left`] for behavioral arrives with sweep eviction (PR 2.2–2.3).
+//! The worker emits a [`LeafTransition`] only *after* the backing state is durably committed. The
+//! behavioral path never clears a match, so a behavioral [`TransitionKind::Left`] only arrives via
+//! sweep eviction.
 
 use uuid::Uuid;
 
@@ -15,15 +12,12 @@ use crate::stage1::key::LeafStateKey;
 /// The direction of a membership flip for one leaf.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TransitionKind {
-    /// The predicate went `false → true`.
     Entered,
-    /// The predicate went `true → false`.
     Left,
 }
 
-/// A single leaf's membership flip for one person, carrying everything a later stage needs to
-/// route and attribute it: the team, the per-leaf state key, the person, the originating
-/// `conditionHash`, and the direction.
+/// A single leaf's membership flip for one person, carrying what a later stage needs to route and
+/// attribute it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeafTransition {
     pub team_id: TeamId,

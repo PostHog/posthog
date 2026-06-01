@@ -1,10 +1,4 @@
-//! Kafka producer for `cohort_membership_changed_shadow` (TDD §4.7, §6.1 PR 1.8).
-//!
-//! Near-verbatim from `cohort-event-shuffler/src/producer.rs`: a [`FutureProducer`] built via
-//! [`create_kafka_producer`] (which pings broker metadata for fail-fast startup), producing each
-//! [`CohortMembershipChange`] keyed by `person_id` so the shadow topic co-partitions by person the
-//! same way the legacy producer does. The `murmur2_random` partitioner is pinned in
-//! [`crate::config`].
+//! Kafka producer for `cohort_membership_changed_shadow`.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -17,13 +11,9 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::{CohortMembershipChange, MembershipSink};
 
-/// No-op liveness reporter for the producer's rdkafka client context.
-///
-/// The producer is driven entirely by the consumer loop; if it stalls, the worker's
-/// `produce().await` blocks and the *consumer* — which owns the liveness deadline — stops
-/// heartbeating, tripping the stall detector. Feeding the producer's background stats callback into
-/// the consumer's health instead would mask exactly that stall, so the producer gets its own
-/// always-healthy sink (mirrors the shuffler's producer).
+/// No-op liveness reporter for the producer's rdkafka client context: a producer stall blocks the
+/// consumer loop, which owns the liveness deadline, so routing producer health here would mask the
+/// very stall the consumer's stall detector should catch.
 #[derive(Clone, Copy)]
 struct AlwaysHealthy;
 
@@ -32,16 +22,12 @@ impl SyncLivenessReporter for AlwaysHealthy {
     fn report_unhealthy(&self) {}
 }
 
-/// The production [`MembershipSink`]: produces membership changes to
-/// `cohort_membership_changed_shadow`.
 pub struct KafkaMembershipSink {
     producer: FutureProducer<KafkaContext>,
     topic: String,
 }
 
 impl KafkaMembershipSink {
-    /// Build the producer and verify broker connectivity (`create_kafka_producer` pings for
-    /// metadata before returning, giving fail-fast startup).
     pub async fn new(kafka_config: &KafkaConfig, topic: String) -> Result<Self> {
         let producer = create_kafka_producer(kafka_config, AlwaysHealthy)
             .await
@@ -67,9 +53,7 @@ impl MembershipSink for KafkaMembershipSink {
     }
 }
 
-/// Partition key for a membership change: its `person_id`, so a person's changes co-partition by
-/// person — matching the legacy producer keying. Extracted (not an inline closure) so the contract
-/// is unit-testable without a broker.
+/// Keyed by `person_id` so a person's changes co-partition by person, matching the legacy producer.
 fn membership_key(change: &CohortMembershipChange) -> Option<String> {
     Some(change.person_id.clone())
 }

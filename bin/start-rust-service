@@ -222,9 +222,9 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime team gate
-    # Replay existing local events instead of only-new (prod defaults to "latest").
+    # earliest replays existing local events; prod defaults to "latest".
     export KAFKA_CONSUMER_OFFSET_RESET="${KAFKA_CONSUMER_OFFSET_RESET:-earliest}"
-    export BIND_PORT=3310 # park in the rust-service band (default 3322 is also free)
+    export BIND_PORT=3310
     export DEBUG=1
     ;;
 
@@ -233,10 +233,10 @@ case "$RS_SVC" in
     export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}" # reads posthog_cohort for the realtime filter catalog
-    # Refresh fast in dev so window/threshold edits surface a new LeafStateKey quickly.
+    # Fast refresh in dev so window/threshold edits surface a new LeafStateKey quickly.
     export FILTER_CATALOG_REFRESH_SECS="${FILTER_CATALOG_REFRESH_SECS:-30}"
     export FILTER_CATALOG_REFRESH_JITTER_SECS="${FILTER_CATALOG_REFRESH_JITTER_SECS:-5}"
-    export BIND_PORT=3311 # distinct from the shuffler (3310); default is 3323
+    export BIND_PORT=3311
     export DEBUG=1
     ;;
 

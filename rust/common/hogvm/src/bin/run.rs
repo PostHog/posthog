@@ -1,21 +1,5 @@
-//! Minimal HogVM bytecode runner for the cohort-bytecode cross-runtime parity harness.
-//!
-//! Reads a compiled bytecode program and an optional globals dict, executes it through
-//! `hogvm::sync_execute`, and prints a single JSON line to stdout:
-//!
-//!   {"result": <returned value>, "error": null}        on success
-//!   {"result": null, "error": "<message>"}             on failure (bad bytecode or VM error)
-//!
-//! This mirrors the `result`/`error` shape the Python (`common/hogvm/python/execute.py`) and
-//! Node (`@posthog/hogvm`) runners emit, so the harness can diff the `result` field across
-//! runtimes (TDD M8.b).
-//!
-//! Usage (from inside rust/, or with `-p hogvm`):
-//!   cargo run --bin run -- <bytecode.hoge> [globals.json]
-//!
-//! `<bytecode.hoge>` is a JSON array of HogVM bytecode — the `["_H", 1, ...]` form produced by
-//! `./bin/hoge`. `[globals.json]` is an optional JSON file holding the globals dict (the same
-//! shape `convertClickhouseRawEventToFilterGlobals` produces); it defaults to `{}`.
+//! Minimal HogVM bytecode runner. Emits the `{"result", "error"}` JSON shape that the Python
+//! (`common/hogvm/python/execute.py`) and Node runners also emit, so output can be diffed across runtimes.
 
 use hogvm::{sync_execute, ExecutionContext, Program};
 use serde_json::{json, Value};
@@ -40,9 +24,8 @@ pub fn main() {
     println!("{output}");
 }
 
-/// Build and run the program, surfacing both construction and execution failures as the
-/// `error` string rather than panicking — a malformed program is a divergence the harness
-/// should observe, not a crash.
+/// Surface construction and execution failures as the `error` string — a malformed program is a
+/// divergence to observe, not a crash.
 fn execute(bytecode: Vec<Value>, globals: Value) -> Result<Value, String> {
     let program = Program::new(bytecode).map_err(|e| e.to_string())?;
     let context = ExecutionContext::with_defaults(program).with_globals(globals);

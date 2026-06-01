@@ -129,11 +129,8 @@ impl HogValue {
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
-        // Hog datetime/date equality by epoch seconds (`is_date_exact` compiles to `Eq` of two
-        // `toDateTime(...)` objects). Inert unless *both* operands are temporal, so ordinary `Eq`
-        // semantics are unchanged for every other type. Like the ordering fast-path
-        // ([`compare_values`]) this goes beyond the reference Python/TS VMs (which compare the
-        // marker objects structurally) to match ClickHouse — see [`HogLiteral::as_temporal_seconds`].
+        // Two Hog temporals compare equal by epoch seconds to match ClickHouse (`is_date_exact`);
+        // inert unless *both* are temporal, so `Eq` is unchanged for every other type.
         if let (Some(a), Some(b)) = (lhs.as_temporal_seconds(heap), rhs.as_temporal_seconds(heap)) {
             return Ok((a == b).into());
         }
@@ -287,16 +284,10 @@ impl HogLiteral {
 
     /// Seconds since the Unix epoch if this literal is a **Hog datetime/date** object, else `None`.
     ///
-    /// Hog represents temporals as plain objects carrying a marker key (mirroring the Python/TS
-    /// runtimes' dicts), built by [`crate::stl`]'s `toDateTime`/`toDate` natives:
-    /// - `{ __hogDateTime__: true, dt: <unix seconds>, zone: <str> }` → `dt` verbatim.
+    /// Hog represents temporals as marker-keyed objects (mirroring the Python/TS runtimes' dicts):
+    /// - `{ __hogDateTime__: true, dt: <unix seconds>, zone }` → `dt` verbatim.
     /// - `{ __hogDate__: true, year, month, day }` → UTC-midnight epoch, so a Date and a DateTime
     ///   are mutually comparable on one axis.
-    ///
-    /// Returning `Some` is what lets [`compare_values`] and [`HogValue::equals`] order/compare two
-    /// temporals by seconds — the behavior real `is_date_before`/`is_date_after`/`is_date_exact`
-    /// cohort leaves need, and which the reference Python/TS HogVMs get wrong (they compare the
-    /// objects structurally). Inert (`None`) for every non-temporal literal.
     pub fn as_temporal_seconds(&self, heap: &VmHeap) -> Option<f64> {
         let HogLiteral::Object(map) = self else {
             return None;
@@ -341,27 +332,15 @@ impl HogLiteral {
     }
 }
 
-/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, with the cross-runtime coercion
-/// the cohort bytecode relies on. Two concerns, in order:
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
 ///
-/// 1. **Hog datetime/date** (F2): if *both* operands are temporal
-///    ([`HogLiteral::as_temporal_seconds`]) they are ordered by epoch seconds. This is deliberately
-///    stronger than the reference Python/TS HogVMs — they compare the marker objects structurally
-///    and so evaluate every `is_date_before`/`is_date_after` to `false` (Python actually raises) —
-///    and matches ClickHouse, the parity oracle for date cohorts. The divergence (Rust correct;
-///    Python/TS latently broken) is documented in the [`crate::stl`] module for a future backport.
-///
-/// 2. **Scalar coercion** (F3): otherwise the operands are coerced exactly like Python
-///    `unify_comparison_types` / TS `unifyComparisonTypes` — a String is coerced to a Number only
-///    when the *other* operand is a Number, Bool↔Number maps `true`/`false` to `1`/`0`, and
-///    both-strings compare lexicographically. A String that can't parse to a Number propagates
-///    `VmError::InvalidNumber`, which the cohort executor catches and coerces to `false` — matching
-///    Python's raised `TypeError` and TS's `NaN` comparison. This is **not** routed through
-///    [`HogLiteral::coerce_types`] (equality's coercion): that also remaps both-strings and is the
-///    `Eq` contract, which must stay untouched.
-///
-/// The operand order is preserved from the original per-arm implementation (`a` = top of stack),
-/// so pure-numeric comparisons stay byte-identical and Python-equivalent.
+/// 1. If *both* operands are temporal ([`HogLiteral::as_temporal_seconds`]) they are ordered by
+///    epoch seconds to match ClickHouse — the reference Python/TS HogVMs can't and so always return
+///    `false`; see the [`crate::stl`] module note.
+/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
+///    and both-strings compare lexicographically. This is deliberately *not* routed through
+///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
 pub fn compare_values(
     op: NumOp,
     a: &HogLiteral,
@@ -395,8 +374,6 @@ pub fn compare_values(
     }
 }
 
-/// `true` iff `value` derefs to a `Boolean(true)` — the Hog temporal marker flags (`__hogDateTime__`
-/// / `__hogDate__`).
 fn object_marker(value: Option<&HogValue>, heap: &VmHeap) -> bool {
     matches!(
         value.and_then(|v| v.deref(heap).ok()),
@@ -404,7 +381,6 @@ fn object_marker(value: Option<&HogValue>, heap: &VmHeap) -> bool {
     )
 }
 
-/// The numeric value of an object field (`dt`, `year`, …) as `f64`, or `None` if absent/non-numeric.
 fn object_number(value: Option<&HogValue>, heap: &VmHeap) -> Option<f64> {
     match value?.deref(heap).ok()? {
         HogLiteral::Number(n) => Some(n.to_float()),
@@ -416,14 +392,12 @@ fn bool_to_num(b: bool) -> Num {
     Num::Integer(i64::from(b))
 }
 
-/// String → bool coercion for comparisons, matching [`HogLiteral::coerce_types`] (and Python's
-/// `right.lower() == "true"`): only the literal `"true"` (case-insensitive) is truthy.
+/// Matches `coerce_types` / Python's `right.lower() == "true"`: only `"true"` (any case) is truthy.
 fn str_is_true(s: &str) -> bool {
     s.to_lowercase() == "true"
 }
 
-/// Lexicographic ordering of two strings under a comparison op. `compare_values` only ever calls
-/// this with an ordering op; arithmetic variants are unreachable and fall through to `false`.
+/// Lexicographic ordering of two strings. Only ordering ops reach here; other variants → `false`.
 fn string_order(op: NumOp, a: &str, b: &str) -> bool {
     let ord = a.cmp(b);
     match op {

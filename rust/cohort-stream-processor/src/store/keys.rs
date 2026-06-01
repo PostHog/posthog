@@ -1,20 +1,10 @@
-//! Typed, partition-prefixed key encoders for the three state column families (TDD §2.5).
+//! Typed, partition-prefixed key encoders for the three state column families.
 //!
-//! Every key is a fixed-size big-endian byte array. The leading `partition_id` (BE `u16`)
-//! then `team_id` (BE `u64`) make lexicographic byte order group **by partition, then by
-//! team** — which is what lets the worker reclaim a partition's state on rebalance with a
-//! single per-CF `delete_range` over [`partition_range`] (TDD §2.5:300). Little-endian here
-//! would silently scatter a partition's keys across the keyspace and break that delete.
-//!
-//! ## `i32` → `u64` boundary
-//!
-//! The catalog's [`TeamId`](crate::filters::TeamId) / [`CohortId`](crate::filters::CohortId)
-//! are `i32` (always positive in Postgres), while these encoders take `u64`/`cohort_id: u64`
-//! to match [`Stage1Key`] (§4.1.0). The `i32` → `u64` conversion happens at the store
-//! *caller* boundary (PR 1.6), not here. The big-endian ordering above is monotone only for
-//! **non-negative** ids: a hypothetical negative `i32` cast to `u64` would set the high bit
-//! and sort after every positive id. That invariant holds because Postgres ids are positive;
-//! the encoders themselves are total over all `u64`.
+//! Keys are fixed-size big-endian. Leading `partition_id` (BE `u16`) then `team_id` (BE `u64`)
+//! make lexicographic byte order group by partition, then team, so a partition's state is one
+//! contiguous `delete_range` over [`partition_range`]; little-endian would scatter it and break
+//! that delete. Ids are stored as `u64` but originate as positive Postgres `i32`, so the BE
+//! ordering is monotone — a negative id cast to `u64` would set the high bit and mis-sort.
 
 use uuid::Uuid;
 
@@ -28,8 +18,7 @@ pub const PERSON_INDEX_KEY_LEN: usize = 2 + 8 + 16;
 /// `[partition_id u16][team_id u64][cohort_id u64][person_id 16]`.
 pub const STAGE2_KEY_LEN: usize = 2 + 8 + 8 + 16;
 
-/// `cf_person_index` key: all of a person's Stage 1 leaf states live under this prefix
-/// (TDD §2.5:301). Maintained as a side effect of every `cf_stage1` write.
+/// `cf_person_index` key: a person's Stage 1 leaf states live under this prefix.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PersonIndexKey {
     pub partition_id: u16,
@@ -37,7 +26,7 @@ pub struct PersonIndexKey {
     pub person_id: Uuid,
 }
 
-/// `cf_stage2` key: per-`(cohort, person)` membership state (TDD §2.5:302).
+/// `cf_stage2` key: per-`(cohort, person)` membership state.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Stage2Key {
     pub partition_id: u16,
@@ -47,7 +36,6 @@ pub struct Stage2Key {
 }
 
 impl Stage1Key {
-    /// Encode to the fixed 42-byte big-endian layout. Allocation-free (`AsRef<[u8]>`).
     pub fn encode(&self) -> [u8; STAGE1_KEY_LEN] {
         let mut out = [0u8; STAGE1_KEY_LEN];
         out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
@@ -57,7 +45,6 @@ impl Stage1Key {
         out
     }
 
-    /// Inverse of [`Stage1Key::encode`]; for round-trip tests and key-driven scans.
     pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
         check_len(bytes, STAGE1_KEY_LEN, "stage1")?;
         Ok(Self {
@@ -70,7 +57,6 @@ impl Stage1Key {
 }
 
 impl PersonIndexKey {
-    /// Encode to the fixed 26-byte big-endian layout.
     pub fn encode(&self) -> [u8; PERSON_INDEX_KEY_LEN] {
         let mut out = [0u8; PERSON_INDEX_KEY_LEN];
         out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
@@ -79,7 +65,6 @@ impl PersonIndexKey {
         out
     }
 
-    /// Inverse of [`PersonIndexKey::encode`].
     pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
         check_len(bytes, PERSON_INDEX_KEY_LEN, "person_index")?;
         Ok(Self {
@@ -91,7 +76,6 @@ impl PersonIndexKey {
 }
 
 impl Stage2Key {
-    /// Encode to the fixed 34-byte big-endian layout.
     pub fn encode(&self) -> [u8; STAGE2_KEY_LEN] {
         let mut out = [0u8; STAGE2_KEY_LEN];
         out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
@@ -101,7 +85,6 @@ impl Stage2Key {
         out
     }
 
-    /// Inverse of [`Stage2Key::encode`].
     pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
         check_len(bytes, STAGE2_KEY_LEN, "stage2")?;
         Ok(Self {
@@ -113,20 +96,15 @@ impl Stage2Key {
     }
 }
 
-/// The 2-byte big-endian prefix shared by every key in a partition.
 pub fn partition_prefix(partition_id: u16) -> [u8; 2] {
     partition_id.to_be_bytes()
 }
 
-/// Half-open `[start, end)` byte range covering exactly the keys of one partition, for
-/// `delete_range` on rebalance (TDD §2.5:300).
+/// Half-open `[start, end)` byte range covering exactly one partition's keys, for `delete_range`.
 ///
-/// `end` is the 2-byte successor prefix — except for the maximal partition, which has no
-/// 2-byte successor. There, `end` is an all-`0xFF` sentinel one byte longer than the longest
-/// key, so it sorts strictly after every key in the partition regardless of the bytes that
-/// follow the prefix. (A 3-byte `0xFF,0xFF,0xFF` sentinel would *not* suffice: it sorts
-/// *before* any longer key sharing that prefix — e.g. a key whose `team_id` high byte is
-/// `0xFF` — leaving such keys undeleted.)
+/// `end` is the 2-byte successor prefix. The maximal partition has no such successor, so `end` is
+/// an all-`0xFF` sentinel one byte *longer* than the longest key — a shorter sentinel would sort
+/// before any longer key sharing its bytes (e.g. `team_id` high byte `0xFF`), leaving it undeleted.
 pub fn partition_range(partition_id: u16) -> (Vec<u8>, Vec<u8>) {
     let start = partition_id.to_be_bytes().to_vec();
     let end = match partition_id.checked_add(1) {
@@ -148,8 +126,7 @@ fn check_len(bytes: &[u8], expected: usize, kind: &'static str) -> Result<(), St
     }
 }
 
-// These copy from sub-slices whose length the caller has already pinned (after `check_len`),
-// so `copy_from_slice` cannot panic.
+// Callers slice after `check_len`, so `copy_from_slice` cannot panic on a length mismatch.
 fn array2(s: &[u8]) -> [u8; 2] {
     let mut a = [0u8; 2];
     a.copy_from_slice(s);
@@ -264,17 +241,12 @@ mod tests {
         );
     }
 
-    /// The load-bearing invariant: lexicographic byte order must group **by partition, then
-    /// team**. Little-endian encoding of either field would silently break per-partition
-    /// `delete_range`, so this is the single most important test in the module.
     #[test]
     fn big_endian_prefix_orders_by_partition_then_team() {
-        // Partition dominates: a tiny partition with the largest team still sorts before a
-        // larger partition with the smallest team.
+        // Partition dominates team.
         assert!(stage1(1, u64::MAX).encode() < stage1(2, 0).encode());
-        // The classic LE trap: 1 = [0x00,0x01], 256 = [0x01,0x00]. BE keeps 1 < 256.
+        // The LE trap: 1 = [0x00,0x01], 256 = [0x01,0x00]; BE keeps 1 < 256.
         assert!(stage1(1, 0).encode() < stage1(256, 0).encode());
-        // Within a partition, team orders ascending.
         assert!(stage1(5, 1).encode() < stage1(5, 2).encode());
         assert!(stage1(5, 1).encode() < stage1(5, u64::from(u32::MAX)).encode());
     }
@@ -287,17 +259,15 @@ mod tests {
 
         let (start, end) = partition_range(255);
         assert_eq!(start, vec![0x00, 0xFF]);
-        assert_eq!(end, vec![0x01, 0x00]); // carry across the byte boundary
+        assert_eq!(end, vec![0x01, 0x00]);
     }
 
-    /// `partition_range(p)` must satisfy `start <= every key in p < end` so that a half-open
-    /// `delete_range` reclaims the whole partition and nothing else. Verified at a normal
-    /// partition and — the must-fix overflow case — at `u16::MAX`.
+    /// `start <= every key in p < end`, so a half-open `delete_range` reclaims the whole partition
+    /// and nothing else — checked at a normal partition and the `u16::MAX` overflow case.
     #[test]
     fn partition_range_brackets_every_key_in_the_partition() {
         for p in [0u16, 5, 256, u16::MAX - 1, u16::MAX] {
             let (start, end) = partition_range(p);
-            // The largest possible 42-byte key in partition `p`.
             let max_key = Stage1Key {
                 partition_id: p,
                 team_id: u64::MAX,
@@ -314,7 +284,6 @@ mod tests {
             .encode();
             assert!(start.as_slice() <= min_key.as_slice(), "start>min at p={p}");
             assert!(max_key.as_slice() < end.as_slice(), "max>=end at p={p}");
-            // And the next partition's smallest key is excluded.
             if let Some(next) = p.checked_add(1) {
                 let next_min = stage1(next, 0).encode();
                 assert!(
@@ -328,8 +297,7 @@ mod tests {
     #[test]
     fn max_partition_sentinel_exceeds_the_all_ones_key() {
         let (_start, end) = partition_range(u16::MAX);
-        // A real key never has team_id high byte 0xFF (ids are positive i32), but the
-        // sentinel must dominate even the theoretical all-0xFF key.
+        // The sentinel must dominate even the (unreachable) all-0xFF key.
         assert!([0xFFu8; STAGE1_KEY_LEN].as_slice() < end.as_slice());
     }
 }

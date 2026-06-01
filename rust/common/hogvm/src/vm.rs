@@ -716,10 +716,8 @@ impl<'a> HogVM<'a> {
         }
     }
 
-    /// The shared `Gt`/`GtEq`/`Lt`/`LtEq` arm. Pops both operands raw (so a non-`Number` doesn't
-    /// error before coercion), derefs, and defers to [`compare_values`] for the Hog datetime
-    /// fast-path (F2) and the Python/TS-faithful scalar coercion (F3). Operand order is preserved
-    /// from the original per-arm code: `a` is the top of the stack.
+    /// Shared `Gt`/`GtEq`/`Lt`/`LtEq` arm. Pops operands raw (not `pop_stack_as`) so a non-`Number`
+    /// reaches [`compare_values`]' coercion instead of erroring first. `a` is the top of the stack.
     fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
         let a = self.pop_stack()?;
         let b = self.pop_stack()?;

@@ -1,18 +1,12 @@
-//! Public-API integration tests for the filter catalog (PR 1.3).
-//!
-//! These drive `build_catalog_from_rows` through the crate's re-exported surface, exactly as
-//! the Stage 1 worker (PR 1.6) will consume it. The exhaustive per-field discrimination matrix
-//! and classifier edge cases live in the in-crate `#[cfg(test)]` modules; this file pins the
-//! headline acceptance behavior and the public API shape.
+//! Public-API integration tests for the filter catalog. The exhaustive per-field discrimination
+//! matrix and classifier edge cases live in the in-crate `#[cfg(test)]` modules.
 
 use cohort_stream_processor::filters::{
     build_catalog_from_rows, CohortId, CohortLeaf, CohortRow, FilterNode, TeamId,
 };
 use serde_json::{json, Value};
 
-/// The shared `conditionHash` for the behavioral leaves (16 ASCII chars).
 const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
-/// A distinct `conditionHash` for the person leaf.
 const PERSON_HASH: [u8; 16] = *b"fedcba9876543210";
 
 fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
@@ -23,15 +17,11 @@ fn row(id: i32, team_id: i32, filters: Value) -> CohortRow {
     }
 }
 
-/// A compiled program shared by every leaf with `BEHAVIORAL_HASH` (the conditionHash encodes only
-/// the event matcher, so the window does not change it — nor the bytecode).
 fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
 }
 
-/// A `performed_event` leaf on `$pageview` with a fixed conditionHash and a tunable window (the
-/// `time_value`, which the conditionHash does *not* encode). `performed_event_multiple` is the
-/// bucket-state path deferred to PR 2.1, so PR 1.6's catalog uses `performed_event`.
+/// The conditionHash encodes the event matcher, not the `time_value` window — same hash, any window.
 fn behavioral_performed_event(time_value: i64) -> Value {
     json!({
         "type": "behavioral",
@@ -63,9 +53,6 @@ fn cohort(values: Vec<Value>) -> Value {
     json!({ "properties": { "type": "AND", "values": values } })
 }
 
-/// The C1 regression / PR-1.3 acceptance test: two cohorts on the same team, both
-/// `performed_event` on `$pageview` with the **same** conditionHash but different windows, must
-/// produce two distinct leaf state keys under one conditionHash.
 #[test]
 fn same_hash_different_windows_produce_distinct_leaf_state_keys() {
     let catalog = build_catalog_from_rows(vec![
@@ -75,14 +62,12 @@ fn same_hash_different_windows_produce_distinct_leaf_state_keys() {
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
 
-    // Two distinct LSKs under the single shared conditionHash (if equal, dedup would give 1).
     assert_eq!(team.by_condition_to_lsk[&BEHAVIORAL_HASH].len(), 2);
-    // Both owning cohorts recorded against that conditionHash, sorted.
     assert_eq!(
         team.by_condition_to_cohorts[&BEHAVIORAL_HASH],
         vec![CohortId(1), CohortId(2)],
     );
-    // Still a single conditionHash — the HogVM dedup unit is unchanged.
+    // One conditionHash → one HogVM dedup unit, despite two windows.
     assert_eq!(team.unique_condition_hashes.len(), 1);
 }
 
@@ -100,13 +85,13 @@ fn behavioral_and_person_indexed_cohort_ref_kept_in_tree_only() {
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
 
-    // Behavioral + person are indexed; the cohort ref contributes no conditionHash.
+    // The cohort ref contributes no conditionHash, so only the two leaves are indexed.
     assert_eq!(team.unique_condition_hashes.len(), 2);
     assert!(team.by_condition_to_lsk.contains_key(&BEHAVIORAL_HASH));
     assert!(team.by_condition_to_lsk.contains_key(&PERSON_HASH));
     assert_eq!(team.by_condition_to_lsk.len(), 2);
 
-    // All three leaves survive in the parsed tree (the cohort ref is kept for Stage 2).
+    // The cohort ref is kept in the parsed tree for Stage 2.
     let tree = &team.cohorts[&CohortId(1)];
     let FilterNode::Group { children, .. } = &tree.root else {
         panic!("root should be a group");
@@ -121,8 +106,7 @@ fn behavioral_and_person_indexed_cohort_ref_kept_in_tree_only() {
 
 #[test]
 fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
-    // A cohort mixing one valid behavioral leaf with three drop cases: missing conditionHash,
-    // an unsupported behavioral value, and an action-keyed (integer key) behavioral leaf.
+    // Drop cases below: missing conditionHash, unsupported behavioral value, action-keyed (int key).
     let catalog = build_catalog_from_rows(vec![row(
         1,
         7,
@@ -145,15 +129,12 @@ fn dropped_leaves_are_skipped_while_survivors_stay_indexed() {
     )]);
 
     let team = catalog.team(TeamId(7)).expect("team 7 present");
-    // Only the one valid leaf survives.
     assert_eq!(team.unique_condition_hashes.len(), 1);
     assert_eq!(team.by_condition_to_lsk[&BEHAVIORAL_HASH].len(), 1);
 }
 
 #[test]
 fn bytecode_is_captured_and_deduped_by_condition_hash() {
-    // Same conditionHash across two cohorts (different windows) → one bytecode entry; the person
-    // leaf adds a second, distinct one. This is what PR 1.6 fetches to feed the HogVM.
     let catalog = build_catalog_from_rows(vec![
         row(
             1,
@@ -174,8 +155,7 @@ fn bytecode_is_captured_and_deduped_by_condition_hash() {
 
 #[test]
 fn leaf_without_bytecode_is_dropped() {
-    // A behavioral leaf carrying a conditionHash but no inline bytecode is not realtime-executable
-    // and must not enter any index (Node manager.ts:137 requires both).
+    // A conditionHash without inline bytecode is not realtime-executable; Node requires both.
     let no_bytecode = json!({
         "type": "behavioral",
         "value": "performed_event_multiple",

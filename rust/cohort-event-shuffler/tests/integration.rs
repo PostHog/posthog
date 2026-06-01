@@ -1,11 +1,6 @@
-//! End-to-end integration test for the shuffler against an in-process rdkafka `MockCluster`
-//! (the same harness used by `common-kafka` and `personhog-writer`; no external broker or DB).
-//!
-//! Produces a mix of forwardable / droppable / gated events to `clickhouse_events_json`, runs
-//! the real `EventShuffler`, and asserts on `cohort_stream_events` that:
-//!   - only forwardable events land (no-`person_id` dropped, gated-team skipped),
-//!   - every event for the same `(team_id, person_id)` lands on the same partition,
-//!   - the envelope payload maps every field (incl. `source_partition` / `source_offset`).
+//! End-to-end shuffler test against an in-process rdkafka `MockCluster` (no external broker or DB).
+//! Asserts that only forwardable events land, that each `(team_id, person_id)` lands on a single
+//! partition, and that the envelope payload maps every field.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -27,7 +22,6 @@ const INPUT_TOPIC: &str = "clickhouse_events_json";
 const OUTPUT_TOPIC: &str = "cohort_stream_events";
 const OUTPUT_PARTITIONS: i32 = 8;
 
-/// A single synthetic input event and the outcome we expect from the gate.
 struct InputSpec {
     team_id: i32,
     person_id: Option<&'static str>,
@@ -46,12 +40,12 @@ fn test_config(bootstrap: &str) -> Config {
         kafka_client_id: String::new(),
         input_topic: INPUT_TOPIC.to_string(),
         kafka_consumer_group: "shuffler-itest".to_string(),
-        // Read the events we pre-produced before the shuffler started.
+        // Read events pre-produced before the shuffler started.
         kafka_consumer_offset_reset: "earliest".to_string(),
         output_topic: OUTPUT_TOPIC.to_string(),
         kafka_producer_partitioner: "murmur2_random".to_string(),
         kafka_compression_codec: "none".to_string(),
-        // Unused: the test loads the team index directly, so no refresh loop runs.
+        // Unused: the test loads the team index directly; no refresh loop runs.
         database_url: String::new(),
         min_pg_connections: 0,
         max_pg_connections: 1,
@@ -94,8 +88,8 @@ fn clickhouse_event(uuid: Uuid, spec: &InputSpec) -> ClickHouseEvent {
     }
 }
 
-/// Drain `cohort_stream_events` until `expected` envelopes arrive, then keep reading for a short
-/// grace window to catch any over-forwarding, bounded by `deadline`.
+/// Drains until `expected` envelopes arrive, then reads a short grace window to catch
+/// over-forwarding, bounded by `deadline`.
 async fn collect_output(
     bootstrap: &str,
     expected: usize,
@@ -129,13 +123,12 @@ async fn collect_output(
                         .expect("output payload must be an envelope");
                     collected.push((msg.partition(), envelope));
                     if collected.len() >= expected && grace_until.is_none() {
-                        // Got the expected count; read a little longer to surface extras.
                         grace_until = Some(Instant::now() + Duration::from_secs(1));
                     }
                 }
             }
             Ok(Err(err)) => panic!("output consumer error: {err}"),
-            Err(_) => {} // poll timeout — keep waiting
+            Err(_) => {}
         }
     }
     collected
@@ -155,7 +148,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     let bootstrap = cluster.bootstrap_servers();
     let config = test_config(&bootstrap);
 
-    // Teams 2 and 7 have realtime cohorts; team 99 does not.
+    // Team 99 (used below) deliberately absent: it has no realtime cohorts.
     let team_index = Arc::new(TeamIndex::from_teams([2, 7]));
 
     let inputs = [
@@ -209,7 +202,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         },
     ];
 
-    // Produce sequentially so offsets are deterministic; remember each event's uuid + offset.
+    // Produce sequentially so offsets are deterministic.
     let mut uuid_by_index = Vec::new();
     for (index, spec) in inputs.iter().enumerate() {
         let uuid = Uuid::from_u128(0xC0_0000 + index as u128);
@@ -226,7 +219,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
 
     let expected_forwardable: usize = inputs.iter().filter(|s| s.forwardable).count();
 
-    // Build and run the real shuffler.
     let mut manager = Manager::builder("shuffler-itest")
         .with_trap_signals(false)
         .build();
@@ -253,12 +245,10 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     );
     tokio::spawn(async move { shuffler.process().await });
 
-    // Generous deadline: MockCluster consumer-group coordination can be slow to start, and
-    // collect_output returns early once the expected count arrives, so this only matters as a
-    // safety margin on slower CI runners.
+    // Generous deadline only as a safety margin: MockCluster group coordination can be slow to
+    // start and collect_output returns early once the expected count arrives.
     let output = collect_output(&bootstrap, expected_forwardable, Duration::from_secs(40)).await;
 
-    // 1. Exactly the forwardable events land — nothing more, nothing less.
     assert_eq!(
         output.len(),
         expected_forwardable,
@@ -266,7 +256,6 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         output.len(),
     );
 
-    // 2. The output uuid set equals the forwardable input uuid set.
     let forwardable_uuids: std::collections::HashSet<String> = inputs
         .iter()
         .enumerate()
@@ -280,7 +269,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         "wrong set of forwarded events"
     );
 
-    // 3. Partition affinity: every event for the same (team_id, person_id) lands on one partition.
+    // Partition affinity: every event for the same (team_id, person_id) lands on one partition.
     use std::collections::HashMap;
     let mut partitions_by_key: HashMap<(i32, String), std::collections::HashSet<i32>> =
         HashMap::new();
@@ -309,7 +298,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         );
     }
 
-    // 4. Field mapping for the first forwardable event (input offset 0, single partition).
+    // Field mapping for the first forwardable event (input offset 0, single partition).
     let first = output
         .iter()
         .map(|(_, e)| e)

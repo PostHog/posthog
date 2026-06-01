@@ -1,13 +1,7 @@
-//! Per-worker output buffer (TDD §3) — PR 1.8.
-//!
-//! A thin typed wrapper over `Vec<CohortMembershipChange>`. Named [`OutputBuffer`] (not a bare
-//! `Vec`) so M3 / PR 3.4 can promote it to a worker-owned, two-topic buffer (membership + cascade)
-//! without touching the worker's call sites. Deliberately minimal.
+//! Per-worker output buffer.
 
 use crate::producer::CohortMembershipChange;
 
-/// Accumulates the membership changes a worker produces for one drained sub-batch, then yields them
-/// to the sink via [`take`](Self::take).
 #[derive(Debug, Default)]
 pub struct OutputBuffer {
     changes: Vec<CohortMembershipChange>,
@@ -30,7 +24,6 @@ impl OutputBuffer {
         self.changes.is_empty()
     }
 
-    /// Take the buffered changes, leaving the buffer empty for the next sub-batch.
     pub fn take(&mut self) -> Vec<CohortMembershipChange> {
         std::mem::take(&mut self.changes)
     }

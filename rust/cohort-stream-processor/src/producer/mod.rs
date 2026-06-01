@@ -1,28 +1,14 @@
-//! Output producer (TDD §2.3, §2.8, §4.7) — PR 1.8.
+//! Output producer.
 //!
 //! Maps the Stage 1 worker's per-leaf [`LeafTransition`]s to per-cohort
-//! [`CohortMembershipChange`]s and produces them to the shadow topic
-//! `cohort_membership_changed_shadow`, so the new pipeline emits observable, parity-comparable
-//! output for the first time.
+//! [`CohortMembershipChange`]s and produces them to `cohort_membership_changed_shadow`.
 //!
-//! ## M1 scope: leaf-level shadow output, not Stage 2 composition
+//! Without boolean composition, a single leaf flip can only determine membership for a single-leaf
+//! cohort; [`map_transition`] fans out only to single-leaf cohorts owning the transition's leaf, and
+//! a leaf belonging only to multi-leaf cohorts maps to nothing.
 //!
-//! There is no boolean composition yet, so a single leaf flip can only determine membership for a
-//! **single-leaf (single-condition) cohort**. [`map_transition`] therefore fans a transition out
-//! through [`TeamFilters::by_lsk_to_single_leaf_cohorts`](crate::filters::reverse_index::TeamFilters),
-//! which is keyed by [`LeafStateKey`](crate::stage1::key::LeafStateKey) (window/threshold-precise,
-//! C1-correct) and populated only for single-leaf cohorts. A transition whose leaf belongs only to
-//! multi-leaf cohorts maps to nothing and bumps `output_transitions_unmapped_total`.
-//!
-//! ## The I/O seam
-//!
-//! [`MembershipSink`] decouples the worker from Kafka: production uses [`KafkaMembershipSink`]
-//! ([`kafka`]); tests use [`CaptureSink`], so the whole worker flush + offset-gating path is
-//! exercisable without a broker. M3 (cascade) adds a second sink behind the same seam.
-//!
-//! Produces are flushed and acked **before** the worker marks its Kafka offset
-//! ("produce before commit", TDD §2.3, §6.1 PR 1.8); the flush is at-least-once, which is
-//! idempotent for the per-cohort parity diff.
+//! Produces are flushed and acked **before** the worker marks its Kafka offset; the flush is
+//! at-least-once, which is idempotent for the per-cohort parity diff.
 
 pub mod batcher;
 pub mod kafka;
@@ -44,19 +30,13 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 pub use batcher::OutputBuffer;
 pub use kafka::KafkaMembershipSink;
 
-/// One per-cohort membership change on `cohort_membership_changed_shadow` (TDD §4.7). The wire
-/// shape matches the legacy Python producer and the Node Zod consumer exactly:
+/// One per-cohort membership change on `cohort_membership_changed_shadow`. The wire shape matches
+/// the legacy Python producer and the Node Zod consumer exactly:
 ///
 /// ```jsonc
 /// { "team_id": 42, "cohort_id": 91204, "person_id": "01928aaa-…",
 ///   "last_updated": "2026-05-26 12:34:56.789123", "status": "entered" }
 /// ```
-///
-/// `team_id`/`cohort_id` are `i32` (from [`TeamId`](crate::filters::TeamId) / [`CohortId`]); they
-/// serialize as JSON numbers, which Postgres and the Zod `z.number()` schema accept.
-///
-/// [`Deserialize`] is derived for round-trip tests (decoding the produced bytes back off the
-/// shadow topic); the production path only serializes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CohortMembershipChange {
     pub team_id: i32,
@@ -68,8 +48,7 @@ pub struct CohortMembershipChange {
     pub status: MembershipStatus,
 }
 
-/// Membership direction. Serializes snake_case to `"entered"` / `"left"`, matching the consumer's
-/// `z.enum(['entered', 'left'])`.
+/// Serializes to `"entered"` / `"left"`, matching the consumer's `z.enum(['entered', 'left'])`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MembershipStatus {
@@ -78,8 +57,7 @@ pub enum MembershipStatus {
 }
 
 impl MembershipStatus {
-    /// The metric-label form, identical to the serialized wire value so `status` reads the same on
-    /// the topic and in `output_membership_changes_emitted_total`.
+    /// Metric-label form, identical to the serialized wire value.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Entered => "entered",
@@ -97,13 +75,9 @@ impl From<TransitionKind> for MembershipStatus {
     }
 }
 
-/// Project one Stage 1 leaf transition to the membership changes it implies, one per single-leaf
-/// cohort owning the transition's [`LeafStateKey`](crate::stage1::key::LeafStateKey).
-///
-/// **This is leaf-level shadow output, not Stage 2 composition.** A transition whose leaf maps to no
-/// single-leaf cohort (it belongs only to multi-leaf cohorts) yields an empty iterator and bumps
-/// `output_transitions_unmapped_total{reason="multi_leaf_cohort"}`. The returned iterator borrows
-/// `filters`, so the caller consumes it (e.g. into an [`OutputBuffer`]) while the snapshot is held.
+/// Project one leaf transition to one membership change per single-leaf cohort owning its
+/// [`LeafStateKey`](crate::stage1::key::LeafStateKey). A leaf belonging only to multi-leaf cohorts
+/// yields nothing and bumps `output_transitions_unmapped_total{reason="multi_leaf_cohort"}`.
 pub fn map_transition<'a>(
     filters: &'a TeamFilters,
     transition: &'a LeafTransition,
@@ -130,21 +104,15 @@ pub fn map_transition<'a>(
         })
 }
 
-/// The current UTC time as a ClickHouse `DateTime64(6)` string, matching the legacy Python
-/// producer's `datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")`.
-///
-/// The chrono spec uses `%.6f` (microseconds — 6 digits, leading dot included), **not** `%f`
-/// (nanoseconds, 9 digits), which would break the `DateTime64(6)` JSONEachRow parse and the
-/// per-row parity diff.
+/// Current UTC time as a ClickHouse `DateTime64(6)` string. `%.6f` (microseconds), not `%f`
+/// (nanoseconds), which would break the `DateTime64(6)` parse and the per-row parity diff.
 pub fn now_last_updated() -> String {
     Utc::now().format("%Y-%m-%d %H:%M:%S%.6f").to_string()
 }
 
-/// The output I/O seam: produce a batch of membership changes and await all acks, returning one
-/// result per change **in input order** so the worker can gate its offset commit on full success.
-///
-/// At-least-once: a re-produced change is idempotent for the per-cohort parity diff, so the worker
-/// safely replays a sub-batch whose produce failed.
+/// Produce a batch and await all acks, returning one result per change **in input order** so the
+/// worker can gate its offset commit on full success. At-least-once: a re-produced change is
+/// idempotent for the per-cohort parity diff, so a failed sub-batch is safe to replay.
 #[async_trait]
 pub trait MembershipSink: Send + Sync {
     async fn produce(
@@ -154,26 +122,20 @@ pub trait MembershipSink: Send + Sync {
 }
 
 /// An in-memory [`MembershipSink`] for tests: records every produced change and reports all-`Ok`.
-///
-/// Optionally fails its first `n` flushes ([`failing_first`](Self::failing_first)) — recording
-/// nothing and returning an `Err` per change — to exercise the worker's produce-error offset gate.
-/// `pub` for the `tests/` crates, consistent with the crate's pub-for-tests seam (`TeamFiltersBuilder`,
-/// `CatalogHandle::from_catalog`).
+/// Can optionally fail its first `n` flushes to exercise the worker's produce-error offset gate.
 #[derive(Debug, Default, Clone)]
 pub struct CaptureSink {
     changes: Arc<Mutex<Vec<CohortMembershipChange>>>,
-    /// Number of upcoming `produce` calls still set to fail; counts down to zero, then succeeds.
     fail_remaining: Arc<AtomicUsize>,
 }
 
 impl CaptureSink {
-    /// A sink that records and acks everything.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A sink that fails its first `n` flushes (recording nothing, returning an `Err` per change),
-    /// then behaves like [`new`](Self::new).
+    /// Fails its first `n` flushes (recording nothing, returning an `Err` per change), then like
+    /// [`new`](Self::new).
     pub fn failing_first(n: usize) -> Self {
         Self {
             changes: Arc::default(),
@@ -181,7 +143,6 @@ impl CaptureSink {
         }
     }
 
-    /// A snapshot of everything successfully produced so far, in production order.
     pub fn changes(&self) -> Vec<CohortMembershipChange> {
         self.changes
             .lock()
@@ -196,8 +157,7 @@ impl MembershipSink for CaptureSink {
         &self,
         changes: Vec<CohortMembershipChange>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        // Consume one "fail" credit iff any remain (saturating at zero). `then` (not `then_some`) so
-        // `n - 1` is never evaluated when `n == 0` — that would underflow.
+        // `then` (not `then_some`) so `n - 1` is never evaluated when `n == 0` (would underflow).
         let should_fail = self
             .fail_remaining
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
@@ -268,8 +228,6 @@ mod tests {
         }
     }
 
-    /// One single-leaf cohort → its transition maps to exactly one `entered` change with the §4.7
-    /// shape.
     #[test]
     fn map_transition_entered_maps_to_one_change() {
         let mut builder = TeamFiltersBuilder::default();
@@ -309,7 +267,6 @@ mod tests {
         assert_eq!(changes[0].status, MembershipStatus::Left);
     }
 
-    /// A leaf shared by N single-leaf cohorts fans out to N changes, one per cohort.
     #[test]
     fn map_transition_fans_out_to_every_owning_cohort() {
         let mut builder = TeamFiltersBuilder::default();
@@ -330,7 +287,6 @@ mod tests {
         assert_eq!(cohorts, vec![1, 2]);
     }
 
-    /// A leaf that belongs only to a multi-leaf cohort maps to nothing (Stage 2's job).
     #[test]
     fn map_transition_for_a_multi_leaf_only_leaf_is_empty() {
         let mut builder = TeamFiltersBuilder::default();
@@ -352,7 +308,6 @@ mod tests {
         );
     }
 
-    /// The serialized JSON has exactly the five §4.7 keys, snake_case status, and a string UUID.
     #[test]
     fn serialized_change_has_exactly_the_contract_keys() {
         let change = CohortMembershipChange {
@@ -388,7 +343,6 @@ mod tests {
         assert_eq!(value, json!("left"));
     }
 
-    /// `%.6f` (microseconds) — not `%f` (nanoseconds): exactly six fractional digits.
     #[test]
     fn now_last_updated_is_microsecond_clickhouse_format() {
         let now = now_last_updated();
@@ -396,7 +350,6 @@ mod tests {
         assert_eq!(fraction.len(), 6, "microseconds, not nanoseconds: {now}");
         assert!(fraction.chars().all(|c| c.is_ascii_digit()));
 
-        // "YYYY-MM-DD HH:MM:SS"
         let (date, time) = date_time.split_once(' ').expect("date and time");
         assert_eq!(date.len(), 10);
         assert_eq!(date.matches('-').count(), 2);
