@@ -235,9 +235,9 @@ fn decompress_lz4_payload(payload: &[u8], limit: usize) -> Result<Vec<u8>, std::
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "decompressed payload exceeded limit ({} > {} bytes)",
-                decompressed.len(),
-                limit
+                "decompressed payload exceeded limit of {} bytes (read at least {} bytes before aborting)",
+                limit,
+                decompressed.len()
             ),
         ));
     }
