@@ -16,6 +16,7 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
     _meets_min_priority,
@@ -33,9 +34,9 @@ from products.tasks.backend.models import Task, TaskRun
         # No threshold → always notify
         ("P0", None, True),
         ("P4", None, True),
-        (None, None, True),
-        # Report without a priority always notifies (we don't silently swallow)
-        (None, AutonomyPriority.P0, True),
+        # Report without a priority never notifies
+        (None, None, False),
+        (None, AutonomyPriority.P0, False),
         # P0 is highest — P1 with min P0 should NOT notify
         ("P1", AutonomyPriority.P0, False),
         # P0 with min P2 notifies
@@ -44,8 +45,8 @@ from products.tasks.backend.models import Task, TaskRun
         ("P2", AutonomyPriority.P2, True),
         # P3 with min P2 does not
         ("P3", AutonomyPriority.P2, False),
-        # Unknown priority value → notify (fallback to "no judgement")
-        ("XX", AutonomyPriority.P1, True),
+        # Unknown priority value → skip until a valid priority judgment is persisted
+        ("XX", AutonomyPriority.P1, False),
     ],
 )
 def test_meets_min_priority(report_priority: str | None, min_priority: str | None, expected: bool) -> None:
@@ -232,11 +233,19 @@ def _make_ready_report(
     title: str = "Test report",
     summary: str = "Summary text",
     priority: str | None = None,
+    actionability: str | None = ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
     suggested_logins: list[str] | None = None,
 ) -> SignalReport:
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title=title, summary=summary, signal_count=3, total_weight=1.0
     )
+    if actionability:
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": actionability}),
+        )
     if priority:
         SignalReportArtefact.objects.create(
             team=team,
@@ -329,6 +338,42 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("priority", "actionability"),
+    [
+        (None, None),
+        (None, ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
+        (AutonomyPriority.P1, None),
+        (AutonomyPriority.P1, ActionabilityChoice.NOT_ACTIONABLE),
+        (AutonomyPriority.P1, ActionabilityChoice.REQUIRES_HUMAN_INPUT),
+    ],
+)
+def test_dispatch_skips_reports_without_immediately_actionable_priority_judgments(
+    org_and_team: tuple[Organization, Team], priority: str | None, actionability: str | None
+) -> None:
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-missing-judgment@example.com", "missing-judgment-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(
+        team,
+        priority=priority,
+        actionability=actionability,
+        suggested_logins=["missing-judgment-bot"],
+    )
+
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
 def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")
@@ -338,7 +383,7 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(team, suggested_logins=["pr-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["pr-bot"])
     _create_implementation_task_with_run(team, report, pr_url="https://github.com/org/repo/pull/99")
 
     fake_client = MagicMock()
@@ -393,7 +438,7 @@ def test_dispatch_ignores_slack_config_from_another_team(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(report_team, suggested_logins=["other-team-bot"])
+    report = _make_ready_report(report_team, priority=AutonomyPriority.P1, suggested_logins=["other-team-bot"])
 
     fake_client = MagicMock()
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
@@ -420,7 +465,7 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C2|#b",
     )
-    report = _make_ready_report(team, suggested_logins=["alpha-login", "beta-login"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["alpha-login", "beta-login"])
 
     fake_client = MagicMock()
     fake_client.chat_postMessage.side_effect = [Exception("slack down"), {"ok": True}]
