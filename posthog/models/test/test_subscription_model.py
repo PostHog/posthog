@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
@@ -54,6 +56,50 @@ class TestSubscription(BaseTest):
         assert subscription.title == "My Subscription"
         subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")))
         assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
+    def _create_subscription(self, **kwargs) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC")),
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "insight_relation",
+                lambda self: self._create_subscription(insight=Insight.objects.create(team=self.team)),
+                Subscription.ResourceType.INSIGHT,
+            ),
+            (
+                "dashboard_relation",
+                lambda self: self._create_subscription(dashboard=Dashboard.objects.create(team=self.team)),
+                Subscription.ResourceType.DASHBOARD,
+            ),
+            (
+                "prompt_no_relation",
+                lambda self: self._create_subscription(prompt="Summarize signups"),
+                Subscription.ResourceType.AI_PROMPT,
+            ),
+        ]
+    )
+    def test_resource_type_derived_from_relation(
+        self, _name: str, make_subscription: Callable[..., Subscription], expected: "Subscription.ResourceType"
+    ):
+        subscription = make_subscription(self)
+
+        assert subscription.resource_type == expected
+        subscription.refresh_from_db()
+        assert subscription.resource_type == expected
+
+    def test_resource_type_raises_without_relation(self):
+        subscription = self._create_subscription()
+        with self.assertRaises(ValueError):
+            _ = subscription.resource_type
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()

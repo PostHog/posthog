@@ -205,9 +205,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"subscription": [msg]})
 
         if self.instance is None:
-            # Create: a subscription must export an insight or a dashboard.
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
