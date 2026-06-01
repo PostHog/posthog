@@ -1110,6 +1110,7 @@ def _get_teams_with_ai_credits_for_products(
     *,
     ai_products: list[str],
     usage_report_tag: str,
+    product_tag: Product = Product.MAX_AI,
 ) -> list[tuple[int, int]]:
     """
     Shared implementation for AI billing credit aggregation, whitelisting on the
@@ -1153,7 +1154,7 @@ def _get_teams_with_ai_credits_for_products(
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(
-        product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
+        product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
         results = sync_execute(
             """
@@ -1306,6 +1307,7 @@ def get_teams_with_signals_credits_used_in_period(
         end,
         ai_products=SIGNALS_AI_PRODUCTS,
         usage_report_tag="signals_credits",
+        product_tag=Product.SIGNALS,
     )
 
 
