@@ -309,3 +309,155 @@ class TestConversationEvents(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            # name, channel, traits_email, email_from -- exercises both the traits.email and the email_from source
+            ("slack_traits_email", "slack", "biz@acme.com", None),
+            ("teams_traits_email", "teams", "biz@acme.com", None),
+            ("email_traits_email", "email", "biz@acme.com", None),
+            ("email_from_only", "email", None, "biz@acme.com"),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_email_fallback_groups(
+        self, _name, channel, traits_email, email_from, mock_get_persons, mock_get_by_email, mock_capture
+    ):
+        """Non-web channels stuff the email into distinct_id; org is resolved via the email->ClickHouse fallback."""
+        from posthog.models.person.person import Person
+
+        customer_email = traits_email or email_from
+        person_org = Organization.objects.create(name="Acme")
+        person_user = User.objects.create(email="login@acme.com", distinct_id="real-did-1")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        # distinct_id (the email) resolves no identified person...
+        mock_get_persons.return_value = []
+        # ...but the ClickHouse email lookup returns the person with their real distinct_id
+        person = Person(team_id=self.team.id, is_identified=True)
+        person._distinct_ids = ["real-did-1"]
+        mock_get_by_email.return_value = {customer_email: person}
+
+        traits = {"name": "Biz"}
+        if traits_email:
+            traits["email"] = traits_email
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=customer_email,
+            channel_source=channel,
+            anonymous_traits=traits,
+            email_from=email_from,
+        )
+
+        capture_ticket_created(ticket)
+
+        mock_get_by_email.assert_called_once_with(self.team, [customer_email])
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == str(person_org.id)
+        assert groups["project"] == str(self.team.uuid)
+
+    @parameterized.expand(
+        [
+            ("no_person_for_email", False),
+            ("person_without_membership", True),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_email_fallback_no_groups(
+        self, _name, person_found, mock_get_persons, mock_get_by_email, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        customer_email = "biz@acme.com"
+        mock_get_persons.return_value = []
+
+        if person_found:
+            person = Person(team_id=self.team.id, is_identified=True)
+            person._distinct_ids = ["real-did-1"]
+            mock_get_by_email.return_value = {customer_email: person}
+            # User exists but has no organization membership
+            User.objects.create(email="login@acme.com", distinct_id="real-did-1")
+        else:
+            mock_get_by_email.return_value = {}
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=customer_email,
+            channel_source="email",
+            anonymous_traits={"name": "Biz", "email": customer_email},
+        )
+
+        capture_ticket_created(ticket)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_identified_person_without_membership_skips_email_fallback(
+        self, mock_get_persons, mock_get_by_email, mock_capture
+    ):
+        """An identified person resolved via distinct_id is authoritative: no email fallback even if traits.email could match another org."""
+        from posthog.models.person.person import Person
+
+        # The widget distinct_id resolves to an identified person, but they have no org membership.
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_ticket_created(self.ticket)
+
+        mock_get_by_email.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            # Channels NOT in the email-fallback allowlist must never run the email lookup.
+            ("widget_anonymous_spoofed_email", "widget"),
+            ("github_no_email", "github"),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events._get_persons_by_email")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_ticket_created_non_verified_channels_skip_email_fallback(
+        self, _name, channel, mock_get_persons, mock_get_by_email, mock_capture
+    ):
+        """anonymous_traits.email is attacker-controlled on the public widget, so it must never resolve an org.
+
+        Even when an anonymous distinct_id resolves to no identified person and a victim org exists for the
+        supplied email, non-allowlisted channels (widget, github) skip the email lookup entirely.
+        """
+        # A victim org/person that the spoofed email would resolve to if the lookup ran.
+        victim_org = Organization.objects.create(name="Victim Corp")
+        victim_user = User.objects.create(email="victim@bigcorp.com", distinct_id="victim-did")
+        OrganizationMembership.objects.create(user=victim_user, organization=victim_org)
+
+        # Anonymous distinct_id resolves to no identified person -> step 1 does not early-return.
+        mock_get_persons.return_value = []
+
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id="anon-attacker",
+            channel_source=channel,
+            anonymous_traits={"name": "Attacker", "email": "victim@bigcorp.com"},
+        )
+
+        capture_ticket_created(ticket)
+
+        mock_get_by_email.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
