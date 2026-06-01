@@ -23,10 +23,12 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
+    SLACK_INTEGRATION_KINDS,
     GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
+    sign_slack_request,
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
@@ -55,6 +57,11 @@ from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unf
 logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
+
+# Slack integration kind used by the PostHog Code coding-agent flow. Historically this used
+# a dedicated `slack-posthog-code` install, but the notifications Slack app (`slack`) carries
+# every scope the coding agent needs, so both surfaces share one kind.
+SLACK_INTEGRATION_KIND = "slack"
 
 POSTHOG_CODE_SLACK_AVAILABILITY_FLAG = "posthog-code-slack-availability"
 
@@ -500,29 +507,71 @@ def resolve_slack_user(
         return None
 
 
-# To support Slack in both Cloud regions, one region acts as the primary, or "master".
-# The primary receives all the events from Slack, and decides what to do about each event:
-# 1. If the workspace is connected to any project in the primary region (via Integration), primary handles the event itself;
-# 2. If the workspace is NOT connected to any project in the primary region, primary proxies the event to the secondary.
-# The secondary region does the same Integration lookup, but if it doesn't find a match either, it stops processing.
-# We use EU as the primary region, as it's more important to EU customers that their requests don't leave the EU,
-# than to US users that their requests don't leave the US.
-SLACK_PRIMARY_REGION_DOMAIN = "eu.posthog.com"
-SLACK_SECONDARY_REGION_DOMAIN = "us.posthog.com"
+# Slack delivers a single webhook URL per app, but the workspace's PostHog Integration may live
+# in either Cloud region. Whichever region Slack hits, we route the event to the region that
+# owns the workspace. US is the primary; when both regions hold a row for the same workspace
+# (only possible during cutover or migration), US wins. This means:
+#
+#  - hit US, local match           -> handle locally
+#  - hit US, no local match        -> proxy to EU (loop header set)
+#  - hit EU, US says "I have it"   -> proxy to US (loop header set)
+#  - hit EU, US says "no" / errs   -> handle locally if found, else drop
+#  - hit either with loop header   -> never proxy again; handle locally or drop
+#
+# This keeps the slack manifest endpoint swappable between us.posthog.com and eu.posthog.com
+# without any other coordination.
+REGION_PROXY_HEADER = "X-PostHog-Region-Proxied"
+REGION_PROXY_TIMEOUT_SECONDS = 3
+# Tight budget: the workspace_claims endpoint is just a DB .exists(), and EU calls it inline
+# before deciding whether to proxy. Slack's webhook ack deadline is 3s total, so we want this
+# call to fail fast (and fall back to local handling) rather than eat into the proxy budget.
+WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 
-if settings.DEBUG:
-    # In local dev, we implicitly test the regional routing by ALWAYS proxying once. When the request first arrives via
-    # SITE_URL (e.g. slackhog.ngrok.dev) we treat that as the primary region with no relevant integration, and proxy
-    # to localhost:8000, where the actual event handler runs. This way we ensure routing works, and works well.
-    SLACK_PRIMARY_REGION_DOMAIN = urlparse(settings.SITE_URL).netloc
-    SLACK_SECONDARY_REGION_DOMAIN = "localhost:8000"
+
+def _us_region_domain() -> str:
+    # Resolved at call time so override_settings(DEBUG=...) flips the topology cleanly in tests.
+    # In dev we run a single instance pretending to be both regions: the incoming SITE_URL host
+    # plays the part of US, and the other region is mapped to localhost so the proxy round-trips
+    # through the same process and exercises the at-most-one-hop guarantee end-to-end.
+    if settings.DEBUG:
+        return urlparse(settings.SITE_URL).netloc
+    return "us.posthog.com"
 
 
-def _proxy_to_secondary(request: HttpRequest) -> requests.Response | None:
-    """Proxy a request to the secondary region, returning the upstream response or None on failure."""
+def _eu_region_domain() -> str:
+    if settings.DEBUG:
+        return "localhost:8000"
+    return "eu.posthog.com"
+
+
+def _is_us_host(host: str) -> bool:
+    return host == _us_region_domain()
+
+
+def _other_region_domain(incoming_host: str) -> str:
+    return _eu_region_domain() if _is_us_host(incoming_host) else _us_region_domain()
+
+
+def _was_proxied(request: HttpRequest) -> bool:
+    # Match the literal value the sender sets (`"1"`) rather than coercing the header value to
+    # bool — semgrep flags the latter as nan-injection and we control the sender anyway.
+    return request.headers.get(REGION_PROXY_HEADER) == "1"
+
+
+def _proxy_event_to_region(request: HttpRequest, target_domain: str) -> requests.Response | None:
+    """Forward the original Slack event to the other region, tagged so the receiver does not hop again."""
     parsed_url = urlparse(request.build_absolute_uri())
-    target_url = urlunparse(parsed_url._replace(netloc=SLACK_SECONDARY_REGION_DOMAIN))
-    headers = {key: value for key, value in request.headers.items() if key.lower() != "host"}
+    # In dev the EU "region" is plain-HTTP localhost while the incoming URI is HTTPS (ngrok-
+    # terminated TLS), so always pick the scheme by target domain rather than copying the
+    # inbound one. Production talks HTTPS region-to-region.
+    target_scheme = "http" if settings.DEBUG else "https"
+    target_url = urlunparse(parsed_url._replace(scheme=target_scheme, netloc=target_domain))
+    # Drop Host plus the host-identifying forwarded headers so the receiver computes its own
+    # host from the new TCP connection rather than mirroring the sender's edge. X-Forwarded-For
+    # is intentionally preserved so the original Slack client IP survives the inter-region hop.
+    stripped = {"host", "x-forwarded-host", "forwarded"}
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in stripped}
+    headers[REGION_PROXY_HEADER] = "1"
 
     try:
         response = requests.request(
@@ -531,25 +580,122 @@ def _proxy_to_secondary(request: HttpRequest) -> requests.Response | None:
             headers=headers,
             params=dict(request.GET.lists()) if request.GET else None,
             data=request.body or None,
-            timeout=3,
+            timeout=REGION_PROXY_TIMEOUT_SECONDS,
         )
         if 200 <= response.status_code < 300:
-            logger.info("slack_app_proxy_to_secondary_region", target_url=target_url, status_code=response.status_code)
+            logger.info("slack_app_region_proxy_ok", target_url=target_url, status_code=response.status_code)
             return response
 
         logger.warning(
-            "slack_app_proxy_to_secondary_region_non_success",
+            "slack_app_region_proxy_non_success",
             target_url=target_url,
             status_code=response.status_code,
         )
         return None
     except requests.RequestException as exc:
-        logger.exception("slack_app_proxy_to_secondary_region_failed", error=str(exc), target_url=target_url)
+        logger.exception("slack_app_region_proxy_failed", error=str(exc), target_url=target_url)
         return None
 
 
-def proxy_slack_event_to_secondary_region(request: HttpRequest) -> bool:
-    return _proxy_to_secondary(request) is not None
+def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> str:
+    """Forward and translate the upstream result into a routing outcome string."""
+    return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
+
+
+def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], incoming_host: str) -> bool | None:
+    """Ask the other region whether it claims the given workspace for any of the kinds.
+
+    Returns True/False on a definitive answer, or None on transport failure or bad response.
+    Callers must treat None as "unknown" — typically by falling back to local handling so the
+    event is not silently dropped.
+    """
+    target_domain = _other_region_domain(incoming_host)
+    scheme = "http" if settings.DEBUG else "https"
+    target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
+
+    body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
+    signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
+    signature, ts = sign_slack_request(body, signing_secret)
+
+    try:
+        response = requests.post(
+            target_url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-Slack-Signature": signature,
+                "X-Slack-Request-Timestamp": ts,
+                REGION_PROXY_HEADER: "1",
+            },
+            timeout=WORKSPACE_CLAIMS_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException as exc:
+        logger.warning("slack_app_workspace_claims_failed", target_url=target_url, error=str(exc))
+        return None
+
+    if response.status_code != 200:
+        logger.warning(
+            "slack_app_workspace_claims_non_200",
+            target_url=target_url,
+            status_code=response.status_code,
+        )
+        return None
+
+    try:
+        data = response.json()
+    except ValueError:
+        logger.warning("slack_app_workspace_claims_bad_json", target_url=target_url)
+        return None
+
+    claimed = data.get("claimed")
+    if not isinstance(claimed, bool):
+        logger.warning("slack_app_workspace_claims_bad_payload", target_url=target_url)
+        return None
+    return claimed
+
+
+_VALID_WORKSPACE_CLAIM_KINDS = frozenset(SLACK_INTEGRATION_KINDS)
+
+
+@csrf_exempt
+def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
+    """Cross-region probe: does this region hold an Integration row for the given Slack workspace?
+
+    Both Cloud regions provision the PostHog Code Slack signing secret, so a region can HMAC-sign
+    a small JSON body and the receiver can verify it with the same routine that validates real
+    Slack webhooks. The signed body covers `slack_team_id` + `kinds`, so a captured signature
+    cannot be replayed against a different workspace.
+    """
+    if request.method != "POST":
+        return HttpResponse(status=405)
+
+    try:
+        slack_config = SlackIntegration.slack_config()
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
+    except SlackIntegrationError as e:
+        logger.warning("slack_app_workspace_claims_invalid_request", error=str(e))
+        return HttpResponse("Invalid request", status=403)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return HttpResponse("Invalid JSON", status=400)
+
+    slack_team_id = data.get("slack_team_id")
+    kinds = data.get("kinds")
+    if not isinstance(slack_team_id, str) or not slack_team_id:
+        return HttpResponse("Missing slack_team_id", status=400)
+    if not isinstance(kinds, list) or not kinds:
+        return HttpResponse("Missing kinds", status=400)
+    filtered = [k for k in kinds if isinstance(k, str) and k in _VALID_WORKSPACE_CLAIM_KINDS]
+    if not filtered:
+        return HttpResponse("No valid kinds", status=400)
+
+    claimed = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        kind__in=filtered,
+        integration_id=slack_team_id,
+    ).exists()
+    return JsonResponse({"claimed": claimed})
 
 
 def _build_slack_thread_key(slack_workspace_id: str, channel: str, thread_ts: str) -> str:
@@ -896,7 +1042,7 @@ def _replace_repo_picker_message_with_selection(
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
         slack = SlackIntegration(integration)
         text = f"Repository selected: `{selected_repo}`"
@@ -930,7 +1076,7 @@ def _replace_repo_picker_message_with_no_repo(
     try:
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
         slack = SlackIntegration(integration)
         text = "Continuing without a repository."
@@ -1347,7 +1493,28 @@ def route_posthog_code_event_to_relevant_region(
     event_id: str | None = None,
 ) -> str:
     event_type = event.get("type")
-    in_region = not (settings.DEBUG and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN)
+    incoming_host = request.get_host()
+    proxied = _was_proxied(request)
+    other_domain = _other_region_domain(incoming_host)
+    # In local dev we run a single instance, so cross-region routing is meaningless: the only
+    # consumer is this process. Disable both the probe and the proxy hop and always handle
+    # locally.
+    can_defer_to_other_region = not _is_us_host(incoming_host) and not proxied and not settings.DEBUG
+
+    logger.info(
+        "posthog_code_route_enter",
+        incoming_host=incoming_host,
+        is_us=_is_us_host(incoming_host),
+        proxied=proxied,
+        other_domain=other_domain,
+        can_defer=can_defer_to_other_region,
+        event_type=event_type,
+        slack_team_id=slack_team_id,
+        event_id=event_id,
+        debug=settings.DEBUG,
+        us_domain=_us_region_domain(),
+        eu_domain=_eu_region_domain(),
+    )
 
     if event_type == "app_mention":
         ignore_reason = _app_mention_ignore_reason(event)
@@ -1363,7 +1530,7 @@ def route_posthog_code_event_to_relevant_region(
 
         result = load_integrations(
             slack_team_id=slack_team_id,
-            kinds=["slack-posthog-code"],
+            kinds=[SLACK_INTEGRATION_KIND],
             slack_user_id=str(event.get("user") or ""),
             user=None,
             channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
@@ -1371,8 +1538,11 @@ def route_posthog_code_event_to_relevant_region(
             if isinstance(event.get("thread_ts") or event.get("ts"), str)
             else None,
         )
-        if not result.candidates or not in_region:
-            return _proxy_or_no_integration(request, slack_team_id)
+        if not result.candidates:
+            return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+        if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
+            return _proxy_event_and_return_route(request, other_domain)
 
         # Gate the entire @PostHog surface on the rollout flag at the candidate
         # level so command workflows, pick-a-project hints, and mention workflows
@@ -1406,21 +1576,52 @@ def route_posthog_code_event_to_relevant_region(
         return _start_mention_workflow(event, mention_target, slack_team_id, event_id)
 
     # link_shared (unfurl) works with either integration kind.
-    link_result = load_integrations(slack_team_id=slack_team_id, kinds=["slack", "slack-posthog-code"])
+    link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     local_match = link_result.candidates[0] if link_result.candidates else None
-    if local_match and in_region:
+    if local_match:
+        if _us_should_handle_instead(
+            slack_team_id, list(SLACK_INTEGRATION_KINDS), can_defer_to_other_region, incoming_host
+        ):
+            return _proxy_event_and_return_route(request, other_domain)
         if event_type == "link_shared":
             handle_posthog_link_unfurl(event, local_match)
         return ROUTE_HANDLED_LOCALLY
-    return _proxy_or_no_integration(request, slack_team_id)
+    return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
 
-def _proxy_or_no_integration(request: HttpRequest, slack_team_id: str) -> str:
-    if request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
-        success = proxy_slack_event_to_secondary_region(request)
-        return ROUTE_PROXIED if success else ROUTE_PROXY_FAILED
-    logger.warning("posthog_code_no_integration_found", slack_team_id=slack_team_id)
-    return ROUTE_NO_INTEGRATION
+def _us_should_handle_instead(slack_team_id: str, kinds: list[str], can_defer: bool, incoming_host: str) -> bool:
+    """US-precedence guard. EU yields to US when both claim a workspace.
+
+    Skipped when we're already US (we win), when we were proxied to (the other region already
+    deferred), or when the lookup transport fails (None) — in that last case the caller should
+    prefer handling locally over dropping.
+    """
+    if not can_defer:
+        return False
+    claimed = does_other_region_claim_workspace(slack_team_id=slack_team_id, kinds=kinds, incoming_host=incoming_host)
+    logger.info(
+        "posthog_code_route_us_probe_result",
+        slack_team_id=slack_team_id,
+        claimed=claimed,
+    )
+    return bool(claimed)
+
+
+def _route_to_other_region_or_drop(
+    request: HttpRequest, slack_team_id: str, *, proxied: bool, other_domain: str
+) -> str:
+    """No local match: either forward to the other region or drop if we are the second hop.
+
+    In local dev there is no other region to forward to, so we just record the miss and stop.
+    """
+    if proxied or settings.DEBUG:
+        logger.warning(
+            "posthog_code_no_integration_found",
+            slack_team_id=slack_team_id,
+            incoming_host=request.get_host(),
+        )
+        return ROUTE_NO_INTEGRATION
+    return _proxy_event_and_return_route(request, other_domain)
 
 
 def _start_command_workflow(
@@ -1501,8 +1702,8 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        posthog_code_config = SlackIntegration.posthog_code_slack_config()
-        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
+        slack_config = SlackIntegration.slack_config()
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1530,6 +1731,12 @@ def posthog_code_event_handler(request: HttpRequest) -> HttpResponse:
 
         if event.get("type") in HANDLED_EVENT_TYPES:
             result = route_posthog_code_event_to_relevant_region(request, event, slack_team_id, event_id=event_id)
+            logger.info(
+                "posthog_code_event_dispatch_result",
+                result=result,
+                slack_team_id=slack_team_id,
+                event_id=event_id,
+            )
             if result == ROUTE_PROXY_FAILED:
                 return HttpResponse(status=502)
 
@@ -1638,7 +1845,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         team_id = payload.get("team", {}).get("id")
         if team_id:
             fallback_integration = (
-                Integration.objects.filter(kind="slack-posthog-code", integration_id=team_id).order_by("id").first()
+                Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=team_id).order_by("id").first()
             )
             if fallback_integration:
                 hinted_integration_id = fallback_integration.id
@@ -1673,7 +1880,7 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
             raise Integration.DoesNotExist
         # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
         integration = Integration.objects.get(
-            id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
@@ -1752,7 +1959,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         try:
             # nosemgrep: idor-lookup-without-team — Slack webhook: no team context; scoped by PK + kind + Slack team ID
             integration = Integration.objects.get(
-                id=integration_id, kind="slack-posthog-code", integration_id=slack_team_id
+                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
             )
             SlackIntegration(integration).client.chat_postMessage(
                 channel=channel,
@@ -1891,8 +2098,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=405)
 
     try:
-        posthog_code_config = SlackIntegration.posthog_code_slack_config()
-        validate_slack_request(request, posthog_code_config["SLACK_POSTHOG_CODE_SIGNING_SECRET"])
+        slack_config = SlackIntegration.slack_config()
+        validate_slack_request(request, slack_config["SLACK_APP_SIGNING_SECRET"])
     except SlackIntegrationError as e:
         logger.warning("posthog_code_interactivity_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
@@ -1924,22 +2131,24 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     if slack_team_id and ctx_integration_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=ctx_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-posthog-code",
+            kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and hinted_integration_id and hinted_user_id and requesting_user == hinted_user_id:
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=hinted_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-posthog-code",
+            kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
     elif slack_team_id and terminate_integration_id and (not terminate_user_id or requesting_user == terminate_user_id):
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=terminate_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-            kind="slack-posthog-code",
+            kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
 
+    proxied = _was_proxied(request)
+    incoming_host = request.get_host()
     logger.info(
         "posthog_code_interactivity_resolution",
         context_token_present=bool(context_token),
@@ -1950,28 +2159,59 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         hinted_user=hinted_user_id,
         terminate_user=terminate_user_id,
         local=local,
-        host=request.get_host(),
+        host=incoming_host,
+        proxied=proxied,
     )
 
-    if not local and request.get_host() == SLACK_PRIMARY_REGION_DOMAIN:
-        # Proxy to secondary and relay its response back to Slack
-        upstream = _proxy_to_secondary(request)
+    if not local and not proxied and not settings.DEBUG:
+        # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
+        # nothing new — just forward to the other region. The loop header keeps us at one hop.
+        # Skipped in local dev where there is only one region to talk to.
+        target = _other_region_domain(incoming_host)
+        upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
+            logger.info(
+                "posthog_code_interactivity_route",
+                outcome="proxied",
+                from_host=incoming_host,
+                to_domain=target,
+                payload_type=payload_type,
+            )
             return HttpResponse(
                 upstream.content,
                 status=upstream.status_code,
                 content_type=upstream.headers.get("Content-Type", "application/json"),
             )
         # Proxy failed — return safe defaults
+        logger.warning(
+            "posthog_code_interactivity_route",
+            outcome="proxy_failed",
+            from_host=incoming_host,
+            to_domain=target,
+            payload_type=payload_type,
+        )
         if payload_type == "block_suggestion":
             return JsonResponse({"options": []})
         return HttpResponse(status=502)
 
     if not local:
-        logger.warning("posthog_code_interactivity_no_context", context_token=context_token)
+        logger.warning(
+            "posthog_code_interactivity_route",
+            outcome="dropped",
+            from_host=incoming_host,
+            payload_type=payload_type,
+            context_token=context_token,
+        )
         if payload_type == "block_suggestion":
             return JsonResponse({"options": []})
         return HttpResponse(status=200)
+
+    logger.info(
+        "posthog_code_interactivity_route",
+        outcome="handled",
+        from_host=incoming_host,
+        payload_type=payload_type,
+    )
 
     # Handled locally
     if payload_type == "block_suggestion":

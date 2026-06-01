@@ -33,6 +33,16 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                 <Field name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
                 </Field>
+                <Field name="scanner_config.emits_embeddings">
+                    {({ value, onChange }) => (
+                        <LemonSwitch
+                            label="Emit embeddings to enable free-text search"
+                            checked={!!value}
+                            onChange={onChange}
+                            bordered
+                        />
+                    )}
+                </Field>
             </div>
         )
     }
@@ -142,17 +152,6 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                     }}
                 </Field>
             </div>
-        )
-    }
-
-    if (scanner.scanner_type === 'indexer') {
-        return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Focus on the user's actions and goals. Ignore loading screens and animation noise."
-                    minRows={6}
-                />
-            </Field>
         )
     }
 

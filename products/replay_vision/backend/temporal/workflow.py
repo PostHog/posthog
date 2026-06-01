@@ -19,7 +19,7 @@ from products.replay_vision.backend.temporal.activities import (
     call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     create_observation_activity,
-    embed_indexer_observation_activity,
+    embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     ensure_session_asset_activity,
@@ -38,14 +38,14 @@ from products.replay_vision.backend.temporal.errors import (
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
     CallScannerProviderInputs,
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
-    EmbedIndexerObservationInputs,
+    EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EnsureSessionAssetInputs,
@@ -186,7 +186,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
-            await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
+            await self._apply_scanner_side_effects(
+                inputs, observation_id, call_output.model_output, create_result.emits_embeddings
+            )
             await wf.execute_activity(
                 emit_observation_event_activity,
                 EmitObservationEventInputs(observation_id=observation_id, model_output=call_output.model_output),
@@ -198,10 +200,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
                     scanner_type=scanner_type,
-                    scanner_result=ScannerResult(
-                        model_output=call_output.model_output,
-                        event_id_mapping=call_output.event_id_mapping,
-                    ),
+                    scanner_result=ScannerResult(model_output=call_output.model_output),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,
@@ -296,17 +295,21 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         )
 
     async def _apply_scanner_side_effects(
-        self, inputs: ApplyScannerInputs, observation_id: UUID, model_output: object
+        self,
+        inputs: ApplyScannerInputs,
+        observation_id: UUID,
+        model_output: object,
+        emits_embeddings: bool,
     ) -> None:
         """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow."""
-        if isinstance(model_output, IndexerOutput):
+        if isinstance(model_output, SummarizerOutput) and emits_embeddings and model_output.has_any_facet():
             await wf.execute_activity(
-                embed_indexer_observation_activity,
-                EmbedIndexerObservationInputs(
+                embed_summarizer_observation_activity,
+                EmbedSummarizerObservationInputs(
                     team_id=inputs.team_id,
                     session_id=inputs.session_id,
                     observation_id=observation_id,
-                    indexer_output=model_output,
+                    summarizer_output=model_output,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_SIDE_EFFECT_RETRY,

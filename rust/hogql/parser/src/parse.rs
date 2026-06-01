@@ -465,7 +465,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             _ => "",
         };
         Err(self.err(format!(
-            "trailing tokens after expression: {:?}{extra}",
+            "trailing tokens after expression: '{}' ({:?}){extra}",
+            self.text(self.peek0),
             self.peek()
         )))
     }
