@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "default": "-30d",
+            "description": "Start of the spend window. Accepts absolute dates (`2026-04-23`) or relative strings (`-7d`, `-1m`, etc.) — same parser used elsewhere in PostHog. Defaults to `-30d`. The window between `date_from` and `date_to` cannot exceed 90 days.",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "maxLength": 32,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End of the spend window. Accepts the same formats as `date_from`. Defaults to `now` when omitted."
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of rows to return per breakdown (1-200, defaults to 50). Each breakdown returns up to this many rows ordered by cost descending. Per-breakdown `truncated: true` indicates more rows exist beyond the limit.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "number"
+        },
+        "product": {
+            "description": "Required `ai_product` key to scope the tool / model / trace breakdowns to a single product. Only the following products are currently supported: posthog_code.",
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+        },
+        "refresh": {
+            "default": false,
+            "description": "If true, bypass the result cache and re-run the underlying queries against ClickHouse.",
+            "type": "boolean"
+        }
+    },
+    "required": ["product"],
+    "type": "object"
+}

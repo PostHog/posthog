@@ -32,7 +32,7 @@ class TestWebExperiment(APIBaseTest):
             format="json",
         )
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_can_create_basic_web_experiment(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()

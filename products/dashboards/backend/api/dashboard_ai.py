@@ -5,11 +5,7 @@ import structlog
 
 from posthog.hogql.ai import hit_openai
 
-from posthog.api.annotation_context import (
-    format_annotations_for_prompt,
-    get_annotations_for_ai_context,
-    resolve_dashboard_date_range,
-)
+from posthog.api.annotation_context import build_annotations_block, resolve_dashboard_date_range
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -45,12 +41,11 @@ def generate_refresh_analysis(before_results: dict, after_results: dict, dashboa
     if not changes:
         return None
 
-    annotations_block = ""
-    date_range = resolve_dashboard_date_range(dashboard.filters, dashboard.team)
-    if date_range is not None:
-        date_from, date_to = date_range
-        annotations = get_annotations_for_ai_context(dashboard.team, date_from, date_to, dashboard_id=dashboard.id)
-        annotations_block = format_annotations_for_prompt(annotations)
+    annotations_block = build_annotations_block(
+        dashboard.team,
+        resolve_dashboard_date_range(dashboard.filters, dashboard.team),
+        dashboard_id=dashboard.id,
+    )
 
     # Limit verbosity for large dashboards
     prioritization_instruction = (

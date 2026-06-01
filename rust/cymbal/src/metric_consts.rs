@@ -126,3 +126,23 @@ pub const FINGERPRINT_GENERATOR_OPERATOR: &str = "cymbal_exception_fingerprint_g
 pub const RULE_SUPPRESSED_EVENTS: &str = "cymbal_rule_suppressed_events";
 pub const SUPPRESSION_RULES_TRIED: &str = "cymbal_suppression_rules_tried";
 pub const SUPPRESSION_RULES_DISABLED: &str = "cymbal_suppression_rules_disabled";
+
+// Remote resolution observability. Keep labels bounded: endpoint labels are
+// limited to the discovered pod set, and protocol failures are classified by
+// fixed enums rather than free-form messages.
+pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_total";
+pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
+pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
+pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
+pub const REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_in_flight";
+pub const REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT: &str =
+    "cymbal_remote_resolution_endpoint_mux_in_flight";
+pub const REMOTE_RESOLUTION_ENDPOINT_ADMISSION_REJECTIONS: &str =
+    "cymbal_remote_resolution_endpoint_admission_rejections_total";
+pub const REMOTE_RESOLUTION_ERROR_KINDS: &str = "cymbal_remote_resolution_error_kinds_total";
+pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
+    "cymbal_remote_resolution_overload_escalations_total";
+pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
+pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
+    "cymbal_remote_resolution_load_subscriptions_total";

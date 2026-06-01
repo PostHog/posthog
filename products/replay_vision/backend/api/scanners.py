@@ -22,10 +22,10 @@ from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
 from posthog.temporal.common.client import sync_connect
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
@@ -34,6 +34,8 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.queries import estimate_scanner_session_volume
+from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
     MAX_SESSION_ID_LENGTH,
@@ -60,12 +62,12 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="What the scanner does: monitor, classifier, scorer, summarizer, or indexer.",
+        help_text="What the scanner does: monitor, classifier, scorer, or summarizer.",
     )
     scanner_config = serializers.JSONField(
         help_text=(
-            "Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; "
-            "classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`."
+            "Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, "
+            "scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag."
         ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
@@ -222,7 +224,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
     scanner_type = django_filters.ChoiceFilter(
         field_name="scanner_type",
         choices=ScannerType.choices,
-        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).",
+        help_text="Filter by scanner type (monitor, classifier, scorer, summarizer).",
     )
     emits_signals = django_filters.BooleanFilter(
         field_name="emits_signals",
@@ -263,7 +265,54 @@ class ObserveResponseSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=[VISION_TAG])
+class EstimateRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
+
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            required=False,
+            help_text=(
+                "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
+                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
+                "against all recordings."
+            ),
+        )
+    )
+    sampling_rate = serializers.FloatField(
+        required=False,
+        default=1.0,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+    )
+
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
+        try:
+            RecordingsQuery.model_validate(value)
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError(str(exc))
+        return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
+
+
+class EstimateResponseSerializer(serializers.Serializer):
+    """Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic."""
+
+    matched_sessions_in_window = serializers.IntegerField(
+        help_text="Distinct sessions matching the query within the 30-day lookback, before sampling.",
+    )
+    window_days = serializers.IntegerField(
+        help_text=(
+            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
+        ),
+    )
+    estimated_observations_per_month = serializers.IntegerField(
+        help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
+    )
+    sampling_rate = serializers.FloatField(
+        help_text="Sampling rate applied to the projection. Echoed from the request.",
+    )
+
+
 class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision scanners."""
 
@@ -296,6 +345,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Observation output exposes recording contents, so observe requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
+
+        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
+        if snapshot.exhausted:
+            raise QuotaLimitExceeded(
+                detail=(
+                    f"Monthly Replay Vision quota of {snapshot.monthly_quota} observations reached; "
+                    f"resets at {snapshot.period_end.isoformat()}."
+                )
+            )
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -337,4 +395,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(
             ObserveResponseSerializer({"workflow_id": workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    @extend_schema(
+        request=EstimateRequestSerializer,
+        responses={200: EstimateResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="estimate",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+    )
+    def estimate(self, request: Request, **kwargs: Any) -> Response:
+        """Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview."""
+        # The query runs over recording data, so a probed filter can leak recording metadata
+        # (URLs, events, person properties, console logs); gate on session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Estimating scanner volume requires session_recording read access.")
+
+        body = EstimateRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        sampling_rate: float = body.validated_data["sampling_rate"]
+
+        # validate_query already validated this; the empty-dict default needs `kind` to parse.
+        query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
+        query_dict.setdefault("kind", "RecordingsQuery")
+        recordings_query = RecordingsQuery.model_validate(query_dict)
+
+        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
+        sessions_per_day = estimate.matched_sessions / estimate.effective_window_days
+        observations_per_month = round(sessions_per_day * 30 * sampling_rate)
+
+        return Response(
+            EstimateResponseSerializer(
+                {
+                    "matched_sessions_in_window": estimate.matched_sessions,
+                    "window_days": estimate.effective_window_days,
+                    "estimated_observations_per_month": observations_per_month,
+                    "sampling_rate": sampling_rate,
+                }
+            ).data
         )

@@ -30,6 +30,7 @@ tools:
             - description
             - is_materialized
             - data_freshness_seconds
+            - tags
     endpoint-delete:
         operation: endpoints_destroy
         enabled: true
@@ -133,6 +134,7 @@ tools:
             - is_materialized
             - data_freshness_seconds
             - version
+            - tags
     endpoint-versions:
         operation: endpoints_versions_list
         enabled: true

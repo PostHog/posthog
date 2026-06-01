@@ -3,11 +3,12 @@ from typing import Any
 
 import posthoganalytics
 import temporalio.activity
+from asgiref.sync import sync_to_async
 from prometheus_client import Counter
 from structlog import get_logger
 
+from posthog.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
-from posthog.models import Insight
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.ph_client import ph_scoped_capture
@@ -18,6 +19,9 @@ from posthog.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_
 from posthog.temporal.subscriptions.results_summarizer import build_results_summary
 from posthog.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
 
+from products.product_analytics.backend.models.insight import Insight
+
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
@@ -34,6 +38,14 @@ SUBSCRIPTION_SUMMARY_FAILURE = Counter(
 SUBSCRIPTION_SUMMARY_SKIPPED_NO_AI_CONSENT = Counter(
     "posthog_subscription_ai_summary_skipped_no_ai_consent_total",
     "AI summary skipped because the organization has not approved AI data processing",
+)
+SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET = Counter(
+    "posthog_subscription_ai_summary_skipped_over_credit_budget_total",
+    "AI summary skipped because the organization is over its AI credit budget",
+)
+SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED = Counter(
+    "posthog_subscription_ai_summary_credit_check_failed_total",
+    "AI credit budget lookup errored; the summary was generated (fail-open)",
 )
 SUBSCRIPTION_SUMMARY_IMAGE_SKIPPED = Counter(
     "posthog_subscription_ai_summary_image_skipped_total",
@@ -69,6 +81,23 @@ def _extract_columns(query_results: Any) -> list[str] | None:
         return None
     cleaned = [c for c in raw_columns if isinstance(c, str)]
     return cleaned or None
+
+
+def _load_annotations_section(
+    subscription: Subscription,
+    content_snapshots: list[dict],
+    insight_ids: list[int],
+) -> str:
+    """Build the annotation context block injected into the LLM prompt.
+
+    Returns an empty string if there is no usable date window or no annotations match.
+    """
+    return build_annotations_block(
+        subscription.team,
+        resolve_snapshot_date_range(content_snapshots),
+        dashboard_id=subscription.dashboard_id,
+        insight_ids=insight_ids,
+    )
 
 
 def _build_states_from_content_snapshot(
@@ -410,6 +439,31 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         )
         return SnapshotInsightsResult()
 
+    # Over budget: skip the summary but still deliver the rest of the subscription —
+    # graceful degradation beats failing the whole delivery. Fail open on a quota-lookup
+    # error: generate the summary rather than silently dropping it on a transient blip.
+    try:
+        is_over_credit_budget = await sync_to_async(is_team_limited, thread_sensitive=False)(
+            subscription.team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+    except Exception as e:
+        is_over_credit_budget = False
+        SUBSCRIPTION_SUMMARY_CREDIT_CHECK_FAILED.inc()
+        await LOGGER.awarning(
+            "snapshot_subscription_insights.credit_budget_check_failed",
+            subscription_id=inputs.subscription_id,
+            error=str(e),
+            exc_info=True,
+        )
+    if is_over_credit_budget:
+        SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET.inc()
+        await LOGGER.ainfo(
+            "snapshot_subscription_insights.skipped_over_credit_budget",
+            subscription_id=inputs.subscription_id,
+            organization_id=str(subscription.team.organization_id),
+        )
+        return SnapshotInsightsResult(summary_skipped_over_budget=True)
+
     if not inputs.delivery_id:
         return SnapshotInsightsResult()
 
@@ -485,6 +539,29 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
         else:
             prompt_guide = ""
         core_memory_text = await database_sync_to_async(_load_core_memory_text, thread_sensitive=False)(subscription)
+        content_snapshots = [
+            s
+            for s in (
+                current_delivery.content_snapshot,
+                previous_delivery.content_snapshot if previous_delivery else None,
+            )
+            if s
+        ]
+        # Annotations are best-effort context — a DB hiccup here should not fail the whole
+        # summary, which would also drop the rest of the digest. Log and continue with an
+        # empty block.
+        try:
+            annotations_section = await database_sync_to_async(_load_annotations_section, thread_sensitive=False)(
+                subscription, content_snapshots, insight_ids
+            )
+        except Exception as annotations_error:
+            annotations_section = ""
+            await LOGGER.awarning(
+                "snapshot_subscription_insights.annotations_load_failed",
+                subscription_id=inputs.subscription_id,
+                error=str(annotations_error),
+                exc_info=True,
+            )
         summary_text = await database_sync_to_async(generate_change_summary, thread_sensitive=False)(
             previous_states,
             current_states,
@@ -494,6 +571,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
             delivery_id=inputs.delivery_id,
             insight_images=insight_images or None,
             core_memory_text=core_memory_text,
+            annotations_section=annotations_section,
         )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

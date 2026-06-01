@@ -44,13 +44,14 @@ export function LinkedHogFunctions({
     const templateType = type === 'internal_destination' ? 'destination' : type
 
     const getConfigurationOverrides = (
-        subTemplateId?: HogFunctionSubTemplateIdType
-    ): CyclotronJobFiltersType | undefined => {
+        subTemplateId: HogFunctionSubTemplateIdType | undefined
+    ): { filters: CyclotronJobFiltersType } | undefined => {
         if (forceFilterGroups && forceFilterGroups.length > 0) {
-            return forceFilterGroups[0]
+            return { filters: forceFilterGroups[0] }
         }
         if (subTemplateId) {
-            return getFiltersFromSubTemplateId(subTemplateId)
+            const filters = getFiltersFromSubTemplateId(subTemplateId)
+            return filters ? { filters } : undefined
         }
         return undefined
     }

@@ -78,6 +78,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
         response = execute_hogql_query(
             query=query,
             team=self.team,
+            user=self.user,
             query_type="WebAnalyticsPageURLSearch",
             context=HogQLContext(
                 team_id=self.team.pk,

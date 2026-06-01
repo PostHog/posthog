@@ -24,11 +24,13 @@ from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import FeatureFlag, Insight, Person, Team
+from posthog.models import Person, Team
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.actions.backend.models.action import Action
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import nh3_clean_with_allow_list
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
@@ -896,7 +898,7 @@ class TestSurvey(APIBaseTest):
         assert "choices" not in translations
         assert translations["question"] == "¿Qué piensas?"
 
-    @patch("posthog.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_creation_context_is_set_to_surveys(self, mock_report_user_action):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -1779,6 +1781,36 @@ class TestSurvey(APIBaseTest):
         )
 
         assert updated_survey_deletes_targeting_flag.status_code == status.HTTP_200_OK
+
+    @parameterized.expand([("regex",), ("not_regex",)])
+    def test_survey_targeting_flag_rejects_invalid_regex(self, operator):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey with bad regex",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": None,
+                            "properties": [
+                                {
+                                    "key": "email",
+                                    "value": "[unclosed",
+                                    "operator": operator,
+                                    "type": "person",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "conditions": {"url": "https://app.posthog.com/notebooks"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "invalid regex pattern" in response.json()["detail"]
 
     def test_survey_targeting_flag_numeric_validation(self):
         survey_with_targeting = self.client.post(

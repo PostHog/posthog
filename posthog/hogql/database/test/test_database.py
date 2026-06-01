@@ -359,6 +359,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert table is not None
         assert len(table.fields.keys()) == 1
 
+        # The table is also queryable by its raw underscore name, so it must be surfaced for search
+        assert table.search_aliases == ["stripe_table_1"]
+
         assert table.source is not None
         assert table.source.id == str(source.id)
         assert table.source.status == "Completed"

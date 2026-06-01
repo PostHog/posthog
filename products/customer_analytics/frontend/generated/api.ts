@@ -10,7 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccountApi,
+    AccountNotebookApi,
     AccountsListParams,
+    AccountsNotebooksListParams,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
@@ -18,10 +20,13 @@ import type {
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
+    PaginatedAccountNotebookListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
+    PatchedCustomerJourneyApi,
+    PatchedCustomerProfileConfigApi,
     PatchedGroupUsageMetricApi,
 } from './api.schemas'
 
@@ -54,8 +59,8 @@ export const getAccountsListUrl = (projectId: string, params?: AccountsListParam
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/accounts/?${stringifiedParams}`
-        : `/api/environments/${projectId}/accounts/`
+        ? `/api/projects/${projectId}/accounts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/`
 }
 
 export const accountsList = async (
@@ -70,7 +75,7 @@ export const accountsList = async (
 }
 
 export const getAccountsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/accounts/`
+    return `/api/projects/${projectId}/accounts/`
 }
 
 export const accountsCreate = async (
@@ -86,8 +91,90 @@ export const accountsCreate = async (
     })
 }
 
+export const getAccountsNotebooksListUrl = (
+    projectId: string,
+    accountId: string,
+    params?: AccountsNotebooksListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${accountId}/notebooks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/notebooks/`
+}
+
+export const accountsNotebooksList = async (
+    projectId: string,
+    accountId: string,
+    params?: AccountsNotebooksListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountNotebookListApi> => {
+    return apiMutator<PaginatedAccountNotebookListApi>(getAccountsNotebooksListUrl(projectId, accountId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsNotebooksCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/`
+}
+
+export const accountsNotebooksCreate = async (
+    projectId: string,
+    accountId: string,
+    accountNotebookApi?: NonReadonly<AccountNotebookApi>,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountNotebookApi),
+    })
+}
+
+export const getAccountsNotebooksRetrieveUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+export const accountsNotebooksRetrieve = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksRetrieveUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsNotebooksDestroyUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+export const accountsNotebooksDestroy = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsNotebooksDestroyUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AccountApi> => {
@@ -98,7 +185,7 @@ export const accountsRetrieve = async (projectId: string, id: string, options?: 
 }
 
 export const getAccountsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsUpdate = async (
@@ -116,7 +203,7 @@ export const accountsUpdate = async (
 }
 
 export const getAccountsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsPartialUpdate = async (
@@ -134,7 +221,7 @@ export const accountsPartialUpdate = async (
 }
 
 export const getAccountsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -156,8 +243,8 @@ export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJ
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/customer_journeys/?${stringifiedParams}`
-        : `/api/environments/${projectId}/customer_journeys/`
+        ? `/api/projects/${projectId}/customer_journeys/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_journeys/`
 }
 
 export const customerJourneysList = async (
@@ -172,7 +259,7 @@ export const customerJourneysList = async (
 }
 
 export const getCustomerJourneysCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/customer_journeys/`
+    return `/api/projects/${projectId}/customer_journeys/`
 }
 
 export const customerJourneysCreate = async (
@@ -188,6 +275,68 @@ export const customerJourneysCreate = async (
     })
 }
 
+export const getCustomerJourneysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerJourneysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysUpdate = async (
+    projectId: string,
+    id: string,
+    customerJourneyApi: NonReadonly<CustomerJourneyApi>,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerJourneyApi),
+    })
+}
+
+export const getCustomerJourneysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomerJourneyApi?: NonReadonly<PatchedCustomerJourneyApi>,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomerJourneyApi),
+    })
+}
+
+export const getCustomerJourneysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCustomerJourneysDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getCustomerProfileConfigsListUrl = (projectId: string, params?: CustomerProfileConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -200,8 +349,8 @@ export const getCustomerProfileConfigsListUrl = (projectId: string, params?: Cus
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/customer_profile_configs/?${stringifiedParams}`
-        : `/api/environments/${projectId}/customer_profile_configs/`
+        ? `/api/projects/${projectId}/customer_profile_configs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_profile_configs/`
 }
 
 export const customerProfileConfigsList = async (
@@ -216,7 +365,7 @@ export const customerProfileConfigsList = async (
 }
 
 export const getCustomerProfileConfigsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/`
+    return `/api/projects/${projectId}/customer_profile_configs/`
 }
 
 export const customerProfileConfigsCreate = async (
@@ -229,6 +378,72 @@ export const customerProfileConfigsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(customerProfileConfigApi),
+    })
+}
+
+export const getCustomerProfileConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerProfileConfigsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsUpdate = async (
+    projectId: string,
+    id: string,
+    customerProfileConfigApi: NonReadonly<CustomerProfileConfigApi>,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerProfileConfigApi),
+    })
+}
+
+export const getCustomerProfileConfigsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomerProfileConfigApi?: NonReadonly<PatchedCustomerProfileConfigApi>,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomerProfileConfigApi),
+    })
+}
+
+export const getCustomerProfileConfigsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCustomerProfileConfigsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

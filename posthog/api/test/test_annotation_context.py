@@ -11,9 +11,10 @@ from posthog.api.annotation_context import (
     resolve_dashboard_date_range,
     resolve_query_date_range,
 )
-from posthog.models import Annotation, Insight, Organization, Team
+from posthog.models import Annotation, Organization, Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotationContext(APIBaseTest):
@@ -76,11 +77,29 @@ class TestAnnotationContext(APIBaseTest):
             datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
             datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
             dashboard_id=my_dashboard.id,
-            insight_id=my_insight.id,
+            insight_ids=[my_insight.id],
         )
 
         contents = sorted(a["content"] for a in result)
         assert contents == ["on my dashboard", "on my insight"]
+
+    def test_insight_ids_list_matches_any_of_the_given_insights(self) -> None:
+        in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
+        insight_a = Insight.objects.create(team=self.team, name="a")
+        insight_b = Insight.objects.create(team=self.team, name="b")
+        insight_c = Insight.objects.create(team=self.team, name="c")
+        self._make_annotation("a", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_a)
+        self._make_annotation("b", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_b)
+        self._make_annotation("c", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_c)
+
+        result = get_annotations_for_ai_context(
+            self.team,
+            datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            datetime(2026, 1, 31, tzinfo=ZoneInfo("UTC")),
+            insight_ids=[insight_a.id, insight_b.id],
+        )
+
+        assert sorted(a["content"] for a in result) == ["a", "b"]
 
     def test_excludes_deleted_and_other_team_annotations(self) -> None:
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))

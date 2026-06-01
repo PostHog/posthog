@@ -68,23 +68,27 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
+    "marketing_analytics",
+    "metrics",
     "notebook",
     "organization",
     "organization_integration",
     "organization_member",
     "person",
-    "personal_spend",
     "persisted_folder",
     "plugin",
     "product_tour",
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
+    "query_performance",
     "replay_scanner",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "signal_scout",
+    "signal_scout_internal",
     "streamlit_app",
     "subscription",
     "survey",
@@ -102,6 +106,7 @@ APIScopeObject = Literal[
     "warehouse_view",
     "web_analytics",
     "webhook",
+    "wizard_session",
 ]
 
 APIScopeActions = Literal[
@@ -120,13 +125,22 @@ API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 # Scope objects minted programmatically only — never via the OAuth consent flow,
 # the personal-API-key UI, the CLI authorize page, or RBAC. Filtered out of
 # `get_scope_descriptions()` and rejected by every user-facing scope validator.
-INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"clickhouse_test_cluster_perf"})
+INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
+    {
+        "clickhouse_test_cluster_perf",
+        "query_performance",
+        # Sandbox-only writes for the headless Signals agent (memory create/delete,
+        # finding emit). Read access for the same surface lives on the public
+        # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
+        "signal_scout_internal",
+    }
+)
 
 # Scope objects available via personal API keys but never advertised through
 # OAuth metadata. Used for alpha / not-yet-public products where a user can
 # manually paste the scope into a PAT but where we don't want OAuth-based
 # clients (the consent screen, MCP, third-party apps) to discover it.
-OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"replay_scanner"})
+OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
@@ -191,10 +205,18 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Excludes scopes in `OAUTH_HIDDEN_SCOPE_OBJECTS` so OAuth-based clients
-    (MCP, third-party apps) don't discover scopes intended only for manually
-    issued personal API keys. PAT validation uses `get_scope_descriptions()`
-    directly and is unaffected.
+    Strict-excludes both `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only scopes
+    like `signal_scout_internal` — never advertised, never user-grantable) and
+    `OAUTH_HIDDEN_SCOPE_OBJECTS` (PAK-only alpha scopes). PAT validation uses
+    `get_scope_descriptions()` directly and is unaffected.
+
+    The Signals scout harness sandbox token carries `signal_scout_internal:write`,
+    but it is minted by directly inserting an `OAuthAccessToken` row (see
+    `posthog/temporal/oauth.py:create_oauth_access_token_for_user`) and never passes
+    through `/authorize`, so the scope needs neither advertising here nor a place in
+    `OAUTH2_PROVIDER["SCOPES"]`. Advertising it would let any OAuth client request it
+    via user consent — a durable prompt-injection vector (scratchpad rows are read
+    verbatim into every subsequent run's prompt).
     """
     visible = (
         f"{obj}:{action}"

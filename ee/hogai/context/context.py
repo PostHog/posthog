@@ -447,13 +447,50 @@ class AssistantContextManager(AssistantContextMixin):
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:
         prompts: list[ContextMessage] = []
+        ui_context = self.get_ui_context(state)
         if mode_prompt := self._get_mode_context_messages(state):
             prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(ContextMessage(content=contextual_tools, id=str(uuid4())))
-        if ui_context := await self._format_ui_context(self.get_ui_context(state)):
-            prompts.append(ContextMessage(content=ui_context, id=str(uuid4())))
+        if voice_prompt := self._get_voice_mode_prompt(ui_context):
+            prompts.append(ContextMessage(content=voice_prompt, id=str(uuid4())))
+        if formatted_ui_context := await self._format_ui_context(ui_context):
+            prompts.append(ContextMessage(content=formatted_ui_context, id=str(uuid4())))
         return self._deduplicate_context_messages(state, prompts)
+
+    def _get_voice_mode_prompt(self, ui_context: MaxUIContext | None) -> str | None:
+        """Return a voice-mode instruction reflecting the current turn's modality.
+
+        Emits a tag whenever the frontend tells us explicitly whether voice mode is on
+        or off — both states need to survive in conversation history so a typed turn
+        that follows a spoken one cleanly overrides the earlier voice formatting rules
+        (otherwise the prior <voice_mode> instruction keeps steering the model toward
+        spelled-out numbers and no markdown).
+        """
+        if ui_context is None or ui_context.voice_mode is None:
+            return None
+        if ui_context.voice_mode:
+            return (
+                "<voice_mode>\n"
+                "The user is asking via hands-free voice mode. Your response will be read "
+                "aloud by text-to-speech. Write it so it sounds natural when spoken:\n"
+                "- Spell out all numbers and currencies in words "
+                '(e.g. "one hundred dollars from five thousand two hundred and thirty eight users", '
+                'not "$100 from 5,238 users").\n'
+                "- Spell out percentages as words "
+                '(e.g. "twelve point five percent", not "12.5%").\n'
+                "- No markdown — no headings, no bullets, no bold, no inline code or code blocks.\n"
+                "- No emoji.\n"
+                "- Use plain sentences. Keep it concise — assume the user can't see the screen.\n"
+                "</voice_mode>"
+            )
+        return (
+            "<voice_mode>\n"
+            "The user is no longer in hands-free voice mode for this turn. Ignore any "
+            "earlier voice-mode formatting instructions in this conversation: you may use "
+            "markdown, numerals, currency symbols, code blocks, and emoji as normal.\n"
+            "</voice_mode>"
+        )
 
     async def _get_contextual_tools_prompt(self) -> str | None:
         from ee.hogai.registry import get_contextual_tool_class

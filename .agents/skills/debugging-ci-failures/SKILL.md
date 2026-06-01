@@ -5,9 +5,9 @@ description: >
   Use when the user asks why CI is red, mentions a failing check, GitHub Actions
   run, Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Guides read-only inspection, failure classification, smallest
-  local reproduction with hogli, and safe reporting without rerunning CI or
-  posting to GitHub.
+  build failure. Guides read-only inspection, failure classification, a check
+  for an existing CI-insights hypothesis, smallest local reproduction with
+  hogli, and safe reporting without rerunning CI or posting to GitHub.
 ---
 
 # Debugging PostHog CI failures
@@ -87,6 +87,26 @@ explains the run's conclusion. Keep excerpts under 40 lines.
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
 generic Playwright test failure.
+
+## Check existing CI insights first
+
+Before reproducing locally, check whether our CI-insights backend already has a
+hypothesis for this failure. It aggregates cross-run history — recurring flakes,
+occurrence counts, confidence — that a single run can't show, and may already
+carry a proposed or merged fix.
+
+```bash
+hogli ci:insights                                # insights for the current repo + branch
+hogli ci:insights search "<error or test name>"  # match this specific failure
+hogli ci:insights view <id>                       # one insight + its remediation actions
+hogli ci:insights plan <id>                       # print the recommended fix plan (does not apply it)
+```
+
+`hogli ci:insights` prints a setup hint if the backend isn't installed or
+authenticated — if so, skip this step. When a matching insight exists, weigh its
+confidence and occurrence history, and note whether a fix is already merged (the
+failure may already be resolved on `master`) or proposed (a plan you can adapt).
+Surface what you find per the Safety rules — do not auto-apply a fix.
 
 ## Local reproduction
 

@@ -14,6 +14,7 @@ imports keep working. New callers should import from the submodules directly.
 from posthog.temporal.data_imports.sources.common.sql.identifiers import (
     AnsiIdentifierQuoter,
     BacktickIdentifierQuoter,
+    BracketIdentifierQuoter,
     IdentifierQuoter,
     InvalidIdentifierError,
 )
@@ -22,6 +23,18 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
     build_incremental_fields,
     initial_value_for_incremental_type,
+)
+from posthog.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+    sql_schema_metadata,
+)
+from posthog.temporal.data_imports.sources.common.sql.projection import (
+    compute_projected_columns,
+    filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns,
+    format_projected_select_clause,
+    project_arrow_columns,
+    prune_enabled_columns,
 )
 from posthog.temporal.data_imports.sources.common.sql.query_builder import ParamStyle, SafeSQL, SelectQueryBuilder
 from posthog.temporal.data_imports.sources.common.sql.types import (
@@ -37,6 +50,7 @@ from posthog.temporal.data_imports.sources.common.sql.types import (
 __all__ = [
     "AnsiIdentifierQuoter",
     "BacktickIdentifierQuoter",
+    "BracketIdentifierQuoter",
     "Column",
     "ColumnType",
     "IdentifierQuoter",
@@ -51,6 +65,14 @@ __all__ = [
     "TableSchemas",
     "TableStats",
     "build_incremental_fields",
+    "compute_projected_columns",
+    "extract_available_column_names",
+    "filter_columns_by_enabled_columns",
+    "filter_dwh_columns_by_enabled_columns",
+    "format_projected_select_clause",
     "initial_value_for_incremental_type",
+    "project_arrow_columns",
+    "prune_enabled_columns",
     "resolve_detected_primary_keys",
+    "sql_schema_metadata",
 ]
