@@ -296,7 +296,7 @@ function alignGlobalsWithNotificationFilter(
 ): CyclotronJobInvocationGlobals {
     const effectiveFilter = notification?.mappings?.[0]?.filters ?? notification?.filters ?? null
     const firstEvent = effectiveFilter?.events?.[0]
-    if (!firstEvent) {
+    if (!firstEvent || !globals.event) {
         return globals
     }
     const mergedProperties = { ...globals.event.properties }

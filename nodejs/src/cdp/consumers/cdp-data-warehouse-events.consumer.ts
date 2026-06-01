@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -52,8 +51,6 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
         if (!invocationGlobals.length) {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
-
-        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
         const invocationsToBeQueued = await this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
             hogTypes: this.hogTypes,
@@ -140,25 +137,16 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     team: Team,
     siteUrl: string
 ): HogFunctionInvocationGlobals {
-    const data = event.properties
     const projectUrl = `${siteUrl}/project/${team.id}`
 
-    const context: HogFunctionInvocationGlobals = {
+    // A synced warehouse row has no captured event — expose its columns under `record`
+    // so templates reference {record.<column>} rather than a synthetic event.
+    return {
         project: {
             id: team.id,
             name: team.name,
             url: projectUrl,
         },
-        event: {
-            uuid: 'data-warehouse-table-uuid-do-not-use',
-            event: 'data-warehouse-table-event-do-not-use',
-            elements_chain: '', // Not applicable but left here for compatibility
-            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-            properties: data,
-            timestamp: DateTime.now().toISO(),
-            url: '',
-        },
+        record: event.properties,
     }
-
-    return context
 }

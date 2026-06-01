@@ -839,6 +839,25 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     name: configuration?.name ?? 'Unnamed',
                     url: currentUrl,
                 }
+
+                // Data-warehouse table rows have no captured event — expose the synced row
+                // under `record` so templates reference {record.<column>} rather than an event.
+                if (configuration?.filters?.source === 'data-warehouse-table') {
+                    return {
+                        record: {
+                            id: uuid(),
+                            // Replace these with your synced table's columns
+                            example_column: 'example value',
+                        },
+                        project: {
+                            id: currentProject?.id || 0,
+                            name: currentProject?.name || '',
+                            url: `${window.location.origin}/project/${currentProject?.id}`,
+                        },
+                        source,
+                    }
+                }
+
                 const globals: CyclotronJobInvocationGlobals =
                     configuration?.filters?.events?.[0]?.id === SurveyEventName.SENT
                         ? buildSurveyExampleInvocationGlobals({
@@ -966,6 +985,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
 
                 const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
+
+                // Data-warehouse table rows receive `record` (the synced row), `project` and
+                // `source` at runtime — never an event/person. Use the example globals (which
+                // are already record-shaped) so templates can't reference event/person.
+                if (configuration?.filters?.source === 'data-warehouse-table') {
+                    return {
+                        project: exampleInvocationGlobals.project,
+                        source: exampleInvocationGlobals.source,
+                        record: exampleInvocationGlobals.record,
+                        inputs,
+                    }
+                }
 
                 // Transformations only receive `project` and `event` at runtime
                 // (see HogTransformerService.createInvocationGlobals). Hide `person`,

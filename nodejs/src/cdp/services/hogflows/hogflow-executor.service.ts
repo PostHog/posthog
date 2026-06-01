@@ -45,6 +45,10 @@ export function createHogFlowInvocation(
     hogFlow: HogFlow,
     filterGlobals: HogFunctionFilterGlobals
 ): CyclotronJobInvocationHogFlow {
+    if (!globals.event) {
+        // Workflows are event-triggered; an event is always present in this path.
+        throw new Error('Cannot create a hog flow invocation without an event')
+    }
     // Build default variables from hogFlow, then merge in any provided in globals.variables
     const defaultVariables =
         hogFlow.variables?.reduce(

@@ -109,8 +109,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.state.globals.event.event = 'mycustomevent'
-            invocation.state.globals.event.properties = {
+            invocation.state.globals.event!.event = 'mycustomevent'
+            invocation.state.globals.event!.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -182,8 +182,8 @@ describe('CdpCyclotronWorkerPlugins', () => {
             jest.spyOn(intercomPlugin as any, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.state.globals.event.event = 'mycustomevent'
-            invocation.state.globals.event.properties = {
+            invocation.state.globals.event!.event = 'mycustomevent'
+            invocation.state.globals.event!.properties = {
                 email: 'test@posthog.com',
             }
 

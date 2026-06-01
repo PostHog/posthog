@@ -90,7 +90,7 @@ export class CdpCyclotronWorker<
 
                 await Promise.all([
                     this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
-                    !hogFuncState.globals.person
+                    !hogFuncState.globals.person && hogFuncState.globals.event
                         ? this.personsManager
                               .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
                               .then((person) => {

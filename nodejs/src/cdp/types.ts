@@ -72,6 +72,20 @@ export type CyclotronPerson = {
     distinct_id?: string
 }
 
+export type HogFunctionInvocationGlobalEvent = {
+    /* Database fields */
+    uuid: string
+    event: string
+    distinct_id: string
+    properties: Record<string, unknown>
+    elements_chain: string
+    timestamp: string
+    captured_at?: string | null
+
+    /* Special fields in Hog */
+    url: string
+}
+
 export type HogFunctionInvocationGlobals = {
     project: {
         id: number
@@ -82,21 +96,14 @@ export type HogFunctionInvocationGlobals = {
         name: string
         url: string
     }
-    event: {
-        /* Database fields */
-        uuid: string
-        event: string
-        distinct_id: string
-        properties: Record<string, unknown>
-        elements_chain: string
-        timestamp: string
-        captured_at?: string | null
-
-        /* Special fields in Hog */
-        url: string
-    }
+    // Optional: not present for sources that don't originate from a captured event
+    // (e.g. data-warehouse table rows, which expose their columns under `record` instead).
+    event?: HogFunctionInvocationGlobalEvent
     person?: CyclotronPerson
     groups?: Record<string, GroupType>
+
+    // A synced data-warehouse table row, keyed by column name. Set for data-warehouse-table sources.
+    record?: Record<string, unknown>
 
     // Unique to sources - will be modified later
     request?: {
@@ -325,7 +332,7 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
 }
 
 export type HogFlowInvocationContext = {
-    event: HogFunctionInvocationGlobals['event']
+    event: HogFunctionInvocationGlobalEvent
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
     actionStepCount: number
     currentAction?: {

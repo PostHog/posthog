@@ -198,8 +198,11 @@ export class HogFunctionInvocationPipeline {
 
         const triggeredInvocationsMetrics: MinimalAppMetric[] = []
 
-        // Track unique events that have been billed (billing is per-event, not per-destination)
+        // Bill once per trigger, not per destination. Events dedup by event uuid. Sources
+        // without an event (e.g. data-warehouse table rows) share a `record` object across
+        // every destination they trigger, so we dedup on that reference instead.
         const billedEventUuids = new Set<string>()
+        const billedRecords = new Set<object>()
 
         notMaskedInvocations.forEach((item) => {
             triggeredInvocationsMetrics.push({
@@ -210,20 +213,36 @@ export class HogFunctionInvocationPipeline {
                 count: 1,
             })
 
-            // Bill once per triggering event, not per destination
-            if (item.hogFunction.type === 'destination') {
-                const eventUuid = item.state?.globals?.event?.uuid
-                if (eventUuid && !billedEventUuids.has(eventUuid)) {
+            if (item.hogFunction.type !== 'destination') {
+                return
+            }
+
+            const globals = item.state?.globals
+            const eventUuid = globals?.event?.uuid
+            const record = globals?.record
+
+            let instanceId: string | undefined
+            if (eventUuid) {
+                if (!billedEventUuids.has(eventUuid)) {
                     billedEventUuids.add(eventUuid)
-                    triggeredInvocationsMetrics.push({
-                        team_id: item.teamId,
-                        app_source_id: '_event_trigger',
-                        instance_id: eventUuid,
-                        metric_kind: 'billing',
-                        metric_name: 'billable_invocation',
-                        count: 1,
-                    })
+                    instanceId = eventUuid
                 }
+            } else if (record) {
+                if (!billedRecords.has(record)) {
+                    billedRecords.add(record)
+                    instanceId = item.id
+                }
+            }
+
+            if (instanceId !== undefined) {
+                triggeredInvocationsMetrics.push({
+                    team_id: item.teamId,
+                    app_source_id: '_event_trigger',
+                    instance_id: instanceId,
+                    metric_kind: 'billing',
+                    metric_name: 'billable_invocation',
+                    count: 1,
+                })
             }
         })
 

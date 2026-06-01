@@ -40,7 +40,12 @@ import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-wa
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+import {
+    HogFunctionInvocationGlobalEvent,
+    HogFunctionInvocationGlobals,
+    HogFunctionType,
+    MinimalLogEntry,
+} from './types'
 import {
     convertToHogFunctionInvocationGlobals,
     isNativeHogFunction,
@@ -444,6 +449,9 @@ export class CdpApi {
                     logs: logs,
                 })
             } else if (compoundConfiguration.type === 'transformation') {
+                if (!triggerGlobals.event) {
+                    return res.status(400).json({ error: 'Transformations require an event to be provided' })
+                }
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()
@@ -604,7 +612,7 @@ export class CdpApi {
 
             // Build a synthetic event for the scheduled run. Schedule triggers don't have a real
             // event, but the executor expects one to populate globals.event used by downstream actions.
-            const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
+            const syntheticEvent: HogFunctionInvocationGlobalEvent = {
                 uuid: new UUIDT().toString(),
                 event: '$workflow_scheduled',
                 distinct_id: `workflow-${hogFlow.id}`,

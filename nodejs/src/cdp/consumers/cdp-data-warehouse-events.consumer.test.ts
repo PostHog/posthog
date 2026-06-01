@@ -98,13 +98,13 @@ describe('CdpDatawarehouseEventsConsumer', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].project.id).toBe(team.id)
-            expect(invocations[0].event.properties).toMatchObject({
+            expect(invocations[0].record).toMatchObject({
                 column1: 'value1',
                 column2: 123,
                 test_prop: 'test_value',
             })
-            expect(invocations[0].event.uuid).toBe('data-warehouse-table-uuid-do-not-use')
-            expect(invocations[0].event.event).toBe('data-warehouse-table-event-do-not-use')
+            // The synced row is exposed under `record`, with no synthetic event.
+            expect(invocations[0].event).toBeUndefined()
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {
@@ -225,7 +225,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].teamId).toBe(fnFetchNoFilters.team_id)
-            expect(invocations[0].state?.globals.event.properties).toMatchObject({
+            expect(invocations[0].state?.globals.record).toMatchObject({
                 column1: 'value1',
                 column2: 123,
                 test_prop: 'test_value',
@@ -293,14 +293,15 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                             timestamp: expect.any(String),
                         },
                     },
-                    // Billing is per-event, not per-destination
+                    // Billing is per-row, not per-destination. Rows have no event uuid, so the
+                    // billing record is keyed by the triggered invocation's id.
                     {
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: '_event_trigger',
-                            instance_id: globals.event.uuid,
+                            instance_id: invocations[0].id,
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
@@ -336,7 +337,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(billingMetrics).toHaveLength(1)
             expect(billingMetrics[0].value).toMatchObject({
                 app_source_id: '_event_trigger',
-                instance_id: globals.event.uuid,
+                instance_id: expect.any(String),
                 metric_name: 'billable_invocation',
             })
         })

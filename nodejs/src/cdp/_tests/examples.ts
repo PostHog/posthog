@@ -560,10 +560,10 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
             body: {
                 order: 2,
                 value: {
-                    event: '{event}',
+                    record: '{record}',
                 },
                 bytecode: {
-                    event: ['_H', 1, 32, 'event', 1, 1],
+                    record: ['_H', 1, 32, 'record', 1, 1],
                 },
             },
         },

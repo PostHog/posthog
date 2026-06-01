@@ -126,6 +126,13 @@ export class GroupsManagerService {
             return
         }
 
+        // Group membership is derived from event $group_* properties. Sources without a
+        // captured event (e.g. data-warehouse table rows) have no groups to enrich.
+        if (!globals.event) {
+            globals.groups = {}
+            return
+        }
+
         globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
     }
 
