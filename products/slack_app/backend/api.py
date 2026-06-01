@@ -266,6 +266,13 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
     return {}
 
 
+def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
+    """Whether the Slack user is a workspace admin or owner."""
+    user_info = _get_slack_user_info(slack, integration, slack_user_id)
+    slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
+    return bool(slack_user.get("is_admin") or slack_user.get("is_owner"))
+
+
 def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
     try:
         profile = SlackUserProfileCache.objects.filter(
