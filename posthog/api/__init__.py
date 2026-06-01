@@ -31,7 +31,7 @@ from products.desktop_recordings.backend.routes import register_routes as regist
 from products.early_access_features.backend.routes import register_routes as register_early_access_features_routes
 from products.endpoints.backend.routes import register_routes as register_endpoints_routes
 from products.error_tracking.backend.routes import register_routes as register_error_tracking_routes
-from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
+from products.feature_flags.backend.routes import register_routes as register_feature_flags_routes
 from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
 from products.links.backend.routes import register_routes as register_links_routes
 from products.live_debugger.backend.routes import register_routes as register_live_debugger_routes
@@ -139,7 +139,6 @@ router.register(
 )  # To be deleted - unified into insight viewset
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
-router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
@@ -261,12 +260,6 @@ projects_router.register(
     "project_my_notifications",
     ["project_id"],
 )
-project_feature_flags_router = projects_router.register(
-    r"feature_flags",
-    feature_flag.FeatureFlagViewSet,
-    "project_feature_flags",
-    ["project_id"],
-)
 register_wizard_routes(routers)
 register_deployments_routes(routers)
 
@@ -355,12 +348,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
-    r"scheduled_changes",
-    scheduled_change.ScheduledChangeViewSet,
-    "project_scheduled_changes",
-    ["project_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
@@ -466,6 +453,9 @@ register_notifications_routes(routers)
 organizations_router = routers.add(
     "organizations", router.register(r"organizations", organization.OrganizationViewSet, "organizations")
 )
+# feature_flags registers on root + projects + organizations, so it runs once the
+# organizations parent exists.
+register_feature_flags_routes(routers)
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"integrations",
@@ -538,12 +528,6 @@ organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
     "proxy_records",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"feature_flags",
-    organization_feature_flag.OrganizationFeatureFlagView,
-    "organization_feature_flags",
     ["organization_id"],
 )
 organizations_router.register(
@@ -914,12 +898,6 @@ register_marketing_analytics_routes(routers)
 
 register_revenue_analytics_routes(routers)
 
-projects_router.register(
-    r"flag_value",
-    flag_value.FlagValueViewSet,
-    "project_flag_value",
-    ["project_id"],
-)
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
