@@ -58,36 +58,15 @@ jobs:
         if: github.event.action == 'opened'
 
         steps:
-            # The author is the PR's DRI, so assign them to their own PR: this is
-            # the field dashboards and "what's on my plate" filters key off, and it
-            # gives a single owner to poke. Skip forks (external authors aren't
-            # assignable) and bot-authored PRs. Never fail the PR over it.
-            - name: Assign the author to their own PR
-              if: >-
-                  github.event.pull_request.head.repo.full_name == github.repository &&
-                  !endsWith(github.event.pull_request.user.login, '[bot]')
-              continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              env:
-                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
-              with:
-                  script: |
-                      await github.rest.issues.addAssignees({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: parseInt(process.env.PR_NUMBER, 10),
-                          assignees: [process.env.PR_AUTHOR],
-                      });
-
-            # GitHub App token is required because GITHUB_TOKEN can't read
-            # org-private memberships (a private member looks like a non-member).
-            # `owner`/`repositories` keep the token narrow while still scoping it at
-            # the org, so the org-level `Members: read` permission flows through —
-            # without `owner` the token is repo-scoped and that permission is dropped
-            # (see ci-backend.yml). On PRs from forks the secrets aren't available,
-            # so this step is allowed to fail — external contributors are never nudged.
-            - name: Get app token for org membership check
+            # Shared app token for both steps below. GITHUB_TOKEN can't read
+            # org-private memberships (a private member looks like a non-member),
+            # and we reuse it for assignment too. `owner`/`repositories` keep the
+            # token narrow while still scoping it at the org, so the org-level
+            # `Members: read` permission flows through — without `owner` the token
+            # is repo-scoped and that permission is dropped (see ci-backend.yml).
+            # On PRs from forks the secrets aren't available, so this step is
+            # allowed to fail — external contributors are never assigned or nudged.
+            - name: Get app token
               id: app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -96,6 +75,32 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
                   owner: ${{ github.repository_owner }}
                   repositories: ${{ github.event.repository.name }}
+
+            # The author is the PR's DRI, so assign them to their own PR: this is
+            # the field dashboards and "what's on my plate" filters key off, and it
+            # gives a single owner to poke. Only when no assignee is set yet (don't
+            # clobber a deliberate one), and skip forks (external authors aren't
+            # assignable) and bot-authored PRs. Never fail the PR over it.
+            - name: Assign the author to their own PR
+              if: >-
+                  steps.app-token.outputs.token != '' &&
+                  github.event.pull_request.head.repo.full_name == github.repository &&
+                  github.event.pull_request.assignees[0] == null &&
+                  !endsWith(github.event.pull_request.user.login, '[bot]')
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  github-token: ${{ steps.app-token.outputs.token }}
+                  script: |
+                      await github.rest.issues.addAssignees({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: parseInt(process.env.PR_NUMBER, 10),
+                          assignees: [process.env.PR_AUTHOR],
+                      });
 
             - name: Check whether PR author is a PostHog org member
               id: membership
