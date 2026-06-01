@@ -106,6 +106,28 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         expect(lastChannelsQuery.search).toBe('')
         expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1', 'C2'])
     })
+
+    it('isMemberOfSlackChannel returns null when the channel has not been loaded yet', () => {
+        // Default selector state: no channels fetched, no by-id lookup landed. The picker uses
+        // === false strict comparison to decide whether to show the "not in channel" warning, so
+        // returning null here is what keeps that warning hidden until membership is actually known.
+        expect(logic.values.isMemberOfSlackChannel('C_UNKNOWN')).toBeNull()
+    })
+
+    it('isMemberOfSlackChannel returns true/false once the channel is in slackChannels', async () => {
+        nextChannelsResponse = [
+            { id: 'CMEMBER', name: 'i-am-a-member' },
+            // Override the helper's default by patching is_member after the fact.
+        ]
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // The fixture builds channels with is_member: true by default.
+        expect(logic.values.isMemberOfSlackChannel('CMEMBER')).toBe(true)
+        // Unrelated id still reads as not-yet-loaded.
+        expect(logic.values.isMemberOfSlackChannel('CMISSING')).toBeNull()
+    })
 })
 
 describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () => {
