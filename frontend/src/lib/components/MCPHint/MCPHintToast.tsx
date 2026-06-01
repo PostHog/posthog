@@ -25,7 +25,7 @@ export function MCPHintToast({
             <div className="flex items-center gap-1.5 text-sm">
                 <IconSparkles className="size-4 shrink-0" />
                 <span>
-                    Next time, ask <AgentBadgeRotator surfaceKey={surfaceKey} /> to do it for you:
+                    Next time, ask <AgentBadgeRotator /> to do it for you:
                 </span>
             </div>
             <div className="text-xs italic text-muted leading-snug">{prompt}</div>
