@@ -190,6 +190,44 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
+        excluded_variants = parameters.get("excluded_variants")
+        if excluded_variants is None:
+            return
+
+        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
+            raise ValidationError("excluded_variants must be a list of strings")
+
+        if not excluded_variants:
+            return
+
+        # `parameters` is replaced wholesale on update (see update_experiment:
+        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
+        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
+        # otherwise the stored object would have no variants at all. Surface that
+        # explicitly rather than letting every key fall through to "unknown variants".
+        if not variants:
+            raise ValidationError(
+                "excluded_variants requires feature_flag_variants in the same request — "
+                "parameters are replaced as a whole on update, so send the full parameters object"
+            )
+
+        variant_keys = {v["key"] for v in variants}
+        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
+
+        holdout_excluded = {k for k in excluded_variants if k.startswith("holdout-")}
+        if holdout_excluded:
+            raise ValidationError(f"cannot exclude holdout pseudo-variants: {sorted(holdout_excluded)}")
+
+        if baseline_key in excluded_variants:
+            raise ValidationError(f"baseline variant cannot be excluded ('{baseline_key}')")
+
+        unknown = set(excluded_variants) - variant_keys
+        if unknown:
+            raise ValidationError(f"unknown variants for this experiment: {sorted(unknown)}")
+
+        if not variant_keys - set(excluded_variants) - {baseline_key}:
+            raise ValidationError("at least one test variant must remain in analysis")
+
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
     EXPOSURE_CONFIG_HINT = (
@@ -672,6 +710,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
@@ -681,6 +720,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
@@ -964,6 +1004,7 @@ class ExperimentService:
         stats_config: dict | None,
         exposure_criteria: dict | None,
         only_count_matured_users: bool = False,
+        excluded_variants: list[str] | None = None,
     ) -> list[dict]:
         """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
@@ -976,6 +1017,7 @@ class ExperimentService:
                 stats_method,
                 exposure_criteria,
                 only_count_matured_users=only_count_matured_users,
+                excluded_variants=excluded_variants,
             )
             updated.append(metric_copy)
         return updated
@@ -1155,7 +1197,11 @@ class ExperimentService:
                     experiment,
                     metric_field,
                     self._recompute_fingerprints(
-                        metrics, experiment.start_date, experiment.stats_config, experiment.exposure_criteria
+                        metrics,
+                        experiment.start_date,
+                        experiment.stats_config,
+                        experiment.exposure_criteria,
+                        excluded_variants=(experiment.parameters or {}).get("excluded_variants"),
                     ),
                 )
 
@@ -1861,6 +1907,8 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
+        new_parameters = update_data.get("parameters", experiment.parameters)
+        excluded_variants = (new_parameters or {}).get("excluded_variants")
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -1871,6 +1919,7 @@ class ExperimentService:
                     stats_config,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=excluded_variants,
                 )
 
         # --- metric ordering sync + validation -----------------------------

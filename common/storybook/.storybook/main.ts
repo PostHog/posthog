@@ -61,6 +61,8 @@ const config: StorybookConfig = {
     build: {
         test: {
             disableSourcemaps: !!process.env.CI,
+            // esbuild minifier: the default swc one rejects `extractComments` and breaks prod builds
+            esbuildMinify: true,
         },
     },
 

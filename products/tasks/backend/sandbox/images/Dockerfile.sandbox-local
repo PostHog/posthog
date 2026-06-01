@@ -21,5 +21,5 @@ RUN cd /local-shared && pnpm pack && \
     sed -i 's/"@posthog\/git": "workspace:\*"/"@posthog\/git": "file:\/local-git\/posthog-git-1.0.0.tgz"/' package.json && \
     sed -i 's/"@posthog\/enricher": "workspace:\*"/"@posthog\/enricher": "file:\/local-enricher\/posthog-enricher-1.0.0.tgz"/' package.json && \
     pnpm pack && \
-    cd /scripts && pnpm install /local-agent/*.tgz && \
+    cd /scripts && pnpm install /local-agent/*.tgz --config.dangerouslyAllowAllBuilds=true && \
     rm -rf /local-agent /local-shared /local-git /local-enricher

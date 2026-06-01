@@ -29,7 +29,6 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { modelLabel, scannerTypeLabel } from '../replay_scanners/types'
-import { parseCitedText } from '../utils/citations'
 import { replayObservationLogic } from './replayObservationLogic'
 import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -70,6 +69,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
     const reasoning = result && typeof result.reasoning === 'string' ? result.reasoning : null
+    const reasoningSegments = result?.reasoning_segments
     const scannerType = snapshot?.scanner_type
     const scannerName = snapshot?.name || 'Scanner'
     const triggerLabel = observation.triggered_by === 'on_demand' ? 'On demand' : 'Schedule'
@@ -150,10 +150,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         <div className="text-sm font-medium">Reasoning</div>
                         {reasoning ? (
                             <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText
-                                    parts={parseCitedText(reasoning, observation.scanner_result?.event_id_mapping)}
-                                    onSeek={seekEmbeddedPlayer}
-                                />
+                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                             </p>
                         ) : (
                             <p className="text-muted text-sm m-0">No reasoning provided.</p>

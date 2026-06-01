@@ -18,7 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -54,6 +54,19 @@ def _make_data_warehouse_goal() -> ConversionGoalFilter3:
         conversion_goal_name="Test DW Goal",
         schema_map={"utm_campaign_name": "utm_campaign"},
     )
+
+
+def _resolve_precompute_select(select_ast: ast.SelectQuery) -> ast.SelectQuery:
+    """Resolve the time-window placeholders the way the lazy framework does per job."""
+    resolved = replace_placeholders(
+        select_ast,
+        {
+            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
+            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
+        },
+    )
+    assert isinstance(resolved, ast.SelectQuery)
+    return resolved
 
 
 class TestConversionGoalProcessorRefactor(BaseTest):
@@ -159,32 +172,21 @@ class TestConversionGoalProcessorRefactor(BaseTest):
 
         assert first.get_precompute_hash_inputs() != last.get_precompute_hash_inputs()
 
-    def test_precompute_template_contains_time_window_placeholders(self):
+    def test_precompute_query_exposes_time_window_placeholders(self):
         processor = self._processor()
-        template, _ = processor.get_attributed_query_for_precomputation()
-        assert "{time_window_min}" in template
-        assert "{time_window_max}" in template
+        select_ast = processor.get_attributed_query_for_precomputation()
+        placeholder_fields = find_placeholders(select_ast).placeholder_fields
+        assert ["time_window_min"] in placeholder_fields
+        assert ["time_window_max"] in placeholder_fields
 
-    def test_precompute_template_parses_with_framework_placeholders(self):
+    def test_precompute_query_resolves_with_framework_placeholders(self):
         processor = self._processor()
-        template, custom_placeholders = processor.get_attributed_query_for_precomputation()
-        placeholders = {
-            **custom_placeholders,
-            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
-            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
-        }
-        parsed = parse_select(template, placeholders=placeholders)
-        assert isinstance(parsed, ast.SelectQuery)
+        resolved = _resolve_precompute_select(processor.get_attributed_query_for_precomputation())
+        assert isinstance(resolved, ast.SelectQuery)
 
-    def test_precompute_template_matches_preagg_table_columns(self):
+    def test_precompute_query_matches_preagg_table_columns(self):
         processor = self._processor()
-        template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders: dict[str, ast.Expr] = {
-            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
-            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
-        }
-        write_template = parse_select(template, placeholders=placeholders)
-        assert isinstance(write_template, ast.SelectQuery)
+        write_template = _resolve_precompute_select(processor.get_attributed_query_for_precomputation())
         aliases = [e.alias for e in write_template.select if isinstance(e, ast.Alias)]
         for col in write_template.select:
             assert isinstance(col, ast.Alias), f"SELECT column not aliased: {col}"
@@ -229,16 +231,10 @@ class TestConversionGoalProcessorRefactor(BaseTest):
         with patch(target, return_value={"utm_source"}):
             assert processor._should_use_precompute(date_from, date_to) is False
 
-    def test_precompute_template_supports_multi_touch(self):
+    def test_precompute_query_supports_multi_touch(self):
         processor = self._processor()
         processor.config.attribution_mode = AttributionMode.LINEAR
-        template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders: dict[str, ast.Expr] = {
-            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
-            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
-        }
-        parsed = parse_select(template, placeholders=placeholders)
-        assert isinstance(parsed, ast.SelectQuery)
+        parsed = _resolve_precompute_select(processor.get_attributed_query_for_precomputation())
         aliases = [e.alias for e in parsed.select if isinstance(e, ast.Alias)]
         assert "touchpoint_weight" in aliases
         assert "touchpoint_timestamp" in aliases
@@ -284,12 +280,7 @@ class TestConversionGoalProcessorRefactor(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_precompute_insert_template_sql_snapshot(self):
         processor = self._processor()
-        template, _ = processor.get_attributed_query_for_precomputation()
-        placeholders: dict[str, ast.Expr] = {
-            "time_window_min": ast.Constant(value=datetime(2025, 1, 1, tzinfo=UTC)),
-            "time_window_max": ast.Constant(value=datetime(2025, 1, 2, tzinfo=UTC)),
-        }
-        parsed = parse_select(template, placeholders=placeholders)
+        parsed = _resolve_precompute_select(processor.get_attributed_query_for_precomputation())
         assert pretty_print_in_tests(to_printed_hogql(parsed, team=self.team), self.team.pk) == self.snapshot
 
     @pytest.mark.usefixtures("unittest_snapshot")
