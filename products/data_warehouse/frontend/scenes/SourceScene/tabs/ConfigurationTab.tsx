@@ -12,6 +12,7 @@ import { SourceFormComponent } from 'products/data_warehouse/frontend/shared/com
 
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { buildKeaFormDefaultFromSourceDetails } from '../../NewSourceScene/sourceWizardLogic'
+import { CDCSection } from './CDCSection'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 interface ConfigurationTabProps {
@@ -97,6 +98,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     </AccessControlAction>
                 </div>
             </Form>
+            <CDCSection source={source} />
         </>
     )
 }
