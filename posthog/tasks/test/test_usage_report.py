@@ -34,14 +34,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Plugin, Team
+from posthog.models import Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
-from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
@@ -62,6 +62,7 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -1457,7 +1458,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
     def test_active_hog_destinations_and_transformations_per_team(
         self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
     ) -> None:
-        from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
         self._setup_teams()
 
@@ -2727,6 +2728,81 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["logs_bytes_in_period"] == 2_500_000_000
         assert org_1_report["teams"]["4"]["logs_records_in_period"] == 2000
         assert org_1_report["teams"]["4"]["logs_mb_in_period"] == 2500
+
+    def _logs_records_json(self, team_id: int, sdk_name: str | None, count: int) -> str:
+        resource_attributes = {"telemetry.sdk.name": sdk_name} if sdk_name is not None else {}
+        lines = ""
+        for _ in range(count):
+            lines += (
+                json.dumps(
+                    {
+                        "uuid": str(uuid4()),
+                        "team_id": team_id,
+                        "timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "observed_timestamp": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "body": "test log line",
+                        "severity_text": "info",
+                        "severity_number": 9,
+                        "service_name": "test-service",
+                        "resource_attributes": resource_attributes,
+                    }
+                )
+                + "\n"
+            )
+        return lines
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_logs_per_sdk_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
+        self._setup_teams()
+        # A team only shows per-SDK counts if it also has an app_metrics2 logs row: the per-SDK query
+        # is pre-filtered to those team_ids to stay under the Logs cluster scan-bytes limit.
+        org_1_team_3 = Team.objects.create(pk=5, organization=self.org_1, name="Team 3 org 1")
+
+        # Truncate the actual local shard the schema defines (not a hardcoded name) so the test
+        # stays clean across re-runs even if the shard is renamed in a future logs migration.
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {LOGS_LOCAL_TABLE}")
+
+        for team in (self.org_1_team_1, self.org_1_team_2):
+            create_app_metric2(
+                team_id=team.id,
+                app_source="logs",
+                metric_name="records_ingested",
+                count=1,
+            )
+
+        lines = ""
+        lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
+        lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
+        lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
+        # A server SDK and an infra log (no telemetry.sdk.name) must not be counted.
+        lines += self._logs_records_json(self.org_1_team_2.id, "posthog-node", 5)
+        lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
+        # Team 3 has log records but no app_metrics2 row, so the pre-filter excludes it entirely.
+        lines += self._logs_records_json(org_1_team_3.id, "posthog-ios", 9)
+        sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        period_start, period_end = period
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+
+        # Expected per-SDK counts by scope. posthog-node (server SDK) and the infra log with no
+        # telemetry.sdk.name are not counted; flutter ships no logs yet; team 5 has log records but
+        # no app_metrics2 row, so the pre-filter drops it entirely.
+        expected_counts: dict[str, tuple[dict, dict[str, int]]] = {
+            "org": (org_1_report, {"ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
+            "team 3": (org_1_report["teams"]["3"], {"ios": 2, "android": 1, "react_native": 0}),
+            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "ios": 0}),
+            "team 5": (org_1_report["teams"]["5"], {"ios": 0}),
+        }
+        for scope, (counters, per_sdk) in expected_counts.items():
+            for sdk, expected in per_sdk.items():
+                field = f"{sdk}_logs_records_in_period"
+                assert counters[field] == expected, f"{scope}: {field} should be {expected}, got {counters[field]}"
 
 
 @freeze_time("2022-01-10T10:00:00Z")

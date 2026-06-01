@@ -17,6 +17,8 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
+from ee.hogai.tools.create_notebook.tiptap import markdown_to_tiptap_nodes
+
 from .serializers import (
     AccountNotebookSerializer,
     AccountSerializer,
@@ -266,12 +268,32 @@ class AccountNotebookViewSet(
     @transaction.atomic
     def perform_create(self, serializer):
         account = self._get_account()
-        notebook = serializer.save(
-            team=self.team,
-            created_by=self.request.user,
-            last_modified_by=self.request.user,
-            visibility=Notebook.Visibility.INTERNAL,
+        save_kwargs: dict = {
+            "team": self.team,
+            "created_by": self.request.user,
+            "last_modified_by": self.request.user,
+            "visibility": Notebook.Visibility.INTERNAL,
+        }
+
+        # Agents calling the MCP `accounts-notebooks-create` tool typically pass `text_content`
+        # (Markdown) without a ProseMirror `content` tree, since hand-writing ProseMirror is
+        # awkward. NotebookScene only renders `content`, so the result is a blank page. Treat
+        # `text_content` as Markdown and synthesize `content` from it when the caller hasn't.
+        validated = serializer.validated_data
+        text_content = validated.get("text_content")
+        existing_content = validated.get("content")
+        has_usable_content = (
+            isinstance(existing_content, dict)
+            and existing_content.get("type") == "doc"
+            and isinstance(existing_content.get("content"), list)
         )
+        if text_content and not has_usable_content:
+            save_kwargs["content"] = {
+                "type": "doc",
+                "content": markdown_to_tiptap_nodes(text_content) or [{"type": "paragraph"}],
+            }
+
+        notebook = serializer.save(**save_kwargs)
         ResourceNotebook.objects.create(notebook=notebook, account=account)
 
     @transaction.atomic

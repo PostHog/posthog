@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-05-26 20:36:55 UTC
+// Generated at: 2026-05-29 20:44:26 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -26,6 +26,7 @@ export type CanonicalProvider =
     | 'azure'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
+    | 'baidu-fp4'
     | 'baidu-fp8'
     | 'baseten-fp4'
     | 'cerebras-fp16'
@@ -37,6 +38,7 @@ export type CanonicalProvider =
     | 'cloudflare-fp8'
     | 'cohere'
     | 'crucible'
+    | 'crucible-fast'
     | 'deepinfra-base'
     | 'deepinfra-bf16'
     | 'deepinfra-fp16'
@@ -46,9 +48,11 @@ export type CanonicalProvider =
     | 'deepseek'
     | 'dekallm-bf16'
     | 'dekallm-fp8'
+    | 'digitalocean'
     | 'featherless'
     | 'fireworks'
     | 'friendli'
+    | 'gmicloud-bf16'
     | 'gmicloud-fp8'
     | 'google-ai-studio'
     | 'google-ai-studio-global'
@@ -94,6 +98,7 @@ export type CanonicalProvider =
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
+    | 'open-inference-bf16'
     | 'open-inference-int8'
     | 'openai'
     | 'openai-default'
@@ -114,6 +119,7 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
+    | 'sambanova-minimax-m2-7-dedicated'
     | 'sambanova-turbo'
     | 'seed-fp8'
     | 'siliconflow'

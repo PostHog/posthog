@@ -94,7 +94,7 @@ class TestExports(APIBaseTest):
             team=cls.team, dashboard_id=cls.dashboard.id, export_format="image/png", created_by=cls.user
         )
 
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
         # add filter to dashboard
         self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
@@ -127,7 +127,7 @@ class TestExports(APIBaseTest):
         mock_exporter_task.assert_called_once()
         assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
         one_week_from_now = datetime.now() + timedelta(weeks=1)
         response = self.client.post(
@@ -166,7 +166,7 @@ class TestExports(APIBaseTest):
         mock_exporter_task.assert_called_once()
         assert mock_exporter_task.call_args[0][0].id == data["id"]
 
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
         # regression test see https://github.com/PostHog/posthog/issues/11204
 
@@ -189,7 +189,7 @@ class TestExports(APIBaseTest):
         assert mock_exporter_task.call_args[0][0].id == data["id"]
 
     @patch("products.exports.backend.tasks.image_exporter._export_to_png")
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
         response = self.client.post(
@@ -294,7 +294,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_will_error_if_export_unsupported(self, mock_exporter_task) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -393,7 +393,7 @@ class TestExports(APIBaseTest):
             },
         )
 
-    @patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow")
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     @patch("products.exports.backend.tasks.csv_exporter.requests.request")
     def test_can_download_a_csv(self, patched_request, _mock_workflow) -> None:
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
@@ -929,8 +929,8 @@ class TestExports(APIBaseTest):
             ("application/pdf", timedelta(days=180)),
         ]
     )
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_export_expiry_varies_by_format(
         self, export_format, expected_delta, mock_async_connect, mock_async_to_sync
     ) -> None:
@@ -961,8 +961,8 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(data["expires_after"], expected_expiry)
 
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_monthly_limit(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that video exports are limited to 10 per calendar month"""
         # Create 9 video exports this month (we're at the limit - 1)
@@ -1002,8 +1002,8 @@ class TestExports(APIBaseTest):
         self.assertEqual(error_data["attr"], "export_limit_exceeded")
         self.assertIn("reached the limit of 10 full video exports this month", error_data["detail"])
 
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_applies_to_all_video_formats(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the limit applies to both MP4 and WebM session recording exports"""
         # Create 5 MP4 and 5 WebM exports this month (at the limit)
@@ -1045,8 +1045,8 @@ class TestExports(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     @freeze_time("2024-01-15T12:00:00Z")
     def test_video_export_limit_resets_monthly(self, mock_async_connect, mock_async_to_sync) -> None:
         """Test that the video export limit resets at the beginning of each month"""
@@ -1118,8 +1118,8 @@ class TestExports(APIBaseTest):
             ),
         ]
     )
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_varies_by_plan_tier(
         self,
         _name: str,
@@ -1179,8 +1179,8 @@ class TestExports(APIBaseTest):
             ("free_override_above_tier_wins", [], 30, 30),
         ]
     )
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_extra_settings_override_acts_as_floor_above_plan_tier(
         self,
         _name: str,
@@ -1229,8 +1229,8 @@ class TestExports(APIBaseTest):
             ("user_assets_count", False, False),
         ]
     )
-    @patch("posthog.api.exports.async_to_sync")
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_to_sync")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_video_export_limit_excludes_system_assets(
         self,
         _name: str,
@@ -1287,7 +1287,7 @@ class TestExports(APIBaseTest):
         self.assertEqual(asset.exception_type, "QueryError")
         self.assertEqual(asset.failure_type, "user")
 
-    @patch("posthog.api.exports.async_connect")
+    @patch("products.exports.backend.api.exports.async_connect")
     def test_workflow_failure_returns_201_with_failed_asset(self, mock_async_connect) -> None:
         mock_client = AsyncMock()
         mock_client.execute_workflow.side_effect = Exception("workflow failed")
@@ -1342,7 +1342,7 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
 
         with (
             patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
-            patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"),
+            patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
             mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
@@ -1363,7 +1363,7 @@ class TestExportMixin(APIBaseTest):
         with self.settings(SITE_URL="http://testserver", OBJECT_STORAGE_ENABLED=False):
             with (
                 patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request,
-                patch("posthog.api.exports.ExportedAssetSerializer._start_export_workflow"),
+                patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
             ):
 
                 def requests_side_effect(*args, **kwargs):

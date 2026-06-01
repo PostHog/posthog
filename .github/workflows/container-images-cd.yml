@@ -560,7 +560,7 @@ jobs:
             - name: Check for changes that affect llm analytics evals temporal worker
               id: check_changes_llm_analytics_evals_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics|^products/llm_analytics|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/(ai_observability|llm_analytics)|^products/(ai_observability|llm_analytics)|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

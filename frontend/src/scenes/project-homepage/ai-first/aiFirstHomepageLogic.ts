@@ -1,7 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -92,6 +94,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         actions: [
             maxLogic({ tabId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
+            handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }),
+            ['enterHandsFree'],
             sceneLogic,
             ['setHomepage'],
             tabUiStateLogic,
@@ -101,6 +105,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     actions({
         submitQuery: (mode: 'search' | 'ai') => ({ mode }),
+        startHandsFreeChat: true,
         enterAiMode: (trigger: string) => ({ trigger }),
         setQuery: (query: string) => ({ query }),
         setAnimationPhase: (phase: AnimationPhase) => ({ phase }),
@@ -237,6 +242,14 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
             await breakpoint(200)
             actions.setAnimationPhase('content')
+        },
+        startHandsFreeChat: () => {
+            posthog.capture('homepage hands-free started')
+            // Clear any in-progress conversation so hands-free always starts a fresh thread,
+            // then flip into AI mode (mounting maxThreadLogic) before Scribe starts listening.
+            actions.startNewConversation()
+            actions.submitQuery('ai')
+            actions.enterHandsFree()
         },
         enterAiMode: async ({ trigger }, breakpoint) => {
             // Animate into AI mode without starting a conversation

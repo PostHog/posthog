@@ -40,7 +40,7 @@ def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
 
     return {
         "error": False,
-        "image_url": asset.get_public_content_url(),
+        "image_url": asset.get_subscription_delivery_content_url(),
     }
 
 
@@ -52,6 +52,7 @@ def send_email_subscription_report(
     total_asset_count: Optional[int] = None,
     send_async: bool = True,
     change_summary: Optional[str] = None,
+    summary_skipped_over_budget: bool = False,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -105,6 +106,8 @@ def send_email_subscription_report(
             "invite_summary": invite_summary,
             "total_asset_count": total_asset_count,
             "change_summary": change_summary,
+            "summary_skipped_over_budget": summary_skipped_over_budget,
+            "billing_url": absolute_uri(f"/organization/billing?{utm_tags}"),
         },
     )
     message.add_recipient(email=email)

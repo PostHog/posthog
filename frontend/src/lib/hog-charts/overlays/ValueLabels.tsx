@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { useChartHover, useChartLayout } from '../core/chart-context'
 import { resolveYScaleForSeries } from '../core/scales'
-import type { ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
+import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
 
 export type ValueLabelsMode = 'per-segment' | 'stack-total'
@@ -260,6 +260,39 @@ function rectsOverlap(a: Rect, b: Rect, gap: number): boolean {
     return a.left < b.right + gap && a.right + gap > b.left && a.top < b.bottom + gap && a.bottom + gap > b.top
 }
 
+function fitsWithinWrapper(c: Candidate, above: boolean, dimensions: ChartDimensions, isHorizontal: boolean): boolean {
+    if (isHorizontal) {
+        const left = above ? c.x : c.x - c.width
+        return left >= 0 && left + c.width <= dimensions.width
+    }
+    const top = above ? c.y - LABEL_HEIGHT : c.y
+    return top >= 0 && top + LABEL_HEIGHT <= dimensions.height
+}
+
+// If the default placement (above/right of the bar) would push the label past the chart
+// wrapper edge — which has `overflow: hidden` — flip it inside the bar instead. Avoids
+// reserving global plot-area headroom (which would shrink every chart vertically) for a
+// case that only hits when a bar reaches the axis top/right. Only flips when the flipped
+// position actually fits — if neither side fits, keep the original choice.
+function flipClippedCandidates(
+    candidates: Candidate[],
+    dimensions: ChartDimensions,
+    isHorizontal: boolean
+): Candidate[] {
+    for (const c of candidates) {
+        if (c.centerAnchor) {
+            continue
+        }
+        if (fitsWithinWrapper(c, c.above, dimensions, isHorizontal)) {
+            continue
+        }
+        if (fitsWithinWrapper(c, !c.above, dimensions, isHorizontal)) {
+            c.above = !c.above
+        }
+    }
+    return candidates
+}
+
 function applyCollisionAvoidance(candidates: Candidate[], minGap: number, isHorizontal: boolean): Candidate[] {
     if (candidates.length === 0) {
         return candidates
@@ -354,7 +387,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
 }: ValueLabelsProps): React.ReactElement | null {
-    const { series, scales, labels, theme, resolvePositionValue, axis } = useChartLayout()
+    const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
     const isHorizontal = axis.orientation === 'horizontal'
     const isPercent = axis.isPercent
@@ -364,20 +397,24 @@ export function ValueLabels({
     const visible = useMemo(
         () =>
             applyCollisionAvoidance(
-                buildCandidates({
-                    series,
-                    labels,
-                    scales,
-                    resolvePositionValue,
-                    valueFormatter: formatter,
-                    isHorizontal,
-                    mode,
-                    isPercent,
-                }),
+                flipClippedCandidates(
+                    buildCandidates({
+                        series,
+                        labels,
+                        scales,
+                        resolvePositionValue,
+                        valueFormatter: formatter,
+                        isHorizontal,
+                        mode,
+                        isPercent,
+                    }),
+                    dimensions,
+                    isHorizontal
+                ),
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent]
+        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
     )
 
     // Skip the lift when a dataIndex has labels at multiple distinct x positions

@@ -1,11 +1,26 @@
+import { BindLogic, useValues } from 'kea'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+
+import { AccountsHogQLTable } from './AccountsHogQLTable'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, accountsLogic } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
-import { AccountsTable } from './AccountsTable'
 
 export function AccountsTabContent(): JSX.Element {
+    const { hogqlQuery } = useValues(accountsLogic)
+
     return (
-        <div className="flex flex-col gap-3">
-            <AccountsTabFilters />
-            <AccountsTable />
-        </div>
+        <BindLogic
+            logic={dataNodeLogic}
+            props={{
+                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                query: hogqlQuery.source,
+            }}
+        >
+            <div className="flex flex-col gap-3">
+                <AccountsTabFilters />
+                <AccountsHogQLTable />
+            </div>
+        </BindLogic>
     )
 }

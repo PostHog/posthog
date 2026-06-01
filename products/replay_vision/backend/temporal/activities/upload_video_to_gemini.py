@@ -19,6 +19,7 @@ from posthog.storage import object_storage
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
 
@@ -29,6 +30,7 @@ _MAX_PROCESSING_WAIT_SECONDS = 300
 
 
 @activity.defn(name="replay_vision_upload_video_to_gemini_activity")
+@track_activity()
 async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     """Read the asset's MP4 bytes, upload to Gemini, poll until ACTIVE, return the file reference."""
     workflow_id = activity.info().workflow_id

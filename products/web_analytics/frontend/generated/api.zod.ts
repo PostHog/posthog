@@ -9,36 +9,6 @@
  */
 import * as zod from 'zod'
 
-export const webAnalyticsFilterPresetsCreateBodyNameMax = 400
-
-export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(webAnalyticsFilterPresetsCreateBodyNameMax),
-    description: zod.string().optional(),
-    pinned: zod.boolean().optional(),
-    deleted: zod.boolean().optional(),
-    filters: zod.unknown().optional(),
-})
-
-export const webAnalyticsFilterPresetsUpdateBodyNameMax = 400
-
-export const WebAnalyticsFilterPresetsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(webAnalyticsFilterPresetsUpdateBodyNameMax),
-    description: zod.string().optional(),
-    pinned: zod.boolean().optional(),
-    deleted: zod.boolean().optional(),
-    filters: zod.unknown().optional(),
-})
-
-export const webAnalyticsFilterPresetsPartialUpdateBodyNameMax = 400
-
-export const WebAnalyticsFilterPresetsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(webAnalyticsFilterPresetsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    pinned: zod.boolean().optional(),
-    deleted: zod.boolean().optional(),
-    filters: zod.unknown().optional(),
-})
-
 export const savedCreateBodyNameMax = 400
 
 export const savedCreateBodyUrlMax = 2000
@@ -91,4 +61,34 @@ export const SavedRegenerateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('\* `screenshot` - Screenshot\n\* `iframe` - Iframe\n\* `recording` - Recording'),
     deleted: zod.boolean().optional(),
+})
+
+export const webAnalyticsFilterPresetsCreateBodyNameMax = 400
+
+export const WebAnalyticsFilterPresetsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(webAnalyticsFilterPresetsCreateBodyNameMax),
+    description: zod.string().optional(),
+    pinned: zod.boolean().optional(),
+    deleted: zod.boolean().optional(),
+    filters: zod.unknown().optional(),
+})
+
+export const webAnalyticsFilterPresetsUpdateBodyNameMax = 400
+
+export const WebAnalyticsFilterPresetsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(webAnalyticsFilterPresetsUpdateBodyNameMax),
+    description: zod.string().optional(),
+    pinned: zod.boolean().optional(),
+    deleted: zod.boolean().optional(),
+    filters: zod.unknown().optional(),
+})
+
+export const webAnalyticsFilterPresetsPartialUpdateBodyNameMax = 400
+
+export const WebAnalyticsFilterPresetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(webAnalyticsFilterPresetsPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    pinned: zod.boolean().optional(),
+    deleted: zod.boolean().optional(),
+    filters: zod.unknown().optional(),
 })

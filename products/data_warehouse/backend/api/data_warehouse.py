@@ -27,12 +27,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig

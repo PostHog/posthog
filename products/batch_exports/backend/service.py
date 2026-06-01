@@ -850,6 +850,8 @@ def start_file_download_batch_export(
     compression: str | None = None,
     format: str = "Parquet",
     max_size_mb: int = 0,
+    include_events: list[str] | None = None,
+    exclude_events: list[str] | None = None,
 ) -> None:
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
@@ -860,6 +862,8 @@ def start_file_download_batch_export(
         compression=compression,
         file_format=format,
         max_file_size_mb=max_size_mb,
+        include_events=include_events,
+        exclude_events=exclude_events,
     )
     temporal = sync_connect()
 
