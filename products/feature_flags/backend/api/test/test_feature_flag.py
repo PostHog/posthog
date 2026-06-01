@@ -1123,6 +1123,54 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertIn("remote configuration", response.json()["detail"])
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_flag_to_remote_config_persists(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "toggle-to-remote-config",
+                "name": "Toggle To Remote Config",
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+        self.assertFalse(response.json()["is_remote_configuration"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_remote_configuration"])
+        self.assertTrue(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_update_remote_config_flag_to_non_remote_without_encryption_succeeds(self, mock_report_user_action):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "key": "rc-unencrypted",
+                "name": "RC Unencrypted",
+                "is_remote_configuration": True,
+                "filters": {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '"data"'}},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag_id}/",
+            {"is_remote_configuration": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.json()["is_remote_configuration"])
+        self.assertFalse(FeatureFlag.objects.get(id=flag_id).is_remote_configuration)
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
     def test_create_feature_flag_with_analytics_dashboards(self, mock_report_user_action):
         dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         response = self.client.post(
