@@ -25006,6 +25006,7 @@ export namespace Schemas {
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
     * `signals_scout` - Signals scout
+    * `logs` - Logs
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -25020,6 +25021,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      Logs: 'logs',
     } as const;
 
     /**
@@ -25031,6 +25033,7 @@ export namespace Schemas {
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
     * `cross_source_issue` - Cross source issue
+    * `alert_state_change` - Alert state change
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -25044,6 +25047,7 @@ export namespace Schemas {
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
     } as const;
 
     export interface SignalSourceConfig {
