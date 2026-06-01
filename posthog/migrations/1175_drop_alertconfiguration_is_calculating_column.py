@@ -11,7 +11,10 @@ class Migration(migrations.Migration):
     everywhere — any old code still reading the column would have failed by then.
     """
 
-    dependencies = [("posthog", "1174_taggeditem_account_unique_constraint")]
+    dependencies = [
+        ("posthog", "0003_squash_2026_05_22_schema_addons"),
+        ("posthog", "1174_taggeditem_account_unique_constraint"),
+    ]
 
     operations = [
         migrations.RunSQL(

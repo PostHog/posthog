@@ -6,6 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("signals", "0002_squash_2026_05_22_finalize_fks"),
         ("posthog", "1155_sharingconfiguration_interviewee_context"),
         ("signals", "0019_alter_signalsourceconfig_source_product_and_more"),
     ]

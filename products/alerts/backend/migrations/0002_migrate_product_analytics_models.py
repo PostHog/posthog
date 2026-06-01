@@ -6,6 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("alerts", "0002_squash_2026_05_22_finalize_fks"),
         ("alerts", "0001_migrate_models"),
         ("product_analytics", "0001_migrate_product_analytics_models"),
     ]

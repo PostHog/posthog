@@ -7,7 +7,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1154_userpushtoken"),
-        ("user_interviews", "0003_intervieweecontext"),
     ]
 
     operations = [

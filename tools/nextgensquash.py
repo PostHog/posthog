@@ -54,6 +54,20 @@ DEFAULT_CUTOFF = date(2026, 3, 1)
 # listed in the output so they can be re-inlined later if a fresh DB needs them.
 DROP_OP_KINDS = frozenset({"RunPython"})
 
+# Apps whose migrations are never folded, regardless of cutoff. Use for apps
+# that rely on SeparateDatabaseAndState + RunPython to create non-Django DDL
+# (partitioned tables, custom views, materialized columns) — Django's
+# CreateModel can't reproduce that DDL, and folding would silently drop it.
+EXCLUDED_APPS: frozenset[str] = frozenset(
+    {
+        # 0001_initial creates partitioned tables + a view via raw SQL. The
+        # Django state knows the models exist (via SeparateDatabaseAndState),
+        # but the DB-level DDL is partition-aware in a way `CreateModel` is
+        # not. Cost is ~10ms so the squash gain is negligible anyway.
+        "warehouse_sources_queue",
+    }
+)
+
 
 @dataclass(frozen=True)
 class MigrationRef:
@@ -192,11 +206,33 @@ class MigrationTree:
             )
         return cls(out)
 
-    def partition(self, cutoff: date) -> tuple[dict[tuple[str, str], Migration], dict[tuple[str, str], Migration]]:
+    # Names emitted by a previous nextgensquash phase. Always treated as old
+    # regardless of `commit_date`, so a stacked phase can fold them into its
+    # own `replaces=` list (cutoff alone wouldn't, since the prior squash files
+    # are usually newer than any reasonable phase-N cutoff). Covers both the
+    # historical un-dated names (squashed_stub/initial, finalize_fks,
+    # schema_addons) and the current dated scheme (squash_stub, squash_<date>_*).
+    _PRIOR_SQUASH_RE = re.compile(
+        r"_squashed_(stub|initial)$"
+        r"|^[0-9]+_squash_stub$"
+        r"|^[0-9]+_squash_[0-9_]+_(initial|finalize_fks|schema_addons)$"
+        r"|^[0-9]+_finalize_fks$"
+        r"|^[0-9]+_schema_addons$"
+    )
+
+    def partition(
+        self, cutoff: date, include_prior_squashes: bool = True
+    ) -> tuple[dict[tuple[str, str], Migration], dict[tuple[str, str], Migration]]:
         old: dict[tuple[str, str], Migration] = {}
         young: dict[tuple[str, str], Migration] = {}
         for k, m in self.migrations.items():
-            if m.commit_date and m.commit_date < cutoff:
+            if m.ref.app in EXCLUDED_APPS:
+                young[k] = m
+                continue
+            is_old = bool(m.commit_date and m.commit_date < cutoff)
+            if not is_old and include_prior_squashes and self._PRIOR_SQUASH_RE.search(m.ref.name):
+                is_old = True
+            if is_old:
                 old[k] = m
             else:
                 young[k] = m
@@ -231,12 +267,14 @@ class ProposedSquash:
 class Squasher:
     """Plans a new migration tree given an old/young partition."""
 
-    SQUASH_NAME = "0001_squashed_initial"
-
-    def __init__(self, tree: MigrationTree, cutoff: date):
+    def __init__(self, tree: MigrationTree, cutoff: date, include_prior_squashes: bool = True):
         self.tree = tree
         self.cutoff = cutoff
-        self.old, self.young = tree.partition(cutoff)
+        # Dated name matches `Emitter.INITIAL_NAME` — same value, different
+        # entry point (plan/preview vs actual file emission).
+        self.SQUASH_NAME = f"0001_squash_{cutoff.isoformat().replace('-', '_')}_initial"
+        self.include_prior_squashes = include_prior_squashes
+        self.old, self.young = tree.partition(cutoff, include_prior_squashes=include_prior_squashes)
         self.old_keys = set(self.old.keys())
         self.migration_graph = self._build_migration_graph()
         self.app_graph = self._build_app_graph()
@@ -703,10 +741,27 @@ class Emitter:
         that need to defer outgoing FKs to break a cross-app cycle.
     """
 
-    STUB_NAME = "0000_squashed_stub"
-    INITIAL_NAME = "0001_squashed_initial"
-    FINALIZE_NAME = "0002_finalize_fks"
-    SCHEMA_ADDONS_NAME = "0003_schema_addons"
+    # Stable across phases — content is just extensions + standalone early
+    # models (both content-stable). Reused unchanged by stacked squashes.
+    STUB_NAME = "0000_squash_stub"
+
+    @property
+    def _date_token(self) -> str:
+        # Date suffix encodes the cutoff so layered phases never collide on
+        # disk and grep-by-name reveals which phase produced a file.
+        return self.squasher.cutoff.isoformat().replace("-", "_")
+
+    @property
+    def INITIAL_NAME(self) -> str:
+        return f"0001_squash_{self._date_token}_initial"
+
+    @property
+    def FINALIZE_NAME(self) -> str:
+        return f"0002_squash_{self._date_token}_finalize_fks"
+
+    @property
+    def SCHEMA_ADDONS_NAME(self) -> str:
+        return f"0003_squash_{self._date_token}_schema_addons"
 
     # RunSQL ops in claimed migrations sometimes create indexes that aren't
     # declared in `Meta.indexes` (partial WHERE clauses, GIN with custom
@@ -811,18 +866,29 @@ class Emitter:
         (including nested `field__lookup` references); UniqueConstraint
         .expressions. Match style for the Q repr is `'<field>'` or
         `'<field>__lookup'`.
+
+        Also catches `<field>_id` style references — Django's idiomatic way to
+        reference an FK's underlying column in indexes (`fields=["team_id"]`
+        for an FK named `team`). Without this, an index on the deferred FK's
+        column gets kept in `Meta.indexes` and Django tries to materialize it
+        before the field is added in finalize_fks.
         """
+        # Expand each deferred FK field name to also cover its `_id` column form.
+        expanded = set(field_names)
+        for f in field_names:
+            expanded.add(f"{f}_id")
+
         fields = getattr(thing, "fields", None)
         if fields:
             for f in fields:
-                if f.lstrip("-+") in field_names:
+                if f.lstrip("-+") in expanded:
                     return True
         for attr in ("condition", "check", "expressions"):
             val = getattr(thing, attr, None)
             if val is None:
                 continue
             text = repr(val)
-            for f in field_names:
+            for f in expanded:
                 pat = re.compile(r"['\"]" + re.escape(f) + r"(?:__|['\"])")
                 if pat.search(text):
                     return True
@@ -1053,6 +1119,14 @@ class Emitter:
                     sql_text = self._runsql_text(op)
                     if "CREATE EXTENSION" in sql_text.upper():
                         continue  # handled by stub
+                    # Skip any RunSQL that mixes table/column DDL with index
+                    # creation. Our squash's CreateModel + finalize_fks already
+                    # produce those tables and columns from final-state walk;
+                    # forwarding a CREATE TABLE / ALTER TABLE here would
+                    # collide. We only forward *pure* index work.
+                    sql_upper = sql_text.upper()
+                    if any(kw in sql_upper for kw in ("CREATE TABLE", "ALTER TABLE", "DROP TABLE")):
+                        continue
                     drop_match = self._DROP_INDEX_RE.search(sql_text)
                     if drop_match:
                         idx_name = drop_match.group(1)
@@ -1091,16 +1165,23 @@ class Emitter:
 
     def _schema_addons_deps(self, prior_squash: str) -> list[tuple[str, str]]:
         """Deps for 0003_schema_addons: this app's prior squash (initial or
-        finalize) plus every other claimed app's initial — old RunSQL CREATE
-        INDEX often targets tables now owned by a different app (model moves),
-        so we depend on all of them to guarantee the table exists when the
-        index is created.
+        finalize) plus every other claimed app's *leaf* squash — old RunSQL
+        CREATE INDEX often targets tables now owned by a different app (model
+        moves), so we depend on the latest squash file in each app. The leaf
+        is finalize_fks when the app has cross-app deferred FKs, else initial.
+        Picking initial when finalize_fks exists would race: the forwarded
+        index could reference a deferred-FK column that finalize_fks hasn't
+        added yet.
         """
         deps: set[tuple[str, str]] = {(self.app, prior_squash)}
+        date_token = self._date_token
         for app in {m.ref.app for m in self.squasher.old.values()}:
             if app == self.app:
                 continue
-            deps.add((app, self.INITIAL_NAME))
+            # Match the post-emit naming convention; see INITIAL_NAME / FINALIZE_NAME.
+            has_finalize = bool(self.cycle_breaker.deferred_for_app(app))
+            leaf = f"0002_squash_{date_token}_finalize_fks" if has_finalize else f"0001_squash_{date_token}_initial"
+            deps.add((app, leaf))
         return sorted(deps)
 
     def first_young_in_app(self) -> str | None:
@@ -1272,7 +1353,7 @@ class FileWriter:
 
 def _run_plan(args: argparse.Namespace) -> None:
     tree = MigrationTree.load(REPO_ROOT)
-    squasher = Squasher(tree, args.cutoff)
+    squasher = Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
     rendered = TreeRenderer(squasher).render()
     text = yaml.safe_dump(rendered, sort_keys=False, default_flow_style=False, width=200)
     if args.output:
@@ -1284,7 +1365,7 @@ def _run_plan(args: argparse.Namespace) -> None:
 
 def _run_emit(args: argparse.Namespace) -> None:
     tree = MigrationTree.load(REPO_ROOT)
-    squasher = Squasher(tree, args.cutoff)
+    squasher = Squasher(tree, args.cutoff, include_prior_squashes=args.include_prior_squashes)
     state = Snapshotter(squasher).final_state()
     cycle_breaker = CycleBreaker(state)
 
@@ -1328,7 +1409,7 @@ def _run_emit(args: argparse.Namespace) -> None:
         squashes = emitter.build()
         # The initial squash is the second entry in `squashes` (after the stub).
         # If THAT has no operations, the app has no models to squash.
-        initial = next((sq for sq in squashes if sq.name == Emitter.INITIAL_NAME), None)
+        initial = next((sq for sq in squashes if sq.name == emitter.INITIAL_NAME), None)
         if initial is None or not initial.operations:
             sys.stderr.write(f"skip {app}: no models in final state\n")
             continue
@@ -1339,15 +1420,15 @@ def _run_emit(args: argparse.Namespace) -> None:
                 f"wrote {path}  ({len(sq.operations)} ops, replaces {len(sq.replaces)}, deps {len(sq.dependencies)})\n"
             )
         # Manifest entries
-        finalize = next((sq for sq in squashes if sq.name == Emitter.FINALIZE_NAME), None)
-        addons = next((sq for sq in squashes if sq.name == Emitter.SCHEMA_ADDONS_NAME), None)
-        retire_manifest["initials"][app] = Emitter.INITIAL_NAME
+        finalize = next((sq for sq in squashes if sq.name == emitter.FINALIZE_NAME), None)
+        addons = next((sq for sq in squashes if sq.name == emitter.SCHEMA_ADDONS_NAME), None)
+        retire_manifest["initials"][app] = emitter.INITIAL_NAME
         if addons is not None:
-            retire_manifest["leaves"][app] = Emitter.SCHEMA_ADDONS_NAME
+            retire_manifest["leaves"][app] = emitter.SCHEMA_ADDONS_NAME
         elif finalize is not None:
-            retire_manifest["leaves"][app] = Emitter.FINALIZE_NAME
+            retire_manifest["leaves"][app] = emitter.FINALIZE_NAME
         else:
-            retire_manifest["leaves"][app] = Emitter.INITIAL_NAME
+            retire_manifest["leaves"][app] = emitter.INITIAL_NAME
         for replaced_app, replaced_name in initial.replaces:
             retire_manifest["replaced"][f"{replaced_app}/{replaced_name}"] = replaced_app
     # Save cycle-break edge-removal list as a sidecar for `install` to act on.
@@ -1362,10 +1443,10 @@ def _run_emit(args: argparse.Namespace) -> None:
     # leaf via the manifest, so we don't store the squash name here.
     first_young_edits: list[tuple[str, str]] = []
     for app in apps:
-        leaf = retire_manifest["leaves"].get(app)
-        if leaf in (None, Emitter.INITIAL_NAME):
-            continue  # plain initial chains in via replaces redirect already
         emitter = Emitter(state, squasher, app, cycle_breaker)
+        leaf = retire_manifest["leaves"].get(app)
+        if leaf in (None, emitter.INITIAL_NAME):
+            continue  # plain initial chains in via replaces redirect already
         first_young = emitter.first_young_in_app()
         if first_young:
             first_young_edits.append((app, first_young))
@@ -1755,14 +1836,14 @@ def _strip_replaces_from_claimed_squashes(squash_paths: list[Path], target_dir: 
             continue
         if p.stem not in our_claims:
             continue
-        # A retired squash is identifiable either by still carrying a
-        # `replaces=` attribute or by a `*_squashed_*` name (in case a prior
-        # install pass already stripped its replaces). Regular non-squash
-        # migrations stay in place — Django folds them via our squash's
-        # replaces= list. We only delete files whose name starts with `0001`,
-        # so leaving them around would create `sqlmigrate` prefix ambiguity
-        # with our new `0001_squashed_initial`.
-        if "_squashed_" not in p.stem:
+        # A retired squash file is one whose name matches a known prior-phase
+        # squash pattern (any nextgensquash output, including the old un-dated
+        # `_squashed_*`/`finalize_fks`/`schema_addons` names AND the current
+        # `squash_<date>_*` names). Regular non-squash migrations stay in
+        # place — Django folds them via our squash's replaces= list. We delete
+        # the squash files themselves so they don't create `sqlmigrate` prefix
+        # ambiguity or graph collisions with our newly emitted squash files.
+        if not MigrationTree._PRIOR_SQUASH_RE.search(p.stem):
             continue
         mod = load_module(p)
         if mod is None:
@@ -1859,12 +1940,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     subparsers = parser.add_subparsers(dest="command", required=False)
 
+    def _add_phase_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--cutoff", type=date.fromisoformat, default=DEFAULT_CUTOFF)
+        p.add_argument(
+            "--include-prior-squashes",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            help="Treat existing nextgensquash output (stub/initial/finalize_fks/schema_addons) as old "
+            "regardless of cutoff date, so a stacked phase-N can fold them into its own replaces list. "
+            "Default on. Disable for a clean from-scratch (re-)squash that ignores prior phases.",
+        )
+
     parser_plan = subparsers.add_parser("plan", help="Emit the YAML description of the proposed squash tree.")
-    parser_plan.add_argument("--cutoff", type=date.fromisoformat, default=DEFAULT_CUTOFF)
+    _add_phase_args(parser_plan)
     parser_plan.add_argument("--output", type=Path, default=None)
 
     parser_emit = subparsers.add_parser("emit", help="Emit real .py migration files for the squashed apps.")
-    parser_emit.add_argument("--cutoff", type=date.fromisoformat, default=DEFAULT_CUTOFF)
+    _add_phase_args(parser_emit)
     parser_emit.add_argument("--output-dir", type=Path, required=True)
     parser_emit.add_argument("--app", default=None, help="Only emit this app (testing).")
 
@@ -1885,6 +1977,7 @@ def main() -> None:
 
     # Backward-compat: bare invocation defaults to `plan`.
     parser.add_argument("--cutoff", type=date.fromisoformat, default=DEFAULT_CUTOFF)
+    parser.add_argument("--include-prior-squashes", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 

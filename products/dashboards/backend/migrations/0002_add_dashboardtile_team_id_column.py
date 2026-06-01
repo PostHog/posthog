@@ -23,7 +23,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("dashboards", "0001_migrate_dashboards_models"),
-        ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),
     ]
 
     operations = [

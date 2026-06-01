@@ -12,6 +12,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("llm_analytics", "0002_squash_2026_05_22_finalize_fks"),
         ("llm_analytics", "0032_tagger"),
     ]
 

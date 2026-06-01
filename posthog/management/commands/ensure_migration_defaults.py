@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 import importlib
 from typing import Any
 
@@ -13,12 +14,20 @@ from django.core.management.base import BaseCommand
 
 from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.oauth import OAuthApplication
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 # auth groups originally seeded by RunPython migrations. Keep this in sync with
 # any 04xx/05xx migration that did `AuthGroup.objects.get_or_create(name=...)`.
-_AUTH_GROUPS: tuple[str, ...] = ("Billing Team",)
+_AUTH_GROUPS: tuple[str, ...] = ("Billing Team", "ClickHouse Team")
+
+# Streamlit OAuth first-party app — mirrors
+# products/streamlit_apps/backend/migrations/0002_seed_streamlit_oauth_app.py.
+# Folded into phase-2 squash, so a fresh DB needs this seed to keep the
+# Streamlit Apps token-minting path working.
+_STREAMLIT_OAUTH_APP_NAME = "PostHog Streamlit Apps"
+_STREAMLIT_OAUTH_CLIENT_ID = "posthog-streamlit-apps-first-party"
 
 # 0537 still references posthog.DataColorTheme which hasn't moved
 _migration_0537 = importlib.import_module("posthog.migrations.0537_data_color_themes")
@@ -225,6 +234,19 @@ class Command(BaseCommand):
         if not DataColorTheme.objects.filter(team__isnull=True, name="Default Theme").exists():
             add_default_themes(apps, None)
             created_items.append("Data color theme: Default Theme")
+
+        if not OAuthApplication.objects.filter(client_id=_STREAMLIT_OAUTH_CLIENT_ID).exists():
+            OAuthApplication.objects.create(
+                name=_STREAMLIT_OAUTH_APP_NAME,
+                client_id=_STREAMLIT_OAUTH_CLIENT_ID,
+                client_secret=secrets.token_urlsafe(48),
+                client_type="confidential",
+                authorization_grant_type="authorization-code",
+                redirect_uris="https://localhost",
+                algorithm="RS256",
+                is_first_party=True,
+            )
+            created_items.append(f"OAuth app: {_STREAMLIT_OAUTH_APP_NAME}")
 
         for template_data in (_PRODUCT_ANALYTICS_TEMPLATE, _FEATURE_FLAG_TEMPLATE):
             name = template_data["template_name"]

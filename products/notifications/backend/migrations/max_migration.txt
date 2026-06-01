@@ -1,1 +1,1 @@
-0010_alter_notificationevent_notification_type
+0001_squash_2026_05_22_initial

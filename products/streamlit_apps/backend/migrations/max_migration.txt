@@ -1,1 +1,1 @@
-0002_seed_streamlit_oauth_app
+0002_squash_2026_05_22_finalize_fks

@@ -1,1 +1,1 @@
-0036_github_issues_channel
+0003_squash_2026_05_22_schema_addons

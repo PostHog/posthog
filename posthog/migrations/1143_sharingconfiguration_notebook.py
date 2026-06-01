@@ -5,7 +5,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1142_alter_batchexportdestination_type_and_more"),
-        ("notebooks", "0003_add_kernel_timeouts"),
     ]
 
     operations = [

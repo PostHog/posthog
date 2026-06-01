@@ -1,1 +1,1 @@
-0002_optout_sync_config
+0001_squash_2026_05_22_initial

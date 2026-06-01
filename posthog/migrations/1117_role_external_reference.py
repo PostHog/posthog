@@ -10,7 +10,6 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ee", "0041_migrate_dashboards_models"),
         ("posthog", "1116_datadeletionrequest_hogql_predicate"),
     ]
 

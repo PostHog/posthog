@@ -11,9 +11,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies = [
-        ("posthog", "1072_backfill_condition_aggregation"),
-    ]
+    dependencies = []
 
     operations = [
         migrations.SeparateDatabaseAndState(

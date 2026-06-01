@@ -5,6 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("ee", "0002_squash_2026_05_22_finalize_fks"),
         ("ee", "0043_teamsessionsummariesconfig_custom_tags"),
     ]
 

@@ -1,1 +1,1 @@
-0011_normalize_mcp_template_icon_keys
+0001_squash_2026_05_22_initial

@@ -15,6 +15,7 @@ import products.data_modeling.backend.models.datawarehouse_saved_query
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("data_modeling", "0003_squash_2026_05_22_schema_addons"),
         ("data_modeling", "0022_github_sync_models"),
         ("data_tools", "0001_migrate_data_tools_models"),
         ("posthog", "1162_drop_hourly_from_subscription_frequency_choices"),

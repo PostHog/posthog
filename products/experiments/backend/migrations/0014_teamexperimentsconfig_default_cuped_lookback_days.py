@@ -6,6 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("experiments", "0002_squash_2026_05_22_finalize_fks"),
         ("experiments", "0013_teamexperimentsconfig_default_minimum_detectable_effect"),
     ]
 

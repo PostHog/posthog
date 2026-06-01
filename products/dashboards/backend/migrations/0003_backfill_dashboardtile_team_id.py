@@ -55,6 +55,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
+        ("dashboards", "0002_squash_2026_05_22_finalize_fks"),
         ("dashboards", "0002_add_dashboardtile_team_id_column"),
     ]
 

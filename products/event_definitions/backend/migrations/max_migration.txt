@@ -1,1 +1,1 @@
-0009_drop_eventproperty_proj_event_coalesce_idx
+0001_squash_2026_05_22_initial

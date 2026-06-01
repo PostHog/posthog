@@ -1,1 +1,1 @@
-0004_alter_legaldocument_document_type
+0001_squash_2026_05_22_initial

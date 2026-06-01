@@ -19,7 +19,6 @@ def reverse_backfill(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("endpoints", "0018_endpointversion_bucket_overrides"),
-        ("data_modeling", "0010_add_endpoint_node_type"),
     ]
 
     operations = [
