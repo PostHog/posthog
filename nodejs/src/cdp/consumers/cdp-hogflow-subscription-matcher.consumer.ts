@@ -217,7 +217,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // and either matching wakes the job. The condition is evaluated on every incoming
         // event, which is what makes property-based waits event-driven rather than polled.
         for (const eventConfig of action.config.events ?? []) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, action.id)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, action.id)) {
                 return true
             }
         }
@@ -228,22 +228,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         const conversionEvents = hogflow.conversion?.events ?? []
         const contextId = `${hogflow.id}/conversion`
         for (const eventConfig of conversionEvents) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, contextId)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
                 return true
             }
         }
         return false
-    }
-
-    private async evaluateEventConfig(
-        eventConfig: { filters?: any },
-        filterGlobals: FilterGlobals,
-        contextId: string
-    ): Promise<boolean> {
-        // HogFlowSerializer compiles bytecode for every events[].filters at save time,
-        // so missing bytecode means a malformed row - fail closed rather than falling
-        // back to event-name-only matching (which would silently bypass property filters).
-        return runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)
     }
 
     private async findParkedJobs(
@@ -520,6 +509,10 @@ function collectCandidateGlobals(
     return [...seen]
 }
 
+// Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
+// every events[].filters at save time, so missing/empty bytecode means a malformed row:
+// we fail closed (return false) rather than falling back to event-name-only matching, which
+// would silently bypass property filters.
 async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, contextId: string): Promise<boolean> {
     if (!Array.isArray(bytecode) || bytecode.length === 0) {
         return false
