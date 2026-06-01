@@ -119,14 +119,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def _set_unlimited_projects(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
-        ]
+    def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
+        features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
+        if with_member_create_entitlement:
+            # members_can_create_projects is gated behind the invite-settings entitlement for now
+            features.append({"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"})
+        self.organization.available_product_features = features
         self.organization.save()
 
     def test_member_cannot_create_project_by_default(self):
         self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Member Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json()["detail"], "You need to be an organization admin or above to create new projects."
+        )
+
+    def test_member_cannot_create_project_without_entitlement_even_when_toggle_on(self):
+        # No invite-settings entitlement: the toggle is ignored and the gate behaves as admin-only.
+        self._set_unlimited_projects(with_member_create_entitlement=False)
+        self.organization.members_can_create_projects = True
+        self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 

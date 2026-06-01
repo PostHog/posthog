@@ -879,7 +879,9 @@ class UserCanInvitePermission(BasePermission):
 
 class UserCanCreateProjectPermission(BasePermission):
     """
-    Only allows Admins+, and Members if the members_can_create_projects org setting is True.
+    Only allows Admins+, and Members if the members_can_create_projects org setting is True
+    AND the organization has the entitlement to configure it. Without the entitlement this
+    behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
     """
 
     message = "You need to be an organization admin or above to create new projects."
@@ -897,5 +899,9 @@ class UserCanCreateProjectPermission(BasePermission):
 
         if membership.level >= OrganizationMembership.Level.ADMIN:
             return True
+
+        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
+        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+            return False
 
         return bool(organization.members_can_create_projects)

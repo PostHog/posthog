@@ -391,11 +391,7 @@ export function Members(): JSX.Element | null {
                     onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
                     disabledReason={membersCanInviteRestrictionReason}
                 />
-            </PayGateMini>
-
-            <h3 className="mt-4">Project settings</h3>
-            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
-                <p>
+                <p className="mt-4">
                     Control who can create new projects. When enabled, organization admins and owners are notified each
                     time a member creates one. Admins and owners can always create projects.
                 </p>
