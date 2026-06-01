@@ -110,7 +110,7 @@ describe('example: agent-concierge bundle', () => {
         expect(triggerTypes).toContain('mcp')
     })
 
-    it('declares the three client tools the agent-console implements', async () => {
+    it('declares the client tools the agent-console implements', async () => {
         const { spec } = await loadBundle()
         // Author-defined inline shape (id, description, args_schema) —
         // the platform doesn't ship a registry of well-known UI tools.
@@ -118,7 +118,16 @@ describe('example: agent-concierge bundle', () => {
         // dispatches via the bus + ingress POST round-trip.
         const clientTools = spec.tools.filter((t) => t.kind === 'client')
         const ids = clientTools.map((t) => t.id).sort()
-        expect(ids).toEqual(['focus', 'get_context', 'toast'])
+        expect(ids).toEqual([
+            'focus_file',
+            'focus_revision',
+            'focus_session',
+            'focus_spec_section',
+            'focus_tab',
+            'get_context',
+            'set_secret',
+            'toast',
+        ])
         for (const t of clientTools) {
             expect(t.id, `${t.id}: id`).toBeTruthy()
             expect(t.description, `${t.id}: description`).toBeTruthy()
