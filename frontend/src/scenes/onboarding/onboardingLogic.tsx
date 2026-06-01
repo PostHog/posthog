@@ -179,6 +179,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
+        onboardingFlowVariant: [
+            (s) => [s.featureFlags],
+            (featureFlags): string => (featureFlags[FEATURE_FLAGS.ONBOARDING_FLOW_VARIANT] as string) || 'control',
+        ],
         canInviteTeammates: [
             (s) => [s.currentOrganization, s.user],
             (currentOrganization, user): boolean => {
