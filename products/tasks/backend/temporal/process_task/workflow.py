@@ -385,8 +385,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # if sandbox_output.should_create_snapshot and self.context.repository and self.context.github_integration_id:
             #     await self._trigger_snapshot_workflow()
 
-            await self._post_slack_update()
-
             # Start agent-server for direct connection from PostHog Code
             await self._emit_progress("agent", "in_progress", "Starting agent", "setup")
             agent_server_output = await self._start_agent_server(sandbox_output)
