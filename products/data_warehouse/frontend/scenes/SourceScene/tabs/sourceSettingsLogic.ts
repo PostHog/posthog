@@ -32,6 +32,18 @@ export interface SourceSettingsLogicProps {
     availableSources?: Record<string, SourceConfig>
 }
 
+export interface CdcStatus {
+    enabled: boolean
+    management_mode?: 'posthog' | 'self_managed'
+    slot_name?: string
+    publication_name?: string
+    lag_warning_threshold_mb?: number
+    lag_critical_threshold_mb?: number
+    slot_exists?: boolean
+    publication_exists?: boolean
+    lag_bytes?: number | null
+}
+
 const REFRESH_INTERVAL = 5000
 const SCHEMA_UPDATE_DEBOUNCE_MS = 500
 const JOBS_POLL_MAX_BACKOFF_MS = 60000
@@ -322,6 +334,15 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 },
             },
         ],
+        cdcStatus: [
+            null as CdcStatus | null,
+            {
+                // Opens a connection to the customer DB, so it's on-demand (never polled).
+                loadCdcStatus: async () => {
+                    return await api.externalDataSources.cdc_status(values.sourceId)
+                },
+            },
+        ],
     })),
     reducers(({ props }) => ({
         sourceId: [
@@ -389,6 +410,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 submitSourceConfigRequest: () => true,
                 submitSourceConfigSuccess: () => false,
                 submitSourceConfigFailure: () => false,
+            },
+        ],
+        cdcStatusError: [
+            null as string | null,
+            {
+                loadCdcStatus: () => null,
+                loadCdcStatusSuccess: () => null,
+                loadCdcStatusFailure: (_, { error }) => error || 'Could not read CDC status from your database.',
             },
         ],
     })),
@@ -593,6 +622,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         actions.loadSourceSuccess(optimisticSource)
                         return
                     }
+                }
+
+                // Fetch CDC status once per source — here (not a React effect) so team context is set.
+                const ji = (values.source?.job_inputs ?? {}) as Record<string, any>
+                const cdcEnabled = ji.cdc_enabled === true || ji.cdc_enabled === 'True' || ji.cdc_enabled === 'true'
+                if (cdcEnabled && cache.cdcStatusFetchedForSourceId !== values.source?.id) {
+                    cache.cdcStatusFetchedForSourceId = values.source?.id
+                    actions.loadCdcStatus()
                 }
 
                 const breadcrumbName =
