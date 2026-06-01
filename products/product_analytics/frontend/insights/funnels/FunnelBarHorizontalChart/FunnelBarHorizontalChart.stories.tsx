@@ -66,12 +66,7 @@ export const Breakdown: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={720} />,
 }
 
-// Narrow widths force the step footers to wrap — each row should grow to fit its own text
-// without overlapping the next step.
+// A narrow width forces footers to wrap — each row should grow to fit its text, not overlap the next.
 export const DefaultNarrow: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomFixture} width={320} />,
-}
-
-export const BreakdownNarrow: Story = {
-    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} width={320} />,
 }

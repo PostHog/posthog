@@ -14,8 +14,6 @@ import {
     type FunnelBarHorizontalStepData,
 } from './funnelBarHorizontalTransforms'
 
-const BAR_CORNER_RADIUS = 4
-
 interface SingleStepBarProps {
     stepData: FunnelBarHorizontalStepData
     theme: ChartTheme
@@ -35,7 +33,7 @@ const CHART_CONFIG: BarChartConfig = {
     margins: { top: 0, right: 0, bottom: 0, left: 0 },
     tooltip: { placement: 'top' },
     bars: {
-        cornerRadius: BAR_CORNER_RADIUS,
+        cornerRadius: 4,
         bandPadding: 0,
         minBandSize: 0,
         valueDomain: FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
