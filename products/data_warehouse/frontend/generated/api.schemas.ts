@@ -537,7 +537,6 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
- * `WorkOS` - WorkOS
  * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -689,7 +688,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
-    WorkOS: 'WorkOS',
     Custom: 'Custom',
 } as const
 
@@ -935,7 +933,6 @@ export interface ExternalDataSourceCreateApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
-  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1244,7 +1241,6 @@ export interface DatabaseSchemaRequestApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
-  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }

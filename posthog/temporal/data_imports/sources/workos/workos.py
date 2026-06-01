@@ -65,6 +65,7 @@ class WorkOSPaginator(BasePaginator):
             self._after = next_after
             self._has_next_page = True
         else:
+            self._after = None
             self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
@@ -74,9 +75,10 @@ class WorkOSPaginator(BasePaginator):
             request.params["after"] = self._after
 
     def get_resume_state(self) -> Optional[dict[str, Any]]:
-        # rest_client only calls this when has_next_page is True, so ``_after``
-        # already points at the page we still need to fetch.
-        if self._after is None:
+        # ``_after`` retains the previous page's cursor once exhausted, so guard on
+        # ``_has_next_page`` to avoid handing back a stale checkpoint that would
+        # re-fetch an already-processed page on resume.
+        if not self._has_next_page or self._after is None:
             return None
         return {"after": self._after}
 

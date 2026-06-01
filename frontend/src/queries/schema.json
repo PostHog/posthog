@@ -20007,6 +20007,7 @@
                 "Plain",
                 "Resend",
                 "PgAnalyze",
+                "WorkOS",
                 "Custom"
             ],
             "type": "string"

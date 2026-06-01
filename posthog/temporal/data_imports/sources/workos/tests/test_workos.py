@@ -93,6 +93,19 @@ class TestWorkOSPaginator:
         paginator = WorkOSPaginator()
         assert paginator.get_resume_state() is None
 
+    def test_get_resume_state_none_on_terminal_page(self) -> None:
+        # A terminal page leaves the previous cursor in ``_after``; resume state
+        # must still be None so we don't re-fetch an already-processed page.
+        paginator = WorkOSPaginator()
+        first = MagicMock()
+        first.json.return_value = {"data": [{"id": "org_1"}], "list_metadata": {"after": "org_1"}}
+        paginator.update_state(first)
+        terminal = MagicMock()
+        terminal.json.return_value = {"data": [{"id": "org_2"}], "list_metadata": {"after": None}}
+        paginator.update_state(terminal)
+        assert paginator.has_next_page is False
+        assert paginator.get_resume_state() is None
+
     def test_set_resume_state_round_trip(self) -> None:
         paginator = WorkOSPaginator()
         paginator.set_resume_state({"after": "org_99"})
