@@ -386,6 +386,8 @@ describe('Workflows', { concurrent: false }, () => {
         it('rejects a stale acknowledged count without firing, surfacing the fresh count', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
             createdWorkflowIds.push(created.id)
+            // Must be active or the run-batch active-guard fires before the echo-back check.
+            await enableTool.handler(context, { id: created.id })
 
             const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
 
@@ -462,12 +464,15 @@ describe('Workflows', { concurrent: false }, () => {
     })
 
     describe('workflows-list-batch-jobs tool', () => {
-        it('returns a bare array of batch runs for a workflow', async () => {
+        it('returns the batch runs for a workflow', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
             createdWorkflowIds.push(created.id)
 
+            // The bare-array response is enriched via withPostHogUrl (spread into an object with a
+            // _posthogUrl key), same as other bare-array list tools — so it's an object, not an array.
             const jobs = parseToolResponse(await listBatchJobsTool.handler(context, { id: created.id }))
-            expect(Array.isArray(jobs)).toBe(true)
+            expect(jobs).toBeTypeOf('object')
+            expect(jobs).toHaveProperty('_posthogUrl')
         })
     })
 })

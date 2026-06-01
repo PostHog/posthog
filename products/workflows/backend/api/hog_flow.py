@@ -595,13 +595,29 @@ class HogFlowFilterSet(FilterSet):
 @extend_schema(extensions={"x-product": "workflows"})
 class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "invocations"]
+    scope_object_read_actions = ["list", "retrieve", "logs", "metrics", "metrics_totals", "user_blast_radius"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "invocations",
+        "schedule_detail",
+        "bulk_delete",
+    ]
     queryset = HogFlow.objects.all()
     filter_backends = [DjangoFilterBackend]
     filterset_class = HogFlowFilterSet
     log_source = "hog_flow"
     app_source = "hog_flow"
+
+    def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # Dual-method custom actions need method-aware scopes — the action-name-based read/write
+        # lists above can't distinguish GET (read) from POST (write) on the same action. Without
+        # this, these actions declare no scope and reject all personal-API-key (MCP) access.
+        if self.action in ("batch_jobs", "schedules"):
+            return ["hog_flow:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["hog_flow:write"]
+        return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         return HogFlowMinimalSerializer if self.action == "list" else HogFlowSerializer
