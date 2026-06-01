@@ -6544,6 +6544,22 @@ const api = {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
 
+        /**
+         * Sandbox-runtime approval reply. Routes in-process to the products/tasks
+         * `command/ permission_response` path (02_CORE.md § 5.5). `customInput` carries
+         * the optional `reject_with_feedback` text.
+         */
+        permission(
+            conversationId: string,
+            data: {
+                requestId: string
+                optionId: string
+                customInput?: string
+            }
+        ): Promise<{ status: string }> {
+            return new ApiRequest().conversation(conversationId).withAction('permission').create({ data })
+        },
+
         list(): Promise<PaginatedResponse<Conversation>> {
             return new ApiRequest().conversations().get()
         },
