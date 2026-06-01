@@ -80,11 +80,11 @@ This does the host-side setup only:
 - logs you into the Coder deployment
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
-- prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)
+- prompts for Git identity, an optional dotfiles repo, a preferred region, an optional Claude OAuth token, and an optional GitHub token (both stored as Coder user secrets)
 
 A Y/n confirmation gate appears before the configuration prompts. It is automatically bypassed when stdin is non-TTY (scripts/CI) or when any explicit `--configure-*` or `--skip-configure-*` flag is passed.
 
-To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, `--configure-region`, or `--configure-claude`. The `--configure-claude` flag manages the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret and will offer to migrate any existing macOS Keychain token.
+To reconfigure individual settings later, pass `--configure-git-identity`, `--configure-dotfiles`, `--configure-region`, `--configure-claude`, or `--configure-gh`. The `--configure-claude` flag manages the `CLAUDE_CODE_OAUTH_TOKEN` Coder user secret and will offer to migrate any existing macOS Keychain token. The `--configure-gh` flag populates the `GH_TOKEN` Coder user secret from your local `gh auth token`, so the pre-installed `gh` CLI is authenticated on every workspace (including prebuilt ones) with zero per-box setup.
 
 ## Managing devbox configuration
 
@@ -101,6 +101,7 @@ hogli devbox:config:rm git-identity   # clear saved Git name/email
 hogli devbox:config:rm git-signing    # remove Git signing key from Coder user secrets
 hogli devbox:config:rm dotfiles       # clear dotfiles URI (also pushes empty parameter to existing workspaces)
 hogli devbox:config:rm claude         # remove Claude OAuth token from Coder user secrets
+hogli devbox:config:rm gh             # remove GitHub token from Coder user secrets
 hogli devbox:config:rm region          # clear saved region preference (new workspaces use the built-in default)
 hogli devbox:config:rm --all          # clear everything
 ```
@@ -135,5 +136,6 @@ Common secrets include `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, and `OP_SERVICE_AC
 - Laptop to workspace access uses `coder ssh` and `coder config-ssh` (configured automatically during setup)
 - Git inside the workspace should use HTTPS via Coder external auth — do not set up SSH Git inside the workspace
 - Claude auth is stored as a Coder user secret named `CLAUDE_CODE_OAUTH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-claude` to set or replace it. `devbox:task` warns when the secret is unset.
+- `gh` CLI auth is stored as a Coder user secret named `GH_TOKEN` (requires Coder 2.33+). Run `hogli devbox:setup --configure-gh` to populate it from your local `gh auth token`; `gh` reads `GH_TOKEN` natively, so every workspace is authenticated without per-box `gh auth login`.
 
 `go/coder` is a convenient shortcut for humans, but the canonical deployment URL is `https://coder.dev.posthog.dev`.

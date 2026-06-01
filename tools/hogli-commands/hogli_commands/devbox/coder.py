@@ -80,6 +80,13 @@ _RESERVED_LABEL_SUFFIXES: tuple[str, ...] = tuple(s for s in REGION_NAME_SUFFIXE
 # it.
 GIT_SIGNING_KEY_SECRET = "POSTHOG_GIT_SIGNING_KEY"
 
+# Per-user Coder secret holding a GitHub token. Injected as the GH_TOKEN env
+# var on every workspace start (including coder task runs and prebuilt boxes);
+# the pre-installed `gh` CLI reads GH_TOKEN natively and prefers it over stored
+# credentials, so the box is authenticated with zero per-workspace setup.
+# Populated from the engineer's local `gh auth token` by `hogli devbox:setup`.
+GH_TOKEN_SECRET = "GH_TOKEN"
+
 
 # Coder rejects --parameter values for keys the chosen template does not
 # define, with this exact message: `parameter "X" is not present in the

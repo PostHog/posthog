@@ -1350,6 +1350,11 @@ class TestDevboxCommands:
             "maybe_configure_claude_secret",
             lambda configure_claude, **kw: calls.append(f"claude:{configure_claude}"),
         )
+        monkeypatch.setattr(
+            devbox_cli,
+            "maybe_configure_gh_token",
+            lambda configure_gh, **kw: calls.append(f"gh:{configure_gh}"),
+        )
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: calls.append("summary"))
 
         result = runner.invoke(
@@ -1362,6 +1367,7 @@ class TestDevboxCommands:
                 "--skip-configure-region",
                 "--skip-configure-dotfiles",
                 "--skip-configure-claude",
+                "--skip-configure-gh",
             ],
         )
 
@@ -1378,6 +1384,7 @@ class TestDevboxCommands:
             "region:False",
             "dotfiles:False",
             "claude:False",
+            "gh:False",
             "summary",
         ]
 
@@ -1398,6 +1405,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_gh_token", lambda *a, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(
             devbox_cli,
@@ -1429,6 +1437,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_gh_token", lambda configure_gh, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
         monkeypatch.setattr(devbox_cli, "get_default_git_identity", lambda: ("Coder User", "coder@example.com"))
 
@@ -1465,6 +1474,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda configure_region: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda configure_dotfiles: None)
         monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda configure_claude, **kw: None)
+        monkeypatch.setattr(devbox_cli, "maybe_configure_gh_token", lambda configure_gh, **kw: None)
         monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
 
         result = runner.invoke(cli, ["devbox:setup", "--skip-configure-ssh"])
@@ -1833,6 +1843,7 @@ def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "maybe_configure_region", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_dotfiles", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_claude_secret", lambda *a, **kw: None)
+    monkeypatch.setattr(devbox_cli, "maybe_configure_gh_token", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "print_setup_summary", lambda: None)
     monkeypatch.setattr(devbox_cli, "list_user_secrets", lambda: [])
     monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
@@ -1962,8 +1973,9 @@ class TestDevboxConfigCommands:
         [
             ("git-signing", coder.GIT_SIGNING_KEY_SECRET),
             ("claude", coder.CLAUDE_CODE_OAUTH_ENV),
+            ("gh", coder.GH_TOKEN_SECRET),
         ],
-        ids=["git-signing", "claude"],
+        ids=["git-signing", "claude", "gh"],
     )
     def test_rm_secret_keys_delete_the_right_coder_secret(
         self,
@@ -2024,7 +2036,7 @@ class TestDevboxConfigCommands:
 
         assert result.exit_code == 0, result.output
         assert devbox_config.load_config() == {}
-        assert deleted == [coder.GIT_SIGNING_KEY_SECRET, coder.CLAUDE_CODE_OAUTH_ENV]
+        assert deleted == [coder.GIT_SIGNING_KEY_SECRET, coder.CLAUDE_CODE_OAUTH_ENV, coder.GH_TOKEN_SECRET]
 
     def test_rm_with_no_args_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
         result = runner.invoke(cli, ["devbox:config:rm"])
@@ -2035,6 +2047,7 @@ class TestDevboxConfigCommands:
         assert "region" in result.output
         assert "dotfiles" in result.output
         assert "claude" in result.output
+        assert "gh" in result.output
 
     def test_rm_with_unknown_key_fails_with_valid_keys_hint(self, stub_config_runtime: None) -> None:
         result = runner.invoke(cli, ["devbox:config:rm", "bogus"])
@@ -2686,6 +2699,139 @@ class TestSetupClaudeSecret:
 
         devbox_cli.maybe_configure_claude_secret(None)
         assert called == []
+
+
+class TestReadLocalGhToken:
+    """Test reading the GitHub token from the engineer's local `gh auth token`."""
+
+    def test_returns_trimmed_token(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess,
+            "run",
+            lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "gho_abc123\n", ""),
+        )
+        assert devbox_cli._read_local_gh_token() == "gho_abc123"
+
+    def test_returns_none_when_not_logged_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, "", ""))
+        assert devbox_cli._read_local_gh_token() is None
+
+    def test_returns_none_when_output_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(
+            devbox_cli.subprocess, "run", lambda *a, **kw: subprocess.CompletedProcess(a[0], 0, "  \n", "")
+        )
+        assert devbox_cli._read_local_gh_token() is None
+
+    def test_returns_none_when_gh_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _raise(*a: object, **kw: object) -> subprocess.CompletedProcess[str]:
+            raise FileNotFoundError("gh")
+
+        monkeypatch.setattr(devbox_cli.subprocess, "run", _raise)
+        assert devbox_cli._read_local_gh_token() is None
+
+
+class TestSetupGhToken:
+    """Test the GitHub-token user-secret step in devbox:setup."""
+
+    TOKEN = "gho_token123"
+
+    def test_pushes_local_gh_token_to_user_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: self.TOKEN)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
+        )
+
+        devbox_cli.maybe_configure_gh_token(None)
+
+        assert upserts == [(coder.GH_TOKEN_SECRET, self.TOKEN, coder.GH_TOKEN_SECRET)]
+
+    def test_not_logged_in_prints_guidance_and_upserts_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: None)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda *a, **kw: upserts.append("upsert"))
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_gh_token(None)
+
+        assert upserts == []
+        assert any("gh auth login" in line for line in echoed)
+
+    def test_skip_flag_short_circuits(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: False)
+        reads: list[str] = []
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: reads.append("read") or self.TOKEN)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda *a, **kw: upserts.append("upsert"))
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_gh_token(False)
+
+        assert upserts == []
+        assert reads == []
+        assert any("Skipping" in line for line in echoed)
+
+    def test_already_set_without_flag_is_a_noop(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
+        reads: list[str] = []
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: reads.append("read") or self.TOKEN)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda *a, **kw: upserts.append("upsert"))
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_gh_token(None)
+
+        assert upserts == []
+        assert reads == []
+        assert echoed == []
+
+    def test_explicit_reconfigure_overrides_existing_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(devbox_cli, "user_secret_exists", lambda name: True)
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: self.TOKEN)
+        upserts: list[tuple[str, str, str | None]] = []
+        monkeypatch.setattr(
+            devbox_cli,
+            "upsert_user_secret",
+            lambda name, value, env_name=None, description=None: upserts.append((name, value, env_name)),
+        )
+
+        devbox_cli.maybe_configure_gh_token(True)
+
+        assert upserts == [(coder.GH_TOKEN_SECRET, self.TOKEN, coder.GH_TOKEN_SECRET)]
+
+    def test_known_secret_names_short_circuits_user_secret_lookup(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: True)
+        monkeypatch.setattr(
+            devbox_cli, "user_secret_exists", lambda name: pytest.fail("must use known_secret_names, not a CLI call")
+        )
+        monkeypatch.setattr(devbox_cli, "_read_local_gh_token", lambda: self.TOKEN)
+        upserts: list[str] = []
+        monkeypatch.setattr(devbox_cli, "upsert_user_secret", lambda *a, **kw: upserts.append("upsert"))
+
+        devbox_cli.maybe_configure_gh_token(None, known_secret_names={coder.GH_TOKEN_SECRET})
+
+        assert upserts == []
+
+    def test_skips_when_server_does_not_support_user_secrets(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(devbox_cli, "server_supports_user_secrets", lambda: False)
+        echoed: list[str] = []
+        monkeypatch.setattr(devbox_cli.click, "echo", lambda msg="", **kw: echoed.append(str(msg)))
+
+        devbox_cli.maybe_configure_gh_token(None)
+
+        assert any("older than 2.33" in line for line in echoed)
 
 
 class TestDevboxTaskClaudeWarning:

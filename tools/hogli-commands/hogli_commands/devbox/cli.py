@@ -27,6 +27,7 @@ from .coder import (
     DEFAULT_REGION,
     DEFAULT_TEMPLATE,
     DOTFILES_URI_PARAMETER,
+    GH_TOKEN_SECRET,
     GIT_EMAIL_PARAMETER,
     GIT_NAME_PARAMETER,
     GIT_SIGNING_KEY_SECRET,
@@ -781,6 +782,67 @@ def maybe_configure_claude_secret(configure_claude: bool | None, *, known_secret
     click.echo(f"Saved Claude token as Coder user secret '{CLAUDE_CODE_OAUTH_ENV}'.")
 
 
+def _read_local_gh_token() -> str | None:
+    """Return the engineer's local GitHub token from ``gh auth token``, or ``None``.
+
+    Reads whatever the laptop's ``gh`` CLI is authenticated with so the same
+    token propagates into devboxes. Returns ``None`` when ``gh`` is missing or
+    not logged in (non-zero exit) or prints nothing. Never raises.
+    """
+    try:
+        result = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def maybe_configure_gh_token(configure_gh: bool | None, *, known_secret_names: set[str] | None = None) -> None:
+    """Propagate the engineer's local ``gh auth token`` into devboxes as the GH_TOKEN secret.
+
+    The pre-installed ``gh`` CLI in every workspace reads ``GH_TOKEN`` natively,
+    so populating this per-user Coder secret authenticates ``gh`` on every box --
+    including prebuilt/prewarm ones, since the Coder agent re-injects the secret
+    on each start. Mirrors ``maybe_configure_git_signing``'s resolution order.
+    """
+    if not server_supports_user_secrets():
+        click.echo("GitHub token: skipping (Coder server is older than 2.33; user secrets unavailable).")
+        return
+
+    already_set = (
+        GH_TOKEN_SECRET in known_secret_names if known_secret_names is not None else user_secret_exists(GH_TOKEN_SECRET)
+    )
+
+    if configure_gh is False:
+        if not already_set:
+            click.echo("Skipping GitHub token setup.")
+        return
+
+    if configure_gh is None and already_set:
+        return
+
+    token = _read_local_gh_token()
+    if not token:
+        click.echo()
+        click.echo(click.style("GitHub token (skipped)", bold=True))
+        click.echo("  `gh auth token` returned nothing -- `gh` is not installed or not logged in.")
+        click.echo("  Run `gh auth login`, then re-run `hogli devbox:setup --configure-gh`.")
+        return
+
+    upsert_user_secret(
+        GH_TOKEN_SECRET,
+        token,
+        env_name=GH_TOKEN_SECRET,
+        description="GitHub token for gh CLI (managed by hogli)",
+    )
+
+    click.echo()
+    click.echo(click.style("GitHub token", bold=True))
+    click.echo(f"  Pushed your local `gh auth token` as Coder user secret '{GH_TOKEN_SECRET}'.")
+    click.echo(f"  Injected as ${GH_TOKEN_SECRET} into every workspace, so `gh` is authenticated automatically.")
+
+
 def _reset_user_secret(secret_name: str) -> bool:
     """Delete a Coder user secret. Returns True iff something was actually removed."""
     if delete_user_secret(secret_name).returncode == 0:
@@ -905,6 +967,13 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         status=_secret_status(CLAUDE_CODE_OAUTH_ENV),
         reset=lambda: _reset_user_secret(CLAUDE_CODE_OAUTH_ENV),
     ),
+    _ConfigItem(
+        cli_key="gh",
+        label="GitHub token",
+        needs_secrets=True,
+        status=_secret_status(GH_TOKEN_SECRET),
+        reset=lambda: _reset_user_secret(GH_TOKEN_SECRET),
+    ),
 )
 
 
@@ -975,6 +1044,7 @@ def _confirm_run_setup() -> bool:
     click.echo("  - Preferred region for new workspaces (optional)")
     click.echo("  - Dotfiles repo for new workspaces (optional)")
     click.echo("  - Claude OAuth token as a Coder user secret (optional)")
+    click.echo("  - GitHub token (from `gh auth token`) as a Coder user secret (optional)")
     click.echo()
     return click.confirm("Proceed?", default=True)
 
@@ -1011,6 +1081,12 @@ def _confirm_run_setup() -> bool:
     default=None,
     help="Manage the CLAUDE_CODE_OAUTH_TOKEN Coder user secret for this user",
 )
+@click.option(
+    "--configure-gh/--skip-configure-gh",
+    "configure_gh",
+    default=None,
+    help="Manage the GH_TOKEN Coder user secret from your local `gh auth token`",
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_setup(
     configure_ssh: bool | None,
@@ -1019,6 +1095,7 @@ def devbox_setup(
     configure_region: bool | None,
     configure_dotfiles: bool | None,
     configure_claude_setup: bool | None,
+    configure_gh: bool | None,
     verbose: bool,
 ) -> None:
     """Prepare this machine for Coder workspaces."""
@@ -1030,6 +1107,7 @@ def devbox_setup(
             configure_region,
             configure_dotfiles,
             configure_claude_setup,
+            configure_gh,
         ],
     )
 
@@ -1063,6 +1141,7 @@ def devbox_setup(
     maybe_configure_region(configure_region)
     maybe_configure_dotfiles(configure_dotfiles)
     maybe_configure_claude_secret(configure_claude_setup, known_secret_names=secret_names)
+    maybe_configure_gh_token(configure_gh, known_secret_names=secret_names)
     print_setup_summary()
 
 

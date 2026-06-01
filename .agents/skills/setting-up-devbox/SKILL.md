@@ -25,7 +25,7 @@ A safe probe — it never prompts or mutates host config (unlike `devbox:setup`)
 
 ### 2. One-time local setup — `hogli devbox:setup`
 
-Interactive: checks Tailscale + Coder reachability, installs and authenticates the `coder` CLI, and writes the SSH host entries that `devbox:ssh`/`devbox:exec` rely on. It then _offers_ git identity, git signing, a dotfiles repo, and your Claude token — all optional; `--skip-*` anything you don't want. Re-run one step with its flag, e.g. `hogli devbox:setup --configure-git-signing`.
+Interactive: checks Tailscale + Coder reachability, installs and authenticates the `coder` CLI, and writes the SSH host entries that `devbox:ssh`/`devbox:exec` rely on. It then _offers_ git identity, git signing, a dotfiles repo, your Claude token, and your GitHub token (from local `gh auth token`, so `gh` is authed on every box) — all optional; `--skip-*` anything you don't want. Re-run one step with its flag, e.g. `hogli devbox:setup --configure-git-signing`.
 
 ### 3. Start and connect — `hogli devbox:start`
 
