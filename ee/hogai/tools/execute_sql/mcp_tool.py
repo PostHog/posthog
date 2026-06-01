@@ -1,3 +1,5 @@
+import re
+
 from pydantic import BaseModel, Field
 
 from posthog.schema import HogQLNotice
@@ -60,8 +62,10 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_taxonomy_warnings(self, query: str) -> list[HogQLNotice]:
-        # Reuses the already-validated query's AST parse — no ClickHouse round-trip. Any parse failure
-        # is already surfaced by _validate_hogql_query, so swallow it here rather than double-report.
+        # Re-parse the already-validated query string — cheap (microseconds vs. the ClickHouse
+        # execution) and avoids threading the AST out of the shared validator, which mutates it via
+        # replace_filters/replace_placeholders. Any parse failure is already surfaced by
+        # _validate_hogql_query, so swallow it here rather than double-report.
         try:
             parsed_query = parse_select(query, placeholders={})
         except Exception:
@@ -70,11 +74,23 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
         return validate_taxonomy_references(parsed_query, self._team, table_names)
 
 
+# Event/property names are externally writable (anyone capturing events controls them), and a warning's
+# message embeds the name + suggestion verbatim into agent context — so strip control characters/newlines
+# and cap length to stop a crafted taxonomy name from injecting instructions into the agent.
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+_MAX_WARNING_CHARS = 300
+
+
+def _sanitize_warning_line(message: str) -> str:
+    cleaned = re.sub(r"\s+", " ", _CONTROL_CHARS.sub(" ", message)).strip()
+    return cleaned[:_MAX_WARNING_CHARS] + "…" if len(cleaned) > _MAX_WARNING_CHARS else cleaned
+
+
 def _prepend_taxonomy_warnings(results: str, warnings: list[HogQLNotice]) -> str:
     if not warnings:
         return results
 
-    lines = "\n".join(f"- {warning.message}" for warning in warnings)
+    lines = "\n".join(f"- {_sanitize_warning_line(warning.message)}" for warning in warnings)
     return (
         "<taxonomy_warnings>\n"
         "Your query references names that don't exist in this project's taxonomy. "

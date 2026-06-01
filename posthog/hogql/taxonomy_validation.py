@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from difflib import get_close_matches
+from logging import getLogger
 
+from django.db import DatabaseError
 from django.db.models import QuerySet
 
 from posthog.schema import HogQLNotice
@@ -9,6 +11,8 @@ from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+
+logger = getLogger(__name__)
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
 # never appear in PropertyDefinition and must not be flagged as unknown.
@@ -95,23 +99,31 @@ def validate_taxonomy_references(
 
     warnings: list[HogQLNotice] = []
 
-    if visitor.event_literals:
-        warnings.extend(
-            _warnings_for_unknown_references("Event", visitor.event_literals, EventDefinition.objects.filter(team=team))
-        )
-
-    if visitor.property_names:
-        property_references = [
-            reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
-        ]
-        if property_references:
+    # Taxonomy validation is an advisory signal: fail open. A transient DB error during the lookup must
+    # not mark a syntactically valid query invalid (in metadata.py) or break the execute_sql tool call.
+    try:
+        if visitor.event_literals:
             warnings.extend(
                 _warnings_for_unknown_references(
-                    "Property",
-                    property_references,
-                    PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT),
+                    "Event", visitor.event_literals, EventDefinition.objects.filter(team=team)
                 )
             )
+
+        if visitor.property_names:
+            property_references = [
+                reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+            ]
+            if property_references:
+                warnings.extend(
+                    _warnings_for_unknown_references(
+                        "Property",
+                        property_references,
+                        PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT),
+                    )
+                )
+    except DatabaseError:
+        logger.warning("Taxonomy validation skipped due to a database error", exc_info=True)
+        return []
 
     return warnings
 

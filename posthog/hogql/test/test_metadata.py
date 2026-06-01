@@ -3,6 +3,7 @@ from typing import Optional
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import override_settings
 
 from posthog.schema import (
@@ -303,6 +304,19 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
         replaced = query[: warning.start] + (warning.fix or "") + query[warning.end :]
         self.assertEqual(replaced, "SELECT properties.$geoip_country_code FROM events")
+
+    def test_metadata_taxonomy_db_error_fails_open(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        with patch(
+            "posthog.hogql.taxonomy_validation.EventDefinition.objects.filter",
+            side_effect=DatabaseError("boom"),
+        ):
+            metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
+
+        # A DB error during the advisory taxonomy lookup must not invalidate a valid query.
+        self.assertTrue(metadata.isValid)
+        self.assertEqual([w for w in metadata.warnings if "project taxonomy" in w.message], [])
 
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
         with (
