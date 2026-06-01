@@ -7,7 +7,7 @@ import structlog
 import temporalio
 from temporalio.common import RetryPolicy
 
-from posthog.temporal.common.heartbeat import LivenessHeartbeater
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
@@ -58,10 +58,7 @@ async def run_signals_scout_activity(input: RunSignalsScoutInput) -> RunSignalsS
     workflow sees a `status='failed'` outcome. This matches the spec's "fail safe and
     silent" rule: a bad run does not retry blindly.
     """
-    # LivenessHeartbeater (not the plain Heartbeater): this is a long-lived (~30 min)
-    # activity, so its heartbeats must also refresh the worker's LivenessTracker —
-    # otherwise the health server's idle window elapses mid-run and k8s restarts the pod.
-    async with LivenessHeartbeater():
+    async with Heartbeater():
         result = await arun_signals_scout(
             team_id=input.team_id,
             skill_name=input.skill_name,
