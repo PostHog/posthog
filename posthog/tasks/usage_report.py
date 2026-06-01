@@ -1218,6 +1218,7 @@ def _get_teams_with_ai_credits_for_products(
                     customer_team_id,
                     trace_id,
                     ai_product,
+                    ai_billable,
                     cost_usd
                 FROM (
                     SELECT
@@ -1240,8 +1241,7 @@ def _get_teams_with_ai_credits_for_products(
                         AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
                 )
                 WHERE
-                    ai_billable = 1
-                    AND cost_usd > 0
+                    cost_usd > 0
             )
             SELECT
                 c.customer_team_id AS team,
@@ -1253,14 +1253,16 @@ def _get_teams_with_ai_credits_for_products(
             FROM costs c
             LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
             WHERE
-                -- Trace-required products (e.g. posthog_ai) keep the exact pre-existing predicate:
-                -- bill on a billable $ai_trace (free tool-only turns are excluded). `t.trace_id IS
-                -- NULL` is dead under join_use_nulls=0 (unmatched join yields '', not NULL) but is
-                -- preserved verbatim so this path is byte-identical to the pre-whitelist billing.
-                -- Every other whitelisted product emits no $ai_trace and is billed purely on
-                -- $ai_billable (already enforced in the costs CTE), so the trace join is ignored.
-                c.ai_product NOT IN %(trace_required_products)s
-                OR (t.is_billable = 1 OR t.trace_id IS NULL)
+                -- Every billed generation must be $ai_billable. Trace-required products (e.g.
+                -- posthog_ai) must ALSO have a matching billable $ai_trace — an unmatched LEFT JOIN
+                -- yields is_billable=0, so `t.is_billable = 1` requires the trace to exist and be
+                -- billable (free tool-only turns excluded). Traceless products (slack_app,
+                -- subscriptions) bill on $ai_billable alone, so the trace join is ignored for them.
+                c.ai_billable = 1
+                AND (
+                    c.ai_product NOT IN %(trace_required_products)s
+                    OR t.is_billable = 1
+                )
             GROUP BY
                 c.customer_team_id
             HAVING
