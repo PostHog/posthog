@@ -6,6 +6,7 @@ import pyarrow as pa
 import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -14,6 +15,32 @@ from posthog.temporal.data_imports.sources.common.http import make_tracked_sessi
 from posthog.temporal.data_imports.sources.generated_configs import DoItSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
+
+# DoiT's API sits behind Cloudflare, which surfaces brief upstream blips/maintenance as transient
+# 5xx — including 524 (origin timeout), which the shared DEFAULT_RETRY forcelist does not cover.
+# Retry these transparently with backoff so a short window self-heals within the activity instead
+# of escaping and registering as a fresh error-tracking issue. ~15s of backoff comfortably covers
+# the kind of momentary maintenance window we've seen; longer outages still surface (correctly).
+DOIT_TRANSIENT_STATUSES = (429, 500, 502, 503, 504, 524)
+DOIT_RETRY = Retry(
+    total=5,
+    backoff_factor=1,
+    status_forcelist=DOIT_TRANSIENT_STATUSES,
+    allowed_methods=frozenset(["GET", "HEAD", "OPTIONS"]),
+    raise_on_status=False,
+)
+
+# Upstreams can return multi-KB HTML (e.g. a Cloudflare/DoiT maintenance page) on errors. Collapse
+# whitespace and truncate before embedding in an exception so the full page doesn't leak into logs.
+MAX_ERROR_BODY_LENGTH = 500
+
+
+def summarize_response_body(body: str) -> str:
+    collapsed = " ".join(body.split())
+    if len(collapsed) > MAX_ERROR_BODY_LENGTH:
+        return f"{collapsed[:MAX_ERROR_BODY_LENGTH]}… (truncated)"
+    return collapsed
+
 
 DOIT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -55,7 +82,7 @@ def doit_list_reports(config: DoItSourceConfig, logger: Optional[FilteringBoundL
     if logger is None:
         logger = structlog.get_logger(__name__)
 
-    res = make_tracked_session().get(
+    res = make_tracked_session(retry=DOIT_RETRY).get(
         "https://api.doit.com/analytics/v1/reports",
         headers={"Authorization": f"Bearer {config.api_key}"},
     )
@@ -139,13 +166,16 @@ def doit_source(
 
         logger.debug(f"Requesting DoIt url: {request_uri}")
 
-        res = make_tracked_session().get(
+        res = make_tracked_session(retry=DOIT_RETRY).get(
             request_uri,
             headers={"Authorization": f"Bearer {config.api_key}"},
         )
 
         if res.status_code != 200:
-            raise Exception(f"Request to get report failed with status: {res.status_code}. With body: {res.text}")
+            raise Exception(
+                f"Request to get report failed with status: {res.status_code}. "
+                f"Body: {summarize_response_body(res.text)}"
+            )
 
         result = res.json()
 
