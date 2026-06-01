@@ -279,11 +279,30 @@ export function MenuFilterCombobox({
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q
-            ? createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
-                  .search(q)
-                  .map((r) => r.item)
-            : indexed
+        let base: MenuFilterEntry[]
+        if (!q) {
+            base = indexed
+        } else {
+            // The endpoint is the search authority for endpoint-backed
+            // groups (e.g. Cohorts use `name__icontains` server-side, plus
+            // server-side behavioral-cohort exclusion). Re-running the
+            // client Fuse over already-server-searched results filters them
+            // a *second*, fuzzier time — and Fuse scoring isn't monotonic as
+            // the query grows, so a valid match shown for "posthog te" can
+            // vanish at "posthog team". So only Fuse locally-sourced groups
+            // (Actions, etc., which load their full list client-side); pass
+            // server-searched entries through untouched, preserving order.
+            const localSourced = indexed.filter((e) => !e.group.endpoint)
+            const localMatches =
+                localSourced.length > 0
+                    ? new Set(
+                          createFuse(localSourced, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
+                              .search(q)
+                              .map((r) => r.item)
+                      )
+                    : null
+            base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
+        }
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the
