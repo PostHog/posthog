@@ -252,7 +252,9 @@ procs:
             # to 'false' to fall back to the direct-provider path
             # (ANTHROPIC_API_KEY / OPENAI_API_KEY) — useful if the docker
             # gateway is down and you don't want it autostarted.
-            # See docs/agent-platform/plans/ai-gateway-integration.md.
+            # Setup: see docs/agent-platform/docs/local-dev.md
+            # ("Local ai-gateway") for the sibling-clone + .env + ledger
+            # topup; design: docs/agent-platform/plans/ai-gateway-integration.md.
             AGENT_USE_AI_GATEWAY: 'true'
             POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
@@ -486,8 +488,9 @@ procs:
         # POSTHOG_AI_GATEWAY_URL and AGENT_USE_AI_GATEWAY=true. Skip this
         # entry (ask_skip: true) if you don't have the sibling clone — the
         # runner falls back to the direct-provider path automatically when
-        # AGENT_USE_AI_GATEWAY is 'false'.
-        shell: 'bin/wait-for-docker && cd "$HOME/Development/ai-gateway" && docker compose up'
+        # AGENT_USE_AI_GATEWAY is 'false'. See bin/start-ai-gateway for
+        # the full setup (sibling clone path, .env, anonymous-team topup).
+        shell: 'bin/wait-for-docker && bin/start-ai-gateway'
         capability: ai_gateway
         ready_pattern: 'listening on'
         ask_skip: true

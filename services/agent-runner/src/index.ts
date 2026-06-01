@@ -53,7 +53,7 @@ import {
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { makePerAskerAuth } from './loop/per-asker-auth'
-import { posthogAiGatewayModel } from './models/ai-gateway-model'
+import { aiGatewaySkuFor, posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { Worker } from './workers/worker'
@@ -206,13 +206,12 @@ async function main(): Promise<void> {
         resolveSecrets,
         resolveModel: config.useAiGateway
             ? // Route every model through PostHog's ai-gateway. The gateway's
-              // router admits on the canonical "<provider>/<model>" form; its
-              // dispatcher strips the prefix before forwarding so the upstream
-              // provider sees the bare id (see ai-gateway PR #57). Pass
-              // spec.model verbatim.
+              // admission layer keys on **provider-native SKUs** (e.g. `gpt-4o`,
+              // `claude-sonnet-4-5`), not on the canonical "<provider>/<model>"
+              // form spec.model uses — strip the prefix before sending.
               (specModel) =>
                   posthogAiGatewayModel({
-                      modelId: specModel,
+                      modelId: aiGatewaySkuFor(specModel),
                       baseUrl: config.aiGatewayUrl,
                   })
             : undefined,

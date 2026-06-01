@@ -28,6 +28,18 @@ export interface AiGatewayModelOpts {
     maxTokens?: number
 }
 
+/**
+ * Map a spec.model string (e.g. `openai/gpt-4o`) to the provider-native SKU
+ * the ai-gateway's admission layer accepts. The gateway's `CanonicalForSKU`
+ * lookup is keyed on bare ids (`gpt-4o`, `claude-sonnet-4-5`), not on the
+ * canonical `<provider>/<model>` form. Strip the prefix; callers that need
+ * a different mapping (anthropic version-name skew, etc.) can override here.
+ */
+export function aiGatewaySkuFor(specModel: string): string {
+    const slash = specModel.indexOf('/')
+    return slash === -1 ? specModel : specModel.slice(slash + 1)
+}
+
 export function posthogAiGatewayModel(opts: AiGatewayModelOpts): Model<'openai-completions'> {
     return {
         id: opts.modelId,

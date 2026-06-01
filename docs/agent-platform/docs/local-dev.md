@@ -94,6 +94,52 @@ curl -s localhost:3031/healthz   # janitor
 The runner doesn't expose HTTP — check its mprocs pane for
 `starting worker loop` (the `ready_pattern`).
 
+### Local ai-gateway (optional)
+
+The runner can route every model call through PostHog's external Go
+[ai-gateway](https://github.com/PostHog/ai-gateway) instead of going
+direct to providers. Useful if you're working on gateway integration,
+billing/quota plumbing, or `$ai_origin` analytics. Off by default —
+the runner uses direct providers when `AGENT_USE_AI_GATEWAY=false`.
+
+To turn it on:
+
+1. **Clone the sibling repo** at `~/Development/ai-gateway`
+   (override with `AI_GATEWAY_REPO`).
+2. **Create `~/Development/ai-gateway/.env`** with provider keys:
+
+   ```bash
+   AI_GATEWAY_AUTH_MODE=open
+   AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...
+   AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
+   ```
+
+   Note the `AI_GATEWAY_*` prefix — older docs/scripts referenced
+   `LLM_GATEWAY_*`, which is inert against the current compose file.
+
+3. **Enable the `ai_gateway` capability** in `hogli dev:setup` so the
+   `ai-gateway` mprocs entry runs. It executes
+   [`bin/start-ai-gateway`](../../../bin/start-ai-gateway) which
+   brings up `docker compose --profile full` (gateway + billing +
+   deps) and seeds the anonymous-team ledger with $100 so requests
+   pass admission. Idempotent — runs cleanly on every restart.
+4. **Flip `AGENT_USE_AI_GATEWAY: 'true'`** on the agent-runner entry
+   in [bin/mprocs.yaml](../../../bin/mprocs.yaml).
+
+Known limitations of the local gateway today:
+
+- The gateway's model table only includes `openai/gpt-4` and
+  `openai/gpt-4o` for the OpenAI chat-completions shape. Anthropic
+  models (`anthropic/claude-sonnet-4-6`, etc.) return
+  `router rejected request` because the runner speaks
+  openai-completions; the gateway routes Anthropic SKUs through the
+  anthropic-messages shape only.
+- The runner strips the `<provider>/` prefix from `spec.model` before
+  sending to the gateway (admission keys on the bare SKU, not on the
+  canonical `<provider>/<model>` form). See
+  [`services/agent-runner/src/models/ai-gateway-model.ts`](../../../services/agent-runner/src/models/ai-gateway-model.ts)
+  (`aiGatewaySkuFor`).
+
 ## Driving the stack: three paths
 
 ### 1. `bin/run-agent` — the smoke test
