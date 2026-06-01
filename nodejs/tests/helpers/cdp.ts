@@ -45,7 +45,3 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         quotaLimiting: hub.quotaLimiting,
     }
 }
-
-export function createCdpLegacyEventsConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWrapper): CdpConsumerBaseDeps {
-    return createCdpConsumerDeps(hub, kafkaProducer)
-}
