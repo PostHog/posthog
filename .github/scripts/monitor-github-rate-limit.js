@@ -37,15 +37,18 @@ function buildTrigger(context) {
     const payload = context.payload || {}
     const pr = payload.pull_request || null
     const num = (value) => (typeof value === 'number' ? value : null)
+    // PR head refs are short (`feature/foo`); push refs are qualified
+    // (`refs/heads/master`). Normalize to the short form so the column is uniform.
+    const ref = pr?.head?.ref ?? payload.ref ?? null
     return {
         trigger_event: context.eventName || null,
         trigger_action: payload.action || null,
-        head_ref: (pr && pr.head && pr.head.ref) || payload.ref || null,
-        pr_number: pr ? num(pr.number) : null,
-        pr_author: (pr && pr.user && pr.user.login) || null,
-        pr_changed_files: pr ? num(pr.changed_files) : null,
-        pr_additions: pr ? num(pr.additions) : null,
-        pr_deletions: pr ? num(pr.deletions) : null,
+        head_ref: ref ? ref.replace(/^refs\/heads\//, '') : null,
+        pr_number: num(pr?.number),
+        pr_author: pr?.user?.login ?? null,
+        pr_changed_files: num(pr?.changed_files),
+        pr_additions: num(pr?.additions),
+        pr_deletions: num(pr?.deletions),
     }
 }
 
@@ -64,7 +67,7 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
         source: 'github_token',
         observed_at: observedAt,
         workflow_run_id: runId || null,
-        ...(trigger || {}),
+        ...trigger,
     }
 }
 

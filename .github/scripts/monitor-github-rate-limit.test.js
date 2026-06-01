@@ -126,7 +126,7 @@ describe('monitor-github-rate-limit', () => {
     })
 
     test.each([
-        ['push', { ref: 'refs/heads/master' }, 'refs/heads/master'],
+        ['push', { ref: 'refs/heads/master' }, 'master'],
         ['schedule', {}, null],
         ['workflow_dispatch', {}, null],
     ])('buildTrigger nulls PR fields and resolves head_ref for non-PR event %s', (eventName, payload, expectedRef) => {
