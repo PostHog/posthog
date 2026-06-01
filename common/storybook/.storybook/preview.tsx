@@ -16,9 +16,16 @@ import { withMockDate } from './decorators/withMockDate'
 import { withPageUrl } from './decorators/withPageUrl'
 import { withTheme } from './decorators/withTheme'
 
+// `worker.start()` is async (it registers a service worker). Capture the
+// promise so stories can await it before rendering. Otherwise a story that
+// fetches on mount can fire its request before MSW is intercepting, hit the
+// real network, resolve empty, and (because the data layer caches by staleTime)
+// render that empty result for the rest of the session. This raced
+// non-deterministically and produced flaky snapshots (e.g. the headless
+// TaxonomicFilter tabs intermittently showing 0 results).
+let mswReady: Promise<unknown> = Promise.resolve()
 const setupMsw = (): void => {
-    // Make sure the msw worker is started
-    worker.start({
+    mswReady = worker.start({
         quiet: true,
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
@@ -80,6 +87,11 @@ export const parameters: Parameters = {
         mocks: defaultMocks,
     },
 }
+
+// Block every story's render until the MSW service worker is actually
+// intercepting, so fetch-on-mount stories never race a real (empty) network
+// response. Loaders run and resolve before the story renders.
+export const loaders = [async (): Promise<Record<string, never>> => (await mswReady, {})]
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
 export const decorators: Meta['decorators'] = [
