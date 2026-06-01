@@ -473,6 +473,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -502,8 +504,12 @@ export namespace Schemas {
       accountOwner?: string | number | null;
       allRolesUnassigned?: boolean | null;
       csm?: string | number | null;
+      /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+      filterExpression?: string | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
+      /** Aggregation expressions evaluated against the filtered account set. When set, the runner skips the regular row fetch and returns one value per metric in `metricsResults`. */
+      metrics?: string[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -10160,6 +10166,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36013,6 +36021,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36448,6 +36458,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
