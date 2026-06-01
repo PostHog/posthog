@@ -1243,35 +1243,6 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
-export interface _SourceMapsSetupCheckSymbolSetApi {
-    /** Symbol set ID. */
-    id: string
-    /** Symbol set reference (chunk ID). */
-    ref: string
-    /** When the symbol set row was created. */
-    created_at: string
-    /** Whether the symbol set actually has bytes uploaded to storage. */
-    has_uploaded_file: boolean
-}
-
-export interface _SourceMapsSetupCheckFramesApi {
-    /** JavaScript frames created in the window. */
-    total: number
-    /** Of those, how many resolved via a symbol set. */
-    resolved: number
-    /** Of those, how many are still unresolved. */
-    unresolved: number
-}
-
-export interface SourceMapsSetupCheckApi {
-    /** The window the response describes. */
-    since_minutes: number
-    /** Symbol sets created in the window. */
-    symbol_sets: _SourceMapsSetupCheckSymbolSetApi[]
-    /** JS frame resolution stats over the window. */
-    frames: _SourceMapsSetupCheckFramesApi
-}
-
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -1705,15 +1676,6 @@ export type ErrorTrackingRecommendationsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
-}
-
-export type ErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveParams = {
-    /**
-     * How many minutes back to look for uploads and frame activity. Defaults to 15.
-     * @minimum 1
-     * @maximum 1440
-     */
-    since_minutes?: number
 }
 
 export type ErrorTrackingSpikeEventsListParams = {

@@ -37,7 +37,6 @@ import type {
     ErrorTrackingIssuesListResponseApi,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
-    ErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
@@ -76,7 +75,6 @@ import type {
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
     PatchedErrorTrackingSuppressionRuleUpdateRequestApi,
-    SourceMapsSetupCheckApi,
     _SymbolSetDownloadResponseApi,
 } from './api.schemas'
 
@@ -954,43 +952,6 @@ export const errorTrackingRecommendationsRestoreCreate = async (
         ...options,
         method: 'POST',
     })
-}
-
-export const getErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveUrl = (
-    projectId: string,
-    params?: ErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/error_tracking/recommendations/source_maps_setup_check/?${stringifiedParams}`
-        : `/api/environments/${projectId}/error_tracking/recommendations/source_maps_setup_check/`
-}
-
-/**
- * Live read of symbol-set uploads and JavaScript frame resolution over the last N minutes.
-Used by the source maps setup wizard to confirm a build pipeline is producing uploads.
- */
-export const errorTrackingRecommendationsSourceMapsSetupCheckRetrieve = async (
-    projectId: string,
-    params?: ErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveParams,
-    options?: RequestInit
-): Promise<SourceMapsSetupCheckApi> => {
-    return apiMutator<SourceMapsSetupCheckApi>(
-        getErrorTrackingRecommendationsSourceMapsSetupCheckRetrieveUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getErrorTrackingSettingsRetrieveSettingsRetrieveUrl = (projectId: string) => {
