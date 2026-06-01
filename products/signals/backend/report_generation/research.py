@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
 
-from products.signals.backend.temporal.types import SignalData, _render_extra_to_text
+# Deferred: importing temporal.types here runs the signals temporal package __init__, which
+# eager-imports agentic -> report -> back into this module, forming a circular import.
+# SignalData is annotation-only (this module uses `from __future__ import annotations`); the one
+# runtime helper is imported locally in _render_signal_for_research.
+if TYPE_CHECKING:
+    from products.signals.backend.temporal.types import SignalData
 
 
 class ActionabilityChoice(str, Enum):
@@ -253,6 +258,8 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
 
 def _render_signal_for_research(signal: SignalData, index: int, total: int) -> str:
     """Render a single signal for the research prompt, with numbering."""
+    from products.signals.backend.temporal.types import _render_extra_to_text  # noqa: PLC0415
+
     lines = [f"### Signal {index}/{total} (id: `{signal.signal_id}`)"]
     lines.append(f"- **Source:** {signal.source_product} / {signal.source_type}")
     lines.append(f"- **Source ID:** {signal.source_id}")
