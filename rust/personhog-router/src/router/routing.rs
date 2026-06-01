@@ -149,6 +149,7 @@ mod tests {
         metadata.insert("x-read-consistency", "strong".parse().unwrap());
         let body_options = Some(ReadOptions {
             consistency: ConsistencyLevel::Eventual.into(),
+            ..Default::default()
         });
         assert_eq!(
             resolve_consistency(&metadata, &body_options),
@@ -161,6 +162,7 @@ mod tests {
         let metadata = MetadataMap::new();
         let body_options = Some(ReadOptions {
             consistency: ConsistencyLevel::Strong.into(),
+            ..Default::default()
         });
         assert_eq!(
             resolve_consistency(&metadata, &body_options),

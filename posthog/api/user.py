@@ -390,7 +390,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        has_totp_device = default_device(instance) is not None
+        has_passkey_2fa = bool(instance.passkeys_enabled_for_2fa) and has_passkeys(instance)
+        return has_totp_device or has_passkey_2fa
 
     @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
@@ -766,7 +768,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=(
@@ -1404,7 +1406,16 @@ def toolbar_oauth_callback(request):
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
     toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
-        fragment = f"{original_fragment}&{toolbar_param}"
+        # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
+        # as the path, so `&` would make the auth params part of the route and
+        # 404. `?` is the standard hash-query separator that React Router,
+        # Vue Router, etc. split on. If the fragment already has a `?` (e.g.
+        # `#/login?foo=bar`), keep using `&` to extend the existing hash query.
+        if original_fragment.startswith("/") and "?" not in original_fragment:
+            separator = "?"
+        else:
+            separator = "&"
+        fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param
     return redirect(f"{base_url}#{fragment}")

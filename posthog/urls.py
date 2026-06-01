@@ -7,6 +7,7 @@ from django.template import loader
 from django.urls import include, path, re_path
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie, requires_csrf_token
+from django.views.generic.base import RedirectView
 
 import structlog
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
@@ -48,16 +49,20 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
+from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
 from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
-from products.llm_analytics.backend.api.personal_spend import personal_spend_eu_redirect
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
-from products.slack_app.backend.api import posthog_code_event_handler, posthog_code_interactivity_handler
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_workspace_claims_view,
+)
 from products.surveys.backend.api.survey import public_survey_page
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
@@ -406,6 +411,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
     opt_slash_path("webhooks/github", github_webhook),
@@ -472,6 +478,13 @@ if settings.TEST:
     if not settings.DEBUG:
         urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
+
+# Redirect the legacy `/sign-up` path to the canonical `/signup` route. Works across
+# app./us./eu. subdomains because only the path changes; the host is preserved by the
+# relative redirect.
+urlpatterns.append(
+    opt_slash_path("sign-up", RedirectView.as_view(url="/signup", permanent=True, query_string=True)),
+)
 
 # Routes added individually to remove login requirement
 frontend_unauthenticated_routes = [

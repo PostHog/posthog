@@ -63,8 +63,9 @@ export interface ConfigurationTabProps {
 
 export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
     const logic = sourceSettingsLogic({ id: sourceId })
-    const { isProjectTime } = useValues(logic)
-    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable } = useActions(logic)
+    const { isProjectTime, refreshingSchemas } = useValues(logic)
+    const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
+        useActions(logic)
 
     switch (section) {
         case 'details':
@@ -86,6 +87,8 @@ export function ConfigurationTab({ sourceId, schema, source, section }: Configur
                     schema={schema}
                     updateSchema={updateSchema}
                     resyncSchema={resyncSchema}
+                    refreshSchemas={refreshSchemas}
+                    refreshingSchemas={refreshingSchemas}
                 />
             )
         case 'schedule':
@@ -415,11 +418,15 @@ function ColumnsSection({
     schema,
     updateSchema,
     resyncSchema,
+    refreshSchemas,
+    refreshingSchemas,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
+    refreshSchemas: () => void
+    refreshingSchemas: boolean
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
@@ -498,7 +505,19 @@ function ColumnsSection({
             />
             <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                 {!hasAvailableColumns ? (
-                    <span className="text-muted">Per-column selection isn't available for this source yet.</span>
+                    <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
+                        <span className="text-sm">No columns discovered yet for this schema.</span>
+                        <SourceEditorAction source={source}>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                loading={refreshingSchemas}
+                                onClick={() => refreshSchemas()}
+                            >
+                                Pull new schemas
+                            </LemonButton>
+                        </SourceEditorAction>
+                    </div>
                 ) : (
                     <>
                         <span className="text-sm text-secondary">{summaryLine}</span>

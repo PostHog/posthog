@@ -5,14 +5,21 @@ from unittest import mock
 from dateutil import parser
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQueryImplementation
+from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BigQueryImplementation,
+    _bq_select_clause,
+    _get_query,
+)
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
+from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQueryDatasetProjectConfig,
     BigQueryKeyFileConfig,
     BigQuerySourceConfig,
     BigQueryTemporaryDatasetConfig,
 )
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _make_inputs(**overrides) -> SourceInputs:
@@ -125,3 +132,60 @@ def test_bigquery_build_pipeline_resolves_dataset_routing(
     assert mock_build.call_args.kwargs["bq_destination_table_id"] == expected_table_id
 
     assert mock_delete.call_args.kwargs["table_id"] == expected_table_id
+
+
+@pytest.mark.parametrize(
+    "enabled_columns,primary_keys,incremental_field,expected",
+    [
+        (None, ["id"], None, "*"),
+        (["email"], ["id"], None, "`email`, `id`"),
+        (["email"], ["id"], "created_at", "`email`, `id`, `created_at`"),
+        ([], None, None, "*"),
+        ([], ["id"], None, "`id`"),
+    ],
+)
+def test_bigquery_select_clause(enabled_columns, primary_keys, incremental_field, expected):
+    assert _bq_select_clause(enabled_columns, primary_keys, incremental_field) == expected
+
+
+def test_bigquery_get_query_projects_enabled_columns():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=False,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        enabled_columns=["email"],
+        primary_keys=["id"],
+    )
+    assert "SELECT `email`, `id` FROM" in query
+
+
+def test_bigquery_get_query_keeps_incremental_field_in_projection():
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    query = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=42,
+        bq_table=bq_table,
+        incremental_field="updated_at",
+        incremental_field_type=IncrementalFieldType.Integer,
+        enabled_columns=["email"],
+        primary_keys=["id"],
+    )
+    assert "SELECT `email`, `id`, `updated_at` FROM" in query
+    assert "WHERE `updated_at` > 42" in query
+
+
+@pytest.mark.parametrize(
+    "malicious_column",
+    [
+        "x` FROM `other.private` --",
+        "id; DROP TABLE customers",
+        "email`, `secret",
+        "name with space",
+        "col\x00null",
+    ],
+)
+def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
+    """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
+    with pytest.raises(InvalidIdentifierError):
+        _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)

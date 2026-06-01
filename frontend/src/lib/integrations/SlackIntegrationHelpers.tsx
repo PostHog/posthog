@@ -126,6 +126,18 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
     }, [loadAllSlackChannels, disabled])
 
+    // Workspaces with hundreds of channels can have the saved channel beyond the first page that
+    // /channels returns. Without a direct lookup the bare ID never resolves to a name on initial
+    // load — the picker just shows the ID. Fetch the saved channel by id so it merges into the
+    // slackChannels selector regardless of where it falls in the bulk list. Skip composite values
+    // ("id|#name") — modifiedValue short-circuits resolution for those, so the lookup result would
+    // never be consumed.
+    useEffect(() => {
+        if (!disabled && value && value.split('|').length === 1) {
+            loadSlackChannelById(value)
+        }
+    }, [loadSlackChannelById, value, disabled])
+
     return (
         <>
             <LemonInputSelect
@@ -139,7 +151,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         const idCandidate = val.trim().toUpperCase()
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
-                        } else {
+                        } else if (val !== modifiedValue) {
+                            // LemonInputSelect auto-fills the input with the selected option's key on
+                            // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
+                            // search — the composite "id|#name" matches no channel server-side and
+                            // would overwrite the cached list with [], so the bare ID could no longer
+                            // resolve to a name after blur.
                             loadAllSlackChannels(false, val)
                         }
                         setLocalValue(val)
@@ -185,7 +202,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">
-                    Only the first 200 channels are shown — type to search for a specific channel.
+                    Only the first page of channels is shown — type to search for a specific channel.
                 </p>
             ) : null}
 
