@@ -532,6 +532,28 @@ class TestManifestRequestHosts(SimpleTestCase):
         )
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
 
+    def test_uppercase_scheme_absolute_path_adds_host(self):
+        # urljoin treats `HTTPS://host` as absolute (schemes are case-insensitive), so a
+        # mixed-case scheme must still register the new host — otherwise an editor who can't
+        # read the stored secret could retarget the preserved credential past the re-entry gate.
+        manifest = self._manifest("https://api.example.com", ["HTTPS://attacker.example.net/data"])
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_uppercase_scheme_split_across_param_adds_host(self):
+        # Same retarget bypass via a split scheme: "{scheme}://host" + {"scheme": "HTTPS"}.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{scheme}://attacker.example.net/data", "params": {"scheme": "HTTPS"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
     def test_url_param_not_referenced_in_path_is_ignored(self):
         # A URL-valued query param that isn't a path placeholder is a normal query value, not a
         # request destination — it must not be counted (avoids false re-entry prompts).

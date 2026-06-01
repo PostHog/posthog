@@ -162,7 +162,7 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
 
     for resource in manifest["resources"]:
         path = resource.get("endpoint", {}).get("path", "")
-        if path.startswith(("http://", "https://")):
+        if path.lower().startswith(("http://", "https://")):
             ok, err = _check_url(path, team_id)
             if not ok:
                 return False, f"Resource {resource['name']!r}: {err}"
@@ -219,7 +219,10 @@ def _endpoint_request_urls(endpoint: Any) -> list[str]:
         # Malformed / positional format string — it's re-vetted at request time anyway.
         resolved = path
 
-    return [resolved] if resolved.startswith(("http://", "https://")) else []
+    # Case-insensitive: urljoin treats `HTTPS://host` as absolute (schemes are
+    # case-insensitive per RFC 3986), so a mixed-case scheme must count as a new
+    # request host here too — otherwise the retarget guard misses it.
+    return [resolved] if resolved.lower().startswith(("http://", "https://")) else []
 
 
 def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
@@ -408,7 +411,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             endpoint = resource.get("endpoint", {})
             method = (endpoint.get("method") or "GET").upper()
             path = endpoint.get("path", "")
-            url = path if path.startswith(("http://", "https://")) else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            url = (
+                path
+                if path.lower().startswith(("http://", "https://"))
+                else f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+            )
             # Replay the configured query params and request body so the probe
             # matches what the sync sends — an endpoint that needs them shouldn't
             # answer differently at probe vs sync time.
