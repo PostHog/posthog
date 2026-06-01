@@ -15,8 +15,6 @@ import { listNativeTools, type NativeToolCatalogEntry } from '@/lib/apiClient'
 import { listCustomToolTemplates, listSkillTemplates } from '@/lib/registryClient'
 import { useResource } from '@/lib/useResource'
 
-import { SkillDropzone } from './skill-dropzone'
-
 type TabKey = 'native' | 'skills' | 'tools'
 
 export function RegistryClient(): React.ReactElement {
@@ -116,26 +114,17 @@ function NativeToolsList({ query }: { query: string }): React.ReactElement {
 function SkillsList({ query }: { query: string }): React.ReactElement {
     const teamId = useSessionTeamId()!
     const res = useResource(() => listSkillTemplates(teamId).catch(() => [] as SkillTemplateSummary[]), [teamId])
+    if (res.loading && !res.data) {
+        return <EmptyState>Loading skill templates…</EmptyState>
+    }
     const skills = res.data ?? []
     const filtered = filterByQuery<SkillTemplateSummary>(skills, query, (s) => [s.name, s.description ?? ''])
-
-    return (
-        <SkillDropzone teamId={teamId} onUploaded={res.reload}>
-            {res.loading && !res.data ? (
-                <EmptyState>Loading skill templates…</EmptyState>
-            ) : filtered.length === 0 ? (
-                <EmptyState>No skills match. Drop a skill folder or zip above to add one.</EmptyState>
-            ) : (
-                <SkillCards skills={filtered} />
-            )}
-        </SkillDropzone>
-    )
-}
-
-function SkillCards({ skills }: { skills: SkillTemplateSummary[] }): React.ReactElement {
+    if (filtered.length === 0) {
+        return <EmptyState>No skills match.</EmptyState>
+    }
     return (
         <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {skills.map((s) => (
+            {filtered.map((s) => (
                 <li key={s.id}>
                     <Card
                         href={`/registry/skills/${encodeURIComponent(s.name)}`}
