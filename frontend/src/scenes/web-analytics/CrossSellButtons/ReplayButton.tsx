@@ -112,6 +112,32 @@ export const ReplayButton = ({
     filter_test_accounts,
 }: ReplayButtonProps): JSX.Element => {
     const extraFilters: UniversalFiltersGroupValue[] = (properties ?? []) as UniversalFiltersGroupValue[]
+
+    /** Compose the recordings filter from the per-breakdown property filters plus the dashboard-level
+     *  `properties` and `filter_test_accounts` that every branch needs to forward. */
+    const buildFilters = (breakdownValues: UniversalFiltersGroupValue[]): Partial<RecordingUniversalFilters> => {
+        const innerValues = [...breakdownValues, ...extraFilters]
+        return {
+            date_from,
+            date_to,
+            filter_test_accounts,
+            ...(innerValues.length
+                ? {
+                      filter_group: {
+                          type: FilterLogicalOperator.And,
+                          values: [{ type: FilterLogicalOperator.And, values: innerValues }],
+                      },
+                  }
+                : {}),
+        }
+    }
+
+    const renderButton = (filters: Partial<RecordingUniversalFilters>): JSX.Element => (
+        <div onClick={handleClick}>
+            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
+        </div>
+    )
+
     const handleClick = (e: React.MouseEvent): void => {
         e.stopPropagation()
         void addProductIntentForCrossSell({
@@ -124,133 +150,65 @@ export const ReplayButton = ({
     /** If value is empty - just open session replay home page, but still forward dashboard
      *  filters so the recordings list isn't wider than what the user is looking at. */
     if (value === '') {
-        const filters: Partial<RecordingUniversalFilters> = {
-            date_from,
-            date_to,
-            filter_test_accounts,
-            ...(extraFilters.length
-                ? {
-                      filter_group: {
-                          type: FilterLogicalOperator.And,
-                          values: [{ type: FilterLogicalOperator.And, values: extraFilters }],
-                      },
-                  }
-                : {}),
-        }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
-        )
+        return renderButton(buildFilters([]))
     }
 
     /** View port is a unique case, so we need to handle it differently */
     if (breakdownBy === WebStatsBreakdown.Viewport) {
-        const filters: Partial<RecordingUniversalFilters> = {
-            date_from,
-            date_to,
-            filter_test_accounts,
-            filter_group: {
-                type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                key: '$viewport_width',
-                                type: PropertyFilterType.Event,
-                                value: [value[0]],
-                                operator: PropertyOperator.Exact,
-                            },
-                            {
-                                key: '$viewport_height',
-                                type: PropertyFilterType.Event,
-                                value: [value[1]],
-                                operator: PropertyOperator.Exact,
-                            },
-                            ...extraFilters,
-                        ],
-                    },
-                ],
-            },
-        }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
+        return renderButton(
+            buildFilters([
+                {
+                    key: '$viewport_width',
+                    type: PropertyFilterType.Event,
+                    value: [value[0]],
+                    operator: PropertyOperator.Exact,
+                },
+                {
+                    key: '$viewport_height',
+                    type: PropertyFilterType.Event,
+                    value: [value[1]],
+                    operator: PropertyOperator.Exact,
+                },
+            ])
         )
     }
 
     /** UTM source, medium, campaign is a unique case, so we need to handle it differently, as combining them with AND */
     if (breakdownBy === WebStatsBreakdown.InitialUTMSourceMediumCampaign) {
         const values = value.split(' / ')
-        const filters: Partial<RecordingUniversalFilters> = {
-            date_from,
-            date_to,
-            filter_test_accounts,
-            filter_group: {
-                type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            buildBreakdownPropertyFilter(
-                                '$entry_utm_source',
-                                PropertyFilterType.Session,
-                                values[0] ?? BREAKDOWN_NULL_DISPLAY
-                            ),
-                            buildBreakdownPropertyFilter(
-                                '$entry_utm_medium',
-                                PropertyFilterType.Session,
-                                values[1] ?? BREAKDOWN_NULL_DISPLAY
-                            ),
-                            buildBreakdownPropertyFilter(
-                                '$entry_utm_campaign',
-                                PropertyFilterType.Session,
-                                values[2] ?? BREAKDOWN_NULL_DISPLAY
-                            ),
-                            ...extraFilters,
-                        ],
-                    },
-                ],
-            },
-        }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
+        return renderButton(
+            buildFilters([
+                buildBreakdownPropertyFilter(
+                    '$entry_utm_source',
+                    PropertyFilterType.Session,
+                    values[0] ?? BREAKDOWN_NULL_DISPLAY
+                ),
+                buildBreakdownPropertyFilter(
+                    '$entry_utm_medium',
+                    PropertyFilterType.Session,
+                    values[1] ?? BREAKDOWN_NULL_DISPLAY
+                ),
+                buildBreakdownPropertyFilter(
+                    '$entry_utm_campaign',
+                    PropertyFilterType.Session,
+                    values[2] ?? BREAKDOWN_NULL_DISPLAY
+                ),
+            ])
         )
     }
 
     /** Referring URL is displayed with query params stripped, so use regex to match the raw value */
     if (breakdownBy === WebStatsBreakdown.InitialReferringURL) {
         const escapedValue = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-        const filters: Partial<RecordingUniversalFilters> = {
-            date_from,
-            date_to,
-            filter_test_accounts,
-            filter_group: {
-                type: FilterLogicalOperator.And,
-                values: [
-                    {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                key: '$session_entry_referrer',
-                                type: PropertyFilterType.Event,
-                                value: [`^${escapedValue}($|\\?|#)`],
-                                operator: PropertyOperator.Regex,
-                            },
-                            ...extraFilters,
-                        ],
-                    },
-                ],
-            },
-        }
-        return (
-            <div onClick={handleClick}>
-                <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-            </div>
+        return renderButton(
+            buildFilters([
+                {
+                    key: '$session_entry_referrer',
+                    type: PropertyFilterType.Event,
+                    value: [`^${escapedValue}($|\\?|#)`],
+                    operator: PropertyOperator.Regex,
+                },
+            ])
         )
     }
 
@@ -261,24 +219,5 @@ export const ReplayButton = ({
         return <></>
     }
 
-    /** Render the button */
-    const filters: Partial<RecordingUniversalFilters> = {
-        date_from,
-        date_to,
-        filter_test_accounts,
-        filter_group: {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: FilterLogicalOperator.And,
-                    values: [buildBreakdownPropertyFilter(key, type, value), ...extraFilters],
-                },
-            ],
-        },
-    }
-    return (
-        <div onClick={handleClick}>
-            <ViewRecordingsPlaylistButton filters={filters} type="tertiary" size="xsmall" />
-        </div>
-    )
+    return renderButton(buildFilters([buildBreakdownPropertyFilter(key, type, value)]))
 }
