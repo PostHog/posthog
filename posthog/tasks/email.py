@@ -13,7 +13,6 @@ import posthoganalytics
 from celery import shared_task
 from posthoganalytics import new_context, tag
 
-from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
@@ -936,6 +935,10 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 @skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
     """Send 2FA reset email to user when an admin initiates a reset."""
+    # Deferred: this constant lives in a DRF viewset module; email.py is eager-imported by
+    # posthog/tasks/__init__, so a module-level import drags that machinery onto startup.
+    from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS  # noqa: PLC0415
+
     user: User = User.objects.get(pk=user_id)
 
     reset_link = f"{settings.SITE_URL}/reset_2fa/{user.uuid}/{token}"
