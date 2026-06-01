@@ -35,6 +35,7 @@ from posthog.hogql.database.models import (
     StringDatabaseField,
     Table,
     TableNode,
+    freeze_table_tree,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.errors import ExposedHogQLError
@@ -276,6 +277,89 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         first_database.tables.children["events"].table = None
 
         assert second_database.tables.children["events"].table is not None
+
+    def test_build_root_shares_frozen_table_payloads_copy_on_write(self):
+        first = build_database_root_node()
+        second = build_database_root_node()
+
+        # Each Database gets its own node wrappers...
+        assert first.children["events"] is not second.children["events"]
+        # ...but they share the frozen table payload by reference until first mutation (copy-on-write).
+        assert first.children["events"].table is second.children["events"].table
+        assert first.children["events"].table is ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+
+    def test_copy_on_write_isolates_table_mutations_from_frozen_catalog(self):
+        frozen_events_fields = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields.keys())
+
+        database = Database()
+        events = database.get_table("events")
+        events.fields["__cow_marker__"] = StringDatabaseField(name="__cow_marker__")
+
+        assert "__cow_marker__" not in ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields
+        assert set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields.keys()) == frozen_events_fields
+
+        other_database = Database()
+        assert "__cow_marker__" not in other_database.get_table("events").fields
+
+    def test_get_table_returns_stable_materialized_instance(self):
+        database = Database()
+
+        assert database.get_table("persons") is database.get_table("persons")
+        # root and posthog-namespace copies materialize independently
+        assert database.get_table("events") is not database.get_table("posthog.events")
+
+    def test_frozen_catalog_singletons_reject_in_place_edits(self):
+        frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert frozen_events is not None
+
+        with self.assertRaises(TypeError):
+            frozen_events.fields["__should_not_write__"] = StringDatabaseField(name="__should_not_write__")
+        with self.assertRaises(TypeError):
+            del frozen_events.fields["event"]
+        with self.assertRaises(TypeError):
+            frozen_events.fields.update({"__should_not_write__": StringDatabaseField(name="__should_not_write__")})
+
+        # nested virtual tables on the frozen base are protected too
+        poe = frozen_events.fields.get("poe")
+        assert poe is not None
+        with self.assertRaises(TypeError):
+            poe.fields["__should_not_write__"] = StringDatabaseField(name="__should_not_write__")
+
+    def test_materialized_table_is_mutable_including_nested_tables(self):
+        database = Database()
+        events = database.get_table("events")
+
+        events.fields["__ok__"] = StringDatabaseField(name="__ok__")
+        poe = events.fields.get("poe")
+        assert poe is not None
+        poe.fields["__ok_nested__"] = StringDatabaseField(name="__ok_nested__")
+
+        assert "__ok__" in events.fields
+        assert "__ok_nested__" in poe.fields
+        assert "__ok__" not in ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.fields
+
+    def test_remove_lazy_joins_materializes_before_deleting_from_frozen_table(self):
+        # The restricted-access / direct-query prune path is the one tree walk that deletes table
+        # fields; under the freeze it must clone before deleting or it would raise. The admin-path
+        # snapshot suite never triggers a removal, so force it here with a frozen table carrying a
+        # lazy join to a disallowed (string-named) table.
+        frozen_table = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table.model_copy(deep=True)
+        frozen_table.fields["__removable_join__"] = LazyJoin(
+            from_field=["event"],
+            join_table="__disallowed_table__",
+            join_function=lambda *args, **kwargs: None,
+        )
+        freeze_table_tree(frozen_table)
+
+        database = Database()
+        database.tables.children["events"] = TableNode(name="events", table=frozen_table)
+
+        allowed = set(database.tables.resolve_all_table_names())  # excludes "__disallowed_table__"
+        database._remove_lazy_joins_to_disallowed_tables(allowed)  # must not raise
+
+        # The injected frozen table is untouched; the live (materialized) one had the join pruned.
+        assert "__removable_join__" in frozen_table.fields
+        assert "__removable_join__" not in database.get_table("events").fields
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(

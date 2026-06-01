@@ -1,3 +1,4 @@
+import copy
 import datetime
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,6 +21,68 @@ if TYPE_CHECKING:
     from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
+
+
+class _FrozenFields(dict):
+    """A table `fields` mapping that rejects in-place mutation.
+
+    The HogQL catalog is built once per process and shared by reference across every request and
+    team. Wrapping the shared tables' `fields` in this type means any attempt to edit a shared
+    table raises immediately (in production), at the offending call site, instead of silently
+    corrupting the singleton for everyone else. A consumer that needs to edit must take a private
+    copy first via `Database.get_table()`; `model_copy(deep=True)` downgrades these back to plain
+    mutable dicts (see `__deepcopy__`), so clones are freely editable.
+    """
+
+    __slots__ = ()
+
+    def _frozen(self, *args: Any, **kwargs: Any) -> Any:
+        raise TypeError(
+            "HogQL catalog table fields are frozen (shared process-wide singleton); "
+            "take a mutable copy via Database.get_table(...) before editing."
+        )
+
+    __setitem__ = _frozen
+    __delitem__ = _frozen
+    pop = _frozen
+    popitem = _frozen
+    clear = _frozen
+    update = _frozen
+    setdefault = _frozen
+    __ior__ = _frozen
+
+    def __copy__(self) -> dict:
+        return dict(self)
+
+    def __deepcopy__(self, memo: dict) -> dict:
+        result: dict = {}
+        memo[id(self)] = result
+        for key, value in self.items():
+            result[copy.deepcopy(key, memo)] = copy.deepcopy(value, memo)
+        return result
+
+
+def freeze_table_tree(table: "FieldOrTable", _seen: set[int] | None = None) -> None:
+    # Recursively swap a catalog table's `fields` mappings (and those of nested virtual tables and
+    # lazy-join targets) for write-protected ones. Applied once at import to the shared root tables.
+    if _seen is None:
+        _seen = set()
+    if id(table) in _seen:
+        return
+    _seen.add(id(table))
+
+    fields = getattr(table, "fields", None)
+    if not isinstance(fields, dict) or isinstance(fields, _FrozenFields):
+        return
+
+    for value in fields.values():
+        if hasattr(value, "fields"):
+            freeze_table_tree(value, _seen)
+        join_table = getattr(value, "join_table", None)
+        if join_table is not None and hasattr(join_table, "fields"):
+            freeze_table_tree(join_table, _seen)
+
+    table.__dict__["fields"] = _FrozenFields(fields)
 
 
 class FieldOrTable(BaseModel):
@@ -247,6 +310,15 @@ class TableNode(BaseModel):
         if self.table is None:
             raise ResolutionError(f"Table is not set at `{self.name}`")
 
+        return self.table
+
+    def ensure_materialized(self) -> FieldOrTable | None:
+        # Copy-on-write: shared catalog singletons carry frozen (write-protected) fields. Clone on
+        # first mutating access so edits land on a private copy; model_copy downgrades the frozen
+        # fields back to a plain mutable dict (see _FrozenFields.__deepcopy__). The freeze state is
+        # the single source of truth for "needs cloning" so there is no flag to keep in sync.
+        if isinstance(self.table, Table) and isinstance(self.table.fields, _FrozenFields):
+            self.table = self.table.model_copy(deep=True)
         return self.table
 
     # NOTE: This only returns True if the path we pass in

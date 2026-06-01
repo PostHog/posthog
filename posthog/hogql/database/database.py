@@ -55,6 +55,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
     VirtualTable,
+    freeze_table_tree,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
@@ -269,10 +270,59 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
-def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
-    def clone_root_tables() -> dict[str, TableNode]:
-        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
+# Tables that live only under the `posthog.` namespace (not at the root). Built once at
+# import and shared by reference behind per-Database node wrappers, same as ROOT_TABLES.
+# Add new posthog-namespace tables here.
+POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
+    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+    "session_replay_features": TableNode(name="session_replay_features", table=SessionReplayFeaturesTable()),
+    "metrics": TableNode(name="metrics", table=MetricsTable()),
+    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+    "error_tracking_fingerprint_issue_state": TableNode(
+        name="error_tracking_fingerprint_issue_state",
+        table=ErrorTrackingFingerprintIssueStateTable(),
+    ),
+    "web_overview_preaggregated": TableNode(name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()),
+    "conversion_goal_attributed_preaggregated": TableNode(
+        name="conversion_goal_attributed_preaggregated",
+        table=ConversionGoalAttributedPreaggregatedTable(),
+    ),
+    "web_stats_paths_preaggregated": TableNode(
+        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+    ),
+    "web_stats_preaggregated": TableNode(name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()),
+    "web_vitals_paths_preaggregated": TableNode(
+        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+    ),
+    "web_stats_frustration_preaggregated": TableNode(
+        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+    ),
+    "web_goals_preaggregated": TableNode(name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()),
+}
 
+
+# Lock the shared catalog singletons: any in-place edit now raises (see _FrozenFields) instead of
+# corrupting the process-wide instance. A consumer that needs to edit must take a private copy via
+# Database.get_table(), which clones on first access (TableNode.ensure_materialized).
+for _frozen_node in (
+    *ROOT_TABLES__DO_NOT_ADD_ANY_MORE.values(),
+    *POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE.values(),
+):
+    if _frozen_node.table is not None:
+        freeze_table_tree(_frozen_node.table)
+
+
+def _shared_catalog_nodes(frozen: dict[str, TableNode]) -> dict[str, TableNode]:
+    # Copy-on-write: wrap each frozen table in a fresh per-Database node that shares the table
+    # payload by reference. The shared table's fields are write-protected, so ensure_materialized()
+    # clones it on first mutating access; a query copies only the handful of tables it touches.
+    return {name: TableNode(name=node.name, table=node.table, hidden=node.hidden) for name, node in frozen.items()}
+
+
+def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
         "range": TableNode(name="range", table=RangeTable()),
@@ -280,49 +330,13 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
     }
 
     if include_posthog_tables:
-        root_tables = clone_root_tables()
         children = {
-            **root_tables,
+            **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
             "posthog": TableNode(
                 name="posthog",
                 children={
-                    **clone_root_tables(),
-                    # Add new tables here
-                    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
-                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
-                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
-                    "session_replay_features": TableNode(
-                        name="session_replay_features", table=SessionReplayFeaturesTable()
-                    ),
-                    "metrics": TableNode(name="metrics", table=MetricsTable()),
-                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
-                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
-                    "error_tracking_fingerprint_issue_state": TableNode(
-                        name="error_tracking_fingerprint_issue_state",
-                        table=ErrorTrackingFingerprintIssueStateTable(),
-                    ),
-                    "web_overview_preaggregated": TableNode(
-                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
-                    ),
-                    "conversion_goal_attributed_preaggregated": TableNode(
-                        name="conversion_goal_attributed_preaggregated",
-                        table=ConversionGoalAttributedPreaggregatedTable(),
-                    ),
-                    "web_stats_paths_preaggregated": TableNode(
-                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_preaggregated": TableNode(
-                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
-                    ),
-                    "web_vitals_paths_preaggregated": TableNode(
-                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_frustration_preaggregated": TableNode(
-                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
-                    ),
-                    "web_goals_preaggregated": TableNode(
-                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
-                    ),
+                    **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
+                    **_shared_catalog_nodes(POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE),
                 },
             ),
             "system": SystemTables(),
@@ -402,7 +416,11 @@ class Database(BaseModel):
 
     def get_table(self, table_name: str | list[str]) -> Table:
         try:
-            return cast(Table, self.get_table_node(table_name).get())
+            node = self.get_table_node(table_name)
+            # Copy-on-write: clone the shared frozen table on first access so callers can
+            # safely mutate it without leaking edits into the process-wide catalog singleton.
+            node.ensure_materialized()
+            return cast(Table, node.get())
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
@@ -538,8 +556,15 @@ class Database(BaseModel):
         def visit(node: TableNode) -> None:
             table = node.table
             if isinstance(table, Table):
-                for field_name, field in list(table.fields.items()):
-                    if isinstance(field, LazyJoin) and not should_keep_join(field):
+                joins_to_remove = [
+                    field_name
+                    for field_name, field in table.fields.items()
+                    if isinstance(field, LazyJoin) and not should_keep_join(field)
+                ]
+                if joins_to_remove:
+                    # Mutating a shared frozen table would corrupt the singleton, so clone first.
+                    table = cast(Table, node.ensure_materialized())
+                    for field_name in joins_to_remove:
                         del table.fields[field_name]
 
             for child in node.children.values():
