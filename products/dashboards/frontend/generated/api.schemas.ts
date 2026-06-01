@@ -7418,6 +7418,124 @@ export interface ButtonTileApi {
     team: number
 }
 
+/**
+ * * `last_seen` - last_seen
+ * `first_seen` - first_seen
+ * `occurrences` - occurrences
+ * `users` - users
+ * `sessions` - sessions
+ */
+export type ErrorTrackingIssueOrderByEnumApi =
+    (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
+
+export const ErrorTrackingIssueOrderByEnumApi = {
+    LastSeen: 'last_seen',
+    FirstSeen: 'first_seen',
+    Occurrences: 'occurrences',
+    Users: 'users',
+    Sessions: 'sessions',
+} as const
+
+/**
+ * * `ASC` - ASC
+ * `DESC` - DESC
+ */
+export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
+
+export const OrderDirectionEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+/**
+ * * `archived` - archived
+ * `active` - active
+ * `resolved` - resolved
+ * `pending_release` - pending_release
+ * `suppressed` - suppressed
+ * `all` - all
+ */
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
+
+export const ErrorTrackingIssueStatusEnumApi = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+    All: 'all',
+} as const
+
+/**
+ * * `-14d` - -14d
+ * `-1h` - -1h
+ * `-24h` - -24h
+ * `-30d` - -30d
+ * `-3h` - -3h
+ * `-7d` - -7d
+ * `-90d` - -90d
+ */
+export type DateFromEnumApi = (typeof DateFromEnumApi)[keyof typeof DateFromEnumApi]
+
+export const DateFromEnumApi = {
+    '14d': '-14d',
+    '1h': '-1h',
+    '24h': '-24h',
+    '30d': '-30d',
+    '3h': '-3h',
+    '7d': '-7d',
+    '90d': '-90d',
+} as const
+
+export interface WidgetDateRangeApi {
+    /** Relative lookback window (for example '-7d'). Omit to use the project default range.
+
+  * `-14d` - -14d
+  * `-1h` - -1h
+  * `-24h` - -24h
+  * `-30d` - -30d
+  * `-3h` - -3h
+  * `-7d` - -7d
+  * `-90d` - -90d */
+    date_from?: DateFromEnumApi | null
+}
+
+export interface ErrorTrackingListWidgetConfigApi {
+    /**
+     * Maximum number of issues to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Issue ranking column.
+
+  * `first_seen` - first_seen
+  * `last_seen` - last_seen
+  * `occurrences` - occurrences
+  * `sessions` - sessions
+  * `users` - users */
+    orderBy?: ErrorTrackingIssueOrderByEnumApi
+    /** Sort direction for orderBy.
+
+  * `ASC` - ASC
+  * `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
+    /** Issue status filter.
+
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed
+  * `all` - all */
+    status?: ErrorTrackingIssueStatusEnumApi
+    /** Optional relative date range override. */
+    dateRange?: WidgetDateRangeApi | null
+    /** When omitted, follows the project default for filtering test accounts. */
+    filterTestAccounts?: boolean
+}
+
 export interface DashboardWidgetApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -7435,8 +7553,8 @@ export interface DashboardWidgetApi {
     name?: string | null
     /** Optional markdown description shown on the dashboard tile when enabled. */
     description?: string
-    /** Widget-specific configuration JSON. */
-    config: unknown
+    /** Widget-specific configuration JSON for this widget type. */
+    config?: ErrorTrackingListWidgetConfigApi
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     readonly last_modified_at: string
     team: number
@@ -7578,8 +7696,8 @@ export interface AddDashboardWidgetRequestApi {
      * @maxLength 64
      */
     widget_type: string
-    /** Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list). */
-    config: unknown
+    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
+    config: ErrorTrackingListWidgetConfigApi
     /**
      * Optional custom display name for the widget tile.
      * @maxLength 400
@@ -7589,7 +7707,7 @@ export interface AddDashboardWidgetRequestApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: unknown
+    layouts?: TileLayoutsApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
 }

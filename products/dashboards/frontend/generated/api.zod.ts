@@ -475,6 +475,12 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
  */
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax = 64
 
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitMax = 25
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderByDefault = `occurrences`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderDirectionDefault = `DESC`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneStatusDefault = `active`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
@@ -490,9 +496,64 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                         'Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.'
                     ),
                 config: zod
-                    .unknown()
+                    .object({
+                        limit: zod
+                            .number()
+                            .min(1)
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitMax)
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneLimitDefault)
+                            .describe('Maximum number of issues to return.'),
+                        orderBy: zod
+                            .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])
+                            .describe(
+                                '\* `last_seen` - last_seen\n\* `first_seen` - first_seen\n\* `occurrences` - occurrences\n\* `users` - users\n\* `sessions` - sessions'
+                            )
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderByDefault)
+                            .describe(
+                                'Issue ranking column.\n\n\* `first_seen` - first_seen\n\* `last_seen` - last_seen\n\* `occurrences` - occurrences\n\* `sessions` - sessions\n\* `users` - users'
+                            ),
+                        orderDirection: zod
+                            .enum(['ASC', 'DESC'])
+                            .describe('\* `ASC` - ASC\n\* `DESC` - DESC')
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneOrderDirectionDefault)
+                            .describe('Sort direction for orderBy.\n\n\* `ASC` - ASC\n\* `DESC` - DESC'),
+                        status: zod
+                            .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all'])
+                            .describe(
+                                '\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
+                            )
+                            .default(dashboardsWidgetsBatchCreateBodyWidgetsItemConfigOneStatusDefault)
+                            .describe(
+                                'Issue status filter.\n\n\* `archived` - archived\n\* `active` - active\n\* `resolved` - resolved\n\* `pending_release` - pending_release\n\* `suppressed` - suppressed\n\* `all` - all'
+                            ),
+                        dateRange: zod
+                            .union([
+                                zod.object({
+                                    date_from: zod
+                                        .union([
+                                            zod
+                                                .enum(['-14d', '-1h', '-24h', '-30d', '-3h', '-7d', '-90d'])
+                                                .describe(
+                                                    '\* `-14d` - -14d\n\* `-1h` - -1h\n\* `-24h` - -24h\n\* `-30d` - -30d\n\* `-3h` - -3h\n\* `-7d` - -7d\n\* `-90d` - -90d'
+                                                ),
+                                            zod.null(),
+                                        ])
+                                        .optional()
+                                        .describe(
+                                            "Relative lookback window (for example '-7d'). Omit to use the project default range.\n\n\* `-14d` - -14d\n\* `-1h` - -1h\n\* `-24h` - -24h\n\* `-30d` - -30d\n\* `-3h` - -3h\n\* `-7d` - -7d\n\* `-90d` - -90d"
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Optional relative date range override.'),
+                        filterTestAccounts: zod
+                            .boolean()
+                            .optional()
+                            .describe('When omitted, follows the project default for filtering test accounts.'),
+                    })
                     .describe(
-                        'Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list).'
+                        'Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list).'
                     ),
                 name: zod
                     .string()
@@ -504,7 +565,38 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod.object({
                     .optional()
                     .describe('Optional markdown description shown when show_description is enabled.'),
                 layouts: zod
-                    .unknown()
+                    .object({
+                        sm: zod
+                            .object({
+                                x: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Column position in the dashboard grid (0-indexed).'),
+                                y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                                w: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                h: zod.number().optional().describe('Height in grid rows.'),
+                            })
+                            .optional()
+                            .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                        xs: zod
+                            .object({
+                                x: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Column position in the dashboard grid (0-indexed).'),
+                                y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                                w: zod
+                                    .number()
+                                    .optional()
+                                    .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                h: zod.number().optional().describe('Height in grid rows.'),
+                            })
+                            .optional()
+                            .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                    })
                     .optional()
                     .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
                 show_description: zod

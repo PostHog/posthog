@@ -81,6 +81,7 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
+from products.dashboards.backend.api.widget_openapi_serializers import ErrorTrackingListWidgetConfigSerializer
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -475,12 +476,13 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text=WIDGET_TYPE_API_HELP,
     )
-    config = serializers.JSONField(
+    config = ErrorTrackingListWidgetConfigSerializer(
         required=False,
         help_text=(
-            "Widget-specific configuration JSON. Shape depends on widget_type; "
-            "see config_schema_hints in dashboard-widget-catalog-list "
-            f"(currently: {', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "Widget-specific configuration. Shape depends on widget_type; "
+            "see dashboard-widget-catalog-list for other types. "
+            f"For error_tracking_list, use the schema below (currently the only supported type: "
+            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
         ),
     )
     name = serializers.CharField(
@@ -498,14 +500,15 @@ class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
 
 
 class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
-    config = serializers.JSONField(
+    config = ErrorTrackingListWidgetConfigSerializer(
         help_text=(
-            "Widget-specific configuration JSON. Shape depends on widget_type; "
-            "see config_schema_hints in dashboard-widget-catalog-list "
-            f"(currently: {', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
+            "Widget-specific configuration. Shape depends on widget_type; "
+            "see dashboard-widget-catalog-list for other types. "
+            f"For error_tracking_list, use the schema below (currently the only supported type: "
+            f"{', '.join(sorted(EXPECTED_WIDGET_TYPES))})."
         ),
     )
-    layouts = serializers.JSONField(
+    layouts = TileLayoutsSerializer(
         required=False,
         help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
     )
@@ -662,7 +665,10 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         allow_blank=True,
         help_text="Optional markdown description shown on the dashboard tile when enabled.",
     )
-    config = serializers.JSONField(help_text="Widget-specific configuration JSON.")
+    config = ErrorTrackingListWidgetConfigSerializer(
+        required=False,
+        help_text="Widget-specific configuration JSON for this widget type.",
+    )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:

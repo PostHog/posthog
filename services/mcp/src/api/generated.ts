@@ -3756,14 +3756,152 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `last_seen` - last_seen
+    * `first_seen` - first_seen
+    * `occurrences` - occurrences
+    * `users` - users
+    * `sessions` - sessions
+     */
+    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
+
+
+    export const ErrorTrackingIssueOrderByEnum = {
+      LastSeen: 'last_seen',
+      FirstSeen: 'first_seen',
+      Occurrences: 'occurrences',
+      Users: 'users',
+      Sessions: 'sessions',
+    } as const;
+
+    /**
+     * * `ASC` - ASC
+    * `DESC` - DESC
+     */
+    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
+
+
+    export const OrderDirectionEnum = {
+      Asc: 'ASC',
+      Desc: 'DESC',
+    } as const;
+
+    /**
+     * * `archived` - archived
+    * `active` - active
+    * `resolved` - resolved
+    * `pending_release` - pending_release
+    * `suppressed` - suppressed
+    * `all` - all
+     */
+    export type ErrorTrackingIssueStatusEnum = typeof ErrorTrackingIssueStatusEnum[keyof typeof ErrorTrackingIssueStatusEnum];
+
+
+    export const ErrorTrackingIssueStatusEnum = {
+      Archived: 'archived',
+      Active: 'active',
+      Resolved: 'resolved',
+      PendingRelease: 'pending_release',
+      Suppressed: 'suppressed',
+      All: 'all',
+    } as const;
+
+    /**
+     * * `-14d` - -14d
+    * `-1h` - -1h
+    * `-24h` - -24h
+    * `-30d` - -30d
+    * `-3h` - -3h
+    * `-7d` - -7d
+    * `-90d` - -90d
+     */
+    export type DateFromEnum = typeof DateFromEnum[keyof typeof DateFromEnum];
+
+
+    export const DateFromEnum = {
+      '14d': '-14d',
+      '1h': '-1h',
+      '24h': '-24h',
+      '30d': '-30d',
+      '3h': '-3h',
+      '7d': '-7d',
+      '90d': '-90d',
+    } as const;
+
+    export interface WidgetDateRange {
+      /** Relative lookback window (for example '-7d'). Omit to use the project default range.
+
+      * `-14d` - -14d
+      * `-1h` - -1h
+      * `-24h` - -24h
+      * `-30d` - -30d
+      * `-3h` - -3h
+      * `-7d` - -7d
+      * `-90d` - -90d */
+      date_from?: DateFromEnum | null;
+    }
+
+    export interface ErrorTrackingListWidgetConfig {
+      /**
+         * Maximum number of issues to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Issue ranking column.
+
+      * `first_seen` - first_seen
+      * `last_seen` - last_seen
+      * `occurrences` - occurrences
+      * `sessions` - sessions
+      * `users` - users */
+      orderBy?: ErrorTrackingIssueOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Issue status filter.
+
+      * `archived` - archived
+      * `active` - active
+      * `resolved` - resolved
+      * `pending_release` - pending_release
+      * `suppressed` - suppressed
+      * `all` - all */
+      status?: ErrorTrackingIssueStatusEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
     export interface AddDashboardWidgetRequest {
       /**
          * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;
-      /** Widget-specific configuration JSON. Shape depends on widget_type; see config_schema_hints in dashboard-widget-catalog-list (currently: error_tracking_list). */
-      config: unknown;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
+      config: ErrorTrackingListWidgetConfig;
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -3773,7 +3911,7 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: unknown;
+      layouts?: TileLayouts;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
     }
@@ -6675,8 +6813,8 @@ export namespace Schemas {
       name?: string | null;
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
-      /** Widget-specific configuration JSON. */
-      config: unknown;
+      /** Widget-specific configuration JSON for this widget type. */
+      config?: ErrorTrackingListWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;
@@ -11565,24 +11703,6 @@ export namespace Schemas {
       text: string;
     }
 
-    export interface TileLayoutBox {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface TileLayouts {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: TileLayoutBox;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
-    }
-
     export interface CreateTextTileRequest {
       /**
          * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -15166,18 +15286,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `ASC` - ASC
-    * `DESC` - DESC
-     */
-    export type OrderDirectionEnum = typeof OrderDirectionEnum[keyof typeof OrderDirectionEnum];
-
-
-    export const OrderDirectionEnum = {
-      Asc: 'ASC',
-      Desc: 'DESC',
-    } as const;
-
-    /**
      * * `summary` - summary
     * `stack` - stack
     * `raw` - raw
@@ -15335,24 +15443,6 @@ export namespace Schemas {
       success: boolean;
     }
 
-    /**
-     * * `last_seen` - last_seen
-    * `first_seen` - first_seen
-    * `occurrences` - occurrences
-    * `users` - users
-    * `sessions` - sessions
-     */
-    export type ErrorTrackingIssueOrderByEnum = typeof ErrorTrackingIssueOrderByEnum[keyof typeof ErrorTrackingIssueOrderByEnum];
-
-
-    export const ErrorTrackingIssueOrderByEnum = {
-      LastSeen: 'last_seen',
-      FirstSeen: 'first_seen',
-      Occurrences: 'occurrences',
-      Users: 'users',
-      Sessions: 'sessions',
-    } as const;
-
     export interface ErrorTrackingIssueQueryRequest {
       /** Error tracking issue ID. */
       issueId: string;
@@ -15391,26 +15481,6 @@ export namespace Schemas {
       new_issue_ids: string[];
     }
 
-    /**
-     * * `archived` - archived
-    * `active` - active
-    * `resolved` - resolved
-    * `pending_release` - pending_release
-    * `suppressed` - suppressed
-    * `all` - all
-     */
-    export type ErrorTrackingIssuesListQueryRequestStatusEnum = typeof ErrorTrackingIssuesListQueryRequestStatusEnum[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnum];
-
-
-    export const ErrorTrackingIssuesListQueryRequestStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-      All: 'all',
-    } as const;
-
     export interface ErrorTrackingIssuesListQueryRequest {
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
@@ -15422,7 +15492,7 @@ export namespace Schemas {
       * `pending_release` - pending_release
       * `suppressed` - suppressed
       * `all` - all */
-      status?: ErrorTrackingIssuesListQueryRequestStatusEnum;
+      status?: ErrorTrackingIssueStatusEnum;
       /** Filter by issue assignee. Omit to include all assignees. */
       assignee?: ErrorTrackingAssignee | null;
       /** When true, exclude internal/test account data from results. Defaults to true. */
