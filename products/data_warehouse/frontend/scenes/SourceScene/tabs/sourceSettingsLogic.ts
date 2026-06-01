@@ -21,7 +21,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+import { SYNC_FREQUENCY_ORDER, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -572,7 +572,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 return {
                     statuses: Array.from(statuses),
                     syncMethods: Array.from(syncMethods),
-                    frequencies: Array.from(frequencies),
+                    // Order shortest→longest for a readable dropdown rather than schema-encounter order.
+                    frequencies: SYNC_FREQUENCY_ORDER.filter((frequency) => frequencies.has(frequency)),
                 }
             },
         ],

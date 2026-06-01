@@ -461,18 +461,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         was_sync_time_of_day_updated = False
         source = instance.source
 
-        if sync_frequency:
-            # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers
-            # (not just the UI) can't drop a non-CDC schema below the allowed floor.
-            if (
-                sync_frequency in CDC_ONLY_SYNC_FREQUENCIES
-                and (sync_type or instance.sync_type) != ExternalDataSchema.SyncType.CDC
-            ):
-                raise ValidationError(
-                    "A 1-minute sync frequency is only available for CDC schemas. "
-                    "The fastest frequency for other sync types is 5 minutes."
-                )
+        # Sub-5-minute cadence is only valid for CDC. Enforce server-side so API/MCP callers (not
+        # just the UI) can't drop a non-CDC schema below the allowed floor. We validate the
+        # frequency the schema will actually end up with — the new value if one is supplied, else
+        # the existing interval — against the sync type it will end up with. This also catches
+        # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
+        resulting_frequency = sync_frequency
+        if not resulting_frequency and instance.sync_frequency_interval is not None:
+            resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+        if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
+            raise ValidationError(
+                "A 1-minute sync frequency is only available for CDC schemas. "
+                "The fastest frequency for other sync types is 5 minutes."
+            )
 
+        if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
 
             if sync_frequency_interval != instance.sync_frequency_interval:
