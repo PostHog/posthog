@@ -1,15 +1,12 @@
 /**
- * `/agents/<slug>` — agent overview. Shell only; the client wrapper
- * fetches its own data via the typed apiClient.
+ * `/agents/[slug]` — index segment. The agent's overview tab.
+ *
+ * The shared chrome (breadcrumb, header, tab strip) lives in
+ * `[slug]/layout.tsx`. This segment only renders the overview body.
  */
 
-import { AgentDetailClient } from './agent-detail-client'
+import { OverviewSegment } from './overview-client'
 
-export default async function AgentDetailPage({
-    params,
-}: {
-    params: Promise<{ slug: string }>
-}): Promise<React.ReactElement> {
-    const { slug } = await params
-    return <AgentDetailClient slug={slug} />
+export default function AgentDetailPage(): React.ReactElement {
+    return <OverviewSegment />
 }

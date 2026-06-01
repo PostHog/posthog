@@ -14,8 +14,35 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { AgentsListClient } from '../../app/agents-list-client'
-import { AgentDetailClient } from '../../app/agents/[slug]/agent-detail-client'
+import { OverviewSegment } from '../../app/agents/[slug]/overview-client'
+import { AgentProvider } from './agent-context'
+import { AgentLayout } from './AgentLayout'
 import { AppShell } from './AppShell'
+import { AgentDetailSkeleton } from './PageSkeletons'
+
+/**
+ * Mounts the new route-segment composition inside Storybook — provider
+ * (fetches the agent + revisions) → layout (shared chrome) → segment
+ * body. Mirrors what `app/agents/[slug]/layout.tsx` does in the
+ * production app; the segment content is whatever the route's
+ * `page.tsx` would render (overview by default in these stories).
+ */
+function AgentDetailSurface({ slug }: { slug: string }): React.ReactElement {
+    return (
+        <AgentProvider
+            slug={slug}
+            fallback={<AgentDetailSkeleton />}
+            notFoundFallback={<div className="px-6 py-6 text-sm text-muted-foreground">Agent not found.</div>}
+            errorFallback={(err) => (
+                <div className="px-6 py-6 text-sm text-destructive-foreground">Failed to load: {err.message}</div>
+            )}
+        >
+            <AgentLayout>
+                <OverviewSegment />
+            </AgentLayout>
+        </AgentProvider>
+    )
+}
 
 const meta: Meta<typeof AppShell> = {
     title: 'Agent console/Shell (full surface)',
@@ -38,7 +65,7 @@ export const AgentsList: Story = {
 export const AgentDetail_WeeklyDigest: Story = {
     render: () => (
         <AppShell>
-            <AgentDetailClient slug="weekly-digest" />
+            <AgentDetailSurface slug="weekly-digest" />
         </AppShell>
     ),
 }
@@ -50,7 +77,7 @@ export const AgentDetail_WeeklyDigest: Story = {
 export const AgentDetail_ReleaseConcierge: Story = {
     render: () => (
         <AppShell>
-            <AgentDetailClient slug="release-concierge" />
+            <AgentDetailSurface slug="release-concierge" />
         </AppShell>
     ),
 }

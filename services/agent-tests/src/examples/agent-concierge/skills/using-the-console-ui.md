@@ -136,11 +136,11 @@ The console reads its full view state from URL params, so you can hand
 the user a link to a specific surface and trust they'll land where you
 want them to. The two patterns that are load-bearing today:
 
-| Goal                                    | URL                                                                              | Notes                                                                                                                                         |
-| --------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Open the agent's connections / secrets  | `/agents/<slug>?tab=connections`                                                 | Just lands on the tab. Use as a fallback when there's no specific key yet.                                                                    |
-| Open the secret editor for one key      | `/agents/<slug>?tab=connections&edit_secret=<KEY>`                               | Opens the modal pre-targeted. Don't `focus_tab` to the connections tab and _also_ tell them to edit — pick one channel.                       |
-| Same, with a callback into THIS session | `/agents/<slug>?tab=connections&edit_secret=<KEY>&callback_session=<session_id>` | The console fires a synthetic `[system]` user turn back to `<session_id>` after they save. You wait silently. See `secrets-and-integrations`. |
+| Goal                                    | URL                                                                          | Notes                                                                                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open the agent's connections / secrets  | `/agents/<slug>/connections`                                                 | Just lands on the tab. Use as a fallback when there's no specific key yet.                                                                    |
+| Open the secret editor for one key      | `/agents/<slug>/connections?edit_secret=<KEY>`                               | Opens the modal pre-targeted. Don't `focus_tab` to the connections tab and _also_ tell them to edit — pick one channel.                       |
+| Same, with a callback into THIS session | `/agents/<slug>/connections?edit_secret=<KEY>&callback_session=<session_id>` | The console fires a synthetic `[system]` user turn back to `<session_id>` after they save. You wait silently. See `secrets-and-integrations`. |
 
 Get `<session_id>` from `get_context` — it's the `session_id`
 field on the envelope. Don't try to derive it any other way; you

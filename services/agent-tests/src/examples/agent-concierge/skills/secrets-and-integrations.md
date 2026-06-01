@@ -77,7 +77,7 @@ secrets editor and wait for a session callback. Loop:
 2. **Hand the user a link** to the editor:
 
    ```text
-   /agents/<slug>?tab=connections&edit_secret=<KEY>&callback_session=<this session id>
+   /agents/<slug>/connections?edit_secret=<KEY>&callback_session=<this session id>
    ```
 
    `<this session id>` comes from `@posthog/ui/get_context`. Render
@@ -103,7 +103,7 @@ to confirm manually. Loop:
    prepend the host themselves):
 
    ```text
-   https://<host>/project/<team>/agents/<slug>?tab=connections&edit_secret=<KEY>
+   https://<host>/project/<team>/agents/<slug>/connections?edit_secret=<KEY>
    ```
 
    Omit `callback_session=` — without the console there's nothing
