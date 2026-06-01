@@ -66,13 +66,17 @@ async function handle(request: NextRequest, { params }: { params: Promise<{ path
         }
         return NextResponse.json({ error: 'unauthenticated' }, { status: 401 })
     }
-    await setSession(refreshed)
+    // Preserve cookie-side metadata (teamId, sub) that the refresh
+    // response doesn't carry — otherwise the next /api/auth/me lands on
+    // teamId=null and the UI shows "no current project".
+    const merged: SessionPayload = { ...session, ...refreshed }
+    await setSession(merged)
 
     // Body is a stream that may have been consumed; rebuild from the
     // original request (cheap because Next has the body buffered for
     // the route handler).
     const replayInit = await buildRequestInit(request)
-    return await proxy(upstream, replayInit, refreshed)
+    return await proxy(upstream, replayInit, merged)
 }
 
 function buildUpstreamUrl(segments: string[], search: string): string {

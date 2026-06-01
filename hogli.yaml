@@ -1001,3 +1001,7 @@ environment:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
+    start:ai:gateway:
+        bin_script: start-ai-gateway
+        description: 'TODO: add description for start-ai-gateway'
+        hidden: true

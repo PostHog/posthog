@@ -10,7 +10,8 @@
 import { NextResponse } from 'next/server'
 
 import { posthogBaseUrl } from '@/lib/auth/config'
-import { getSession } from '@/lib/auth/session'
+import { clearSession, getSession, setSession, type SessionPayload } from '@/lib/auth/session'
+import { OAuthTokenError, refreshAccessToken } from '@/lib/auth/tokens'
 
 /**
  * `GET /api/auth/me` — returns the authenticated identity for the UI.
@@ -20,19 +21,44 @@ import { getSession } from '@/lib/auth/session'
  * is also stamped onto the sealed session cookie at callback time so
  * downstream API calls can scope by it without re-fetching.
  *
+ * If the access token has expired (upstream returns 401) we refresh +
+ * retry once. Without this the UI lands on teamId=null after every
+ * hour-long idle and shows "no current project" until the user re-logs.
+ *
  * Both upstreams are best-effort: we surface partial data rather than
  * 401-bouncing the user when one of them errors.
  */
 export async function GET(): Promise<Response> {
-    const session = await getSession()
+    let session = await getSession()
     if (!session) {
         return NextResponse.json({ authenticated: false }, { status: 200 })
     }
 
-    const [oidc, profile] = await Promise.all([
+    let [oidc, profile] = await Promise.all([
         fetchJson(`${posthogBaseUrl()}/oauth/userinfo/`, session.accessToken),
         fetchJson(`${posthogBaseUrl()}/api/users/@me/`, session.accessToken),
     ])
+
+    // If either upstream 401'd, the access token has expired. Refresh
+    // and replay both — the userinfo endpoint also needs the new token.
+    if (isAuthError(oidc) || isAuthError(profile)) {
+        let refreshed: SessionPayload
+        try {
+            refreshed = await refreshAccessToken(session.refreshToken)
+        } catch (err) {
+            if (err instanceof OAuthTokenError && (err.status === 400 || err.status === 401)) {
+                await clearSession()
+                return NextResponse.json({ authenticated: false }, { status: 200 })
+            }
+            throw err
+        }
+        session = { ...session, ...refreshed }
+        await setSession(session)
+        ;[oidc, profile] = await Promise.all([
+            fetchJson(`${posthogBaseUrl()}/oauth/userinfo/`, session.accessToken),
+            fetchJson(`${posthogBaseUrl()}/api/users/@me/`, session.accessToken),
+        ])
+    }
 
     // Prefer fresh team from /api/users/@me/, fall back to the value stamped
     // onto the cookie at callback time.
@@ -56,12 +82,16 @@ async function fetchJson(url: string, accessToken: string): Promise<unknown | nu
             headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
         })
         if (!res.ok) {
-            return { _error: `${res.status} ${res.statusText}`, _url: url }
+            return { _error: `${res.status} ${res.statusText}`, _status: res.status, _url: url }
         }
         return await res.json()
     } catch (err) {
         return { _error: err instanceof Error ? err.message : String(err), _url: url }
     }
+}
+
+function isAuthError(body: unknown): boolean {
+    return !!body && typeof body === 'object' && (body as { _status?: number })._status === 401
 }
 
 function extractTeamId(profile: unknown): number | null {
