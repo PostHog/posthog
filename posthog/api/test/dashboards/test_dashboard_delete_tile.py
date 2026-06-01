@@ -97,3 +97,27 @@ class TestDashboardDeleteTile(APIBaseTest):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         response = self.client.post(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/delete_tile", {})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delete_tile_compacts_remaining_layout(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="top")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="middle")
+        _, dashboard_json = self.dashboard_api.create_text_tile(dashboard_id, text="bottom")
+
+        tile_ids = [tile["id"] for tile in dashboard_json["tiles"]]
+        for index, tile_id in enumerate(tile_ids):
+            DashboardTile.objects.filter(id=tile_id).update(
+                layouts={
+                    "sm": {"x": 0, "y": index * 5, "w": 6, "h": 5},
+                    "xs": {"x": 0, "y": index * 5, "w": 6, "h": 5},
+                }
+            )
+
+        # Remove the middle tile (y=5); the bottom tile should slide up into the gap.
+        self._delete_tile(dashboard_id, tile_ids[1])
+
+        top = DashboardTile.objects.get(id=tile_ids[0])
+        bottom = DashboardTile.objects.get(id=tile_ids[2])
+        assert top.layouts["sm"]["y"] == 0
+        assert bottom.layouts["sm"]["y"] == 5
+        assert bottom.layouts["xs"]["y"] == 5

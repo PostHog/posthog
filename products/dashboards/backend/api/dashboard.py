@@ -128,6 +128,45 @@ FILTERS_OVERRIDE_PARAM = make_filters_override_param(subject_label="dashboard")
 tracer = trace.get_tracer(__name__)
 
 
+def _tile_rects_overlap(a: dict, b: dict) -> bool:
+    return not (
+        a["x"] + a["w"] <= b["x"] or b["x"] + b["w"] <= a["x"] or a["y"] + a["h"] <= b["y"] or b["y"] + b["h"] <= a["y"]
+    )
+
+
+def compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
+    """Vertically compact tile layouts in place, mirroring the dashboard grid's default
+    react-grid-layout vertical compaction (gravity up). Each breakpoint is compacted
+    independently: tiles keep their x/w/h and are pulled up to the lowest free row.
+    Returns the ids of tiles whose layouts changed.
+    """
+    changed: set[int] = set()
+    breakpoints: set[str] = set()
+    for tile in tiles:
+        if isinstance(tile.layouts, dict):
+            breakpoints.update(tile.layouts.keys())
+
+    for breakpoint in breakpoints:
+        entries = [
+            tile for tile in tiles if isinstance(tile.layouts, dict) and isinstance(tile.layouts.get(breakpoint), dict)
+        ]
+        placed: list[dict] = []
+        for tile in sorted(
+            entries, key=lambda t: (t.layouts[breakpoint].get("y", 0), t.layouts[breakpoint].get("x", 0))
+        ):
+            layout = tile.layouts[breakpoint]
+            rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
+            new_y = 0
+            while any(_tile_rects_overlap({**rect, "y": new_y}, p) for p in placed):
+                new_y += 1
+            placed.append({**rect, "y": new_y})
+            if new_y != layout.get("y", 0):
+                layout["y"] = new_y
+                changed.add(tile.id)
+
+    return changed
+
+
 def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, dict]:
     """
     Serialize a single tile with error handling. Returns (order, tile_data) tuple.
@@ -1832,6 +1871,7 @@ class DashboardsViewSet(
         return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
 
     @extend_schema(
+        operation_id="dashboards_delete_tile",
         request=DeleteTileRequestSerializer,
         responses={204: None},
     )
@@ -1861,6 +1901,20 @@ class DashboardsViewSet(
         )
         tile.deleted = True
         tile.save(update_fields=["deleted"])
+
+        # Collapse the vertical gap the removed tile leaves, matching the dashboard UI
+        # (react-grid-layout compacts upward on render but never persists it).
+        remaining = list(DashboardTile.objects.filter(dashboard=dashboard))
+        for remaining_tile in remaining:
+            if isinstance(remaining_tile.layouts, str):
+                remaining_tile.layouts = json.loads(remaining_tile.layouts)
+        changed_ids = compact_tile_layouts(remaining)
+        if changed_ids:
+            DashboardTile.objects.bulk_update(
+                [remaining_tile for remaining_tile in remaining if remaining_tile.id in changed_ids],
+                ["layouts"],
+            )
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
