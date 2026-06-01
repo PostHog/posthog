@@ -39,6 +39,8 @@ import {
     getToolDefinition,
 } from './toolDefinitions'
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
+// Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
+import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
 // Workflows (lifecycle — CRUD lives in generated/workflows.ts)
 import { workflowsArchive, workflowsDisable, workflowsEnable } from './workflows/lifecycle'
 
@@ -90,6 +92,12 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-enable': workflowsEnable,
     'workflows-disable': workflowsDisable,
     'workflows-archive': workflowsArchive,
+
+    // Workflows batch (hand-rolled: blast-radius sizing + echo-back guard before fan-out,
+    // composing the existing user_blast_radius / batch_jobs / schedules endpoints).
+    'workflows-blast-radius': workflowsBlastRadius,
+    'workflows-run-batch': workflowsRunBatch,
+    'workflows-schedule-create': workflowsScheduleCreate,
 }
 
 export const getToolsFromContext = async (

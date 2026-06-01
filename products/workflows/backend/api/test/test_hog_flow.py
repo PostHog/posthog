@@ -850,6 +850,59 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_hog_flow_batch_trigger_rejects_event_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": [],
+                    "events": [{"id": "$pageview", "type": "events"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_rejects_action_filters(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {
+                    "properties": [],
+                    "actions": [{"id": "5", "type": "actions"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+    def test_hog_flow_batch_trigger_allows_empty_properties_audience(self):
+        # Empty properties = broadcast to everyone, a legitimate batch audience — must not be rejected.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {"properties": []},
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})

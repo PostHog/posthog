@@ -493,5 +493,47 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-blast-radius": {
+        "description": "Count how many users a batch workflow's trigger audience matches. Audience is person/cohort, not event behavior. Run before run-batch / schedule-create and show the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Size workflow audience",
+        "title": "Size workflow audience",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-run-batch": {
+        "description": "Broadcast a batch workflow to its matching users now. Workflow must be enabled. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Run batch workflow",
+        "title": "Run batch workflow",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-schedule-create": {
+        "description": "Create a recurring RRULE schedule for a workflow; fires only once enabled. Batch (audience) workflows require acknowledged_affected_count from workflows-blast-radius; schedule-trigger ones don't.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Schedule workflow runs",
+        "title": "Schedule workflow runs",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     }
 }
