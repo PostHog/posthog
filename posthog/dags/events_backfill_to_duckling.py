@@ -1391,6 +1391,13 @@ def write_partition_to_iceberg(
     writes Iceberg data + metadata itself. `BY NAME` matches on column name so we
     don't depend on column ordering.
 
+    `hive_partitioning=false` is required: the S3 keys carry year=/month=/day=
+    (events) or year=/month= (persons) parts, and read_parquet would otherwise
+    synthesize those as columns. `BY NAME` then fails to map them into a table
+    that has no such columns ("does not have a column with name day"). The
+    real data columns already live in the Parquet (ClickHouse exports with
+    use_hive_partitioning=0).
+
     Idempotency is best-effort: we attempt a partition-scoped DELETE first, but
     DuckDB's Iceberg extension may not support DELETE, so a failure there is
     logged and the INSERT proceeds. Re-running a partition can therefore leave

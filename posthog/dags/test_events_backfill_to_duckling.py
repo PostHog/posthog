@@ -879,3 +879,29 @@ class TestIcebergInsertByNameHivePartitioning:
         )
         result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
         assert result[0] == 1
+
+    def test_write_partition_emits_hive_partitioning_false(self):
+        # Guards the production code path itself (the tests above only exercise
+        # hand-written SQL): write_partition_to_iceberg must emit a read_parquet
+        # that disables Hive inference, or BY NAME breaks on the path's
+        # year/month/day keys again.
+        executed: list[str] = []
+        conn = MagicMock()
+        conn.execute.side_effect = lambda stmt, *a, **k: executed.append(
+            stmt.as_string(None) if hasattr(stmt, "as_string") else str(stmt)
+        )
+
+        result = write_partition_to_iceberg(
+            MagicMock(),
+            conn,
+            "events",
+            "s3://bucket/backfill/events/2/year=2026/month=05/day=31/run.parquet",
+            2,
+            "timestamp",
+            datetime(2026, 5, 31),
+        )
+
+        assert result is True
+        insert_sql = next(s for s in executed if "read_parquet" in s)
+        assert "BY NAME" in insert_sql
+        assert "hive_partitioning=false" in insert_sql
