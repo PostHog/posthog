@@ -14,7 +14,7 @@ from posthog.api.wizard import http as wizard
 from posthog.approvals import api as approval_api
 from posthog.batch_exports import http as batch_exports
 from posthog.batch_exports.api import file_download
-from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
+from posthog.settings import EE_AVAILABLE
 
 import products.tasks.backend.api as tasks
 import products.signals.backend.views as signals
@@ -24,34 +24,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.actions.backend.routes import register_routes as register_actions_routes
-from products.ai_observability.backend.api import (
-    AIObservabilityClusteringRunViewSet,
-    AIObservabilityOfflineEvaluationsViewSet,
-    AIObservabilitySentimentViewSet,
-    AIObservabilitySummarizationViewSet,
-    AIObservabilityTextReprViewSet,
-    AIObservabilityTranslateViewSet,
-    ClusteringConfigViewSet,
-    ClusteringJobViewSet,
-    DatasetItemViewSet,
-    DatasetViewSet,
-    EvaluationConfigViewSet,
-    EvaluationReportViewSet,
-    EvaluationRunViewSet,
-    EvaluationViewSet,
-    LLMEvaluationSummaryViewSet,
-    LLMModelsViewSet,
-    LLMProviderKeyValidationViewSet,
-    LLMProviderKeyViewSet,
-    LLMProxyViewSet,
-    PersonalSpendViewSet,
-    ReviewQueueItemViewSet,
-    ReviewQueueViewSet,
-    ScoreDefinitionViewSet,
-    TaggerViewSet,
-    TraceReviewViewSet,
-)
-from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
 from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.conversations.backend.routes import register_routes as register_conversations_routes
@@ -197,19 +170,13 @@ router.register(
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
-# Personal LLM spend data lives only in PostHog Cloud US's internal team — register
-# the endpoint there plus dev/test envs so it stays reachable in development. EU
-# adds a redirect (declared in posthog/urls.py) so callers get a discoverable
-# pointer instead of a silent 404.
-if CLOUD_DEPLOYMENT == "US" or DEBUG or TEST:
-    router.register(r"llm_analytics/@me/spend", PersonalSpendViewSet, "personal_spend")
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+register_ai_observability_routes(routers)
 # mcp_store registers a root-level route plus dual project/environment routes, so it
 # runs here once the projects + environments parents exist.
 register_mcp_store_routes(routers)
@@ -397,12 +364,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_skills",
-    LLMSkillViewSet,
-    "project_llm_skills",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"exports", exports.ExportedAssetViewSet, "environment_exports", ["team_id"]
@@ -1252,166 +1213,6 @@ projects_router.register(
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
-register_legacy_dual_route_team_nested_viewset(
-    r"datasets",
-    DatasetViewSet,
-    "environment_datasets",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"dataset_items",
-    DatasetItemViewSet,
-    "environment_dataset_items",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"evaluations",
-    EvaluationViewSet,
-    "project_evaluations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"taggers",
-    TaggerViewSet,
-    "project_taggers",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"evaluation_runs",
-    EvaluationRunViewSet,
-    "project_evaluation_runs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/text_repr",
-    AIObservabilityTextReprViewSet,
-    "project_llm_analytics_text_repr",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/summarization",
-    AIObservabilitySummarizationViewSet,
-    "project_llm_analytics_summarization",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_summary",
-    LLMEvaluationSummaryViewSet,
-    "project_llm_analytics_evaluation_summary",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/translate",
-    AIObservabilityTranslateViewSet,
-    "project_llm_analytics_translate",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/provider_keys",
-    LLMProviderKeyViewSet,
-    "project_llm_analytics_provider_keys",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/provider_key_validations",
-    LLMProviderKeyValidationViewSet,
-    "project_llm_analytics_provider_key_validations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/models",
-    LLMModelsViewSet,
-    "project_llm_analytics_models",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_config",
-    EvaluationConfigViewSet,
-    "project_llm_analytics_evaluation_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_runs",
-    AIObservabilityClusteringRunViewSet,
-    "project_llm_analytics_clustering_runs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_config",
-    ClusteringConfigViewSet,
-    "project_llm_analytics_clustering_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/clustering_jobs",
-    ClusteringJobViewSet,
-    "project_llm_analytics_clustering_jobs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/sentiment",
-    AIObservabilitySentimentViewSet,
-    "project_llm_analytics_sentiment",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/offline_evaluations",
-    AIObservabilityOfflineEvaluationsViewSet,
-    "project_llm_analytics_offline_evaluations",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/review_queue_items",
-    ReviewQueueItemViewSet,
-    "project_llm_analytics_review_queue_items",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/review_queues",
-    ReviewQueueViewSet,
-    "project_llm_analytics_review_queues",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/score_definitions",
-    ScoreDefinitionViewSet,
-    "project_llm_analytics_score_definitions",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/trace_reviews",
-    TraceReviewViewSet,
-    "project_llm_analytics_trace_reviews",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"llm_analytics/evaluation_reports",
-    EvaluationReportViewSet,
-    "project_llm_analytics_evaluation_reports",
-    ["team_id"],
-)
 
 project_vision_scanners_router, environment_vision_scanners_router = register_legacy_dual_route_team_nested_viewset(
     r"vision/scanners",
