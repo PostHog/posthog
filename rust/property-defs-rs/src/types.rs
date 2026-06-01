@@ -1,6 +1,8 @@
-use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
+use std::{fmt, hash::Hash, io::Read, str::FromStr, sync::LazyLock};
 
+use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
+use lz4::Decoder;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
@@ -80,6 +82,9 @@ const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 7] = [
     "createdat",
     "updatedat",
 ];
+
+const PHB64_LZ4_PREFIX: &str = "phb64_";
+const MAX_DECOMPRESSED_PROPERTIES_BYTES: usize = 16 * 1024 * 1024;
 
 // TRICKY: the pattern below is a best-effort attempt to classify likely DateTime properties by
 // a string prefix of their value. While this doesn't enforce compliance to standard formats,
@@ -262,7 +267,7 @@ impl Event {
             return updates;
         };
 
-        let Ok(props) = Value::from_str(props) else {
+        let Some(props) = parse_properties_json(props) else {
             return updates;
         };
 
@@ -369,6 +374,24 @@ impl Event {
             }));
         }
     }
+}
+
+fn parse_properties_json(props: &str) -> Option<Value> {
+    if let Some(encoded) = props.strip_prefix(PHB64_LZ4_PREFIX) {
+        let compressed = BASE64_STANDARD.decode(encoded).ok()?;
+        let decoder = Decoder::new(compressed.as_slice()).ok()?;
+        let mut decompressed = String::new();
+        decoder
+            .take((MAX_DECOMPRESSED_PROPERTIES_BYTES as u64).saturating_add(1))
+            .read_to_string(&mut decompressed)
+            .ok()?;
+        if decompressed.len() > MAX_DECOMPRESSED_PROPERTIES_BYTES {
+            return None;
+        }
+        return Value::from_str(&decompressed).ok();
+    }
+
+    Value::from_str(props).ok()
 }
 
 pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueType> {
