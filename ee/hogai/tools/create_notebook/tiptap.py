@@ -24,7 +24,7 @@ def blocks_to_tiptap_doc(
     blocks: Sequence[BaseModel],
     title: str | None = None,
     resolve_visualization: Any | None = None,
-    allow_executable_analysis_blocks: bool = True,
+    allow_executable_analysis_blocks: bool = False,
 ) -> dict:
     """
     Convert stored notebook blocks to a tiptap document structure.
@@ -68,7 +68,7 @@ def blocks_to_tiptap_doc(
 def _block_to_tiptap_nodes(
     block: BaseModel,
     resolve_visualization: Any | None = None,
-    allow_executable_analysis_blocks: bool = True,
+    allow_executable_analysis_blocks: bool = False,
 ) -> list[dict]:
     if isinstance(block, MarkdownBlock):
         return markdown_to_tiptap_nodes(
@@ -115,7 +115,7 @@ def _visualization_ref_to_tiptap(
     ]
 
 
-def markdown_to_tiptap_nodes(text: str, allow_executable_analysis_blocks: bool = True) -> list[dict]:
+def markdown_to_tiptap_nodes(text: str, allow_executable_analysis_blocks: bool = False) -> list[dict]:
     """
     Convert a markdown string to a list of tiptap nodes.
 
@@ -134,7 +134,7 @@ def markdown_to_tiptap_nodes(text: str, allow_executable_analysis_blocks: bool =
 
 
 def _markdown_to_tiptap_nodes_with_analysis_blocks(
-    text: str, allow_executable_analysis_blocks: bool = True
+    text: str, allow_executable_analysis_blocks: bool = False
 ) -> list[dict]:
     if not text or not text.strip():
         return []

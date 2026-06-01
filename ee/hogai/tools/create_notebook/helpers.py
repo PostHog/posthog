@@ -57,7 +57,7 @@ async def save_notebook_to_db(
     artifact: AgentArtifact,
     blocks: Sequence[StoredBlock],
     title: str,
-    allow_executable_analysis_blocks: bool = True,
+    allow_executable_analysis_blocks: bool = False,
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.

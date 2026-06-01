@@ -332,7 +332,7 @@ def find_top_level_anchor_index(doc: ProseMirrorDoc, anchor: str, occurrence: in
 
 
 def resolve_insert_nodes(
-    edit: InsertContentArgs, viz_lookup: dict[str, dict[str, Any]], allow_executable_analysis_blocks: bool = True
+    edit: InsertContentArgs, viz_lookup: dict[str, dict[str, Any]], allow_executable_analysis_blocks: bool = False
 ) -> list[ProseMirrorNode]:
     if edit.nodes is not None:
         return clone_json(edit.nodes)
@@ -757,7 +757,7 @@ def apply_notebook_edit(
     doc: ProseMirrorDoc,
     edit: NotebookEdit,
     viz_lookup: dict[str, dict[str, Any]],
-    allow_executable_analysis_blocks: bool = True,
+    allow_executable_analysis_blocks: bool = False,
 ) -> list[ReplaceStep]:
     if isinstance(edit, AppendEdit):
         return [apply_append_edit(doc, resolve_insert_nodes(edit, viz_lookup, allow_executable_analysis_blocks))]
@@ -862,7 +862,7 @@ def build_edit_plan(
     content: Any,
     edits: list[NotebookEdit],
     viz_lookup: dict[str, dict[str, Any]],
-    allow_executable_analysis_blocks: bool = True,
+    allow_executable_analysis_blocks: bool = False,
 ) -> EditPlan:
     doc = normalize_document(content)
     steps: list[ReplaceStep] = []

@@ -195,7 +195,7 @@ SELECT * FROM events_df LIMIT 5
 {"kind":"InsightVizNode","source":{"kind":"TrendsQuery"}}
 </query>
 """
-        nodes = markdown_to_tiptap_nodes(md)
+        nodes = markdown_to_tiptap_nodes(md, allow_executable_analysis_blocks=True)
 
         assert [node["type"] for node in nodes] == [
             "heading",
@@ -226,6 +226,12 @@ SELECT 1
         assert [node["type"] for node in nodes] == ["paragraph", "ph-query"]
         assert nodes[0]["content"][0]["text"] == "<hogql> SELECT 1 </hogql>"
         assert nodes[1]["attrs"]["query"] == {"kind": "HogQLQuery", "query": "SELECT 1"}
+
+    def test_executable_analysis_blocks_are_disabled_by_default(self):
+        nodes = markdown_to_tiptap_nodes("<python>\nprint(1)\n</python>")
+
+        assert [node["type"] for node in nodes] == ["paragraph"]
+        assert nodes[0]["content"][0]["text"] == "<python> print(1) </python>"
 
     @parameterized.expand(
         [

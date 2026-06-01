@@ -14,6 +14,11 @@ const sampleDoc = {
 }
 
 describe('NotebookEditSchema', () => {
+    it('stays object-shaped for individual MCP tool registration', () => {
+        expect(NotebookEditSchema.shape).not.toBeUndefined()
+        expect(NotebookEditSchema.shape.short_id).not.toBeUndefined()
+    })
+
     it('rejects identical old_value and new_value (deep-equal)', () => {
         const result = NotebookEditSchema.safeParse({
             short_id: 'abc',
@@ -154,6 +159,33 @@ describe('editHandler subtree replacement compatibility', () => {
                 new_value: { type: 'text', text: 'replacement' },
             })
         ).rejects.toThrow(/Could not find text|old_node was not found/)
+        expect(state.saveCalls).toHaveLength(0)
+    })
+
+    it('rejects ambiguous text-node old_value unless replace_all is set', async () => {
+        const duplicateDoc = {
+            type: 'doc',
+            content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Duplicate paragraph.' }] },
+                { type: 'paragraph', content: [{ type: 'text', text: 'Duplicate paragraph.' }] },
+            ],
+        }
+        const state: MockState = {
+            notebookContent: duplicateDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [],
+        }
+        const context = createMockContext(state)
+
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_value: { type: 'text', text: 'Duplicate paragraph.' },
+                new_value: { type: 'text', text: 'Updated paragraph.' },
+            })
+        ).rejects.toThrow(/matches 2 places/)
         expect(state.saveCalls).toHaveLength(0)
     })
 

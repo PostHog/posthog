@@ -1112,6 +1112,57 @@ function findTextMatch(
     return null
 }
 
+function findExactTextNodeMatch(
+    node: ProseMirrorNode | ProseMirrorDoc,
+    find: string,
+    position: number,
+    parent: ProseMirrorNode | ProseMirrorDoc | null = null,
+    childIndex: number | null = null
+): TextMatch | null {
+    if (node.type === 'text') {
+        if (node.text !== find) {
+            return null
+        }
+        return {
+            from: position,
+            to: position + find.length,
+            node,
+            parent,
+            childIndex,
+            startIndex: 0,
+        }
+    }
+
+    if (!Array.isArray(node.content)) {
+        return null
+    }
+
+    let childPosition = node.type === 'doc' ? position : position + 1
+    for (let index = 0; index < node.content.length; index++) {
+        const child = node.content[index]
+        if (!child) {
+            continue
+        }
+        const match = findExactTextNodeMatch(child, find, childPosition, node, index)
+        if (match) {
+            return match
+        }
+        childPosition += nodeSize(child)
+    }
+
+    return null
+}
+
+function countExactTextNodeMatches(node: ProseMirrorNode | ProseMirrorDoc, find: string): number {
+    if (node.type === 'text') {
+        return node.text === find ? 1 : 0
+    }
+    if (!Array.isArray(node.content)) {
+        return 0
+    }
+    return node.content.reduce((count, child) => count + countExactTextNodeMatches(child, find), 0)
+}
+
 function replacementTextNodes(match: TextMatch, replacement: string): ProseMirrorNode[] {
     if (replacement.length === 0) {
         return []
@@ -1147,6 +1198,35 @@ function applyTextReplacement(doc: ProseMirrorDoc, find: string, replacement: st
     }
 
     return applyTextMatchReplacement(match, find, replacement)
+}
+
+function applyExactTextNodeReplacementEdit(
+    doc: ProseMirrorDoc,
+    find: string,
+    replacement: string,
+    allOccurrences: boolean
+): ReplaceStep[] {
+    const matches = countExactTextNodeMatches(doc, find)
+    if (matches === 0) {
+        throw new Error(`Could not find text node "${find}" in the notebook.`)
+    }
+    if (matches > 1 && !allOccurrences) {
+        throw new Error(`Text node "${find}" matches ${matches} places in the notebook content. Set replace_all.`)
+    }
+
+    const steps: ReplaceStep[] = []
+    while (true) {
+        const match = findExactTextNodeMatch(doc, find, 0)
+        if (!match) {
+            break
+        }
+        steps.push(applyTextMatchReplacement(match, find, replacement))
+        if (!allOccurrences) {
+            break
+        }
+        assertReplacementLimit(find, steps.length)
+    }
+    return steps
 }
 
 function assertReplacementLimit(find: string, replacementCount: number): void {
@@ -1220,7 +1300,8 @@ function applyReplaceTextEdit(
     replacement: string,
     allOccurrences: boolean,
     anchor?: string,
-    occurrence: number = 1
+    occurrence: number = 1,
+    legacyTextNodeReplacement: boolean = false
 ): ReplaceStep[] {
     if (anchor) {
         const index = findTopLevelAnchorIndex(doc, anchor, occurrence)
@@ -1242,6 +1323,10 @@ function applyReplaceTextEdit(
         }
 
         throw new Error(`Could not find text "${find}" inside notebook block or section anchored by "${anchor}".`)
+    }
+
+    if (legacyTextNodeReplacement) {
+        return applyExactTextNodeReplacementEdit(doc, find, replacement, allOccurrences)
     }
 
     const steps: ReplaceStep[] = []
@@ -1313,7 +1398,8 @@ function applyNotebookEdit(doc: ProseMirrorDoc, edit: NotebookEdit): ReplaceStep
                 edit.replace,
                 edit.all_occurrences ?? false,
                 edit.anchor,
-                edit.occurrence ?? 1
+                edit.occurrence ?? 1,
+                (edit as { legacy_text_node_replacement?: boolean }).legacy_text_node_replacement === true
             )
         case 'replace_subtree':
             return applySubtreeReplacementEdit(doc, edit.old_node, edit.new_nodes, edit.replace_all ?? false)

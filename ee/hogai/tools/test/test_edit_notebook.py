@@ -169,6 +169,7 @@ def test_build_edit_plan_inserts_analysis_cells_from_markdown():
             ).edits[0]
         ],
         {},
+        allow_executable_analysis_blocks=True,
     )
 
     assert plan.content["content"][1] == {
@@ -203,6 +204,7 @@ def test_build_edit_plan_replaces_existing_analysis_cell_by_title():
             ).edits[0]
         ],
         {},
+        allow_executable_analysis_blocks=True,
     )
 
     assert plan.content["content"] == [
