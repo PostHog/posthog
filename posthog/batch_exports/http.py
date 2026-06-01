@@ -713,12 +713,12 @@ def is_local_dev_or_test() -> bool:
 
 def resolve_and_validate_host(host: str) -> None:
     """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" or is_local_dev_or_test():
+    if host == "localhost" and is_local_dev_or_test():
         return
 
     # Host may already be an IP literal
     try:
-        if is_ip_internal(host):
+        if is_ip_internal(host) and not is_local_dev_or_test():
             raise ValueError("Host resolved to internal IP")
         return
     except ValueError:
@@ -735,7 +735,7 @@ def resolve_and_validate_host(host: str) -> None:
     resolved_ips = {str(r[4][0]) for r in results}
 
     for ip in resolved_ips:
-        if is_ip_internal(ip):
+        if is_ip_internal(ip) and not is_local_dev_or_test():
             raise ValueError("Host resolved to internal IP")
 
 
