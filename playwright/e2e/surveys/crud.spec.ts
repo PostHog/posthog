@@ -38,7 +38,9 @@ async function launchSurveyEvenIfDisabled(page: Page): Promise<void> {
         await page.getByRole('button', { name: 'Done' }).click()
     }
 
-    await page.locator('[data-attr="launch-survey"]').click()
+    // The launch control is now a split button, so two elements carry data-attr="launch-survey"
+    // ("Launch" and "Launch survey"). Target the primary "Launch" button explicitly.
+    await page.getByRole('button', { name: 'Launch', exact: true }).click()
     await expect(page.locator('.LemonModal__layout')).toBeVisible()
     await expect(page.getByText('Launch this survey?')).toBeVisible()
     const launchResponsePromise = page.waitForResponse(
