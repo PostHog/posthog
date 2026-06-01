@@ -230,7 +230,7 @@ Works for text, insight, and button tiles. The underlying Insight, Text, or Butt
 object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
 use the dashboard delete endpoint instead.
  */
-export const DashboardsDeleteTileCreateParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -239,11 +239,11 @@ export const DashboardsDeleteTileCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DashboardsDeleteTileCreateQueryParams = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsDeleteTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 

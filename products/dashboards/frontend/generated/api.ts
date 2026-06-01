@@ -26,7 +26,7 @@ import type {
     DashboardsCreateParams,
     DashboardsCreateTextTileCreateParams,
     DashboardsCreateUnlistedDashboardCreateParams,
-    DashboardsDeleteTileCreateParams,
+    DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
@@ -563,11 +563,7 @@ export const dashboardsCreateTextTileCreate = async (
     })
 }
 
-export const getDashboardsDeleteTileCreateUrl = (
-    projectId: string,
-    id: number,
-    params?: DashboardsDeleteTileCreateParams
-) => {
+export const getDashboardsDeleteTileUrl = (projectId: string, id: number, params?: DashboardsDeleteTileParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -590,14 +586,14 @@ Works for text, insight, and button tiles. The underlying Insight, Text, or Butt
 object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
 use the dashboard delete endpoint instead.
  */
-export const dashboardsDeleteTileCreate = async (
+export const dashboardsDeleteTile = async (
     projectId: string,
     id: number,
     deleteTileRequestApi: DeleteTileRequestApi,
-    params?: DashboardsDeleteTileCreateParams,
+    params?: DashboardsDeleteTileParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getDashboardsDeleteTileCreateUrl(projectId, id, params), {
+    return apiMutator<void>(getDashboardsDeleteTileUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

@@ -353,7 +353,7 @@ Works for text, insight, and button tiles. The underlying Insight, Text, or Butt
 object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
 use the dashboard delete endpoint instead.
  */
-export const DashboardsDeleteTileCreateBody = /* @__PURE__ */ zod.object({
+export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
     tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 

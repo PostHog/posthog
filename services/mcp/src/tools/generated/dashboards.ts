@@ -6,8 +6,8 @@ import {
     DashboardsCreateBody,
     DashboardsCreateTextTileCreateBody,
     DashboardsCreateTextTileCreateParams,
-    DashboardsDeleteTileCreateBody,
-    DashboardsDeleteTileCreateParams,
+    DashboardsDeleteTileBody,
+    DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListQueryParams,
     DashboardsPartialUpdateBody,
@@ -163,9 +163,9 @@ const dashboardDelete = (): ToolBase<typeof DashboardDeleteSchema, Schemas.Dashb
     },
 })
 
-const DashboardDeleteTileSchema = DashboardsDeleteTileCreateParams.omit({ project_id: true })
-    .extend(DashboardsDeleteTileCreateBody.shape)
-    .extend({ id: z.preprocess(castStringToInt, DashboardsDeleteTileCreateParams.shape['id']) })
+const DashboardDeleteTileSchema = DashboardsDeleteTileParams.omit({ project_id: true })
+    .extend(DashboardsDeleteTileBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsDeleteTileParams.shape['id']) })
 
 const dashboardDeleteTile = (): ToolBase<typeof DashboardDeleteTileSchema, unknown> => ({
     name: 'dashboard-delete-tile',

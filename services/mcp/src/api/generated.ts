@@ -40428,14 +40428,14 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type EnvironmentsDashboardsDeleteTileCreateParams = {
-    format?: EnvironmentsDashboardsDeleteTileCreateFormat;
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
     };
 
-    export type EnvironmentsDashboardsDeleteTileCreateFormat = typeof EnvironmentsDashboardsDeleteTileCreateFormat[keyof typeof EnvironmentsDashboardsDeleteTileCreateFormat];
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
 
 
-    export const EnvironmentsDashboardsDeleteTileCreateFormat = {
+    export const EnvironmentsDashboardsDeleteTileFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45502,14 +45502,14 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
-    export type DashboardsDeleteTileCreateParams = {
-    format?: DashboardsDeleteTileCreateFormat;
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
     };
 
-    export type DashboardsDeleteTileCreateFormat = typeof DashboardsDeleteTileCreateFormat[keyof typeof DashboardsDeleteTileCreateFormat];
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
 
 
-    export const DashboardsDeleteTileCreateFormat = {
+    export const DashboardsDeleteTileFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
