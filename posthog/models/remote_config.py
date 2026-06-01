@@ -15,15 +15,15 @@ from prometheus_client import Counter
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions_capture import capture_exception
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.js_snippet_versioning import DEFAULT_SNIPPET_VERSION
-from posthog.models.plugin import PluginConfig
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import PluginConfig
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
@@ -344,8 +344,9 @@ class RemoteConfig(UUIDTModel):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
         from posthog.cdp.site_functions import get_transpiled_function
-        from posthog.models import HogFunction
         from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         # Add in the site apps as an array of objects
         site_apps_js = []

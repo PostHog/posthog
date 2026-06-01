@@ -19,16 +19,19 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     })),
     actions({
-        loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
+        loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
     }),
 
     loaders(({ props }) => ({
         allSlackChannels: [
-            null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
+            null as { channels: SlackChannelType[]; lastRefreshedAt: string; has_more?: boolean } | null,
             {
-                loadAllSlackChannels: async ({ forceRefresh }) => {
-                    return await api.integrations.slackChannels(props.id, forceRefresh)
+                loadAllSlackChannels: async ({ forceRefresh, search }, breakpoint) => {
+                    if (search) {
+                        await breakpoint(300)
+                    }
+                    return await api.integrations.slackChannels(props.id, forceRefresh, { search })
                 },
             },
         ],

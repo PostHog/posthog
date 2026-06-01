@@ -9,10 +9,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+
+from products.cdp.backend.models.plugin import Plugin
 
 from ee.billing.quota_limiting import QuotaResource
 

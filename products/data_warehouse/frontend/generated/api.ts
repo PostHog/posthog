@@ -82,209 +82,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getFixHogqlListUrl = (projectId: string, params?: FixHogqlListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/fix_hogql/?${stringifiedParams}`
-        : `/api/environments/${projectId}/fix_hogql/`
-}
-
-export const fixHogqlList = async (
-    projectId: string,
-    params?: FixHogqlListParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFixHogqlListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getFixHogqlCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/fix_hogql/`
-}
-
-export const fixHogqlCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getFixHogqlCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-    })
-}
-
-export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/lineage/get_upstream/`
-}
-
-export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
-    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
-}
-
-/**
- * Get all views associated with a specific managed viewset.
-GET /api/environments/{team_id}/managed_viewsets/{kind}/
- */
-export const managedViewsetsRetrieve = async (
-    projectId: string,
-    kind: 'revenue_analytics',
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
-    return `/api/environments/${projectId}/managed_viewsets/${kind}/`
-}
-
-/**
- * Enable or disable a managed viewset by kind.
-PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
- */
-export const managedViewsetsUpdate = async (
-    projectId: string,
-    kind: 'revenue_analytics',
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
-        ...options,
-        method: 'PUT',
-    })
-}
-
-export const getWarehouseSavedQueryDraftsListUrl = (
-    projectId: string,
-    params?: WarehouseSavedQueryDraftsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/warehouse_saved_query_drafts/?${stringifiedParams}`
-        : `/api/environments/${projectId}/warehouse_saved_query_drafts/`
-}
-
-export const warehouseSavedQueryDraftsList = async (
-    projectId: string,
-    params?: WarehouseSavedQueryDraftsListParams,
-    options?: RequestInit
-): Promise<PaginatedDataWarehouseSavedQueryDraftListApi> => {
-    return apiMutator<PaginatedDataWarehouseSavedQueryDraftListApi>(
-        getWarehouseSavedQueryDraftsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getWarehouseSavedQueryDraftsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/`
-}
-
-export const warehouseSavedQueryDraftsCreate = async (
-    projectId: string,
-    dataWarehouseSavedQueryDraftApi?: NonReadonly<DataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<DataWarehouseSavedQueryDraftApi> => {
-    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
-    })
-}
-
-export const getWarehouseSavedQueryDraftsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const warehouseSavedQueryDraftsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DataWarehouseSavedQueryDraftApi> => {
-    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getWarehouseSavedQueryDraftsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const warehouseSavedQueryDraftsUpdate = async (
-    projectId: string,
-    id: string,
-    dataWarehouseSavedQueryDraftApi?: NonReadonly<DataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<DataWarehouseSavedQueryDraftApi> => {
-    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
-    })
-}
-
-export const getWarehouseSavedQueryDraftsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const warehouseSavedQueryDraftsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDataWarehouseSavedQueryDraftApi?: NonReadonly<PatchedDataWarehouseSavedQueryDraftApi>,
-    options?: RequestInit
-): Promise<DataWarehouseSavedQueryDraftApi> => {
-    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataWarehouseSavedQueryDraftApi),
-    })
-}
-
-export const getWarehouseSavedQueryDraftsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/warehouse_saved_query_drafts/${id}/`
-}
-
-export const warehouseSavedQueryDraftsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseSavedQueryDraftsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getDataModelingJobsListUrl = (projectId: string, params?: DataModelingJobsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1224,6 +1021,44 @@ export const externalDataSourcesWizardRetrieve = async (projectId: string, optio
     })
 }
 
+export const getFixHogqlListUrl = (projectId: string, params?: FixHogqlListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/fix_hogql/?${stringifiedParams}`
+        : `/api/projects/${projectId}/fix_hogql/`
+}
+
+export const fixHogqlList = async (
+    projectId: string,
+    params?: FixHogqlListParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getFixHogqlListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFixHogqlCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/fix_hogql/`
+}
+
+export const fixHogqlCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getFixHogqlCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getInsightVariablesListUrl = (projectId: string, params?: InsightVariablesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1327,6 +1162,55 @@ export const insightVariablesDestroy = async (projectId: string, id: string, opt
     return apiMutator<void>(getInsightVariablesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getLineageGetUpstreamRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/lineage/get_upstream/`
+}
+
+export const lineageGetUpstreamRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLineageGetUpstreamRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedViewsetsRetrieveUrl = (projectId: string, kind: 'revenue_analytics') => {
+    return `/api/projects/${projectId}/managed_viewsets/${kind}/`
+}
+
+/**
+ * Get all views associated with a specific managed viewset.
+GET /api/environments/{team_id}/managed_viewsets/{kind}/
+ */
+export const managedViewsetsRetrieve = async (
+    projectId: string,
+    kind: 'revenue_analytics',
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getManagedViewsetsRetrieveUrl(projectId, kind), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedViewsetsUpdateUrl = (projectId: string, kind: 'revenue_analytics') => {
+    return `/api/projects/${projectId}/managed_viewsets/${kind}/`
+}
+
+/**
+ * Enable or disable a managed viewset by kind.
+PUT /api/environments/{team_id}/managed_viewsets/{kind}/ with body {"enabled": true/false}
+ */
+export const managedViewsetsUpdate = async (
+    projectId: string,
+    kind: 'revenue_analytics',
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getManagedViewsetsUpdateUrl(projectId, kind), {
+        ...options,
+        method: 'PUT',
     })
 }
 
@@ -1855,6 +1739,122 @@ export const warehouseSavedQueriesResumeSchedulesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseSavedQueryApi),
+    })
+}
+
+export const getWarehouseSavedQueryDraftsListUrl = (
+    projectId: string,
+    params?: WarehouseSavedQueryDraftsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_saved_query_drafts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_saved_query_drafts/`
+}
+
+export const warehouseSavedQueryDraftsList = async (
+    projectId: string,
+    params?: WarehouseSavedQueryDraftsListParams,
+    options?: RequestInit
+): Promise<PaginatedDataWarehouseSavedQueryDraftListApi> => {
+    return apiMutator<PaginatedDataWarehouseSavedQueryDraftListApi>(
+        getWarehouseSavedQueryDraftsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWarehouseSavedQueryDraftsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_drafts/`
+}
+
+export const warehouseSavedQueryDraftsCreate = async (
+    projectId: string,
+    dataWarehouseSavedQueryDraftApi?: NonReadonly<DataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryDraftApi> => {
+    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
+    })
+}
+
+export const getWarehouseSavedQueryDraftsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryDraftApi> => {
+    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWarehouseSavedQueryDraftsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsUpdate = async (
+    projectId: string,
+    id: string,
+    dataWarehouseSavedQueryDraftApi?: NonReadonly<DataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryDraftApi> => {
+    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
+    })
+}
+
+export const getWarehouseSavedQueryDraftsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDataWarehouseSavedQueryDraftApi?: NonReadonly<PatchedDataWarehouseSavedQueryDraftApi>,
+    options?: RequestInit
+): Promise<DataWarehouseSavedQueryDraftApi> => {
+    return apiMutator<DataWarehouseSavedQueryDraftApi>(getWarehouseSavedQueryDraftsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDataWarehouseSavedQueryDraftApi),
+    })
+}
+
+export const getWarehouseSavedQueryDraftsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_saved_query_drafts/${id}/`
+}
+
+export const warehouseSavedQueryDraftsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getWarehouseSavedQueryDraftsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

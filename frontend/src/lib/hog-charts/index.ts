@@ -1,8 +1,8 @@
 // Components
 export { BarChart } from './charts/BarChart/BarChart'
 export type { BarChartProps } from './charts/BarChart/BarChart'
-export { LineChart } from './charts/LineChart'
-export type { LineChartProps } from './charts/LineChart'
+export { LineChart } from './charts/LineChart/LineChart'
+export type { LineChartProps } from './charts/LineChart/LineChart'
 export { TimeSeriesLineChart } from './charts/TimeSeriesLineChart/TimeSeriesLineChart'
 export type {
     ConfidenceIntervalConfig,
@@ -58,6 +58,7 @@ export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue 
 // Core types
 export type {
     BarChartConfig,
+    BarsConfig,
     ChartConfig,
     ChartDimensions,
     ChartDrawArgs,
@@ -113,3 +114,10 @@ export type { GoalLineConfig } from './utils/goal-lines'
 
 // Statistics helpers (used by trend-line / moving-average / confidence-interval features)
 export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/statistics'
+
+// Generic UI primitives (no canvas) — composed alongside charts by adapters
+export { Legend } from './components/Legend/Legend'
+export type { LegendItem, LegendProps } from './components/Legend/Legend'
+export { ChartLegendLayout } from './components/Legend/ChartLegendLayout'
+export type { ChartLegendLayoutProps } from './components/Legend/ChartLegendLayout'
+export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'
