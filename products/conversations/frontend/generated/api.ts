@@ -24,6 +24,10 @@ import type {
     PaginatedTicketViewListApi,
     PatchedConversationApi,
     PatchedTicketApi,
+    PermissionResponseApi,
+    PermissionResponseResultApi,
+    SandboxMessageApi,
+    SandboxMessageResponseApi,
     SuggestReplyResponseApi,
     TicketApi,
     TicketViewApi,
@@ -170,6 +174,27 @@ export const conversationsCancelPartialUpdate = async (
     })
 }
 
+export const getConversationsPermissionCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/permission/`
+}
+
+/**
+ * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ */
+export const conversationsPermissionCreate = async (
+    projectId: string,
+    conversation: string,
+    permissionResponseApi: PermissionResponseApi,
+    options?: RequestInit
+): Promise<PermissionResponseResultApi> => {
+    return apiMutator<PermissionResponseResultApi>(getConversationsPermissionCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(permissionResponseApi),
+    })
+}
+
 export const getConversationsQueueRetrieveUrl = (projectId: string, conversation: string) => {
     return `/api/environments/${projectId}/conversations/${conversation}/queue/`
 }
@@ -253,6 +278,27 @@ export const conversationsQueueClearCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversationApi),
+    })
+}
+
+export const getConversationsSandboxCreateUrl = (projectId: string, conversation: string) => {
+    return `/api/environments/${projectId}/conversations/${conversation}/sandbox/`
+}
+
+/**
+ * Non-streaming routing endpoint for sandbox-runtime conversations (02_CORE § 3). Wraps + dedupes the message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream via the unchanged `/stream/` path.
+ */
+export const conversationsSandboxCreate = async (
+    projectId: string,
+    conversation: string,
+    sandboxMessageApi: SandboxMessageApi,
+    options?: RequestInit
+): Promise<SandboxMessageResponseApi> => {
+    return apiMutator<SandboxMessageResponseApi>(getConversationsSandboxCreateUrl(projectId, conversation), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sandboxMessageApi),
     })
 }
 

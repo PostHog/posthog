@@ -67,11 +67,90 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
 
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
+/**
+ * Forward a sandbox-runtime approval reply to the backing products/tasks run.
+ */
+export const conversationsPermissionCreateBodyRequestIdMax = 200
+
+export const conversationsPermissionCreateBodyOptionIdMax = 100
+
+export const conversationsPermissionCreateBodyCustomInputMax = 10000
+
+export const ConversationsPermissionCreateBody = /* @__PURE__ */ zod
+    .object({
+        requestId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyRequestIdMax)
+            .describe('The ACP permission request id the user is responding to.'),
+        optionId: zod
+            .string()
+            .max(conversationsPermissionCreateBodyOptionIdMax)
+            .describe("The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback')."),
+        customInput: zod
+            .string()
+            .max(conversationsPermissionCreateBodyCustomInputMax)
+            .optional()
+            .describe("Optional feedback text sent with a 'reject_with_feedback' decision."),
+    })
+    .describe('Approval reply for a sandbox-runtime `permission_request` (02_CORE.md § 5.5).')
+
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Non-streaming routing endpoint for sandbox-runtime conversations (02_CORE § 3). Wraps + dedupes the message, then starts a Run / signals a follow-up / resumes via in-process products/tasks calls and returns the IDs the frontend opens SSE against. Sandbox runtime only — LangGraph conversations stream via the unchanged `/stream/` path.
+ */
+export const conversationsSandboxCreateBodyContentMax = 40000
+
+export const ConversationsSandboxCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string().max(conversationsSandboxCreateBodyContentMax).describe("The user's message text."),
+        trace_id: zod
+            .uuid()
+            .optional()
+            .describe("Client-generated trace id correlated with the resulting Run's SSE stream."),
+        attached_context: zod
+            .array(
+                zod
+                    .object({
+                        type: zod
+                            .enum([
+                                'action',
+                                'dashboard',
+                                'error_tracking_issue',
+                                'evaluation',
+                                'event',
+                                'insight',
+                                'notebook',
+                                'text',
+                            ])
+                            .describe(
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            )
+                            .describe(
+                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            ),
+                        id: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Entity identifier — integer for `dashboard`\/`action`, string short_id\/UUID otherwise. Absent for `text`.'
+                            ),
+                        name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional human-readable label rendered in the context block.'),
+                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                    })
+                    .describe('One typed attachment carried by a sandbox message (01_CONTEXT § 1).')
+            )
+            .optional()
+            .describe('Typed PostHog entities (and free text) attached to this message.'),
+    })
+    .describe('Request body for the non-streaming `POST \/conversations\/{id}\/sandbox\/` route (02_CORE § 4).')
 
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
