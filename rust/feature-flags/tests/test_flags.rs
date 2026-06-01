@@ -428,6 +428,7 @@ async fn it_rejects_invalid_auth(
     assert_eq!(body["type"], "authentication_error");
     assert_eq!(body["code"], expected_code);
     assert_eq!(body["detail"], expected_detail);
+    assert_eq!(body["attr"], serde_json::Value::Null);
     Ok(())
 }
 
