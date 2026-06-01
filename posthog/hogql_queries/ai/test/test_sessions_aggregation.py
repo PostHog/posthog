@@ -47,6 +47,7 @@ def _create_ai_generation_event(
     cost: float | None = None,
     latency: float | None = None,
     is_error: bool = False,
+    tools_called: str | None = None,
     timestamp: datetime | None = None,
 ):
     props: dict = {
@@ -60,6 +61,8 @@ def _create_ai_generation_event(
         props["$ai_latency"] = latency
     if is_error:
         props["$ai_is_error"] = "true"
+    if tools_called is not None:
+        props["$ai_tools_called"] = tools_called
 
     _create_event(
         event="$ai_generation",
@@ -383,6 +386,80 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(row["generations"], 2)
         self.assertEqual(row["total_cost"], 0.8)  # 0.5 + 0.3
         self.assertEqual(row["total_latency"], 3.0)  # 2.0 + 1.0 (sum of children)
+
+    def test_session_surfaces_first_trace_distinct_id(self):
+        _create_person(distinct_ids=["early-user", "late-user"], team=self.team)
+
+        # Earlier trace, distinct_id "early-user"
+        _create_ai_generation_event(
+            trace_id="trace-early",
+            session_id="session-1",
+            distinct_id="early-user",
+            cost=0.1,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        # Later trace in the same session, different distinct_id
+        _create_ai_generation_event(
+            trace_id="trace-late",
+            session_id="session-1",
+            distinct_id="late-user",
+            cost=0.1,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 5, 0),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["distinct_id"], "early-user")
+
+    def test_session_aggregates_distinct_tools(self):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        # Comma-separated and repeated within a single generation, plus across generations
+        _create_ai_generation_event(
+            trace_id="trace-1",
+            session_id="session-1",
+            tools_called="search,search,read_taxonomy",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+        _create_ai_generation_event(
+            trace_id="trace-2",
+            session_id="session-1",
+            tools_called="execute_sql,search",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 1, 0),
+        )
+        # Generation without tools must not introduce empty entries
+        _create_ai_generation_event(
+            trace_id="trace-3",
+            session_id="session-1",
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 2, 0),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(sorted(results[0]["tools"]), ["execute_sql", "read_taxonomy", "search"])
+
+    def test_session_with_no_tools_returns_empty_list(self):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        _create_ai_generation_event(
+            trace_id="trace-1",
+            session_id="session-1",
+            cost=0.1,
+            team=self.team,
+            timestamp=datetime(2025, 1, 15, 0, 0),
+        )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["tools"], [])
 
     def test_mixed_traces_with_and_without_trace_event(self):
         _create_person(distinct_ids=["test-user"], team=self.team)

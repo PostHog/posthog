@@ -17,9 +17,18 @@ SELECT
     sum(generations) as generations,
     sum(embeddings) as embeddings,
     sum(errors) as errors,
+    -- Person of the session's first trace (mirrors traces_query_runner's first_distinct_id).
+    argMin(trace_distinct_id, trace_first_seen) as distinct_id,
+    -- Distinct tool names called across the whole session. $ai_tools_called is a
+    -- comma-separated string per generation (and can repeat within one), so we
+    -- concat all of them, split, and dedupe — same shape as traces_query_runner.
+    arrayFilter(
+        x -> x != '',
+        arrayDistinct(splitByChar(',', arrayStringConcat(groupArray(trace_tools), ',')))
+    ) as tools,
     round(sum(trace_cost), 4) as total_cost,
     round(sum(trace_latency), 2) as total_latency,
-    min(first_seen) as first_seen,
+    min(trace_first_seen) as first_seen,
     max(last_seen) as last_seen
 FROM (
     SELECT
@@ -28,12 +37,26 @@ FROM (
         countIf(event = '$ai_generation') as generations,
         countIf(event = '$ai_embedding') as embeddings,
         countIf(properties.$ai_is_error = 'true') as errors,
+        argMin(distinct_id, timestamp) as trace_distinct_id,
+        -- groupUniqArrayIf (not groupArrayIf): generations in a trace repeat the
+        -- same $ai_tools_called string, so deduping inside the aggregate state
+        -- keeps it small. The outer arrayDistinct makes this redundant for
+        -- correctness, but it roughly halves peak query memory on busy teams.
+        arrayStringConcat(
+            groupUniqArrayIf(
+                toString(properties.$ai_tools_called),
+                event = '$ai_generation'
+                AND isNotNull(properties.$ai_tools_called)
+                AND toString(properties.$ai_tools_called) != ''
+            ),
+            ','
+        ) as trace_tools,
         sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as trace_cost,
         coalesce(
             anyIf(toFloat(properties.$ai_latency), event = '$ai_trace' AND isNotNull(properties.$ai_latency)),
             sumIf(toFloat(properties.$ai_latency), event IN ('$ai_generation', '$ai_embedding', '$ai_span'))
         ) as trace_latency,
-        min(timestamp) as first_seen,
+        min(timestamp) as trace_first_seen,
         max(timestamp) as last_seen
     FROM events
     WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
