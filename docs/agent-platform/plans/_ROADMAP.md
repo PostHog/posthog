@@ -128,6 +128,17 @@ v1 adds the session-detail approvals tab + team-level inbox UI,
 notification fan-out, and richer approver scopes (depends on B.1's
 principal model).
 
+**Cross-cut with C.2 — gating MCP tools is unresolved.** The v0
+dispatcher only gates entries in `spec.tools`; MCP tools materialise
+at runtime from `client.listTools()` and bypass the gate. The
+concierge bundle's destructive tools (`*-destroy`,
+`*-promote-create`, `set-env-create`) are the blocking customer.
+Two designs (Option A: extend `McpRefExternal.tools[]`; Option C:
+top-level `spec.approvals.rules[]`) — see C.2 entry above and
+[`_TODO.md`](_TODO.md) "MCP tool approval gating" for the synthesis.
+v1's richer approver scopes (`session_principal`) need to land
+alongside whichever MCP-gating shape ships.
+
 ### B.3 [`rate-limiting-sessions.md`](rate-limiting-sessions.md) — **Dylan**
 
 Per-agent caps in spec; per-team platform safety net; two-stage
@@ -179,6 +190,21 @@ agents need strict principal enforcement).
 
 `spec.mcps[]` runtime support for agents that consume third-party
 MCP servers (TODO C6). Independent of **C.1**; can ship in parallel.
+**PRs 1-6 ✅ shipped: schema (PR 1), MCP client wrapper (PR 2),
+`buildAgentTools` integration (PR 3), worker lifecycle (PR 4), e2e
+harness (PR 5), `kind: 'agent'` resolver contract (PR 6). PR 7 (prod
+default resolver + concierge bundle unblock) pending.**
+
+**Unresolved cross-cut with B.2 — per-MCP-tool approval gating.** The
+runtime path opens MCP clients and surfaces remote tools, but the
+dispatcher's approval gate keys off `ToolRef.requires_approval`, which
+MCP tools don't have. Two design options (A and C) sketched in
+[`runtime-mcps.md`](runtime-mcps.md) "Open design"; Option A is the
+planned PR 7 path. The concierge bundle is the blocking customer;
+adding it forces the choice. See [`_TODO.md`](_TODO.md) entry "MCP
+tool approval gating — unresolved schema alignment" for the full
+context. Couples with B.2's deferred `session_principal` approver
+scope, which PR 7 needs to pull forward.
 
 ### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** / next epoch (library UI **Ben**)
 
@@ -336,6 +362,7 @@ each one three times.
 | ai_events trace emission     | D.2 self-healing-agents §3.1        | D.1 authoring flow (test results), all observability surfaces              |
 | `agent_test_session` + judge | D.1 agent-authoring-flow §test-runs | D.2 self-healing-agents §5 replay-and-grade                                |
 | Client-tool protocol         | E.1 agent-console-website §8        | Any future chat-trigger client surface (Slack viewers, MCP hosts, SDKs)    |
+| Approval gating surface ⚠️   | B.2 approval-gated-tools §3 (v0)    | C.2 runtime-mcps (unresolved — see \_TODO.md "MCP tool approval gating")   |
 
 ## A walk-through of how to ship this
 

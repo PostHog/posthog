@@ -1,6 +1,6 @@
 # Design — runtime `spec.mcps[]` support
 
-**Status:** draft / open questions. **Owner:** ben. **Tracking:** TODO C6 in `services/agent-shared/TODO.md`.
+**Status:** PRs 1-6 landed; PR 7 (prod resolver + concierge unblock) pending. **Owner:** ben. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2.
 
 ## Problem
 
@@ -204,6 +204,42 @@ Split across discrete PRs so each is reviewable in isolation:
 - MCP sampling (the MCP-defined "ask the model" pattern). pi-ai handles all
   inference for now.
 - Self-hosted MCP gateway / quota management.
-- Per-MCP-tool approval policies. The concierge bundle declares these via an
-  `approval_policies` field per MCP; the schema doesn't accept it yet.
-  Track with the schema-flattening work above.
+
+## Open design — per-MCP-tool approval gating
+
+**Unresolved alignment between `ToolRefSchema` and `McpRefSchema`.** Native and
+custom tools today express per-invocation approval via
+`ToolRef.requires_approval` + `ToolRef.approval_policy` (see
+[`approval-gated-tools.md`](approval-gated-tools.md) §3). MCP tools don't have
+a static `ToolRef` to hang the flag on — they materialise at session start from
+`client.listTools()`. The concierge example bundle invented an
+`approval_policies: Record<remoteName, ApprovalPolicy>` field on each MCP entry;
+the schema doesn't accept it.
+
+Two designs in play; both deferred until the concierge unblock (PR 7) forces
+a choice:
+
+- **Option A — `mcps[].tools[]` as a list of objects.** Replace `allowlist[]`
+  with a `tools[]` field that accepts either a bare tool name (passthrough) or
+  an object carrying optional `requires_approval` + `approval_policy`. Reuses
+  `ApprovalPolicySchema` verbatim. Minimum disruption; doesn't unify with
+  `ToolRef`. Concierge migration is mechanical.
+- **Option C — top-level `spec.approvals.rules[]`.** Glob-matched against the
+  fully-qualified tool name (`@posthog/team-delete` for native;
+  `<prefix>__<remoteName>` for MCP). One surface for all gating. Bigger
+  schema change. `ToolRef.requires_approval` becomes sugar.
+
+The pragmatic call (made during PR 6 design discussion) was Option A first:
+the concierge is the only customer today, the dispatcher change is contained
+to `build-agent-tools.ts:makeMcpTool`, and Option A's per-entry shape desugars
+cleanly into Option C's rules format later. Revisit Option C when a second
+MCP-heavy use case (Linear / GitHub / SRE bot) lands and starts asking for
+globs like `linear__*-delete`.
+
+Adjacent gap: the concierge wants `approvers: ['session_principal']` — that
+scope isn't in the v0 enum at all. Approver-scope expansion is a separate
+B.2 v1 line item (see [`approval-gated-tools.md`](approval-gated-tools.md) §6)
+and PR 7 needs to pull it forward.
+
+Tracked from [`_TODO.md`](_TODO.md) "MCP tool approval gating — unresolved
+schema alignment" and [`_ROADMAP.md`](_ROADMAP.md) §C.2 / §B.2.
