@@ -1331,7 +1331,7 @@ mod tests {
         );
         assert_eq!(
             analysis[0].properties[0].actual_value,
-            serde_json::json!(true)
+            Some(serde_json::json!(true))
         );
 
         // Case 2: the dependency flag did NOT match → the tested flag did not match.

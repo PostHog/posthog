@@ -202,20 +202,22 @@ describe('featureFlagTestingLogic', () => {
     })
 
     describe('hasValidPerson selector', () => {
-        it('is true when distinct_id is set (e.g. selected from the recent tab)', async () => {
+        it.each([
+            {
+                description: 'is true when distinct_id is set (e.g. selected from the recent tab)',
+                formData: { distinct_id: 'user-123' },
+                expected: true,
+            },
+            { description: 'is true when only person_id is set', formData: { person_id: 'uuid-abc' }, expected: true },
+            {
+                description: 'is false when neither distinct_id nor person_id is set',
+                formData: {},
+                expected: false,
+            },
+        ])('$description', async ({ formData, expected }) => {
             await expectLogic(logic, () => {
-                logic.actions.setTestFormData({ distinct_id: 'user-123' })
-            }).toMatchValues({ hasValidPerson: true })
-        })
-
-        it('is true when only person_id is set', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setTestFormData({ person_id: 'uuid-abc' })
-            }).toMatchValues({ hasValidPerson: true })
-        })
-
-        it('is false when neither distinct_id nor person_id is set', () => {
-            expect(logic.values.hasValidPerson).toBe(false)
+                logic.actions.setTestFormData(formData)
+            }).toMatchValues({ hasValidPerson: expected })
         })
     })
 
