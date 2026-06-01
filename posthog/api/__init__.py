@@ -16,9 +16,6 @@ from posthog.batch_exports import http as batch_exports
 from posthog.batch_exports.api import file_download
 from posthog.settings import EE_AVAILABLE
 
-import products.tasks.backend.api as tasks
-import products.signals.backend.views as signals
-import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
@@ -49,8 +46,9 @@ from products.posthog_ai.backend.routes import register_routes as register_posth
 from products.product_tours.backend.routes import register_routes as register_product_tours_routes
 from products.replay_vision.backend.routes import register_routes as register_replay_vision_routes
 from products.revenue_analytics.backend.routes import register_routes as register_revenue_analytics_routes
-from products.signals.backend.views import SignalViewSet
+from products.signals.backend.routes import register_routes as register_signals_routes
 from products.surveys.backend.routes import register_routes as register_survey_routes
+from products.tasks.backend.routes import register_routes as register_tasks_routes
 from products.tracing.backend.routes import register_routes as register_tracing_routes
 from products.user_interviews.backend.routes import register_routes as register_user_interviews_routes
 from products.visual_review.backend.routes import register_routes as register_visual_review_routes
@@ -148,6 +146,8 @@ projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "proj
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+register_tasks_routes(routers)
+register_signals_routes(routers)
 register_visual_review_routes(routers)
 register_user_interviews_routes(routers)
 register_replay_vision_routes(routers)
@@ -271,21 +271,10 @@ register_wizard_routes(routers)
 register_deployments_routes(routers)
 
 # Tasks endpoints
-project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
-project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
-projects_router.register(r"task_automations", tasks.TaskAutomationViewSet, "project_task_automations", ["team_id"])
-projects_router.register(
-    r"sandbox_environments",
-    tasks.SandboxEnvironmentViewSet,
-    "project_sandbox_environments",
-    ["team_id"],
-)
 
 # PostHog Code invites (not project-scoped)
-router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Seats (proxied to billing service)
-router.register(r"seats", seats.SeatViewSet, "seats")
 
 # Quota limits (project-scoped — backs the LLM gateway's QuotaResolver)
 projects_router.register(
@@ -802,78 +791,6 @@ projects_router.register(
 
 register_error_tracking_routes(routers)
 
-
-register_legacy_dual_route_team_nested_viewset(
-    r"signals",
-    SignalViewSet,
-    "project_signals",
-    ["team_id"],
-)
-signal_reports_router = projects_router.register(
-    r"signals/reports",
-    signals.SignalReportViewSet,
-    "environment_signal_reports",
-    ["team_id"],
-)
-signal_reports_router.register(
-    r"tasks",
-    signals.SignalReportTaskViewSet,
-    "environment_signal_report_tasks",
-    ["team_id", "report_id"],
-)
-signal_reports_router.register(
-    r"artefacts",
-    signals.SignalReportArtefactViewSet,
-    "environment_signal_report_artefacts",
-    ["team_id", "report_id"],
-)
-projects_router.register(
-    r"signals/source_configs",
-    signals.SignalSourceConfigViewSet,
-    "environment_signal_source_configs",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/config",
-    signals.SignalTeamConfigViewSet,
-    "environment_signal_config",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/processing",
-    signals.SignalProcessingViewSet,
-    "environment_signal_processing",
-    ["team_id"],
-)
-
-# Signals agent HTTP surface — exposed via MCP as `signals-scout-*` tools. Reads (runs,
-# memory, project profile) are public-grantable via `signal_scout:read`; writes (findings,
-# memory create/delete) are sandbox-scope only via `signal_scout_internal:write`, which
-# lives in `INTERNAL_API_SCOPE_OBJECTS` and so is not selectable in the personal-API-key UI.
-from products.signals.backend.scout_harness.views import (  # noqa: E402
-    SignalProjectProfileViewSet,
-    SignalScoutRunViewSet,
-    SignalScratchpadViewSet,
-)
-
-projects_router.register(
-    r"signals/scout/runs",
-    SignalScoutRunViewSet,
-    "environment_signals_scout_runs",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/scout/scratchpad",
-    SignalScratchpadViewSet,
-    "environment_signals_scout_scratchpad",
-    ["team_id"],
-)
-projects_router.register(
-    r"signals/scout/project_profile",
-    SignalProjectProfileViewSet,
-    "environment_signals_scout_project_profile",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"quick_filters",
