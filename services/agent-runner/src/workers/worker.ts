@@ -28,6 +28,7 @@ import {
     ApprovalStore,
     BundleStore,
     createLogger,
+    CredentialBroker,
     GatewayClient,
     LogSink,
     MemoryStore,
@@ -145,6 +146,13 @@ export interface WorkerDeps {
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
      */
     memoryStore?: MemoryStore
+    /**
+     * Per-session credential broker, populated by ingress at /run + /send.
+     * The runner passes this through to `runSession` → tool deps →
+     * `ToolContext.credentials.resolve(target)`. Optional — tests can
+     * leave unset; tools that try to resolve get null and degrade.
+     */
+    credentialBroker?: CredentialBroker
     /**
      * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
      * Production wires this via `makePerAskerAuth({ identities, posthogDb })`.
@@ -330,6 +338,7 @@ export class Worker {
                 approvals: this.deps.approvals,
                 buildApprovalUrl: this.deps.buildApprovalUrl,
                 memoryStore: this.deps.memoryStore,
+                credentialBroker: this.deps.credentialBroker,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop

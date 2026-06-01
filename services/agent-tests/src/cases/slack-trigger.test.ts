@@ -98,12 +98,15 @@ describe('slack trigger: real e2e', () => {
         // Per-message sender stamping (#23 step 1): every user turn carries
         // the principal who sent it. Both messages here came from U01.
         for (const msg of userMsgs) {
-            if (msg.role === 'user') {
-                expect(msg.sender?.kind).toBe('slack')
-                expect(msg.sender?.id).toBeTruthy()
+            if (msg.role === 'user' && msg.sender?.kind === 'slack') {
+                expect(msg.sender.slack_user_id).toBeTruthy()
+            } else if (msg.role === 'user') {
+                throw new Error('expected slack sender')
             }
         }
-        const ids = userMsgs.filter((m) => m.role === 'user').map((m) => (m.role === 'user' ? m.sender?.id : null))
+        const ids = userMsgs
+            .filter((m) => m.role === 'user')
+            .map((m) => (m.role === 'user' && m.sender?.kind === 'slack' ? m.sender.slack_user_id : null))
         expect(new Set(ids).size).toBe(1)
     })
 
@@ -150,18 +153,22 @@ describe('slack trigger: real e2e', () => {
         const userMsgs = session.conversation.filter((m) => m.role === 'user')
         // Alice's opening + Bob's replayed reply.
         expect(userMsgs.length).toBe(2)
-        const senders = userMsgs.map((m) => (m.role === 'user' ? m.sender?.id : null))
-        // Distinct senders — exactly what #23 step 3 needs to read at
-        // dispatch time to authorise per-asker.
-        expect(new Set(senders).size).toBe(2)
+        const slackUserIds = userMsgs.map((m) =>
+            m.role === 'user' && m.sender?.kind === 'slack' ? m.sender.slack_user_id : null
+        )
+        // Distinct senders by Slack user id — exactly what #23 step 3
+        // needs to read at dispatch time to authorise per-asker.
+        expect(new Set(slackUserIds).size).toBe(2)
 
-        // sender.id is the AgentUser uuid (the slack handler stamps the
-        // identity-store id rather than the raw slack user id, giving the
-        // dispatcher a stable handle for the #23 step 2 bridge / per-asker
-        // lookups). Resolve each uuid back through the identity store and
+        // The slack handler also stamps `agent_user_id` (the identity-store
+        // uuid) on the principal so the dispatcher has a stable handle for
+        // the #23 step 2 bridge. Resolve each via the identity store and
         // verify the underlying slack principals are really alice + bob.
+        const agentUserIds = userMsgs.map((m) =>
+            m.role === 'user' && m.sender?.kind === 'slack' ? m.sender.agent_user_id : null
+        )
         const resolved: string[] = []
-        for (const id of senders) {
+        for (const id of agentUserIds) {
             expect(typeof id).toBe('string')
             const agentUser = await c.identities.getById(id as string)
             expect(agentUser).not.toBeNull()

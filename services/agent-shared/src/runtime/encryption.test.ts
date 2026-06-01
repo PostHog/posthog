@@ -26,11 +26,8 @@ describe('EncryptedFields', () => {
         expect(() => old.decrypt(ct2)).toThrow()
     })
 
-    it('throws when no key is configured', () => {
-        const e = new EncryptedFields('')
-        expect(e.isConfigured).toBe(false)
-        expect(() => e.encrypt('x')).toThrow(/no keys configured/)
-        expect(() => e.decrypt('x')).toThrow(/no keys configured/)
+    it('throws at construction when no key is configured (fail-fast)', () => {
+        expect(() => new EncryptedFields('')).toThrow(/no keys configured/)
     })
 
     it('decrypt with ignoreDecryptionErrors returns the input on failure', () => {

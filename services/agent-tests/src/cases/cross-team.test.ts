@@ -8,28 +8,41 @@
 
 import request from 'supertest'
 
-import { AuthProvider } from '@posthog/agent-ingress'
+import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
 
 const TEAM_A_PAT = 'team-a-token'
 const TEAM_B_PAT = 'team-b-token'
 
-// PAT → team mapping; the provider rejects the PAT if it's not scoped to the agent's team.
+// PAT → team mapping; the verifier rejects the PAT if it's not scoped to the agent's team.
 const provider: AuthProvider = {
-    async verifyPat(token, application) {
-        const teamForToken = token === TEAM_A_PAT ? 100 : token === TEAM_B_PAT ? 200 : -1
-        if (teamForToken !== application.team_id) {
-            return null
-        }
-        return { kind: 'service', team_id: teamForToken, pat_id: token }
-    },
-    async verifyInternal() {
-        return null
-    },
-    async verifySharedSecret() {
-        return null
-    },
+    verifiers: [
+        publicVerifier,
+        {
+            modeType: 'pat',
+            async verify(req, _mode, application) {
+                const bearer = readBearer(req)
+                if (!bearer) {
+                    return { ok: false, status: 0, reason: 'skip' }
+                }
+                const teamForToken = bearer === TEAM_A_PAT ? 100 : bearer === TEAM_B_PAT ? 200 : -1
+                if (teamForToken !== application.team_id) {
+                    return { ok: false, status: 401, reason: 'invalid_token' }
+                }
+                return {
+                    ok: true,
+                    principal: {
+                        kind: 'posthog',
+                        source: 'pat',
+                        user_id: bearer,
+                        team_id: teamForToken,
+                    },
+                    credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                }
+            },
+        },
+    ],
 }
 
 describe('cross-team isolation: real e2e', () => {
@@ -50,7 +63,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team A PAT against a team A agent → 200', async () => {
         await cA.deployAgent({
             slug: 'team-a-bot',
-            spec: { auth: { mode: 'pat' } },
+            spec: { auth: { modes: [{ type: 'pat' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-bot/run')
@@ -63,7 +76,7 @@ describe('cross-team isolation: real e2e', () => {
     it('team B PAT against a team A agent → 401 (team-scoping closes)', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured',
-            spec: { auth: { mode: 'pat' } },
+            spec: { auth: { modes: [{ type: 'pat' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured/run')
@@ -75,7 +88,7 @@ describe('cross-team isolation: real e2e', () => {
     it('totally unknown PAT → 401', async () => {
         await cA.deployAgent({
             slug: 'team-a-secured2',
-            spec: { auth: { mode: 'pat' } },
+            spec: { auth: { modes: [{ type: 'pat' }] } },
         })
         const res = await request(cA.ingress)
             .post('/agents/team-a-secured2/run')

@@ -71,9 +71,25 @@ function entryMatches(entry: SessionAclEntry, incoming: SessionPrincipal | null,
     return false
 }
 
+function principalTeamId(p: SessionPrincipal): number | undefined {
+    // Most principal kinds carry an explicit team_id; jwt/slack/anonymous
+    // don't (they describe identity in another scope). Centralised so the
+    // discriminator narrowing happens once.
+    switch (p.kind) {
+        case 'posthog':
+            return p.team_id
+        case 'posthog_internal':
+        case 'shared_secret':
+        case 'service':
+            return p.team_id
+        default:
+            return undefined
+    }
+}
+
 function scopeCovers(scope: NonNullable<SessionAclEntry['scope']>, incoming: SessionPrincipal): boolean {
     if (scope.kind === 'team_members') {
-        return incoming.team_id === scope.team_id
+        return principalTeamId(incoming) === scope.team_id
     }
     // org_admins and slack_channel require principal metadata the ingress
     // doesn't carry yet (org_id, channel/workspace ids). v1 of the elevation
@@ -157,13 +173,20 @@ export function principalDisplay(p: SessionPrincipal | null): string {
     if (!p) {
         return 'session owner'
     }
-    if (p.kind === 'anonymous') {
-        return 'anonymous'
+    switch (p.kind) {
+        case 'anonymous':
+            return 'anonymous'
+        case 'posthog':
+            return p.email ?? `posthog:${p.user_id}`
+        case 'jwt':
+            return `jwt:${p.sub}`
+        case 'slack':
+            return `slack:${p.workspace_id}:${p.slack_user_id}`
+        case 'service':
+            return p.id ? `service:${p.id}` : 'service'
+        default:
+            return p.kind
     }
-    if (p.id) {
-        return `${p.kind}:${p.id}`
-    }
-    return p.kind
 }
 
 export type AuthorizeGrantResult =

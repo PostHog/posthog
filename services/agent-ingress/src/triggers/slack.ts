@@ -114,10 +114,11 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             }
 
             const externalKey = `slack:${event.channel}:${event.thread_ts ?? event.ts}`
-            const slackPrincipal = {
+            const slackPrincipal: SessionPrincipal = {
                 kind: 'slack',
-                team_id: resolved.application.team_id,
-                id: agentUserId,
+                workspace_id: workspaceId,
+                slack_user_id: event.user,
+                agent_user_id: agentUserId,
             }
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
@@ -195,8 +196,9 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
             const clickerId = payload.user?.id ?? ''
             const clickerPrincipal: SessionPrincipal = {
                 kind: 'slack',
-                team_id: deps.teamId,
-                id: await resolveSlackUserId(deps, session.application_id, workspaceId, clickerId),
+                workspace_id: workspaceId,
+                slack_user_id: clickerId,
+                agent_user_id: await resolveSlackUserId(deps, session.application_id, workspaceId, clickerId),
             }
             const authz = authorizeGrant(session, requestId, clickerPrincipal)
             if (!authz.ok) {

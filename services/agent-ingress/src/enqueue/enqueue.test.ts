@@ -28,8 +28,8 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
     return { app, rev }
 }
 
-const ALICE: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-alice' }
-const BOB: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-bob' }
+const ALICE: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-alice' }
+const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-bob' }
 
 describe('enqueueOrResume', () => {
     it('creates a fresh session without externalKey', async () => {
@@ -183,7 +183,7 @@ describe('enqueueOrResume', () => {
         expect(session!.pending_elevation_requests).toHaveLength(1)
         const req = session!.pending_elevation_requests[0]
         expect(req.state).toBe('pending')
-        expect(req.requester.id).toBe('user-bob')
+        expect(req.requester.kind === 'slack' && req.requester.slack_user_id).toBe('user-bob')
         const proposed = req.proposed_message
         expect(proposed.role).toBe('user')
         if (proposed.role === 'user') {
@@ -215,7 +215,7 @@ describe('enqueueOrResume', () => {
                     revision: rev,
                     externalKey: 'slack:C01:thread5',
                     seed: { role: 'user', content: `bob #${i}`, timestamp: Date.now() + i },
-                    principal: { ...BOB, id: `bob-${i}` },
+                    principal: { ...BOB, slack_user_id: `bob-${i}` },
                     trigger: 'slack',
                 }
             )

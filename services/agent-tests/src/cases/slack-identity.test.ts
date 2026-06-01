@@ -65,8 +65,11 @@ describe('slack identity: real e2e', () => {
         expect(agentUser).not.toBeNull()
 
         const sessions = await c.queue.listForApplication(application.id)
-        expect(sessions[0].principal?.kind).toBe('slack')
-        expect(sessions[0].principal?.id).toBe(agentUser!.id)
+        const principal = sessions[0].principal
+        expect(principal?.kind).toBe('slack')
+        if (principal?.kind === 'slack') {
+            expect(principal.agent_user_id).toBe(agentUser!.id)
+        }
     })
 
     it('untrusted workspace on a trusted-list agent → 403', async () => {
@@ -132,7 +135,8 @@ describe('slack identity: real e2e', () => {
         // Different sessions...
         expect(new Set(sessions.map((s) => s.id)).size).toBe(2)
         // ...but same AgentUser id stamped on both principals.
-        const principalIds = sessions.map((s) => s.principal?.id)
+        const principalIds = sessions.map((s) => (s.principal?.kind === 'slack' ? s.principal.agent_user_id : null))
         expect(principalIds[0]).toBe(principalIds[1])
+        expect(principalIds[0]).toBeTruthy()
     })
 })

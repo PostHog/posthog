@@ -18,20 +18,22 @@ import { Fernet } from 'fernet-nodejs'
 export class EncryptedFields {
     private readonly fernets: Fernet[]
 
+    /**
+     * Throws synchronously if no keys are supplied. Services that need
+     * encryption (the credential broker, integrations) construct this at
+     * boot, so a misconfigured deploy fails on start rather than at the
+     * first encrypt call. Dev gets a deterministic default via `isDev()`
+     * in `platform.ts`; prod must set `ENCRYPTION_SALT_KEYS` explicitly.
+     */
     constructor(encryptionSaltKeys: string) {
         const keys = encryptionSaltKeys.split(',').filter((k) => k.length > 0)
+        if (keys.length === 0) {
+            throw new Error('EncryptedFields: no keys configured (set ENCRYPTION_SALT_KEYS to a 32-byte UTF-8 string)')
+        }
         this.fernets = keys.map((k) => new Fernet(Buffer.from(k, 'utf-8').toString('base64')))
     }
 
-    /** True when at least one key is configured — guards against an env-misconfig. */
-    get isConfigured(): boolean {
-        return this.fernets.length > 0
-    }
-
     encrypt(value: string): string {
-        if (this.fernets.length === 0) {
-            throw new Error('EncryptedFields: no keys configured (set ENCRYPTION_SALT_KEYS)')
-        }
         return this.fernets[0].encrypt(value)
     }
 

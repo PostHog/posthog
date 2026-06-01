@@ -17,9 +17,9 @@ import {
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from './acl'
 
-const ALICE: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-alice' }
-const BOB: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-bob' }
-const CAROL: SessionPrincipal = { kind: 'slack', team_id: 1, id: 'user-carol' }
+const ALICE: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-alice' }
+const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-bob' }
+const CAROL: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-carol' }
 
 function makeSession(opts: { state?: AgentSession['state']; pending?: PendingElevationRequest[] } = {}): AgentSession {
     return {

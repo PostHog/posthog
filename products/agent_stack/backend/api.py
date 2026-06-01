@@ -28,6 +28,7 @@ from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 from django.http import StreamingHttpResponse
 from django.utils import timezone
@@ -66,6 +67,7 @@ from posthog.models.organization import OrganizationMembership
 
 from .janitor_client import JanitorClient, JanitorClientError, default_client
 from .models import AgentApplication, AgentRevision
+from .registry_freeze import FreezeError, freeze_templates_into_bundle
 from .serializers import (
     AgentApplicationSerializer,
     AgentRevisionSerializer,
@@ -73,6 +75,7 @@ from .serializers import (
     DecideApprovalRequestSerializer,
     NewDraftRevisionRequestSerializer,
     PromoteRevisionRequestSerializer,
+    SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
     WriteBundleRequestSerializer,
     WriteFileRequestSerializer,
@@ -336,7 +339,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
         PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
         DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-        POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+        POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+        GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+        GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+        PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+        DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
     """
 
     scope_object = "agent_application"
@@ -346,6 +353,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "partial_update",
         "destroy",
         "set_env",
+        # env_keys_key handles GET/PUT/DELETE on /env_keys/<KEY>/ — bundled
+        # under :write because PUT/DELETE are the load-bearing ops and we
+        # don't want the scope to drift between methods.
+        "env_keys_key",
         "approvals_decide",
     ]
     scope_object_read_actions = [
@@ -355,6 +366,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "sessions_retrieve",
         "session_logs",
         "stats",
+        "env_keys_list",
         # POST → `preview_proxy`, GET (SSE `listen`) → `preview_proxy_get`.
         # DRF uses the bound function name as `view.action`, so the GET
         # variant is its own entry in the scope-check map.
@@ -406,6 +418,141 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         application.encrypted_env = json.dumps(env_map)
         application.save(update_fields=["encrypted_env", "updated_at"])
         return Response({"ok": True})
+
+    # ── Per-key env management ───────────────────────────────────────
+    # Set-replace via `set_env` is fine for bulk sync (CI pushes the
+    # whole env file) but useless for a "set one secret" UI: the caller
+    # can't read existing values out, so they'd wipe the rest on every
+    # save. The four routes below let the UI (and the concierge agent's
+    # client tool) inspect + mutate one key at a time without ever
+    # exposing decrypted values across the wire.
+
+    @staticmethod
+    def _load_env_map(application: AgentApplication) -> dict[str, str]:
+        """Decode the encrypted env JSON into a `{KEY: value}` map.
+
+        Tolerates empty / null / corrupt blocks by returning `{}` — the
+        worker treats those as "no env set" too.
+        """
+        raw = application.encrypted_env or ""
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        return {str(k): str(v) for k, v in parsed.items()}
+
+    _ENV_KEY_NAME = OpenApiParameter(
+        "key",
+        OpenApiTypes.STR,
+        OpenApiParameter.PATH,
+        required=True,
+        description="The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.",
+    )
+
+    @extend_schema(
+        operation_id="agent_applications_env_keys_list",
+        request=None,
+        responses=OpenApiResponse(
+            response=inline_serializer(
+                name="AgentApplicationEnvKeysResponse",
+                fields={
+                    "keys": drf_serializers.ListField(
+                        child=drf_serializers.CharField(),
+                        help_text="Names of env variables currently set on the application. Values are never returned.",
+                    ),
+                },
+            ),
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="env_keys")
+    def env_keys_list(self, request: Request, **kwargs) -> Response:
+        """List the names of secrets currently set on the application.
+
+        Returns names only — values stay server-side under
+        `EncryptedTextField`. Use this to drive the "set / unset" badge
+        next to a declared secret in the editor UI.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        env_map = self._load_env_map(application)
+        # Sort for stable UI ordering; the encrypted JSON has no
+        # meaningful order of its own.
+        return Response({"keys": sorted(env_map.keys())})
+
+    # One inline status serializer reused by all three method schemas so
+    # drf-spectacular emits a single named component instead of three
+    # near-identical ones.
+    _ENV_KEY_STATUS_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentApplicationEnvKeyStatus",
+            fields={
+                "key": drf_serializers.CharField(),
+                "is_set": drf_serializers.BooleanField(
+                    help_text="True if the key is present in the env block. The value itself is never returned.",
+                ),
+            },
+        ),
+    )
+
+    @extend_schema(
+        methods=["GET"],
+        operation_id="agent_applications_env_keys_get",
+        parameters=[_ENV_KEY_NAME],
+        request=None,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @extend_schema(
+        methods=["PUT"],
+        operation_id="agent_applications_env_keys_set",
+        parameters=[_ENV_KEY_NAME],
+        request=SetEnvKeyRequestSerializer,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        operation_id="agent_applications_env_keys_clear",
+        parameters=[_ENV_KEY_NAME],
+        request=None,
+        responses=_ENV_KEY_STATUS_RESPONSE,
+    )
+    @action(detail=True, methods=["get", "put", "delete"], url_path="env_keys/(?P<key>[^/.]+)")
+    def env_keys_key(self, request: Request, key: str, **kwargs) -> Response:
+        """GET / PUT / DELETE one secret by name.
+
+        - `GET`    → `{ key, is_set }` (never returns the value).
+        - `PUT`    → upserts `{ value }` into the env block.
+        - `DELETE` → removes the key. No-op when it wasn't set.
+
+        Per-method scope: GET is treated as a write action so the
+        single action name maps to one consistent scope; reading whether
+        a secret is set is restricted to writers in any case.
+        """
+        application = self.get_object()
+        if application is None:
+            raise NotFound("Application not found")
+        env_map = self._load_env_map(application)
+
+        if request.method == "GET":
+            return Response({"key": key, "is_set": key in env_map})
+
+        if request.method == "DELETE":
+            env_map.pop(key, None)
+            application.encrypted_env = json.dumps(env_map)
+            application.save(update_fields=["encrypted_env", "updated_at"])
+            return Response({"key": key, "is_set": False})
+
+        # PUT
+        body = SetEnvKeyRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        env_map[key] = body.validated_data["value"]
+        application.encrypted_env = json.dumps(env_map)
+        application.save(update_fields=["encrypted_env", "updated_at"])
+        return Response({"key": key, "is_set": True})
 
     # Ingress trigger paths the preview-proxy is allowed to forward to. Keeping
     # this an allowlist (vs an arbitrary passthrough) gives us a single place
@@ -1495,11 +1642,23 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="freeze")
     def freeze(self, request: Request, **kwargs) -> Response:
         """Freeze the bundle: draft → ready, stamps sha256 on the row.
-        The janitor computes the digest and updates the revision row in PG;
-        Django re-reads the row before returning so the response reflects
-        the persisted state."""
+
+        Resolves `spec.skills[].from_template` / `spec.tools[].from_template`
+        refs into the bundle (copies content, stamps versions, inserts
+        join rows) before delegating to the janitor for the sha + state
+        flip. The Django resolution runs in one `transaction.atomic()` so
+        a partial freeze leaves the revision in `draft`.
+        """
         revision: AgentRevision = self.get_object()
-        result = self._call(_janitor().freeze, str(revision.id))
+        janitor_client = _janitor()
+        try:
+            with transaction.atomic():
+                freeze_templates_into_bundle(revision, janitor_client, team_id=self.team_id)
+                result = self._call(janitor_client.freeze, str(revision.id))
+        except FreezeError as e:
+            err = ValidationError(e.message)
+            err.extra = {"kind": e.kind, "index": e.index}  # type: ignore[attr-defined]
+            raise err from e
         revision.refresh_from_db()
         return Response(
             {

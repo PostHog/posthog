@@ -7,11 +7,10 @@
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { SessionQueue } from '@posthog/agent-shared'
-import { SessionEventBus } from '@posthog/agent-shared'
+import { CredentialBroker, MemoryCredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
-import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
@@ -39,10 +38,17 @@ export interface ChatTriggerDeps {
     bus: SessionEventBus
     teamId: number
     authProvider?: AuthProvider
+    /**
+     * Broker for per-session auth credentials. Default: a fresh
+     * `MemoryCredentialBroker` so dev / tests work out of the box.
+     * Prod wires a `RedisCredentialBroker` shared across services.
+     */
+    broker?: CredentialBroker
 }
 
 export function chatRouter(deps: ChatTriggerDeps): Router {
     const r = Router({ mergeParams: true })
+    const broker = deps.broker ?? new MemoryCredentialBroker()
 
     r.post(
         '/run',
@@ -75,7 +81,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 res.status(auth.status).json({ error: auth.reason })
                 return
             }
-            const sessionPrincipal = principalToSession(auth.principal)
+            const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
@@ -97,6 +103,10 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 })
                 return
             }
+            // Write per-session auth materials into the broker keyed by
+            // the freshly-minted session id. Tools resolve through this
+            // at call time; nothing token-bearing lands on the session row.
+            await broker.write(outcome.sessionId, auth.credentials)
             res.json({
                 ok: true,
                 session_id: outcome.sessionId,
@@ -140,7 +150,7 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 res.status(auth.status).json({ error: auth.reason })
                 return
             }
-            const incomingPrincipal = principalToSession(auth.principal)
+            const incomingPrincipal = auth.principal
             const aclCheck = requireAclAccess(existing, incomingPrincipal)
             if (aclCheck.kind === 'denied') {
                 const req = await recordElevationRequest(deps.queue, existing, {
@@ -183,6 +193,10 @@ export function chatRouter(deps: ChatTriggerDeps): Router {
                 sender: incomingPrincipal,
             })
             await deps.queue.update(sessionId, { state: 'queued' })
+            // Refresh broker creds with whatever the client just supplied —
+            // OAuth tokens may have been rotated since /run, and the
+            // worker may have evicted the prior entry.
+            await broker.write(sessionId, auth.credentials)
             res.json({ ok: true })
         })
     )

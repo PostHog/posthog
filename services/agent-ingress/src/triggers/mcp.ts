@@ -44,16 +44,16 @@ import { randomUUID } from 'crypto'
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { AgentSession, lastAssistantTextPreview, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    lastAssistantTextPreview,
+    SessionEventBus,
+    SessionPrincipal,
+    SessionQueue,
+} from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
-import {
-    authorize,
-    AuthProvider,
-    principalsMatch,
-    principalToSession,
-    PUBLIC_ONLY_AUTH_PROVIDER,
-} from '../enqueue/auth'
+import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
@@ -150,8 +150,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     res.json(errReply(RPC_UNAUTHORIZED, auth.reason))
                     return
                 }
-                ;(body as McpRequest & { __principal: ReturnType<typeof principalToSession> }).__principal =
-                    principalToSession(auth.principal)
+                ;(body as McpRequest & { __principal: SessionPrincipal }).__principal = auth.principal
             }
 
             // Standard MCP streamable-HTTP session id (`Mcp-Session-Id`
@@ -208,8 +207,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     }
                     const continuationId = typeof args.session_id === 'string' ? args.session_id : null
 
-                    const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
-                        .__principal
+                    const principal = (body as McpRequest & { __principal: SessionPrincipal }).__principal
 
                     if (continuationId) {
                         // Continuation path: append to an existing session,
@@ -325,8 +323,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                     return
                 }
                 case 'resources/list': {
-                    const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
-                        .__principal
+                    const principal = (body as McpRequest & { __principal: SessionPrincipal }).__principal
                     const sessions = await deps.queue.listByApplication(resolved.application.id, {
                         limit: RECENT_SESSIONS_LIMIT,
                     })
@@ -356,8 +353,7 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
                         res.json(errReply(RPC_INVALID_PARAMS, 'session_not_found'))
                         return
                     }
-                    const principal = (body as McpRequest & { __principal: ReturnType<typeof principalToSession> })
-                        .__principal
+                    const principal = (body as McpRequest & { __principal: SessionPrincipal }).__principal
                     if (!isSessionReadable(session, principal)) {
                         res.json(errReply(RPC_UNAUTHORIZED, 'session_not_owned'))
                         return
@@ -428,7 +424,17 @@ export function mcpRouter(deps: McpTriggerDeps): Router {
             }
             const base = deps.publicBaseUrl ?? `${req.protocol}://${req.get('host')}`
             const url = `${base.replace(/\/$/, '')}/agents/${resolved.application.slug}/mcp`
-            const auth = buildConnectAuth(resolved.revision.spec.auth)
+            // Multi-mode auth specs collapse to a single connect snippet —
+            // pick the most specific accepted mode (non-public preferred).
+            // Clients that want to see all accepted modes can introspect
+            // via /schemas; the snippet is a one-shot copy-paste affordance.
+            const modes = resolved.revision.spec.auth.modes
+            const primary = modes.find((m) => m.type !== 'public') ?? modes[0] ?? { type: 'public' }
+            const connectAuthInput =
+                primary.type === 'shared_secret'
+                    ? { mode: 'shared_secret', header: primary.header }
+                    : { mode: primary.type }
+            const auth = buildConnectAuth(connectAuthInput)
             const snippets = buildConnectSnippets(resolved.application.slug, url, auth)
             res.json({ url, transport: 'http', auth, snippets })
         })
@@ -601,7 +607,7 @@ function extractMcpSessionId(req: Request): string | null {
 function isSessionVisibleInList(
     session: AgentSession,
     mcpSessionId: string | null,
-    principal: ReturnType<typeof principalToSession>
+    principal: SessionPrincipal
 ): boolean {
     if (mcpSessionId && session.external_key && session.external_key.startsWith(`mcp:${mcpSessionId}:`)) {
         return true
@@ -623,7 +629,7 @@ function isSessionVisibleInList(
  * a URI isn't enough when `spec.auth.mode !== 'public'`, mirroring the
  * strict-principal rule chat/send already enforce.
  */
-function isSessionReadable(session: AgentSession, principal: ReturnType<typeof principalToSession>): boolean {
+function isSessionReadable(session: AgentSession, principal: SessionPrincipal): boolean {
     if (principal.kind === 'anonymous') {
         return session.principal === null || session.principal.kind === 'anonymous'
     }

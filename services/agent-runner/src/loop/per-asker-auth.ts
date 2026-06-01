@@ -80,10 +80,10 @@ export function findLastUserSender(conversation: ConversationMessage[]): Session
 }
 
 async function resolvePosthogUserId(sender: SessionPrincipal, identities: IdentityStore): Promise<number | null> {
-    if (sender.kind !== 'slack' || !sender.id) {
+    if (sender.kind !== 'slack' || !sender.agent_user_id) {
         return null
     }
-    const agentUser = await identities.getById(sender.id)
+    const agentUser = await identities.getById(sender.agent_user_id)
     if (!agentUser || agentUser.posthog_user_id == null) {
         return null
     }

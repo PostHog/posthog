@@ -29,6 +29,8 @@
 import { fauxToolCall } from '@earendil-works/pi-ai'
 import request from 'supertest'
 
+import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
+
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 import { fauxToolUse } from '../harness/faux'
 
@@ -501,22 +503,34 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
     const ADMIN_PAT_ID = 'pat-admin'
     const NORMAL_PAT_ID = 'pat-normal'
 
-    const authProvider = {
-        async verifyPat(token: string, application: { team_id: number }) {
-            if (token === 'admin-token') {
-                return { kind: 'service' as const, team_id: application.team_id, pat_id: ADMIN_PAT_ID }
-            }
-            if (token === 'normal-token') {
-                return { kind: 'service' as const, team_id: application.team_id, pat_id: NORMAL_PAT_ID }
-            }
-            return null
-        },
-        async verifyInternal() {
-            return null
-        },
-        async verifySharedSecret() {
-            return null
-        },
+    const authProvider: AuthProvider = {
+        verifiers: [
+            publicVerifier,
+            {
+                modeType: 'pat',
+                async verify(req, _mode, application) {
+                    const bearer = readBearer(req)
+                    if (!bearer) {
+                        return { ok: false, status: 0, reason: 'skip' }
+                    }
+                    const userId =
+                        bearer === 'admin-token' ? ADMIN_PAT_ID : bearer === 'normal-token' ? NORMAL_PAT_ID : null
+                    if (!userId) {
+                        return { ok: false, status: 401, reason: 'invalid_token' }
+                    }
+                    return {
+                        ok: true,
+                        principal: {
+                            kind: 'posthog',
+                            source: 'pat',
+                            user_id: userId,
+                            team_id: application.team_id,
+                        },
+                        credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                    }
+                },
+            },
+        ],
     }
 
     let c: Cluster
@@ -533,11 +547,14 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
                     return false
                 }
                 for (let i = conversation.length - 1; i >= 0; i--) {
-                    const m = conversation[i] as { role: string; sender?: { id?: string } }
+                    const m = conversation[i] as {
+                        role: string
+                        sender?: { kind?: string; user_id?: string }
+                    }
                     if (m.role !== 'user') {
                         continue
                     }
-                    if (m.sender?.id === ADMIN_PAT_ID) {
+                    if (m.sender?.kind === 'posthog' && m.sender.user_id === ADMIN_PAT_ID) {
                         return true
                     }
                     if (m.sender) {
@@ -568,7 +585,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
         const { application } = await c.deployAgent({
             slug: 'shortcut-noadmin',
             spec: {
-                auth: { mode: 'pat' },
+                auth: { modes: [{ type: 'pat' }] },
                 tools: [
                     {
                         kind: 'native',
@@ -595,7 +612,7 @@ describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
         const { application } = await c.deployAgent({
             slug: 'shortcut-admin',
             spec: {
-                auth: { mode: 'pat' },
+                auth: { modes: [{ type: 'pat' }] },
                 tools: [
                     {
                         kind: 'native',

@@ -1,25 +1,57 @@
 /**
- * `<ConnectionsTab>` — app-level wiring view (read-only v1).
+ * `<ConnectionsTab>` — app-level wiring view.
  *
  * "What does this agent need to operate?" — secrets, team integrations,
- * and runtime MCP servers. Source of truth for the lists is the live
- * revision's spec; status badges are best-effort and noted as
- * placeholders where we don't yet have a backing endpoint.
+ * and runtime MCP servers. The lists come from the live revision's
+ * spec; per-row status badges layer on real state where we have it
+ * (`env_keys/` for secrets, placeholders elsewhere until those
+ * endpoints land).
  *
- * Editing (set / rotate / clear secrets, wire integrations, configure
- * MCPs) is the next phase — see the follow-up plan doc that will land
- * alongside the editor implementation.
+ * Secrets are editable here: each row has a Set / Rotate button that
+ * pops `<SecretEditDialog>`. The URL carries the dialog state
+ * (`?edit_secret=KEY`), so the concierge agent can deep-link the user
+ * directly to "set ANTHROPIC_KEY now". When the URL also has
+ * `?callback_session=<id>`, a successful save dispatches an event the
+ * dock's chat runner picks up to resume the waiting session.
+ *
+ * Integrations and MCPs are still read-only here — editing those is
+ * the next phase.
  */
 
 'use client'
 
-import { AlertCircleIcon, KeyIcon, LinkIcon, ServerIcon } from 'lucide-react'
+import { AlertCircleIcon, KeyIcon, LinkIcon, PlusIcon, ServerIcon } from 'lucide-react'
+import { useState } from 'react'
 
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    Input,
+    Label,
+} from '@posthog/quill'
+
+import { useSessionTeamId } from '@/components/session-context'
+import { listEnvKeys } from '@/lib/apiClient'
+import { useResource } from '@/lib/useResource'
+
+import { SecretEditDialog } from './SecretEditDialog'
 
 interface ConnectionsTabProps {
     agent: AgentApplicationFixture
     revisions: AgentRevisionFixture[]
+    /** Currently-open secret editor key (driven by `?edit_secret=` in the URL). */
+    editingSecret: string | null
+    /** Optional chat session id to notify on save / clear. */
+    callbackSessionId: string | null
+    /** Open the secret editor for `key` (or close when `null`). */
+    onChangeEditingSecret: (key: string | null) => void
 }
 
 interface McpRefAgent {
@@ -33,7 +65,14 @@ interface McpRefExternal {
 }
 type McpRef = McpRefAgent | McpRefExternal
 
-export function ConnectionsTab({ agent, revisions }: ConnectionsTabProps): React.ReactElement {
+export function ConnectionsTab({
+    agent,
+    revisions,
+    editingSecret,
+    callbackSessionId,
+    onChangeEditingSecret,
+}: ConnectionsTabProps): React.ReactElement {
+    const teamId = useSessionTeamId()!
     const liveRevision = revisions.find((r) => r.id === agent.live_revision) ?? null
     // If there's no live revision, fall back to the most recent draft so the
     // page isn't blank — surface the fact clearly in the header.
@@ -41,6 +80,17 @@ export function ConnectionsTab({ agent, revisions }: ConnectionsTabProps): React
         (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
     )
     const reference = liveRevision ?? sortedRevs[0] ?? null
+
+    // Live env_keys list — names only, no values. Refetched after every
+    // dialog save / clear via the `bump` reload signal so set / unset
+    // chips stay accurate without a full page reload.
+    const [reload, setReload] = useState(0)
+    const envKeysRes = useResource(
+        () => listEnvKeys(teamId, agent.slug).catch(() => [] as string[]),
+        [teamId, agent.slug, reload]
+    )
+    const setKeys = envKeysRes.data ?? []
+    const bumpReload = (): void => setReload((n) => n + 1)
 
     if (!reference) {
         return (
@@ -51,9 +101,17 @@ export function ConnectionsTab({ agent, revisions }: ConnectionsTabProps): React
     }
 
     const spec = reference.spec as Record<string, unknown>
-    const secrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
+    const declaredSecrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
     const integrations = Array.isArray(spec.integrations) ? (spec.integrations as string[]) : []
     const mcps = Array.isArray(spec.mcps) ? (spec.mcps as McpRef[]) : []
+
+    // Show declared secrets even when unset, plus any "extra" set keys
+    // that the spec doesn't declare. Extras are flagged so the user
+    // knows they're orphaned — the agent won't read them unless the
+    // spec is updated.
+    const declaredSet = new Set(declaredSecrets)
+    const extraKeys = setKeys.filter((k) => !declaredSet.has(k)).sort()
+    const isDeclaredOnSpec = editingSecret ? declaredSet.has(editingSecret) : true
 
     return (
         <div className="space-y-4">
@@ -70,38 +128,218 @@ export function ConnectionsTab({ agent, revisions }: ConnectionsTabProps): React
                 </div>
             ) : null}
 
-            <SecretsCard secrets={secrets} />
+            <SecretsCard
+                declared={declaredSecrets}
+                extras={extraKeys}
+                setKeys={new Set(setKeys)}
+                onEdit={onChangeEditingSecret}
+            />
             <IntegrationsCard integrations={integrations} />
             <McpsCard mcps={mcps} />
+
+            <SecretEditDialog
+                agentSlug={agent.slug}
+                secret={editingSecret}
+                callbackSessionId={callbackSessionId}
+                isDeclaredOnSpec={isDeclaredOnSpec}
+                onClose={() => onChangeEditingSecret(null)}
+                onMutated={bumpReload}
+            />
         </div>
     )
 }
 
-function SecretsCard({ secrets }: { secrets: string[] }): React.ReactElement {
+function SecretsCard({
+    declared,
+    extras,
+    setKeys,
+    onEdit,
+}: {
+    declared: string[]
+    /** Set keys not declared on the spec. Listed under a separate group. */
+    extras: string[]
+    setKeys: ReadonlySet<string>
+    onEdit: (key: string | null) => void
+}): React.ReactElement {
+    const [adding, setAdding] = useState(false)
+    const total = declared.length + extras.length
     return (
-        <ConnectionCard
-            icon={<KeyIcon className="h-3.5 w-3.5" />}
-            title="Secrets"
-            count={secrets.length}
-            description="Encrypted env values the agent decrypts at session start. Names are declared on the spec; values live on the application."
+        <>
+            <ConnectionCard
+                icon={<KeyIcon className="h-3.5 w-3.5" />}
+                title="Secrets"
+                count={total}
+                description="Encrypted env values the agent decrypts at session start. Names are declared on the spec; values live on the application."
+                action={
+                    <button
+                        type="button"
+                        onClick={() => setAdding(true)}
+                        className="inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border border-border bg-card px-2 text-[0.6875rem] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                        <PlusIcon className="h-3 w-3" />
+                        Add custom
+                    </button>
+                }
+            >
+                {declared.length === 0 && extras.length === 0 ? (
+                    <EmptyState>No secrets declared.</EmptyState>
+                ) : (
+                    <>
+                        {declared.length > 0 ? (
+                            <ul className="divide-y divide-border">
+                                {declared.map((name) => (
+                                    <SecretRow key={name} name={name} isSet={setKeys.has(name)} onEdit={onEdit} />
+                                ))}
+                            </ul>
+                        ) : null}
+                        {extras.length > 0 ? (
+                            <>
+                                <div className="border-t border-border bg-muted/10 px-3 py-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                                    Set but not on spec
+                                </div>
+                                <ul className="divide-y divide-border">
+                                    {extras.map((name) => (
+                                        <SecretRow key={name} name={name} isSet isOrphan onEdit={onEdit} />
+                                    ))}
+                                </ul>
+                            </>
+                        ) : null}
+                    </>
+                )}
+                <FollowupNote>
+                    Values are write-only — the API never returns them. Rotate by saving a new value; the agent picks it
+                    up at next session start.
+                </FollowupNote>
+            </ConnectionCard>
+            <AddCustomSecretDialog
+                open={adding}
+                onCancel={() => setAdding(false)}
+                onConfirm={(name) => {
+                    setAdding(false)
+                    onEdit(name)
+                }}
+            />
+        </>
+    )
+}
+
+function SecretRow({
+    name,
+    isSet,
+    isOrphan,
+    onEdit,
+}: {
+    name: string
+    isSet: boolean
+    isOrphan?: boolean
+    onEdit: (key: string | null) => void
+}): React.ReactElement {
+    return (
+        <li className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
+            <div className="flex min-w-0 items-center gap-2">
+                <code className="truncate font-mono">{name}</code>
+                {isOrphan ? <StatusBadge tone="warning">orphan</StatusBadge> : null}
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+                <StatusBadge tone={isSet ? 'success' : 'muted'}>{isSet ? 'set' : 'unset'}</StatusBadge>
+                <button
+                    type="button"
+                    onClick={() => onEdit(name)}
+                    className="inline-flex h-6 cursor-pointer items-center rounded-md border border-border bg-card px-2 text-[0.6875rem] font-medium transition-colors hover:bg-accent"
+                >
+                    {isSet ? 'Rotate' : 'Set'}
+                </button>
+            </div>
+        </li>
+    )
+}
+
+/**
+ * Tiny intermediate dialog that captures a new key name before opening
+ * the `<SecretEditDialog>`. Splitting these out keeps the editor focused
+ * on a known key (it pre-fetches set/unset status) and makes "add a key
+ * the spec doesn't declare" an explicit, separately auditable action.
+ */
+function AddCustomSecretDialog({
+    open,
+    onCancel,
+    onConfirm,
+}: {
+    open: boolean
+    onCancel: () => void
+    onConfirm: (name: string) => void
+}): React.ReactElement {
+    const [name, setName] = useState('')
+    const trimmed = name.trim()
+    const valid = trimmed.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(trimmed)
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(o) => {
+                if (!o) {
+                    setName('')
+                    onCancel()
+                }
+            }}
         >
-            {secrets.length === 0 ? (
-                <EmptyState>No secrets declared.</EmptyState>
-            ) : (
-                <ul className="divide-y divide-border">
-                    {secrets.map((name) => (
-                        <li key={name} className="flex items-center justify-between px-3 py-2 text-xs">
-                            <code className="font-mono">{name}</code>
-                            <StatusBadge tone="muted">unknown</StatusBadge>
-                        </li>
-                    ))}
-                </ul>
-            )}
-            <FollowupNote>
-                Set / rotate / clear UI lands in the next phase. Today the runner reads values from the encrypted env
-                block; this tab can't yet show set-vs-unset.
-            </FollowupNote>
-        </ConnectionCard>
+            <DialogContent>
+                <form
+                    onSubmit={(e) => {
+                        e.preventDefault()
+                        if (valid) {
+                            const next = trimmed
+                            setName('')
+                            onConfirm(next)
+                        }
+                    }}
+                >
+                    <DialogHeader>
+                        <DialogTitle>Add a custom secret</DialogTitle>
+                        <DialogDescription className="text-xs">
+                            Setting a value here doesn't add the key to the spec — the agent will only read it once the
+                            spec lists it. Use this for ad-hoc rotations or to pre-seed before publishing.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogBody render={<div />} className="space-y-3 px-6 py-4">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="custom-secret-name" className="text-xs">
+                                Key name
+                            </Label>
+                            <Input
+                                id="custom-secret-name"
+                                autoFocus
+                                value={name}
+                                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                                    setName(e.currentTarget.value.toUpperCase())
+                                }
+                                placeholder="MY_API_KEY"
+                                spellCheck={false}
+                            />
+                            {!valid && trimmed.length > 0 ? (
+                                <p className="text-[0.6875rem] text-warning-foreground">
+                                    Letters, numbers, underscore. Must start with a letter or underscore.
+                                </p>
+                            ) : null}
+                        </div>
+                    </DialogBody>
+                    <DialogFooter>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                                setName('')
+                                onCancel()
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit" disabled={!valid}>
+                            Continue
+                        </Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
     )
 }
 
@@ -182,23 +420,27 @@ function ConnectionCard({
     title,
     count,
     description,
+    action,
     children,
 }: {
     icon: React.ReactNode
     title: string
     count: number
     description: string
+    /** Optional right-aligned action — e.g. an "Add" button. */
+    action?: React.ReactNode
     children: React.ReactNode
 }): React.ReactElement {
     return (
         <section className="overflow-hidden rounded-md border border-border bg-card">
             <header className="border-b border-border bg-muted/20 px-3 py-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <span className="text-muted-foreground">{icon}</span>
                         <h3 className="text-xs font-medium uppercase tracking-wide text-foreground">{title}</h3>
                         <span className="text-[0.625rem] text-muted-foreground tabular-nums">{count}</span>
                     </div>
+                    {action ? <div className="shrink-0">{action}</div> : null}
                 </div>
                 <p className="mt-1 text-[0.6875rem] text-muted-foreground">{description}</p>
             </header>

@@ -12,7 +12,7 @@ import { z } from 'zod'
 import { SessionQueue } from '@posthog/agent-shared'
 
 import { principalDisplay } from '../enqueue/acl'
-import { authorize, AuthProvider, principalToSession, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
+import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { asyncHandler } from '../routing/http-utils'
 import { RevisionResolver } from '../routing/resolver'
@@ -60,7 +60,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             }
             const externalKeyHeader = req.headers['x-external-key']
             const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-            const sessionPrincipal = principalToSession(auth.principal)
+            const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {

@@ -51,6 +51,7 @@ import {
     BundleStore,
     buildSystemPrompt,
     ConversationMessage,
+    CredentialBroker,
     createLogger,
     FRAMEWORK_PROMPT_VERSION,
     GatewayClient,
@@ -92,6 +93,14 @@ export interface RunSessionDeps {
     integrations: Record<string, IntegrationCredentials>
     secrets: Record<string, string>
     broker?: SecretBroker
+    /**
+     * Per-session credential store populated by ingress at /run + /send.
+     * Tool dispatch resolves `(session_id, target) → Credential` through
+     * here to get the user's auth materials (e.g. PostHog OAuth bearer
+     * under target `posthog_api`). Optional — when absent, tools that
+     * try to resolve credentials get `null` and degrade.
+     */
+    credentialBroker?: CredentialBroker
     /** Aborting this signal mid-turn cancels the LLM call and stops the loop. */
     shutdownSignal?: AbortSignal
     /** Called once per turn after the assistant message + tool results are appended. */
@@ -259,6 +268,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             dispatchClientTool,
+            credentialBroker: deps.credentialBroker,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 

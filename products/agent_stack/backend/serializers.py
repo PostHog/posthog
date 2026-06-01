@@ -104,6 +104,17 @@ class SetEnvRequestSerializer(serializers.Serializer):
     env = serializers.DictField(child=serializers.CharField(allow_blank=True), allow_empty=True)
 
 
+class SetEnvKeyRequestSerializer(serializers.Serializer):
+    """Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+
+    The view merges `{KEY: value}` into the existing encrypted env block
+    without touching other keys, so callers can set or rotate one secret
+    without needing to read the whole block back.
+    """
+
+    value = serializers.CharField(allow_blank=True, trim_whitespace=False)
+
+
 class PromoteRevisionRequestSerializer(serializers.Serializer):
     """Body shape for AgentRevisionViewSet.promote.
 

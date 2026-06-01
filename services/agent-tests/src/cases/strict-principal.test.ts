@@ -9,7 +9,7 @@
 
 import request from 'supertest'
 
-import { AuthProvider } from '@posthog/agent-ingress'
+import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
 
 import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
@@ -17,21 +17,32 @@ const PAT_A = 'phx_user_a'
 const PAT_B = 'phx_user_b'
 
 const provider: AuthProvider = {
-    async verifyPat(token, application) {
-        if (token === PAT_A) {
-            return { kind: 'service', team_id: application.team_id, pat_id: 'pat-a' }
-        }
-        if (token === PAT_B) {
-            return { kind: 'service', team_id: application.team_id, pat_id: 'pat-b' }
-        }
-        return null
-    },
-    async verifyInternal() {
-        return null
-    },
-    async verifySharedSecret() {
-        return null
-    },
+    verifiers: [
+        publicVerifier,
+        {
+            modeType: 'pat',
+            async verify(req, _mode, application) {
+                const bearer = readBearer(req)
+                if (!bearer) {
+                    return { ok: false, status: 0, reason: 'skip' }
+                }
+                const userId = bearer === PAT_A ? 'pat-a' : bearer === PAT_B ? 'pat-b' : null
+                if (!userId) {
+                    return { ok: false, status: 401, reason: 'invalid_token' }
+                }
+                return {
+                    ok: true,
+                    principal: {
+                        kind: 'posthog',
+                        source: 'pat',
+                        user_id: userId,
+                        team_id: application.team_id,
+                    },
+                    credentials: { posthog_api: { kind: 'pat_bearer', token: bearer } },
+                }
+            },
+        },
+    ],
 }
 
 describe('strict principal match on /send: real e2e', () => {
@@ -51,7 +62,7 @@ describe('strict principal match on /send: real e2e', () => {
 
     it('pat agent: /send with the same PAT as /run → 200', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p1', spec: { auth: { mode: 'pat' } } })
+        await c.deployAgent({ slug: 'p1', spec: { auth: { modes: [{ type: 'pat' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p1/run')
             .set('authorization', `Bearer ${PAT_A}`)
@@ -74,7 +85,7 @@ describe('strict principal match on /send: real e2e', () => {
         // as a PendingElevationRequest for replay-on-grant, the session is
         // not advanced, and the response carries an elevation_request_id.
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p2', spec: { auth: { mode: 'pat' } } })
+        await c.deployAgent({ slug: 'p2', spec: { auth: { modes: [{ type: 'pat' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p2/run')
             .set('authorization', `Bearer ${PAT_A}`)
@@ -95,12 +106,13 @@ describe('strict principal match on /send: real e2e', () => {
         const session = await c.queue.get(sid)
         expect(session!.pending_inputs).toHaveLength(0)
         expect(session!.pending_elevation_requests).toHaveLength(1)
-        expect(session!.pending_elevation_requests[0].requester.id).toBe('pat-b')
+        const requester = session!.pending_elevation_requests[0].requester
+        expect(requester.kind === 'posthog' && requester.user_id).toBe('pat-b')
     })
 
     it('pat agent: /send with no auth → 401 (auth fails before strict-match)', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'p3', spec: { auth: { mode: 'pat' } } })
+        await c.deployAgent({ slug: 'p3', spec: { auth: { modes: [{ type: 'pat' }] } } })
         const run = await request(c.ingress)
             .post('/agents/p3/run')
             .set('authorization', `Bearer ${PAT_A}`)
@@ -114,7 +126,7 @@ describe('strict principal match on /send: real e2e', () => {
 
     it('public agent: /send without auth → 200 (both principals are anonymous)', async () => {
         c.setScript([fauxText('ok?')])
-        await c.deployAgent({ slug: 'pub', spec: { auth: { mode: 'public' } } })
+        await c.deployAgent({ slug: 'pub', spec: { auth: { modes: [{ type: 'public' }] } } })
         const run = await request(c.ingress).post('/agents/pub/run').send({ message: 'hi' })
         const sid = run.body.session_id
         await c.drain()
