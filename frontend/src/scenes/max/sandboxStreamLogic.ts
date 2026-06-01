@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { projectLogic } from 'scenes/projectLogic'
@@ -11,12 +12,15 @@ import type {
     ToolInvocationStatus,
 } from './types/sandboxStreamTypes'
 import {
+    type PermissionOption,
+    type PermissionRequestFrame,
     type PosthogErrorParams,
     type PosthogProgressParams,
     type SseErrorFrameData,
     type StoredLogEntry,
     isKnownSessionUpdate,
     isNotificationFrame,
+    isPermissionRequestFrame,
     isSessionUpdateNotification,
     isTaskRunStateFrame,
 } from './types/sandboxWireTypes'
@@ -170,6 +174,82 @@ function mapAcpStatus(status: unknown): ToolInvocationStatus {
     }
 }
 
+const PERMISSION_OPTION_KINDS: ReadonlySet<string> = new Set([
+    'allow_once',
+    'allow_always',
+    'reject',
+    'reject_with_feedback',
+])
+
+function parsePermissionOption(raw: unknown): PermissionOption | null {
+    if (typeof raw !== 'object' || raw === null) {
+        return null
+    }
+    const r = raw as Record<string, unknown>
+    const optionId = r.optionId
+    const kind = String(r.kind ?? '')
+    if (typeof optionId !== 'string' || !PERMISSION_OPTION_KINDS.has(kind)) {
+        return null
+    }
+    return {
+        optionId,
+        name: String(r.name ?? ''),
+        kind: kind as PermissionOption['kind'],
+    }
+}
+
+/**
+ * Parses a `data.type === 'permission_request'` SSE frame into a `PermissionRequestRecord`.
+ * The toolCall payload mirrors the ACP `tool_call` shape; reusing `resolveToolKey` keys the
+ * request onto the same `toolCallId` as the rendered tool card. Returns null when the frame
+ * is malformed or carries no usable options. The wire payload is typed, not validated, so
+ * every field read keeps its runtime check.
+ */
+export function parsePermissionRequestFrame(frame: PermissionRequestFrame): PermissionRequestRecord | null {
+    const requestId = frame.requestId
+    if (typeof requestId !== 'string') {
+        return null
+    }
+    const toolCall = (frame.toolCall ?? {}) as Record<string, unknown>
+    const toolCallId = String(toolCall.toolCallId ?? frame.toolCallId ?? '')
+    if (!toolCallId) {
+        return null
+    }
+    const options = Array.isArray(frame.options)
+        ? frame.options.map(parsePermissionOption).filter((o): o is PermissionOption => o !== null)
+        : []
+    if (options.length === 0) {
+        return null
+    }
+
+    const rawServerName = String(toolCall.serverName ?? 'posthog')
+    const rawToolName = String(toolCall.toolName ?? toolCall.title ?? '')
+    const input = (toolCall.rawInput ?? toolCall.input ?? {}) as Record<string, unknown>
+    const { resolvedKey, innerToolName, innerInput } = resolveToolKey(rawServerName, rawToolName, input)
+
+    return {
+        requestId,
+        toolCallId,
+        options,
+        title: toolCall.title as string | undefined,
+        description: toolCall.description as string | undefined,
+        rawToolCall: {
+            toolCallId,
+            rawServerName,
+            rawToolName,
+            innerToolName,
+            resolvedKey,
+            input,
+            innerInput,
+            status: mapAcpStatus(toolCall.status),
+            title: toolCall.title as string | undefined,
+            kind: toolCall.kind as string | undefined,
+            locations: toolCall.locations as { path: string; line?: number }[] | undefined,
+            contentBlocks: Array.isArray(toolCall.content) ? toolCall.content : [],
+        },
+    }
+}
+
 /**
  * Owns the `EventSource` to the products/tasks stream endpoint, parses the ACP wire format, and
  * produces thread-shaped state the renderer consumes. Coexistence sibling to `maxThreadLogic`'s
@@ -209,6 +289,18 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
         /** Internal: records an entry's serialized hash so reconnect replay can dedup it. */
         markEntryIngested: (hash: string) => ({ hash }),
         ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
+        /**
+         * User picked an option on the approval card. POSTs the reply to the sandbox `permission/`
+         * endpoint (which routes to the products/tasks `permission_response` command) and clears
+         * the pending request. `customInput` carries `reject_with_feedback` text.
+         */
+        respondToPermission: (payload: {
+            conversationId: string
+            requestId: string
+            optionId: string
+            customInput?: string
+        }) => payload,
+        clearPermissionRequest: true,
         handleTerminalStatus: (status: { status: SandboxRunStatus; errorMessage?: string | null }) => status,
         handleStreamError: (envelope: { errorTitle: string; errorMessage?: string; retryable: boolean }) => envelope,
         // Internal state-folding actions emitted by ingestAcpFrame.
@@ -351,6 +443,8 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
             null as PermissionRequestRecord | null,
             {
                 ingestPermissionRequest: (_, { record }) => record,
+                respondToPermission: () => null,
+                clearPermissionRequest: () => null,
                 reset: () => null,
             },
         ],
@@ -457,6 +551,11 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                         }
                         if (isNotificationFrame(data)) {
                             actions.ingestAcpFrame(data)
+                        } else if (isPermissionRequestFrame(data)) {
+                            const record = parsePermissionRequestFrame(data)
+                            if (record) {
+                                actions.ingestPermissionRequest(record)
+                            }
                         } else if (isTaskRunStateFrame(data)) {
                             actions.handleTerminalStatus({
                                 status: data.status as SandboxRunStatus,
@@ -541,6 +640,31 @@ export const sandboxStreamLogic = kea<sandboxStreamLogicType>([
                 'reconnect-backoff',
                 { pauseOnPageHidden: false }
             )
+        },
+        ingestPermissionRequest: ({ record }) => {
+            // conversation_id / trace_id are correlated by the caller (the SSE bypasses Django);
+            // emit what this logic knows.
+            const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            posthog.capture('permission_requested', {
+                request_id: record.requestId,
+                tool_call_name: record.rawToolCall.resolvedKey,
+                tool_call_id: record.toolCallId,
+                run_id: activeRun?.runId,
+                task_id: activeRun?.taskId,
+                execution_type: 'sandbox',
+            })
+        },
+        respondToPermission: async ({ conversationId, requestId, optionId, customInput }) => {
+            try {
+                await api.conversations.permission(conversationId, {
+                    requestId,
+                    optionId,
+                    customInput,
+                })
+            } catch (error) {
+                posthog.captureException(error)
+                actions.handleStreamError({ errorTitle: 'Failed to send approval', retryable: true })
+            }
         },
         handleTerminalStatus: ({ status }) => {
             // The wire emits task_run_state for non-terminal transitions too (e.g. queued →

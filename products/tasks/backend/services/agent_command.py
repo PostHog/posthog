@@ -268,6 +268,29 @@ def send_user_message(
     )
 
 
+def send_permission_response(
+    task_run: Any,
+    request_id: str,
+    option_id: str,
+    custom_input: str | None = None,
+    auth_token: str | None = None,
+) -> CommandResult:
+    """Send a permission_response command to the sandbox agent (approval reply).
+
+    Mirrors the ACP `permission_response` JSON-RPC method the products/tasks `command/`
+    endpoint already proxies. `custom_input` carries the optional `reject_with_feedback` text.
+    """
+    params: dict[str, Any] = {"requestId": request_id, "optionId": option_id}
+    if custom_input:
+        params["customInput"] = custom_input
+    return send_agent_command(
+        task_run,
+        method="permission_response",
+        params=params,
+        auth_token=auth_token,
+    )
+
+
 def send_cancel(task_run: Any, auth_token: str | None = None) -> CommandResult:
     """Send a cancel command to the sandbox agent."""
     return send_agent_command(
