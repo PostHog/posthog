@@ -1099,7 +1099,6 @@ POSTHOG_AI_PRODUCTS = [
     "subscriptions",
     "alert_investigation_agent",
     "slack_app_routing",
-    "mcp",
 ]
 
 # ai_product values billed as signals credits.
