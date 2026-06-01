@@ -78,7 +78,11 @@ const tasksRetrieve = (): ToolBase<typeof TasksRetrieveSchema, WithPostHogUrl<Sc
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['latest_run.log_url']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'latest_run.log_url',
+            'latest_run.state.sandbox_connect_token',
+            'latest_run.state.sandbox_url',
+        ]) as typeof result
         return await withPostHogUrl(context, filtered, `/tasks/${filtered.id}`)
     },
 })
@@ -131,7 +135,11 @@ const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.T
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = omitResponseFields(result, ['log_url']) as typeof result
+        const filtered = omitResponseFields(result, [
+            'log_url',
+            'state.sandbox_connect_token',
+            'state.sandbox_url',
+        ]) as typeof result
         return filtered
     },
 })

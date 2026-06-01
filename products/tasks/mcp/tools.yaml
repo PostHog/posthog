@@ -119,6 +119,8 @@ tools:
         response:
             exclude:
                 - latest_run.log_url
+                - latest_run.state.sandbox_connect_token
+                - latest_run.state.sandbox_url
     tasks-run-create:
         operation: tasks_run_create
         enabled: false
@@ -207,6 +209,8 @@ tools:
         response:
             exclude:
                 - log_url
+                - state.sandbox_connect_token
+                - state.sandbox_url
     tasks-runs-session-logs-retrieve:
         operation: tasks_runs_session_logs_retrieve
         enabled: true
