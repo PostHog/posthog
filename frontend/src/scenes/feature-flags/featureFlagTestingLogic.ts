@@ -2,6 +2,8 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -21,11 +23,51 @@ export type TestResult = FeatureFlagTestEvaluationResponseApi
 
 export interface TestFormData {
     person_id: string
+    distinct_id: string
     timestamp: string
     groups: string
 }
 
-const EMPTY_FORM: TestFormData = { person_id: '', timestamp: '', groups: '' }
+const EMPTY_FORM: TestFormData = { person_id: '', distinct_id: '', timestamp: '', groups: '' }
+
+export interface ResolvedPersonSelection {
+    person: PersonType
+    personId: string
+    distinctId: string
+}
+
+/**
+ * Normalize a taxonomic-filter person selection into a person plus identifiers.
+ * Selections from the "Recent" tab are stripped down to `{ name, id }` and carry
+ * neither `uuid` nor `distinct_ids`, so reading `distinct_ids[0]` directly throws.
+ * We recover the distinct_id the entry was recorded under from its recent context.
+ */
+export function resolvePersonSelection(value: TaxonomicFilterValue, item: unknown): ResolvedPersonSelection | null {
+    if (!item || typeof item !== 'object') {
+        return null
+    }
+    const candidate = item as Partial<PersonType> & Record<string, any>
+    const distinctIds = Array.isArray(candidate.distinct_ids) ? candidate.distinct_ids : []
+    const recentDistinctId =
+        hasRecentContext(item) && typeof item._recentContext.sourceValue === 'string'
+            ? item._recentContext.sourceValue
+            : undefined
+    const distinctId = distinctIds[0] ?? recentDistinctId ?? (typeof value === 'string' ? value : '')
+    const personId = typeof candidate.uuid === 'string' ? candidate.uuid : ''
+
+    if (!personId && !distinctId) {
+        return null
+    }
+
+    return {
+        person: {
+            ...(candidate as PersonType),
+            distinct_ids: distinctIds.length > 0 ? distinctIds : distinctId ? [distinctId] : [],
+        },
+        personId,
+        distinctId,
+    }
+}
 
 function validateAndParseGroups(groups: string): Record<string, any> {
     const trimmed = groups.trim()
@@ -71,8 +113,13 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
                     const data: FeatureFlagTestEvaluationRequestApi = {}
 
+                    // person_id and distinct_id are mutually exclusive server-side. Prefer the
+                    // person UUID when we have it; fall back to a distinct_id (e.g. recent-tab
+                    // selections only carry the distinct_id the entry was recorded under).
                     if (formData.person_id?.trim()) {
                         data.person_id = formData.person_id.trim()
+                    } else if (formData.distinct_id?.trim()) {
+                        data.distinct_id = formData.distinct_id.trim()
                     }
 
                     data.groups = validateAndParseGroups(formData.groups || '')
@@ -195,15 +242,11 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 }
 
                 return result.conditions.map((condition: ConditionAnalysis) => {
-                    // Per the API serializer, `matched` is the source of truth — at most one
-                    // condition per flag is the winner.
+                    // Check if this condition is the actual winner
+                    // Per the API serializer, matched is the source of truth - "at most one condition per flag is True"
                     const isWinningCondition = condition.matched
-                    // The backend sets `rollout_excluded` only on a condition that was actually
-                    // evaluated and excluded the user by rollout. A condition whose properties
-                    // matched but that is neither the winner nor rollout-excluded was never
-                    // reached: an earlier condition already decided the result (it matched, or
-                    // early exit short-circuited on rollout exclusion).
-                    const notEvaluated =
+                    // Determine if this condition matched but wasn't the winner
+                    const matchedButNotWinner =
                         condition.properties_matched && !isWinningCondition && !condition.rollout_excluded
 
                     // Determine display properties
@@ -213,18 +256,18 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                     if (isWinningCondition) {
                         tone = 'success'
                         label = 'MATCHED'
+                    } else if (matchedButNotWinner) {
+                        tone = 'info'
+                        label = 'PROPERTIES MATCHED'
                     } else if (condition.rollout_excluded) {
                         tone = 'warning'
                         label = 'EXCLUDED FROM ROLLOUT'
-                    } else if (notEvaluated) {
-                        tone = 'muted'
-                        label = 'NOT EVALUATED'
                     }
 
                     return {
                         ...condition,
                         isWinningCondition,
-                        notEvaluated,
+                        matchedButNotWinner,
                         display: {
                             tone,
                             label,
@@ -236,7 +279,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         // Check if form has valid person selected
         hasValidPerson: [
             (s) => [s.testFormData],
-            (formData: TestFormData): boolean => Boolean(formData.person_id?.trim()),
+            (formData: TestFormData): boolean =>
+                Boolean(formData.person_id?.trim() || formData.distinct_id?.trim()),
         ],
         // Get formatted error display information
         errorDisplay: [

@@ -1,1 +1,0 @@
--- Paste or copy the original slow query here.

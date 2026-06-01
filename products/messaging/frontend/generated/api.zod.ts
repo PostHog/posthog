@@ -25,6 +25,38 @@ export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional(),
 })
 
+export const messagingCategoriesUpdateBodyKeyMax = 64
+
+export const messagingCategoriesUpdateBodyNameMax = 128
+
+export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesUpdateBodyKeyMax),
+    name: zod.string().max(messagingCategoriesUpdateBodyNameMax),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingCategoriesPartialUpdateBodyKeyMax = 64
+
+export const messagingCategoriesPartialUpdateBodyNameMax = 128
+
+export const MessagingCategoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    key: zod.string().max(messagingCategoriesPartialUpdateBodyKeyMax).optional(),
+    name: zod.string().max(messagingCategoriesPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    public_description: zod.string().optional(),
+    category_type: zod
+        .enum(['marketing', 'transactional'])
+        .optional()
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
+    deleted: zod.boolean().optional(),
+})
+
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
 Persists the App API key in Integration(kind="customerio-app").
@@ -155,6 +187,62 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional(),
     type: zod.string().max(messagingTemplatesCreateBodyTypeMax).optional(),
+    message_category: zod.uuid().nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingTemplatesUpdateBodyNameMax = 400
+
+export const messagingTemplatesUpdateBodyTypeMax = 24
+
+export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(messagingTemplatesUpdateBodyNameMax),
+    description: zod.string().optional(),
+    content: zod
+        .object({
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+        })
+        .optional(),
+    type: zod.string().max(messagingTemplatesUpdateBodyTypeMax).optional(),
+    message_category: zod.uuid().nullish(),
+    deleted: zod.boolean().optional(),
+})
+
+export const messagingTemplatesPartialUpdateBodyNameMax = 400
+
+export const messagingTemplatesPartialUpdateBodyTypeMax = 24
+
+export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(messagingTemplatesPartialUpdateBodyNameMax).optional(),
+    description: zod.string().optional(),
+    content: zod
+        .object({
+            templating: zod.enum(['hog', 'liquid']).optional().describe('\* `hog` - hog\n\* `liquid` - liquid'),
+            email: zod
+                .union([
+                    zod.object({
+                        subject: zod.string().optional(),
+                        text: zod.string().optional(),
+                        html: zod.string().optional(),
+                        design: zod.unknown().optional(),
+                    }),
+                    zod.null(),
+                ])
+                .optional(),
+        })
+        .optional(),
+    type: zod.string().max(messagingTemplatesPartialUpdateBodyTypeMax).optional(),
     message_category: zod.uuid().nullish(),
     deleted: zod.boolean().optional(),
 })

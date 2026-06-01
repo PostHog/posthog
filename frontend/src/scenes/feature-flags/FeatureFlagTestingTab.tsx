@@ -8,11 +8,11 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import type { Dayjs } from 'lib/dayjs'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
-import type { FeatureFlagType, PersonType } from '~/types'
+import type { FeatureFlagType } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
 import type { ConditionAnalysis } from './featureFlagTestingLogic'
-import { featureFlagTestingLogic } from './featureFlagTestingLogic'
+import { featureFlagTestingLogic, resolvePersonSelection } from './featureFlagTestingLogic'
 
 const CONDITION_DISPLAY_STYLES = {
     success: {
@@ -81,23 +81,25 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                     {/* User Selection */}
                     <div className="space-y-3">
-                        {/* flex-col keeps the person field below the label — LemonLabel is inline-flex,
-                            so without an explicit column it sits beside the field at narrow widths */}
-                        <div className="flex flex-col gap-2">
-                            <LemonLabel>Select person</LemonLabel>
+                        <LemonLabel>Select person</LemonLabel>
+                        {/* Block wrapper keeps the input below the inline-flex label rather than beside it */}
+                        <div>
                             <TaxonomicPopover
                                 groupType={TaxonomicFilterGroupType.Persons}
-                                value={selectedPerson ? selectedPerson.distinct_ids[0] : ''}
-                                onChange={(_, __, person) => {
-                                    if (person) {
-                                        setSelectedPerson(person as PersonType)
+                                value={selectedPerson?.distinct_ids?.[0] ?? ''}
+                                onChange={(value, _, item) => {
+                                    const selection = resolvePersonSelection(value, item)
+                                    if (selection) {
+                                        setSelectedPerson(selection.person)
                                         setTestFormData({
-                                            person_id: person.uuid || '',
+                                            person_id: selection.personId,
+                                            distinct_id: selection.distinctId,
                                         })
                                     } else {
                                         setSelectedPerson(null)
                                         setTestFormData({
                                             person_id: '',
+                                            distinct_id: '',
                                         })
                                     }
                                 }}
@@ -110,7 +112,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                         return (
                                             <span>
                                                 {selectedPerson.name ||
-                                                    selectedPerson.distinct_ids[0] ||
+                                                    selectedPerson.distinct_ids?.[0] ||
                                                     'Unknown person'}
                                             </span>
                                         )
@@ -130,8 +132,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     <strong>Person ID:</strong> {formData.person_id || 'Not available'}
                                 </div>
                                 <div>
-                                    <strong>Distinct IDs:</strong> {selectedPerson.distinct_ids.slice(0, 3).join(', ')}
-                                    {selectedPerson.distinct_ids.length > 3 &&
+                                    <strong>Distinct IDs:</strong>{' '}
+                                    {(selectedPerson.distinct_ids ?? []).slice(0, 3).join(', ')}
+                                    {(selectedPerson.distinct_ids?.length ?? 0) > 3 &&
                                         ` (+${selectedPerson.distinct_ids.length - 3} more)`}
                                 </div>
                             </div>

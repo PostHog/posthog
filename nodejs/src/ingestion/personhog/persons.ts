@@ -35,7 +35,8 @@ export class PersonHogPersonOperations {
     constructor(private client: Client<typeof PersonHogService>) {}
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: number; distinctId: string }[]
+        teamPersons: { teamId: number; distinctId: string }[],
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
@@ -53,7 +54,8 @@ export class PersonHogPersonOperations {
                         })
                     ),
                     readOptions: eventualReadOptions(),
-                })
+                }),
+                callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
             )
 
             for (const result of response.results) {
@@ -75,7 +77,8 @@ export class PersonHogPersonOperations {
     async getDistinctIdsForPersons(
         teamId: number,
         personIntIds: string[],
-        limitPerPerson?: number
+        limitPerPerson?: number,
+        callerTag?: string
     ): Promise<Record<string, string[]>> {
         if (personIntIds.length === 0) {
             return {}
@@ -87,7 +90,8 @@ export class PersonHogPersonOperations {
                 personIds: personIntIds.map((id) => BigInt(id)),
                 limitPerPerson: limitPerPerson != null ? BigInt(limitPerPerson) : undefined,
                 readOptions: eventualReadOptions(),
-            })
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
 
         const result: Record<string, string[]> = {}
@@ -97,7 +101,10 @@ export class PersonHogPersonOperations {
         return result
     }
 
-    async fetchPersonsByPersonIds(teamPersons: { teamId: number; personId: string }[]): Promise<InternalPerson[]> {
+    async fetchPersonsByPersonIds(
+        teamPersons: { teamId: number; personId: string }[],
+        callerTag?: string
+    ): Promise<InternalPerson[]> {
         if (teamPersons.length === 0) {
             return []
         }
@@ -119,7 +126,8 @@ export class PersonHogPersonOperations {
                             teamId: BigInt(teamId),
                             uuids: batch,
                             readOptions: eventualReadOptions(),
-                        })
+                        }),
+                        callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
                     )
                     batchResults.push(...response.persons.map(protoPersonToDomain))
                 }

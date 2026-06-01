@@ -1077,10 +1077,6 @@ class FeatureFlagSerializer(
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
 
-        early_exit = filters.get("early_exit")
-        if early_exit is not None and not isinstance(early_exit, bool):
-            raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
-
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
             if variant is not None and not isinstance(variant, str):
@@ -2475,7 +2471,7 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
 # action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
 # feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
 # See posthog/models/feature_flag/user_blast_radius.py for the pattern.
-@extend_schema(tags=[ProductKey.FEATURE_FLAGS])
+@extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,

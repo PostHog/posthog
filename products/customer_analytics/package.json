@@ -11,6 +11,10 @@
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
         "@storybook/react": "*",
         "@testing-library/dom": "*",

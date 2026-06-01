@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { FeatureFlagTestEvaluationResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
-import { featureFlagTestingLogic } from './featureFlagTestingLogic'
+import { featureFlagTestingLogic, resolvePersonSelection } from './featureFlagTestingLogic'
 
 describe('featureFlagTestingLogic', () => {
     let logic: ReturnType<typeof featureFlagTestingLogic.build>
@@ -25,12 +25,12 @@ describe('featureFlagTestingLogic', () => {
     })
 
     describe('condition analysis', () => {
-        it('labels a condition after the winner as not evaluated', async () => {
+        it('correctly identifies matchedButNotWinner conditions', async () => {
             const mockResult: Partial<FeatureFlagTestEvaluationResponseApi> = {
                 flag_key: 'test-flag',
                 result: true,
                 reason: 'condition_match',
-                condition_index: 0,
+                condition_index: 1,
                 payload: null,
                 person_properties: {},
                 evaluation_distinct_id: null,
@@ -38,24 +38,21 @@ describe('featureFlagTestingLogic', () => {
                     {
                         index: 0,
                         properties_matched: true,
+                        matched: false,
+                        rollout_excluded: false,
+                        explanation: 'Properties matched but condition was not winner',
+                        rollout_percentage: 100,
+                        variant: null,
+                        properties: [],
+                    },
+                    {
+                        index: 1,
+                        properties_matched: true,
                         matched: true,
                         rollout_excluded: false,
                         explanation: 'Condition matched and won',
                         rollout_percentage: 100,
                         variant: 'test-variant',
-                        properties: [],
-                    },
-                    {
-                        // Properties match but this condition was never reached — the winner above
-                        // already decided the result.
-                        index: 1,
-                        properties_matched: true,
-                        matched: false,
-                        rollout_excluded: false,
-                        explanation:
-                            'Condition 1 was not evaluated because an earlier condition already determined the result',
-                        rollout_percentage: 100,
-                        variant: null,
                         properties: [],
                     },
                     {
@@ -77,7 +74,16 @@ describe('featureFlagTestingLogic', () => {
                 enrichedConditions: [
                     expect.objectContaining({
                         index: 0,
-                        notEvaluated: false,
+                        matchedButNotWinner: true, // properties_matched=true, not winner, not rollout_excluded
+                        isWinningCondition: false,
+                        display: {
+                            tone: 'info',
+                            label: 'PROPERTIES MATCHED',
+                        },
+                    }),
+                    expect.objectContaining({
+                        index: 1,
+                        matchedButNotWinner: false, // is the winner
                         isWinningCondition: true,
                         display: {
                             tone: 'success',
@@ -85,17 +91,8 @@ describe('featureFlagTestingLogic', () => {
                         },
                     }),
                     expect.objectContaining({
-                        index: 1,
-                        notEvaluated: true, // properties_matched=true, not winner, not rollout_excluded
-                        isWinningCondition: false,
-                        display: {
-                            tone: 'muted',
-                            label: 'NOT EVALUATED',
-                        },
-                    }),
-                    expect.objectContaining({
                         index: 2,
-                        notEvaluated: false, // properties_matched=false
+                        matchedButNotWinner: false, // properties_matched=false
                         isWinningCondition: false,
                         display: {
                             tone: 'muted',
@@ -135,70 +132,11 @@ describe('featureFlagTestingLogic', () => {
                 enrichedConditions: [
                     expect.objectContaining({
                         index: 0,
-                        notEvaluated: false, // rollout_excluded=true
+                        matchedButNotWinner: false, // rollout_excluded=true
                         isWinningCondition: false,
                         display: {
                             tone: 'warning',
                             label: 'EXCLUDED FROM ROLLOUT',
-                        },
-                    }),
-                ],
-            })
-        })
-
-        it('does not mark a condition after a rollout-excluded one as not evaluated', async () => {
-            // Without early exit, evaluation continues past a rollout-excluded condition, so a
-            // later non-matching condition must read as "did not match", not "not evaluated".
-            const mockResult: Partial<FeatureFlagTestEvaluationResponseApi> = {
-                flag_key: 'test-flag',
-                result: false,
-                reason: 'out_of_rollout_bound',
-                condition_index: 0,
-                payload: null,
-                person_properties: {},
-                evaluation_distinct_id: null,
-                conditions: [
-                    {
-                        index: 0,
-                        properties_matched: true,
-                        matched: false,
-                        rollout_excluded: true,
-                        explanation: 'Condition 0 matched properties but the user is not in the 50% rollout',
-                        rollout_percentage: 50,
-                        variant: null,
-                        properties: [],
-                    },
-                    {
-                        index: 1,
-                        properties_matched: false,
-                        matched: false,
-                        rollout_excluded: false,
-                        explanation: "Condition 1 did not match the user's properties",
-                        rollout_percentage: 100,
-                        variant: null,
-                        properties: [],
-                    },
-                ],
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.testFlagEvaluationSuccess(mockResult as FeatureFlagTestEvaluationResponseApi)
-            }).toMatchValues({
-                enrichedConditions: [
-                    expect.objectContaining({
-                        index: 0,
-                        notEvaluated: false,
-                        display: {
-                            tone: 'warning',
-                            label: 'EXCLUDED FROM ROLLOUT',
-                        },
-                    }),
-                    expect.objectContaining({
-                        index: 1,
-                        notEvaluated: false,
-                        display: {
-                            tone: 'muted',
-                            label: null,
                         },
                     }),
                 ],
@@ -341,11 +279,56 @@ describe('featureFlagTestingLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.testFlagEvaluation({
                     flagId: 1,
-                    formData: { person_id: 'p1', timestamp: '', groups },
+                    formData: { person_id: 'p1', distinct_id: '', timestamp: '', groups },
                 })
             }).toFinishAllListeners()
 
             expect(logic.values.testError).toBe(expectedError)
+        })
+    })
+
+    describe('resolvePersonSelection', () => {
+        it('resolves a full person from the Persons tab using uuid and distinct_ids', () => {
+            const person = { uuid: 'person-uuid', name: 'Jane', distinct_ids: ['d1', 'd2'] }
+            expect(resolvePersonSelection('d1', person)).toEqual({
+                person: expect.objectContaining({ uuid: 'person-uuid', distinct_ids: ['d1', 'd2'] }),
+                personId: 'person-uuid',
+                distinctId: 'd1',
+            })
+        })
+
+        it('resolves a stripped Recent-tab item via its recent context (no uuid/distinct_ids)', () => {
+            // Recent-tab entries only carry { name, _recentContext } — reading distinct_ids[0] used to throw
+            const recentItem = {
+                name: 'a@b.co',
+                _recentContext: { sourceGroupType: 'persons', sourceGroupName: 'Persons', sourceValue: 'd-recent' },
+            }
+            expect(resolvePersonSelection(null, recentItem)).toEqual({
+                person: expect.objectContaining({ name: 'a@b.co', distinct_ids: ['d-recent'] }),
+                personId: '',
+                distinctId: 'd-recent',
+            })
+        })
+
+        it('returns null when no identifier can be resolved', () => {
+            expect(resolvePersonSelection(null, { name: 'No IDs' })).toBeNull()
+            expect(resolvePersonSelection(null, null)).toBeNull()
+        })
+    })
+
+    describe('hasValidPerson selector', () => {
+        it('is true when a person_id is set', () => {
+            logic.actions.setTestFormData({ person_id: 'some-uuid' })
+            expect(logic.values.hasValidPerson).toBe(true)
+        })
+
+        it('is true when only a distinct_id is set (e.g. recent-tab selection)', () => {
+            logic.actions.setTestFormData({ distinct_id: 'distinct-1' })
+            expect(logic.values.hasValidPerson).toBe(true)
+        })
+
+        it('is false when neither identifier is set', () => {
+            expect(logic.values.hasValidPerson).toBe(false)
         })
     })
 })

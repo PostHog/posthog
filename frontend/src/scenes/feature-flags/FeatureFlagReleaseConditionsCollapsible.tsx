@@ -32,7 +32,6 @@ import {
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonInput,
     LemonLabel,
     LemonMenu,
@@ -72,7 +71,6 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
-import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
@@ -93,8 +91,6 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
-    /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
-    hideEarlyExit?: boolean
 }
 
 const PERSON = 'person' as const
@@ -805,7 +801,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
     onBucketingIdentifierChange,
     evaluationRuntime,
     hideMatchOptions,
-    hideEarlyExit,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -856,7 +851,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         switchToMixedTargeting,
         setIsAnyItemDragging,
         setDraggedGroup,
-        setEarlyExit,
     } = useActions(releaseConditionsLogic)
 
     const handleAddConditionSet = (): void => {
@@ -918,7 +912,6 @@ export function FeatureFlagReleaseConditionsCollapsible({
         return (
             <div className="flex flex-col gap-2">
                 <LemonLabel>Release conditions</LemonLabel>
-                {releaseFilters.early_exit && <EarlyExitIndicator />}
                 {filterGroups.map((group: FeatureFlagGroupType, index: number) => {
                     // Use description if available, otherwise summarize the filters
                     const summary =
@@ -1085,30 +1078,9 @@ export function FeatureFlagReleaseConditionsCollapsible({
                 <LemonLabel>Release conditions</LemonLabel>
             </div>
             <p className="text-xs text-muted mb-2">
-                Target users for this flag. A condition matches when all property filters pass AND the target falls
-                within the rollout percentage.
+                Target users for this flag. Conditions are evaluated top to bottom – the first match wins. A condition
+                matches when all property filters pass AND the target falls within the rollout percentage.
             </p>
-
-            {!!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_EARLY_EXIT] && !hideEarlyExit && (
-                <div className="flex flex-col gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                        <LemonCheckbox
-                            data-attr="flag-early-exit"
-                            checked={releaseFilters.early_exit ?? false}
-                            onChange={(checked) => setEarlyExit(checked)}
-                            label="Stop evaluation at first matching condition set"
-                            info="When enabled, conditions are evaluated in order — the first matching condition set determines the result and later conditions are skipped. When disabled, all conditions are evaluated, and a pass on any condition is a pass."
-                        />
-                    </div>
-                    {releaseFilters.early_exit &&
-                        evaluationRuntime !== undefined &&
-                        evaluationRuntime !== FeatureFlagEvaluationRuntime.SERVER && (
-                            <LemonBanner type="warning" className="mt-1">
-                                Early exit is not supported with local evaluation.
-                            </LemonBanner>
-                        )}
-                </div>
-            )}
 
             {isDisabled && (
                 <LemonBanner type="info" className="mb-3">

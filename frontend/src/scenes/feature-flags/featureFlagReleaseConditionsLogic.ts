@@ -105,7 +105,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
-        setEarlyExit: (earlyExit: boolean) => ({ earlyExit }),
         setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
             index,
             groupTypeIndex,
@@ -252,12 +251,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
 
                 return { ...state, groups }
-            },
-            setEarlyExit: (state, { earlyExit }) => {
-                if (!state) {
-                    return state
-                }
-                return { ...state, early_exit: earlyExit }
             },
             switchToMixedTargeting: (state) => {
                 if (!state) {

@@ -46,7 +46,6 @@ export function DefaultReleaseConditions(): JSX.Element {
                             setLocalGroups(updatedFilters.groups)
                         }}
                         isDisabled={!!restrictedReason}
-                        hideEarlyExit
                     />
                 </div>
             )}
