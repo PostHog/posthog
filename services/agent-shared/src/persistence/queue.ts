@@ -59,6 +59,15 @@ export interface SessionQueue {
     /** Find an existing session matching (application_id, external_key). */
     findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
     /**
+     * Find an existing session matching (application_id, idempotency_key).
+     * Returns null if no row exists (including when the key was nulled by the
+     * 30-day retention sweep). Semantically distinct from
+     * `findByExternalKey`: a hit here means "this exact request was already
+     * accepted" — the caller returns the existing session id without
+     * appending or resuming. See `cron-trigger-scheduler.md` §6.
+     */
+    findByIdempotencyKey(applicationId: string, idempotencyKey: string): Promise<AgentSession | null>
+    /**
      * List sessions for one application, newest first. `limit` defaults to 100
      * so a buggy caller can't accidentally page through every session in the
      * project; supply an explicit larger value if needed (capped at 500
@@ -175,6 +184,15 @@ export class MemorySessionQueue implements SessionQueue {
 
     async get(sessionId: string): Promise<AgentSession | null> {
         return this.sessions.get(sessionId) ?? null
+    }
+
+    async findByIdempotencyKey(applicationId: string, idempotencyKey: string): Promise<AgentSession | null> {
+        for (const s of this.sessions.values()) {
+            if (s.application_id === applicationId && s.idempotency_key === idempotencyKey) {
+                return s
+            }
+        }
+        return null
     }
 
     async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {

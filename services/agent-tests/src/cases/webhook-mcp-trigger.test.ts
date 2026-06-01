@@ -51,6 +51,53 @@ describe('webhook trigger: real e2e', () => {
         const res = await request(c.ingress).post('/agents/ghost/webhook').send({})
         expect(res.status).toBe(404)
     })
+
+    it('Idempotency-Key header dedupes a webhook redelivery to one session', async () => {
+        // Two POSTs with identical Idempotency-Key — the second is a
+        // no-op that returns the original session id. Models the
+        // Stripe / GitHub / Slack retry shape: the provider re-fires
+        // a webhook because the first attempt timed out from its side,
+        // even though we accepted it. Without the dedupe, the agent
+        // would run twice for the same event.
+        c.setScript([fauxText('ack')])
+        await c.deployAgent({ slug: 'wh-idem', spec: {} })
+        const key = 'evt_abc123'
+        const a = await request(c.ingress)
+            .post('/agents/wh-idem/webhook')
+            .set('Idempotency-Key', key)
+            .send({ amount: 100 })
+        const b = await request(c.ingress)
+            .post('/agents/wh-idem/webhook')
+            .set('Idempotency-Key', key)
+            .send({ amount: 100 })
+        expect(a.body.session_id).toBe(b.body.session_id)
+        // Both responses report `resumed: false` — the duplicate didn't
+        // resume the original (it's the wrong semantic) and didn't
+        // create a new row either.
+        expect(a.body.resumed).toBe(false)
+        expect(b.body.resumed).toBe(false)
+        // The session row carries the namespaced key so an audit can
+        // tell where the dedupe came from.
+        const session = await c.queue.get(a.body.session_id)
+        expect(session!.idempotency_key).toBe(`webhook:${key}`)
+    })
+
+    it('X-GitHub-Delivery header is the GitHub-shaped idempotency source', async () => {
+        c.setScript([fauxText('ack')])
+        await c.deployAgent({ slug: 'wh-gh', spec: {} })
+        const delivery = '72d3162e-cc78-11e3-81ab-4c9367dc0958'
+        const a = await request(c.ingress)
+            .post('/agents/wh-gh/webhook')
+            .set('X-GitHub-Delivery', delivery)
+            .send({ action: 'opened' })
+        const b = await request(c.ingress)
+            .post('/agents/wh-gh/webhook')
+            .set('X-GitHub-Delivery', delivery)
+            .send({ action: 'opened' })
+        expect(a.body.session_id).toBe(b.body.session_id)
+        const session = await c.queue.get(a.body.session_id)
+        expect(session!.idempotency_key).toBe(`webhook:${delivery}`)
+    })
 })
 
 describe('per-agent MCP transport: real e2e', () => {

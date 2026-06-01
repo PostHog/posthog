@@ -60,6 +60,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             }
             const externalKeyHeader = req.headers['x-external-key']
             const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
+            const idempotencyKey = extractProviderIdempotencyKey(req)
             const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
@@ -67,6 +68,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
+                    idempotencyKey,
                     seed: {
                         role: 'user',
                         content: JSON.stringify(parsed.data),
@@ -91,6 +93,34 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
         })
     )
     return r
+}
+
+/**
+ * Provider-supplied idempotency keys, in precedence order. First non-empty
+ * header wins; absent on all → undefined → no dedupe.
+ *
+ *   - `Idempotency-Key` is the generic / Stripe-shaped convention. Authors
+ *     of custom integrations should use this.
+ *   - `X-Idempotency-Key` is the same primitive under the historical
+ *     `X-` prefix; common in older integrations.
+ *   - `X-GitHub-Delivery` is GitHub's per-event UUID, stable across
+ *     redeliveries. (Stripe also has its own `idempotency_key` body field;
+ *     payload-shape extraction is out of scope here — that's the agent's
+ *     job once it sees the seed, not the platform's.)
+ *
+ * Namespaced with a `webhook:` prefix so a future cron firing can never
+ * collide with a webhook-supplied key for the same agent.
+ */
+function extractProviderIdempotencyKey(req: Request): string | undefined {
+    const candidates = ['idempotency-key', 'x-idempotency-key', 'x-github-delivery']
+    for (const name of candidates) {
+        const v = req.headers[name]
+        const value = typeof v === 'string' ? v : Array.isArray(v) ? v[0] : undefined
+        if (value && value.length > 0) {
+            return `webhook:${value}`
+        }
+    }
+    return undefined
 }
 
 /** The published `bodySchema` is intentionally loose — webhook accepts any
