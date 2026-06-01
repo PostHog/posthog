@@ -696,6 +696,9 @@ async def dispatch_inbox_slack_notifications_activity(
         report_id=input.report_id,
         team_id=input.team_id,
         source_products=input.source_products,
+        wait_for_judgments=True,
+        wait_timeout_seconds=90,
+        wait_interval_seconds=3,
     )
 
 

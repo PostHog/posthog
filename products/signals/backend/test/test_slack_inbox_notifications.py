@@ -1,7 +1,7 @@
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from social_django.models import UserSocialAuth
 
@@ -18,10 +18,11 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
+    SlackNotificationJudgmentsPending,
+    _RecipientPresentation,
     _build_message_blocks,
     _meets_min_priority,
     _recipient_presentation,
-    _RecipientPresentation,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
 )
@@ -344,11 +345,11 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
         (None, None),
         (None, ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
         (AutonomyPriority.P1, None),
-        (AutonomyPriority.P1, ActionabilityChoice.NOT_ACTIONABLE),
-        (AutonomyPriority.P1, ActionabilityChoice.REQUIRES_HUMAN_INPUT),
+        ("XX", ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
+        (AutonomyPriority.P1, "unknown"),
     ],
 )
-def test_dispatch_skips_reports_without_immediately_actionable_priority_judgments(
+def test_dispatch_raises_pending_when_required_judgments_are_missing(
     org_and_team: tuple[Organization, Team], priority: str | None, actionability: str | None
 ) -> None:
     org, team = org_and_team
@@ -367,10 +368,87 @@ def test_dispatch_skips_reports_without_immediately_actionable_priority_judgment
     )
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        with pytest.raises(SlackNotificationJudgmentsPending):
+            dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "actionability",
+    [
+        ActionabilityChoice.NOT_ACTIONABLE,
+        ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+    ],
+)
+def test_dispatch_skips_reports_with_non_actionable_judgment(
+    org_and_team: tuple[Organization, Team], actionability: str
+) -> None:
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-non-actionable@example.com", "non-actionable-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(
+        team,
+        priority=AutonomyPriority.P1,
+        actionability=actionability,
+        suggested_logins=["non-actionable-bot"],
+    )
+
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 0
     assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
+def test_dispatch_waits_for_judgments_before_sending(org_and_team: tuple[Organization, Team]) -> None:
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-wait@example.com", "wait-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(team, actionability=None, priority=None, suggested_logins=["wait-bot"])
+
+    def persist_judgments(_seconds: float) -> None:
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE}),
+        )
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": AutonomyPriority.P1}),
+        )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.time.sleep", side_effect=persist_judgments),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(
+            str(report.id),
+            team.id,
+            wait_for_judgments=True,
+            wait_timeout_seconds=1,
+            wait_interval_seconds=0.1,
+        )
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_count == 1
 
 
 @pytest.mark.django_db
