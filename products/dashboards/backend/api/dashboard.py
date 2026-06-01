@@ -162,9 +162,14 @@ def _compact_tile_layouts(tiles: list["DashboardTile"]) -> set[int]:
         for tile in DashboardTile.sort_tiles_by_layout(entries, breakpoint):
             layout = tile.layouts[breakpoint]
             rect = {"x": layout.get("x", 0), "y": layout.get("y", 0), "w": layout.get("w", 1), "h": layout.get("h", 1)}
+            # Drop the tile to the lowest free row. Jump past colliding tiles rather than
+            # scanning row-by-row, so an editor-supplied giant height can't blow up the loop.
             new_y = 0
-            while any(_tile_rects_overlap({**rect, "y": new_y}, placed_rect) for placed_rect in placed):
-                new_y += 1
+            while True:
+                collisions = [pr for pr in placed if _tile_rects_overlap({**rect, "y": new_y}, pr)]
+                if not collisions:
+                    break
+                new_y = max(pr["y"] + pr["h"] for pr in collisions)
             placed.append({**rect, "y": new_y})
             if new_y != layout.get("y", 0):
                 layout["y"] = new_y
