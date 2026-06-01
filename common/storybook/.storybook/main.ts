@@ -9,9 +9,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
-        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../frontend/src/**/*.mdx',
+        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../products/**/frontend/**/*.mdx',
+        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../products/**/mcp/**/*.mdx',
+        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
     ],
 
     addons: [
