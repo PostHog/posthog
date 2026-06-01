@@ -1136,7 +1136,7 @@ describe('TaxonomicFilter', () => {
                     '/api/projects/:team/event_definitions': mockGetEventDefinitions,
                     '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                     '/api/projects/:team/actions': { results: [] },
-                    '/api/projects/:team/logs/attributes': mockLogAttributes,
+                    '/api/environments/:team/logs/attributes': mockLogAttributes,
                 },
                 post: {
                     '/api/environments/:team/query': { results: [] },

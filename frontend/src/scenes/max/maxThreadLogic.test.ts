@@ -59,7 +59,7 @@ describe('maxThreadLogic', () => {
             ...maxMocks,
             get: {
                 ...maxMocks.get,
-                '/api/projects/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
+                '/api/environments/:team_id/conversations/:conversation_id/': MOCK_IN_PROGRESS_CONVERSATION,
             },
         })
         initKeaTests()

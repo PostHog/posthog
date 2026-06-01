@@ -6,7 +6,7 @@ test.describe('Logs', () => {
     test.describe('UI integration tests (mocked API)', () => {
         test.beforeEach(async ({ page }) => {
             // Mock APIs BEFORE navigation to avoid race conditions
-            await page.route('**/api/projects/*/logs/query/', (route) =>
+            await page.route('**/api/environments/*/logs/query/', (route) =>
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -14,7 +14,7 @@ test.describe('Logs', () => {
                 })
             )
 
-            await page.route('**/api/projects/*/logs/sparkline/', (route) =>
+            await page.route('**/api/environments/*/logs/sparkline/', (route) =>
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',
@@ -22,7 +22,7 @@ test.describe('Logs', () => {
                 })
             )
 
-            await page.route('**/api/projects/*/logs/values*', (route) =>
+            await page.route('**/api/environments/*/logs/values*', (route) =>
                 route.fulfill({
                     status: 200,
                     contentType: 'application/json',

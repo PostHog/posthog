@@ -21,7 +21,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             post: {
-                'api/projects/:team_id/error_tracking/stack_frames/batch_get/': require('../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../__mocks__/stack_frames/batch_get'),
             },
         }),
         (Story) => (

@@ -70,7 +70,7 @@ function getRealisticMessage(category: ItemCategory, i: number): string {
         ],
         [ItemCategory.EXCEPTION_STEPS]: [
             'ui.interaction Button clicked',
-            'http GET /api/projects/:team_id/error_tracking/issues/',
+            'http GET /api/environments/:team_id/error_tracking/issues/',
             'state setIssuesLoading(true)',
             'error Exception captured and forwarded',
         ],

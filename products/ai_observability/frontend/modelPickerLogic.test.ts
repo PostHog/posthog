@@ -48,10 +48,10 @@ describe('modelPickerLogic', () => {
         it('should load and attach providerKeyId to models from valid keys', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -82,10 +82,10 @@ describe('modelPickerLogic', () => {
         it('should map is_recommended correctly for both true and false values', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'ok' }],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -114,10 +114,10 @@ describe('modelPickerLogic', () => {
         it('should return empty array when no valid keys exist', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [{ id: 'key-1', provider: 'openai', state: 'invalid' }],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                 },
@@ -133,13 +133,13 @@ describe('modelPickerLogic', () => {
         it('should deduplicate models by providerKeyId and model id', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -168,13 +168,13 @@ describe('modelPickerLogic', () => {
         it('should gracefully handle API errors for individual keys', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -212,13 +212,13 @@ describe('modelPickerLogic', () => {
         it('should return true when at least one key has ok state', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
                             { id: 'key-2', provider: 'anthropic', state: 'ok' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': () => [200, []],
@@ -235,13 +235,13 @@ describe('modelPickerLogic', () => {
         it('should return false when all keys are non-ok', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', state: 'invalid' },
                             { id: 'key-2', provider: 'anthropic', state: 'error' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                 },
@@ -257,10 +257,10 @@ describe('modelPickerLogic', () => {
         it('should return false when no keys exist', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                 },
@@ -278,13 +278,13 @@ describe('modelPickerLogic', () => {
         it('should group models by provider key', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', name: 'My OpenAI Key', state: 'ok' },
                             { id: 'key-2', provider: 'anthropic', name: 'My Anthropic Key', state: 'ok' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {
@@ -318,13 +318,13 @@ describe('modelPickerLogic', () => {
         it('should disambiguate labels when multiple keys exist for same provider', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_analytics/provider_keys/': {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
                         results: [
                             { id: 'key-1', provider: 'openai', name: 'Production', state: 'ok' },
                             { id: 'key-2', provider: 'openai', name: 'Staging', state: 'ok' },
                         ],
                     },
-                    '/api/projects/:team_id/llm_analytics/evaluation_config/': {
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
                         active_provider_key: null,
                     },
                     '/api/llm_proxy/models/': (req: any) => {

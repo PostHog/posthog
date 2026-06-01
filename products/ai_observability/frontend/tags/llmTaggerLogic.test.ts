@@ -76,8 +76,8 @@ describe('llmTaggerLogic', () => {
         uuidCounter = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/llm_analytics/provider_keys/': { results: mockProviderKeys },
-                '/api/projects/:team_id/taggers/:id/': mockTagger,
+                '/api/environments/:team_id/llm_analytics/provider_keys/': { results: mockProviderKeys },
+                '/api/environments/:team_id/taggers/:id/': mockTagger,
             },
             post: {
                 '/api/environments/:team_id/query/:kind': { results: [] },
@@ -557,7 +557,7 @@ describe('llmTaggerLogic', () => {
             const capturedQueries: { query: string; values?: unknown }[] = []
             useMocks({
                 get: {
-                    [`/api/projects/:team_id/taggers/${taggerId}/`]: mockTagger,
+                    [`/api/environments/:team_id/taggers/${taggerId}/`]: mockTagger,
                 },
                 post: {
                     '/api/environments/:team_id/query/:kind': async (req, res, ctx) => {

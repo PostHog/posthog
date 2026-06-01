@@ -57,7 +57,7 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/taggers/': { results: mockTaggers },
+                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
                 },
             })
             initKeaTests()
@@ -95,7 +95,7 @@ describe('llmTaggersLogic', () => {
             let firstGet = true
             useMocks({
                 get: {
-                    '/api/projects/:team_id/taggers/': () => {
+                    '/api/environments/:team_id/taggers/': () => {
                         if (firstGet) {
                             firstGet = false
                             return [200, { results: [] }]
@@ -104,7 +104,7 @@ describe('llmTaggersLogic', () => {
                     },
                 },
                 post: {
-                    '/api/projects/:team_id/taggers/': (req: any) => {
+                    '/api/environments/:team_id/taggers/': (req: any) => {
                         createCalls.push(req.body)
                         return [200, { id: `new-${createCalls.length}`, ...req.body }]
                     },
@@ -133,7 +133,7 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/taggers/': { results: mockTaggers },
+                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
                 },
             })
             initKeaTests()
@@ -206,11 +206,11 @@ describe('llmTaggersLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/taggers/': { results: mockTaggers },
-                    '/api/projects/:team_id/taggers/:id/': mockTaggers[0],
+                    '/api/environments/:team_id/taggers/': { results: mockTaggers },
+                    '/api/environments/:team_id/taggers/:id/': mockTaggers[0],
                 },
                 patch: {
-                    '/api/projects/:team_id/taggers/:id/': () => {
+                    '/api/environments/:team_id/taggers/:id/': () => {
                         return [200, { ...mockTaggers[0], enabled: !mockTaggers[0].enabled }]
                     },
                 },

@@ -93,7 +93,7 @@ describe('hogFlowOutputMappingLogic', () => {
                         created_at: '',
                         updated_at: '',
                     },
-                    '/api/projects/:team_id/messaging_categories/': { results: [], count: 0 },
+                    '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
                     '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 },
             })

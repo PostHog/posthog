@@ -8,7 +8,7 @@ import { customerIOImportLogic } from './customerIOImportLogic'
 import type { OptOutSyncConfigResponse } from './customerIOImportLogic'
 import { CustomerIOImportModal } from './CustomerIOImportModal'
 
-const syncConfigEndpoint = '/api/projects/:team_id/messaging_categories/optout_sync_config/'
+const syncConfigEndpoint = '/api/environments/:team_id/messaging_categories/optout_sync_config/'
 
 function mockSyncConfig(config: OptOutSyncConfigResponse): Record<string, any> {
     return {

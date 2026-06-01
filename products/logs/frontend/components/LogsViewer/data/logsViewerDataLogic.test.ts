@@ -43,8 +43,8 @@ describe('logsViewerDataLogic', () => {
     beforeEach(async () => {
         useMocks({
             post: {
-                '/api/projects/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
-                '/api/projects/:team_id/logs/sparkline/': () => [200, []],
+                '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
+                '/api/environments/:team_id/logs/sparkline/': () => [200, []],
             },
         })
         initKeaTests()

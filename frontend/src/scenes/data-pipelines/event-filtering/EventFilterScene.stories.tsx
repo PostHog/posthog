@@ -26,7 +26,7 @@ const meta: Meta<typeof App> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/event_filter/': () => [204, null],
+                '/api/environments/:team_id/event_filter/': () => [204, null],
             },
         }),
     ],
@@ -121,7 +121,7 @@ function withFilter(overrides: Record<string, unknown> = {}): () => JSX.Element 
     return () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
+                '/api/environments/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': metricsHandler(
@@ -140,7 +140,7 @@ function withFilterAndMetrics(overrides: Record<string, unknown> = {}): () => JS
         const { timeSeries, totals } = metricsForMode(mode)
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
+                '/api/environments/:team_id/event_filter/': { ...SIMPLE_FILTER, ...overrides },
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': metricsHandler(timeSeries, totals),
@@ -683,7 +683,7 @@ Expected to show:
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/event_filter/': {
+                '/api/environments/:team_id/event_filter/': {
                     ...SIMPLE_FILTER,
                     filter_tree: {
                         type: 'or',
@@ -838,7 +838,7 @@ export const BuildFilterFromScratch: Story = {
         // build the tree without racing the API load.
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/event_filter/': () => [204, null],
+                '/api/environments/:team_id/event_filter/': () => [204, null],
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': metricsHandler(
