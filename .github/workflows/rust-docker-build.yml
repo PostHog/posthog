@@ -85,6 +85,9 @@ jobs:
                     - release: cymbal
                       digest_key: cymbal
                       values_key: image
+                    - release: cymbal-resolution
+                      digest_key: cymbal-resolution
+                      values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker
                       values_key: image
