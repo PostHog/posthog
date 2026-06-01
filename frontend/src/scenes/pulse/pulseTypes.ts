@@ -11,6 +11,7 @@ export interface PulseDigestSummary {
     status: PulseDigestStatus
     created_at: string
     finding_count: number
+    summary: string
 }
 
 export interface PulseFindingType {

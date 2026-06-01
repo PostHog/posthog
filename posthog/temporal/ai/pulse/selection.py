@@ -53,6 +53,7 @@ def _insight_to_candidate(insight: Insight, source: str) -> CandidateMetric | No
             source_id=insight.id,
             label=insight.name or insight.derived_name or f"Insight {insight.short_id}",
             query=query,
+            url=f"/insights/{insight.short_id}",
         )
     )
 

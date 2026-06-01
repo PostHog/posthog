@@ -239,3 +239,67 @@ async def enrich_findings(
     return list(
         await asyncio.gather(*[_enrich_one(team, user, f, enrichment_semaphore, attribution_semaphore) for f in ranked])
     )
+
+
+SYNTHESIS_MAX_TOKENS = 320
+
+SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
+
+You are given several findings (metric, % change, optional attribution segment). Write a short paragraph, 2-4 sentences:
+- If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
+- Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
+- Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
+
+If the findings share no obvious pattern, say that briefly rather than forcing a connection.""".strip()
+
+
+async def synthesize_digest(team_id: int, user_id: int | None, findings: list[EnrichedFinding]) -> str:
+    """Digest-level "big picture" across ALL findings — co-movement hypotheses, not per-metric prose.
+
+    Runs once per digest (vs _generate_narrative, which is per-finding). Returns "" when there is too
+    little to synthesize across or the call fails — the summary is additive, never load-bearing.
+    """
+    if len(findings) < 2:
+        return ""
+
+    @database_sync_to_async
+    def _resolve() -> tuple[Team, User]:
+        team = Team.objects.get(id=team_id)
+        user = _resolve_service_user(team, user_id)
+        return team, user
+
+    team, user = await _resolve()
+    facts = [
+        {
+            "metric": f.descriptor.label,
+            "change_pct": round(f.change_pct, 3),
+            "attribution": f.attribution_breakdown,
+        }
+        for f in findings
+    ]
+
+    llm = MaxChatOpenAI(
+        model=NARRATIVE_MODEL,
+        user=user,
+        team=team,
+        temperature=0.3,
+        max_tokens=SYNTHESIS_MAX_TOKENS,
+        request_timeout=NARRATIVE_TIMEOUT_SECONDS,
+        streaming=False,
+        disable_streaming=True,
+        max_retries=3,
+        billable=False,
+        inject_context=False,
+        posthog_properties={"ai_product": "pulse", "domain": "pulse_synthesis"},
+    )
+    chain = llm | StrOutputParser()
+    messages = [
+        SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),
+        HumanMessage(content=f"This period's findings:\n{json.dumps(facts, default=str)}"),
+    ]
+    try:
+        result = await chain.ainvoke(messages)
+        return result.strip()
+    except Exception as exc:
+        logger.exception("pulse_synthesize_digest_failed", team_id=team_id, error=str(exc))
+        return ""

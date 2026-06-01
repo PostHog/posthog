@@ -437,6 +437,12 @@ export function Pulse(): JSX.Element {
                                             <TZLabel time={latestDigest.created_at} />
                                         </span>
                                     </div>
+                                    {latestDigest.summary ? (
+                                        <LemonBanner type="info" className="mb-3">
+                                            <span className="font-semibold">Max's read: </span>
+                                            {latestDigest.summary}
+                                        </LemonBanner>
+                                    ) : null}
                                     {findingsForLatest.length === 0 ? (
                                         <p className="text-muted">No findings in the latest digest.</p>
                                     ) : (

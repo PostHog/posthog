@@ -59,6 +59,8 @@ class PulseDigest(RootTeamMixin, CreatedMetaFields, UUIDModel):
     )
     workflow_run_id = models.CharField(max_length=255, blank=True, default="")
     error = models.JSONField(null=True, blank=True)
+    # Digest-level "big picture" synthesis across all findings (co-movement hypotheses). LLM-written, additive.
+    summary = models.TextField(blank=True, default="")
 
     objects = TeamScopedManager()  # type: ignore[misc]
 

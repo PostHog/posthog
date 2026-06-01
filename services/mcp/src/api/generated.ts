@@ -23944,6 +23944,8 @@ export namespace Schemas {
       readonly created_at: string;
       /** Number of findings in this digest. */
       readonly finding_count: number;
+      /** Digest-level big-picture synthesis across findings (LLM-written, may be empty). */
+      readonly summary: string;
     }
 
     export interface PaginatedPulseDigestListList {
@@ -33968,6 +33970,8 @@ export namespace Schemas {
       readonly workflow_run_id: string;
       /** Error payload if the scan run failed, otherwise null. */
       readonly error: unknown;
+      /** Digest-level big-picture synthesis across findings (LLM-written, may be empty). */
+      readonly summary: string;
       readonly created_at: string;
       readonly finding_count: number;
       readonly findings: readonly PulseFinding[];

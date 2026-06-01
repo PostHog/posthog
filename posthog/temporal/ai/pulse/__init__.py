@@ -15,6 +15,7 @@ from posthog.temporal.ai.pulse.workflow import (
     select_candidate_metrics_activity,
     set_digest_status_activity,
     set_workflow_run_id_activity,
+    synthesize_digest_activity,
 )
 
 __all__ = [
@@ -32,4 +33,5 @@ __all__ = [
     "select_candidate_metrics_activity",
     "set_digest_status_activity",
     "set_workflow_run_id_activity",
+    "synthesize_digest_activity",
 ]

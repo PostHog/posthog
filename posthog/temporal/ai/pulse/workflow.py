@@ -14,7 +14,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse import metrics
 from posthog.temporal.ai.pulse.delivery import notify_digest, persist_findings
 from posthog.temporal.ai.pulse.detection import detect_changes
-from posthog.temporal.ai.pulse.narrative import enrich_findings
+from posthog.temporal.ai.pulse.narrative import enrich_findings, synthesize_digest
 from posthog.temporal.ai.pulse.selection import select_candidates
 from posthog.temporal.ai.pulse.types import (
     CandidateMetric,
@@ -24,6 +24,7 @@ from posthog.temporal.ai.pulse.types import (
     EnrichFindingsInputs,
     Finding,
     SelectCandidatesInputs,
+    SynthesizeDigestInputs,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -35,7 +36,7 @@ class PulseScanInputs(BaseModel):
     period_key: str
     period_start: str
     period_end: str
-    max_candidates: int = 50
+    max_candidates: int = 200
     robust_z_threshold: float = 3.5
     min_change_pct: float = 0.25
     baseline_weeks: int = 4
@@ -115,6 +116,25 @@ async def notify_digest_activity(inputs: DeliverDigestInputs) -> None:
         digest_id=inputs.digest_id,
         findings=inputs.findings,
     )
+
+
+@activity.defn
+async def synthesize_digest_activity(inputs: SynthesizeDigestInputs) -> None:
+    """Write the digest-level synthesis (big-picture across findings). Best-effort and additive."""
+    summary = await synthesize_digest(
+        team_id=inputs.team_id,
+        user_id=inputs.user_id,
+        findings=inputs.findings,
+    )
+    if not summary:
+        return
+
+    @database_sync_to_async
+    def _set() -> None:
+        with team_scope(inputs.team_id, canonical=True):
+            PulseDigest.objects.filter(id=inputs.digest_id, team_id=inputs.team_id).update(summary=summary)
+
+    await _set()
 
 
 @activity.defn
@@ -273,6 +293,19 @@ class PulseScanWorkflow(PostHogWorkflow):
                 DeliverDigestInputs(
                     team_id=inputs.team_id,
                     digest_id=digest_id,
+                    findings=enriched,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=retry_policy,
+            )
+
+            # Digest-level synthesis (big-picture across findings). Best-effort: failure won't block delivery.
+            await workflow.execute_activity(
+                synthesize_digest_activity,
+                SynthesizeDigestInputs(
+                    team_id=inputs.team_id,
+                    digest_id=digest_id,
+                    user_id=inputs.user_id,
                     findings=enriched,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),

@@ -34,6 +34,7 @@ class MetricDescriptor(BaseModel):
     source_id: str | int | None = None
     label: str
     query: dict[str, Any]
+    url: str | None = None  # deep-link to the source (e.g. /insights/<short_id>), surfaced as "View insight"
 
 
 class CandidateMetric(BaseModel):
@@ -82,4 +83,11 @@ class EnrichFindingsInputs(BaseModel):
 class DeliverDigestInputs(BaseModel):
     team_id: int
     digest_id: str
+    findings: list[EnrichedFinding]
+
+
+class SynthesizeDigestInputs(BaseModel):
+    team_id: int
+    digest_id: str
+    user_id: int | None = None
     findings: list[EnrichedFinding]

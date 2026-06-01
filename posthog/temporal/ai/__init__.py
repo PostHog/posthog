@@ -48,6 +48,7 @@ from posthog.temporal.ai.pulse import (
     select_candidate_metrics_activity,
     set_digest_status_activity,
     set_workflow_run_id_activity,
+    synthesize_digest_activity,
 )
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.slack_conversation import (
@@ -118,6 +119,7 @@ AI_ACTIVITIES = [
     enrich_findings_activity,
     persist_findings_activity,
     notify_digest_activity,
+    synthesize_digest_activity,
     create_or_get_digest_activity,
     set_digest_status_activity,
     set_workflow_run_id_activity,

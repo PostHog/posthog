@@ -127,6 +127,7 @@ class PulseDigestSerializer(serializers.ModelSerializer):
             "status",
             "workflow_run_id",
             "error",
+            "summary",
             "created_at",
             "finding_count",
             "findings",
@@ -136,6 +137,7 @@ class PulseDigestSerializer(serializers.ModelSerializer):
             "status": {"help_text": "Lifecycle of this scan run (pending, generating, delivered, failed)."},
             "workflow_run_id": {"help_text": "Temporal workflow run id that produced this digest."},
             "error": {"help_text": "Error payload if the scan run failed, otherwise null."},
+            "summary": {"help_text": "Digest-level big-picture synthesis across findings (LLM-written, may be empty)."},
         }
 
     def get_finding_count(self, obj: PulseDigest) -> int:
@@ -157,10 +159,12 @@ class PulseDigestListSerializer(serializers.ModelSerializer):
             "status",
             "created_at",
             "finding_count",
+            "summary",
         ]
         read_only_fields = fields
         extra_kwargs = {
             "status": {"help_text": "Lifecycle of this scan run (pending, generating, delivered, failed)."},
+            "summary": {"help_text": "Digest-level big-picture synthesis across findings (LLM-written, may be empty)."},
         }
 
 
