@@ -176,7 +176,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (await this.evaluateWaitUntilCondition(action, filterGlobals)) {
+                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, hogflow.id)) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
@@ -216,17 +216,21 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     private async evaluateWaitUntilCondition(
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        filterGlobals: FilterGlobals
+        filterGlobals: FilterGlobals,
+        hogflowId: string
     ): Promise<boolean> {
         // `events` and the property-based `condition` are OR'd: a step can wait on either,
         // and either matching wakes the job. The condition is evaluated on every incoming
         // event, which is what makes property-based waits event-driven rather than polled.
+        // contextId carries both ids so a bytecode error log identifies the flow + action
+        // without having to scan the hogflow JSON for which action an id belongs to.
+        const contextId = `${hogflowId}/${action.id}`
         for (const eventConfig of action.config.events ?? []) {
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, action.id)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
                 return true
             }
         }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, action.id)
+        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, contextId)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {

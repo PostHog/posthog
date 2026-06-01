@@ -1,6 +1,9 @@
 import { HogFlow } from '../../schema/hogflow'
+import { logger } from '../../utils/logger'
 import { parseJSON } from '../../utils/json-parse'
+import * as posthogUtils from '../../utils/posthog'
 import { HogFunctionInvocationGlobals } from '../types'
+import * as hogExec from '../utils/hog-exec'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
 
 jest.mock('./cdp-base.consumer', () => {
@@ -312,6 +315,38 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.currentAction.eventMatchedEvent).toBe('wuc_subscribed')
             expect(newState.state.currentAction.eventMatchedEventUuid).toBe('event-uuid')
             expect(newState.state.conversionMatched).toBeUndefined()
+        })
+
+        it('logs the hogflow id alongside the action id when wait-step bytecode evaluation throws', async () => {
+            // contextId must identify the flow so an operator does not have to scan hogflow
+            // JSON to map an action id back to its workflow.
+            const errorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as any)
+            const execSpy = jest.spyOn(hogExec, 'execHog').mockRejectedValue(new Error('boom'))
+            const captureSpy = jest.spyOn(posthogUtils, 'captureException').mockReturnValue(undefined as any)
+
+            try {
+                matcher.findRows = [
+                    {
+                        id: 'job-1',
+                        team_id: 1,
+                        function_id: 'flow-1',
+                        action_id: 'wait_node',
+                        distinct_id: 'user-1',
+                        person_id: null,
+                    },
+                ]
+                matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+                await matcher.runWake([makeGlobals({})])
+
+                const errorCall = errorSpy.mock.calls.find((c) => c[1] === 'Bytecode evaluation error')
+                expect(errorCall).toBeDefined()
+                expect(errorCall![2]).toMatchObject({ contextId: 'flow-1/wait_node' })
+                expect(captureSpy).toHaveBeenCalledWith(expect.any(Error), { extra: { contextId: 'flow-1/wait_node' } })
+            } finally {
+                errorSpy.mockRestore()
+                execSpy.mockRestore()
+                captureSpy.mockRestore()
+            }
         })
 
         it('does not wake when the wait step has events without bytecode (fail-closed)', async () => {
