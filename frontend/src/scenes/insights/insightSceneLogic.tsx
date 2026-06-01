@@ -1,4 +1,5 @@
 import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -23,6 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
@@ -124,6 +126,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             unmount,
         }),
         setFreshQuery: (freshQuery: boolean) => ({ freshQuery }),
+        setForceRefresh: (forceRefresh: boolean) => ({ forceRefresh }),
         upgradeQuery: (query: Node) => ({ query }),
     }),
     reducers({
@@ -208,6 +211,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
+        forceRefresh: [false, { setForceRefresh: (_, { forceRefresh }) => forceRefresh }],
     }),
     selectors({
         tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
@@ -382,6 +386,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const insightId = values.insightId ?? null
             const mountedDashboardItemId = values.insightLogicRef?.logic.props.dashboardItemId ?? null
             const propsMismatch = Boolean(insightId && mountedDashboardItemId && mountedDashboardItemId !== insightId)
+            const forceRefresh = values.forceRefresh
 
             if (logicInsightId !== insightId || propsMismatch) {
                 const oldRef = values.insightLogicRef // free old logic after mounting new one
@@ -418,8 +423,23 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     insightId as InsightShortId,
                     values.filtersOverride,
                     values.variablesOverride,
-                    values.tileFiltersOverride
+                    values.tileFiltersOverride,
+                    forceRefresh ? 'force_async' : 'async'
                 )
+            }
+
+            if (forceRefresh) {
+                // The just-saved query may differ from the server's cached result, so force a
+                // recompute of the insight's mounted data node(s) rather than rendering the stale
+                // cached response. A freshly-mounted scene auto-loads its query anyway, so this
+                // only matters when the insight view was already open.
+                if (insightId) {
+                    // Mirrors insightVizDataCollectionId: the scene's viz registers its data node
+                    // under the dashboard id (if on a dashboard) or else the insight short_id.
+                    const collectionKey = (values.dashboardId != null ? String(values.dashboardId) : null) ?? insightId
+                    dataNodeCollectionLogic.findMounted({ key: collectionKey })?.actions.reloadAll()
+                }
+                actions.setForceRefresh(false)
             }
         },
     })),
@@ -528,6 +548,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
             const tileFiltersOverride = searchParams['tile_filters_override']
+            // A sibling scene (e.g. the SQL editor) sets `force_refresh` when navigating here right
+            // after saving, so we recompute instead of rendering the server's pre-edit cached result.
+            const forceRefresh = Boolean(searchParams['force_refresh'])
 
             if (
                 initial ||
@@ -543,6 +566,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 (dashboard ?? null) !== values.dashboardId ||
                 (dashboardName ?? null) !== values.dashboardName
             ) {
+                // Set before setSceneState so reloadInsightLogic (its listener) sees the flag.
+                if (forceRefresh && method === 'PUSH') {
+                    actions.setForceRefresh(true)
+                }
                 actions.setSceneState(
                     insightId,
                     insightMode,
@@ -558,6 +585,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     dashboardName,
                     sceneSource
                 )
+            }
+
+            if (forceRefresh) {
+                // Drop the one-shot flag from the URL so a reload or shared link doesn't re-trigger it.
+                const { force_refresh: _omit, ...cleanSearchParams } = router.values.searchParams
+                router.actions.replace(router.values.location.pathname, cleanSearchParams, router.values.hashParams)
             }
 
             let queryFromUrl: Node | null = null

@@ -1774,7 +1774,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.info(
                         `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
                     )
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    // The insight GET returns the server's pre-edit cached result; force_refresh tells
+                    // insightSceneLogic to recompute the just-saved query instead of showing it stale.
+                    router.actions.push(urls.insightView(savedInsight.short_id), { force_refresh: true })
                 }
             },
             closeEditingObject: () => {

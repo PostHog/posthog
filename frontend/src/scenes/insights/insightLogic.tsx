@@ -42,7 +42,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node, RefreshType, TileFilters } from '~/queries/schema/schema-general'
 import {
     convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
@@ -134,12 +134,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             shortId: InsightShortId,
             filtersOverride?: DashboardFilter | null,
             variablesOverride?: Record<string, HogQLVariable> | null,
-            tileFiltersOverride?: DashboardFilter | null
+            tileFiltersOverride?: DashboardFilter | null,
+            refresh: RefreshType = 'async'
         ) => ({
             shortId,
             filtersOverride,
             variablesOverride,
             tileFiltersOverride,
+            refresh,
         }),
         updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
             insightUpdate,
@@ -176,7 +178,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
                 loadInsight: async (
-                    { shortId, filtersOverride, variablesOverride, tileFiltersOverride },
+                    { shortId, filtersOverride, variablesOverride, tileFiltersOverride, refresh },
                     breakpoint
                 ) => {
                     await breakpoint(100)
@@ -184,7 +186,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         const insight = await insightsApi.getByShortId(
                             shortId,
                             undefined,
-                            'async',
+                            refresh,
                             filtersOverride,
                             variablesOverride,
                             tileFiltersOverride
