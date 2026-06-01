@@ -1,3 +1,4 @@
+import json
 import uuid
 import typing as t
 from typing import cast
@@ -3889,6 +3890,191 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
+
+    def _custom_source(self, base_url: str, resource_paths: list[str] | None = None) -> ExternalDataSource:
+        paths = resource_paths if resource_paths is not None else ["/users"]
+        manifest = {
+            "client": {"base_url": base_url, "auth": {"type": "api_key", "name": "key", "location": "query"}},
+            "resources": [{"name": f"resource_{i}", "endpoint": {"path": p}} for i, p in enumerate(paths)],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_src",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_api_key": "sk_existing"},
+        )
+
+    @parameterized.expand([("without_credentials", {}, 400), ("with_credentials", {"auth_api_key": "sk_new"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_manifest_host_change(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The custom source's host lives inside the manifest. Retargeting it to a new host requires
+        # re-supplying the secret; without it the preserved credential would reach a server the editor
+        # chose, so the change is rejected and nothing is persisted.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        persisted_host = "attacker.example.net" if expected_status == 200 else "api.example.com"
+        assert persisted_host in source.job_inputs["manifest_json"]
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_ambiguous_authority_host_change_is_rejected(self, mock_validate_credentials):
+        # `https://attacker\@api.example.com/` connects to `attacker` (urllib3/WHATWG) but parses as
+        # `api.example.com` under naive urlparse — the guard must see the real host and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net\\@api.example.com/",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_same_host_manifest_edit_keeps_credentials(self, mock_validate_credentials):
+        # Editing a manifest without introducing a new host (e.g. tweaking a path) must not force
+        # the user to re-enter the credential — the destination is unchanged.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/v2/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_path_param_host_injection_is_rejected(self, mock_validate_credentials):
+        # The new host is hidden in a path-param value (resolved into the path at sync time), not the
+        # literal path — the guard must still detect it and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {
+                    "name": "users",
+                    "endpoint": {"path": "{target}", "params": {"target": "https://attacker.example.net/"}},
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_adding_cross_host_resource_is_rejected(self, mock_validate_credentials):
+        # base_url is unchanged, but a resource now points at a brand-new host — the credential would
+        # reach a destination it wasn't going to before, so re-entry is still required.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {"name": "users", "endpoint": {"path": "/users"}},
+                {"name": "leak", "endpoint": {"path": "https://attacker.example.net/data"}},
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_removing_host_does_not_require_credentials(self, mock_validate_credentials):
+        # Dropping a resource removes a destination host. That can't leak the credential anywhere new,
+        # so it must not force the user to re-enter it.
+        source = self._custom_source("https://api.example.com", resource_paths=["/users", "https://cdn.other.net/data"])
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
         mock_validate_credentials.assert_called_once()
 
     @patch(
