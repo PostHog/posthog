@@ -151,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         move |e: &Event| fan_out(e, &excluded_events),
         "events",
+        0,
     ));
     tokio::spawn(worker_loop::<GroupIdentify, _, _>(
         shared_config.clone(),
@@ -159,6 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_handle.clone(),
         move |g: &GroupIdentify| fan_out_group(g, &excluded_groups),
         "groups",
+        0,
     ));
     tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
         shared_config.clone(),
@@ -167,6 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         merger_handle.clone(),
         |m: &PropertyValueMessage| extract_tuple(m),
         "merger",
+        shared_config.max_values_per_key,
     ));
     drop(events_handle);
     drop(groups_handle);

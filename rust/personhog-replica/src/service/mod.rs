@@ -44,6 +44,7 @@ use uuid::Uuid;
 
 use crate::storage::{self, FullStorage};
 
+const MAX_BATCH_LOOKUP_SIZE: usize = 250;
 const MAX_BATCH_DELETE_SIZE: i64 = 50_000;
 const MAX_LIST_COHORT_MEMBER_IDS_LIMIT: i32 = 10_000;
 const MAX_LIST_GROUPS_LIMIT: i32 = 1_000;
@@ -95,6 +96,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.person_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} person IDs per request"
+            )));
+        }
 
         let include_props = person_needs_properties(&req.read_options);
         let persons = self
@@ -149,6 +156,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.uuids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} UUIDs per request"
+            )));
+        }
 
         let uuids: Vec<Uuid> = req
             .uuids
@@ -205,6 +218,12 @@ impl PersonHogReplica for PersonHogReplicaService {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
 
+        if req.distinct_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} distinct IDs per request"
+            )));
+        }
+
         let include_props = person_needs_properties(&req.read_options);
         let results = self
             .storage
@@ -236,6 +255,12 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<PersonsByDistinctIdsResponse>, Status> {
         let req = request.into_inner();
         reject_strong_consistency(&req.read_options)?;
+
+        if req.team_distinct_ids.len() > MAX_BATCH_LOOKUP_SIZE {
+            return Err(Status::invalid_argument(format!(
+                "Maximum {MAX_BATCH_LOOKUP_SIZE} distinct IDs per request"
+            )));
+        }
 
         let include_props = person_needs_properties(&req.read_options);
         let team_distinct_ids: Vec<(i64, String)> = req
