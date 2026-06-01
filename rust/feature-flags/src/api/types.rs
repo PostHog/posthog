@@ -608,7 +608,10 @@ impl FlagDetails {
                             .map(|v| serde_json::to_value(v).unwrap_or(Value::Null));
                         let expected = property.value.clone().unwrap_or(Value::Null);
                         let explanation = if property_matched {
-                            format!("Flag dependency '{}' evaluated to {}", property.key, expected)
+                            format!(
+                                "Flag dependency '{}' evaluated to {}",
+                                property.key, expected
+                            )
                         } else {
                             format!(
                                 "Flag dependency '{}' did not evaluate to {}",

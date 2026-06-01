@@ -239,8 +239,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         // Check if form has valid person selected
         hasValidPerson: [
             (s) => [s.testFormData],
-            (formData: TestFormData): boolean =>
-                Boolean(formData.distinct_id?.trim() || formData.person_id?.trim()),
+            (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim() || formData.person_id?.trim()),
         ],
         // Get formatted error display information
         errorDisplay: [
