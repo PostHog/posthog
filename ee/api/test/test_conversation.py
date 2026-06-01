@@ -10,6 +10,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.schema import (
     AgentMode,
@@ -1245,3 +1246,55 @@ class TestConversationSoftDelete(APIBaseTest):
         still_deleted = Conversation.objects.get(pk=conversation.pk)
         self.assertTrue(still_deleted.deleted)
         self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)
+
+
+class TestConversationSandboxRoute(APIBaseTest):
+    def _sandbox_conversation(self) -> Conversation:
+        return Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+        )
+
+    def test_sandbox_route_reachable_and_delegates_to_handler(self):
+        conversation = self._sandbox_conversation()
+        sentinel = Response({"task_id": "t", "run_id": "r", "just_created_run": True}, status=status.HTTP_200_OK)
+        with patch("ee.api.conversation.handle_sandbox_message", return_value=sentinel) as m_handle:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello", "trace_id": str(uuid.uuid4())},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_handle.assert_called_once()
+        # The handler receives the resolved conversation, not just an id.
+        passed_conversation = m_handle.call_args[0][1]
+        self.assertEqual(passed_conversation.id, conversation.id)
+
+    def test_sandbox_route_rejects_langgraph_conversation(self):
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+        with patch("ee.api.conversation.handle_sandbox_message") as m_handle:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/sandbox/",
+                {"content": "hello"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        m_handle.assert_not_called()
+
+    def test_cancel_sandbox_conversation_delegates_to_sandbox_handler(self):
+        conversation = self._sandbox_conversation()
+        sentinel = Response({"run_status": "cancelled"}, status=status.HTTP_200_OK)
+        with patch("ee.api.conversation.handle_sandbox_cancel", return_value=sentinel) as m_cancel:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        m_cancel.assert_called_once()
