@@ -29,48 +29,48 @@ def _unwrap_udf(call: ast.Call) -> tuple[str, ast.Expr]:
 
 
 class TestTrafficTypeFunctions:
-    def test_get_traffic_type_calls_botGetTrafficType(self):
+    def test_get_traffic_type_calls_botTrafficType(self):
         result = get_traffic_type(node=ast.Call(name="__preview_getTrafficType", args=[]), args=[_ua()])
         udf_name, _ = _unwrap_udf(result)
-        assert udf_name == "botGetTrafficType"
+        assert udf_name == "botTrafficType"
 
-    def test_get_traffic_category_calls_botGetCategory(self):
+    def test_get_traffic_category_calls_botCategory(self):
         result = get_traffic_category(node=ast.Call(name="__preview_getTrafficCategory", args=[]), args=[_ua()])
         udf_name, _ = _unwrap_udf(result)
-        assert udf_name == "botGetCategory"
+        assert udf_name == "botCategory"
 
-    def test_get_bot_name_calls_botGetName(self):
+    def test_get_bot_name_calls_botName(self):
         result = get_bot_name(node=ast.Call(name="__preview_getBotName", args=[]), args=[_ua()])
         udf_name, _ = _unwrap_udf(result)
-        assert udf_name == "botGetName"
+        assert udf_name == "botName"
 
-    def test_get_bot_operator_calls_botGetOperator(self):
+    def test_get_bot_operator_calls_botOperator(self):
         result = get_bot_operator(node=ast.Call(name="__preview_getBotOperator", args=[]), args=[_ua()])
         udf_name, _ = _unwrap_udf(result)
-        assert udf_name == "botGetOperator"
+        assert udf_name == "botOperator"
 
-    def test_is_bot_calls_botIsBot(self):
+    def test_is_bot_calls_isBot(self):
         result = is_bot(node=ast.Call(name="__preview_isBot", args=[]), args=[_ua()])
         udf_name, _ = _unwrap_udf(result)
-        assert udf_name == "botIsBot"
+        assert udf_name == "isBot"
 
     def test_get_bot_type_translates_regular_to_empty_string(self):
         # __preview_getBotType returns '' for regular traffic (backwards-compat shape);
-        # botGetCategory defaults to 'regular', so we wrap with if(cat = 'regular', '', cat).
+        # botCategory defaults to 'regular', so we wrap with if(cat = 'regular', '', cat).
         result = get_bot_type(node=ast.Call(name="__preview_getBotType", args=[]), args=[_ua()])
         assert isinstance(result, ast.Call)
         assert result.name == "if"
         assert len(result.args) == 3
-        # condition: equals(botGetCategory(ifNull(ua, '')), 'regular')
+        # condition: equals(botCategory(ifNull(ua, '')), 'regular')
         condition = result.args[0]
         assert isinstance(condition, ast.CompareOperation)
         assert condition.op == ast.CompareOperationOp.Eq
-        assert isinstance(condition.left, ast.Call) and condition.left.name == "botGetCategory"
+        assert isinstance(condition.left, ast.Call) and condition.left.name == "botCategory"
         assert isinstance(condition.right, ast.Constant) and condition.right.value == "regular"
         # then '': true branch is the empty string
         assert isinstance(result.args[1], ast.Constant) and result.args[1].value == ""
-        # else: fall back to the original botGetCategory call
-        assert isinstance(result.args[2], ast.Call) and result.args[2].name == "botGetCategory"
+        # else: fall back to the original botCategory call
+        assert isinstance(result.args[2], ast.Call) and result.args[2].name == "botCategory"
 
     def test_null_user_agent_wrapped_in_ifnull(self):
         custom_ua = ast.Field(chain=["custom", "ua"])
@@ -81,11 +81,11 @@ class TestTrafficTypeFunctions:
     @pytest.mark.parametrize(
         "function_builder,expected_udf",
         [
-            (get_traffic_type, "botGetTrafficType"),
-            (get_traffic_category, "botGetCategory"),
-            (get_bot_name, "botGetName"),
-            (get_bot_operator, "botGetOperator"),
-            (is_bot, "botIsBot"),
+            (get_traffic_type, "botTrafficType"),
+            (get_traffic_category, "botCategory"),
+            (get_bot_name, "botName"),
+            (get_bot_operator, "botOperator"),
+            (is_bot, "isBot"),
         ],
     )
     def test_all_simple_functions_use_their_udf(self, function_builder, expected_udf):
