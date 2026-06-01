@@ -2143,6 +2143,28 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
+}
+
 /**
  * * `image/png` - image/png
  * `application/pdf` - application/pdf
@@ -2247,28 +2269,6 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
-}
-
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -3140,6 +3140,99 @@ export interface PatchedUserApi {
     readonly requires_credential_review?: boolean
 }
 
+export interface UserGitHubAccountApi {
+    /**
+     * GitHub account type for the installation (e.g. User or Organization).
+     * @nullable
+     */
+    type?: string | null
+    /**
+     * GitHub login or organization name tied to the installation.
+     * @nullable
+     */
+    name?: string | null
+}
+
+export interface UserGitHubIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
+    /** Integration kind; always `github` for this API. */
+    kind: string
+    /** GitHub App installation id. */
+    installation_id: string
+    /**
+     * Repository selection mode from GitHub (e.g. selected or all).
+     * @nullable
+     */
+    repository_selection?: string | null
+    /** Installation account metadata from GitHub. */
+    account?: UserGitHubAccountApi | null
+    /** True when this installation id matches a team-level GitHub integration on the active project. */
+    uses_shared_installation: boolean
+    /** When this integration row was created. */
+    created_at: string
+}
+
+export interface UserGitHubIntegrationListResponseApi {
+    /** GitHub personal integrations for the authenticated user. */
+    results: UserGitHubIntegrationItemApi[]
+}
+
+export interface PaginatedUserGitHubIntegrationListResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserGitHubIntegrationListResponseApi[]
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
+export interface UserGitHubLinkStartRequestApi {
+    /**
+     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * @nullable
+     */
+    team_id?: number | null
+    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+    connect_from?: string
+}
+
+export interface UserGitHubLinkStartResponseApi {
+    /** URL to open in the browser to install or authorize the GitHub App for this user. */
+    install_url: string
+    /** OAuth or install flow used for this GitHub connection. */
+    connect_flow: string
+}
+
 /**
  * * `later` - Later
  * `other` - Other
@@ -3497,4 +3590,56 @@ export type UsersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

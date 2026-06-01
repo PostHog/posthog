@@ -170,21 +170,6 @@ export const DashboardsCollaboratorsCreateBody = /* @__PURE__ */ zod.object({
     user_uuid: zod.uuid(),
 })
 
-/**
- * Create a new password for the sharing configuration.
- */
-export const DashboardsSharingPasswordsCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
-export const DashboardsSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
-    enabled: zod.boolean().optional(),
-    settings: zod.unknown().optional(),
-    password_required: zod.boolean().optional(),
-})
-
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyDeleteInsightsDefault = false

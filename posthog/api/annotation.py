@@ -6,7 +6,6 @@ from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -129,7 +128,6 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
-@extend_schema(extensions={"x-product": "core"})
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.

@@ -1163,7 +1163,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
         ],
     ),
 )
-@extend_schema(extensions={"x-product": "core"})
 class DashboardsViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

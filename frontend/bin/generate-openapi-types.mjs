@@ -199,9 +199,9 @@ function createTempDir() {
  *
  * Routing priority:
  * 1. Tag matches product folder (includes auto-tags from backend) -> product
- * 2. URL path contains product folder name (fallback) -> product
- * 3. @validated_request decorator in posthog/api/ or ee/ -> core
- * 4. Explicit "core" tag -> core
+ * 2. Explicit "core" tag -> core (authoritative — wins over URL fallback)
+ * 3. URL path contains product folder name (fallback) -> product
+ * 4. @validated_request decorator in posthog/api/ or ee/ -> core
  * 5. Otherwise -> skipped
  */
 function buildGroupedSchemasByOutput(schema, mappings) {
@@ -239,7 +239,13 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 routingMethod = 'tag'
             }
 
-            // Priority 2: URL path contains product folder name (fallback)
+            // Priority 2: Explicit "core" tag is authoritative — devs use it to override URL fallback
+            if (!outputDir && tags.includes('core')) {
+                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
+                routingMethod = 'tag'
+            }
+
+            // Priority 3: URL path contains product folder name (fallback)
             if (!outputDir) {
                 const urlProduct = matchUrlToProduct(pathKey, mappings.productFoldersOnDisk)
                 if (urlProduct) {
@@ -248,7 +254,7 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                 }
             }
 
-            // Priority 3: @validated_request decorator in core -> core
+            // Priority 4: @validated_request decorator in core -> core
             if (!outputDir) {
                 for (const snakeCase of mappings.validatedRequestViewSets) {
                     if (operationId === snakeCase || operationId.startsWith(snakeCase + '_')) {
@@ -257,12 +263,6 @@ function buildGroupedSchemasByOutput(schema, mappings) {
                         break
                     }
                 }
-            }
-
-            // Priority 4: Explicit "core" tag
-            if (!outputDir && tags.includes('core')) {
-                outputDir = resolveProductToOutputDir(null, mappings.productFoldersOnDisk)
-                routingMethod = 'tag'
             }
 
             // No match - skip
