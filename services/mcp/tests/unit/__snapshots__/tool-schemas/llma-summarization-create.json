@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "description": "Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id."
+        },
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End of date range for ID-based lookup. Defaults to now."
+        },
+        "force_refresh": {
+            "default": false,
+            "description": "Force regenerate summary, bypassing cache",
+            "type": "boolean"
+        },
+        "generation_id": {
+            "description": "Generation event UUID to summarize. The backend fetches the event data automatically. Requires date_from for efficient lookup.",
+            "type": "string"
+        },
+        "mode": {
+            "default": "minimal",
+            "description": "Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points\n\n* `minimal` - minimal\n* `detailed` - detailed",
+            "enum": ["minimal", "detailed"],
+            "type": "string"
+        },
+        "model": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "LLM model to use (defaults based on provider)"
+        },
+        "summarize_type": {
+            "description": "Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n* `trace` - trace\n* `event` - event",
+            "enum": ["trace", "event"],
+            "type": "string"
+        },
+        "trace_id": {
+            "description": "Trace ID to summarize. The backend fetches the trace data automatically. Requires date_from for efficient lookup.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
