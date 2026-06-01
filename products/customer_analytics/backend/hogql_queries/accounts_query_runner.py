@@ -236,10 +236,6 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         try:
             response = self._execute_metrics_query(metrics)
         except (InternalCHQueryError, BaseHogQLError) as error:
-            # The overview tile metrics ride on the same request as the row
-            # query, so a single bad metric otherwise surfaces as an opaque
-            # "ClickHouse error" with no clue which tile caused it. Pinpoint the
-            # offending expression(s) and re-raise something actionable.
             raise self._metric_evaluation_error(metrics, error) from error
 
         row = response.results[0] if response.results else []

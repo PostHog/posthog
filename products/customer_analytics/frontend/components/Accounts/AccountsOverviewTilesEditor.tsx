@@ -45,9 +45,6 @@ function defaultLabelForMetric(metric: AccountsOverviewTileMetric): string {
     }
 }
 
-// Build a fresh metric of the requested type, preserving the column choice
-// across switches between column-bound metric types so the user doesn't have
-// to re-pick the column every time they change the aggregation.
 function metricOfType(
     type: AccountsOverviewTileMetricType,
     options: AccountColumnOption[],

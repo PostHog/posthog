@@ -31,8 +31,6 @@ export interface AccountsOverviewTile {
     metric: AccountsOverviewTileMetric
 }
 
-// `tileId` carries the source tile so the overview can highlight which tile is
-// the active filter; `expression` is the HogQL fragment passed to AccountsQuery.
 export interface TileFilter {
     tileId: string
     expression: string
@@ -123,9 +121,6 @@ export function parseTileValues(
     return values
 }
 
-// Drop tiles that point at a column no longer exposed by the schema. We can't
-// tell from a saved tile alone whether `metric.columnExpression` is still valid
-// HogQL, so we conservatively reconcile against the live column groups.
 function reconcileTilesAgainstSchema(
     tiles: AccountsOverviewTile[],
     numericExpressions: Set<string>
@@ -144,9 +139,6 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         values: [
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
-            // Keyed by `key` only — shares the instance the table binds via
-            // BindLogic, so tile values come from the same response (and request)
-            // as the rows. The placeholder query is replaced once BindLogic mounts.
             dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {} as DataNode }),
             ['response as accountsResponse', 'responseLoading as accountsResponseLoading'],
         ],
