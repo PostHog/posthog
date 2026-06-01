@@ -1111,6 +1111,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.Cohorts,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
                         value: 'cohorts',
+                        // Cohort populations comfortably fit in one page for
+                        // the overwhelming majority of teams — cache the
+                        // first 100 once and fuse-filter typed queries
+                        // locally instead of round-tripping per keystroke.
+                        clientFilterFirstPage: true,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
                         getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
@@ -1130,6 +1135,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'cohorts',
                         type: TaxonomicFilterGroupType.CohortsWithAllUsers,
                         endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+                        clientFilterFirstPage: true,
                         options: COHORTS_WITH_ALL_USERS_OPTIONS,
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
@@ -1975,7 +1981,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     groupType === TaxonomicFilterGroupType.PersonProperties ||
                     groupType === TaxonomicFilterGroupType.NumericalEventProperties)
             ) {
-                const propertyDefinitions: PropertyDefinition[] = results.results as PropertyDefinition[]
+                // results.results can contain loading skeletons or undefined entries that have no
+                // `name`; those would crash `Object.fromEntries`/`.name` below, so skip them.
+                const propertyDefinitions = (results.results as PropertyDefinition[]).filter(
+                    (propertyDefinition) => propertyDefinition?.name
+                )
                 const apiType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
                 const newPropertyDefinitions = Object.fromEntries(
                     propertyDefinitions.map((propertyDefinition) => [

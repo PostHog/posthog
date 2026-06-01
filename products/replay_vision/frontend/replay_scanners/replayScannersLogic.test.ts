@@ -48,8 +48,8 @@ describe('replayScannersLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team/vision/scanners/': { results: [] },
-                '/api/environments/:team/vision/quota/': () => [404, {}],
+                '/api/projects/:team/vision/scanners/': { results: [] },
+                '/api/projects/:team/vision/quota/': () => [404, {}],
             },
         })
         initKeaTests()

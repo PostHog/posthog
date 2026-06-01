@@ -2639,6 +2639,8 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "common-types",
+ "cymbal-proto",
+ "cymbal-resolution",
  "envconfig",
  "futures",
  "health",
@@ -2651,6 +2653,7 @@ dependencies = [
  "posthog-rs 0.3.7",
  "posthog-symbol-data",
  "proguard",
+ "rand 0.8.5",
  "rdkafka",
  "regex",
  "reqwest 0.12.28",
@@ -2664,11 +2667,48 @@ dependencies = [
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+]
+
+[[package]]
+name = "cymbal-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
+name = "cymbal-resolution"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-metrics",
+ "cymbal",
+ "cymbal-proto",
+ "envconfig",
+ "futures",
+ "metrics",
+ "personhog-common",
+ "posthog-rs 0.3.7",
+ "serde_json",
+ "subtle",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -6660,6 +6700,7 @@ dependencies = [
  "http-body-util",
  "metrics",
  "pin-project",
+ "rstest",
  "sqlx",
  "tokio",
  "tonic 0.12.3",

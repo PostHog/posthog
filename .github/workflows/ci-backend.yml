@@ -75,6 +75,7 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
@@ -192,7 +193,6 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - .test_durations
-                        - frontend/src/queries/schema.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
@@ -205,6 +205,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                      schema:
+                        # Tracked separately from `legacy` so turbo-discover can
+                        # diff schema.json and narrow the product matrix to
+                        # products that import the changed types.
+                        - frontend/src/queries/schema.json
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -348,6 +353,7 @@ jobs:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
               run: |
@@ -1754,6 +1760,7 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=1000 --durations-min=1.0 --store-durations \
+                      --pytest-durations=100 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
@@ -1814,6 +1821,7 @@ jobs:
                   pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
+                      --pytest-durations=100 \
                       --splitting-algorithm=duration_based_chunks \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
