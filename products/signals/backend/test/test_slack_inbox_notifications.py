@@ -295,7 +295,7 @@ def test_dispatch_no_notification_when_user_has_no_slack_config(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer@example.com", "review-bot")
     SignalUserAutonomyConfig.objects.create(user=user)  # no slack config
-    report = _make_ready_report(team, suggested_logins=["review-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["review-bot"])
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
