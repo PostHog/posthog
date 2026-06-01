@@ -208,12 +208,7 @@ function SdkDoctorErrorState({
                     ? "We couldn't reach PostHog - check your connection and try again."
                     : 'Something went wrong on our end. Try again in a moment.'}
             </p>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                icon={<IconRefresh className="size-4" />}
-                onClick={onRetry}
-            >
+            <LemonButton className="mt-2" type="primary" icon={<IconRefresh className="size-4" />} onClick={onRetry}>
                 Try again
             </LemonButton>
         </LemonBanner>
