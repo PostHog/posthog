@@ -146,7 +146,12 @@ const tasksRunsRetrieve = (): ToolBase<typeof TasksRunsRetrieveSchema, Schemas.T
 
 const TasksRunsSessionLogsRetrieveSchema = TasksRunsSessionLogsRetrieveParams.omit({ project_id: true })
     .extend(TasksRunsSessionLogsRetrieveQueryParams.shape)
-    .extend({ limit: TasksRunsSessionLogsRetrieveQueryParams.shape['limit'].default(100).optional() })
+    .extend({
+        limit: TasksRunsSessionLogsRetrieveQueryParams.shape['limit']
+            .default(100)
+            .optional()
+            .describe('Maximum number of entries to return (default 100, max 5000)'),
+    })
 
 const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRetrieveSchema, unknown> => ({
     name: 'tasks-runs-session-logs-retrieve',
