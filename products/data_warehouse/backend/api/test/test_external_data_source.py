@@ -7309,7 +7309,7 @@ class TestEnableCDC(APIBaseTest):
         )
 
         assert response.status_code == 200, response.content
-        assert response.json() == {"success": True}
+        assert response.json() == {"success": True, "schedules_ready": True}
 
         source.refresh_from_db()
         ji = source.job_inputs or {}
