@@ -33,4 +33,11 @@ describe('resolveSkillFile', () => {
     it('rejects empty segments', () => {
         expect(() => resolveSkillFile('skills/research/SKILL.md', 'references//deep.md')).toThrow(/traversal/)
     })
+
+    it('rejects companion reads for a legacy flat skill (no own folder)', () => {
+        // `skills/research.md`'s dir is the shared `skills/` root — a companion
+        // read there could reach a sibling skill, so it must be refused.
+        expect(() => resolveSkillFile('skills/research.md', 'other.md')).toThrow(/no companion files/)
+        expect(() => resolveSkillFile('skills/research.md', 'sibling/SKILL.md')).toThrow(/no companion files/)
+    })
 })

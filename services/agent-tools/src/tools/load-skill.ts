@@ -24,7 +24,17 @@ import { defineNativeTool, Type } from '@posthog/agent-shared'
  * inside the skill folder.
  */
 export function resolveSkillFile(skillPath: string, file: string): string {
-    const root = skillPath.includes('/') ? skillPath.replace(/\/[^/]*$/, '') : ''
+    // Companion files only exist in the spec's directory layout
+    // (`skills/<alias>/SKILL.md` + siblings), where the skill owns its folder.
+    // A legacy flat skill (`skills/<alias>.md`) has no folder of its own — its
+    // directory is the shared `skills/` root — so a model-chosen `file` there
+    // could read a *different* skill's files. Reject companion reads unless the
+    // path is the `…/SKILL.md` shape, and scope `file` to that skill's folder.
+    const lastSlash = skillPath.lastIndexOf('/')
+    if (lastSlash === -1 || skillPath.slice(lastSlash + 1) !== 'SKILL.md') {
+        throw new Error(`load-skill: skill "${skillPath}" has no companion files.`)
+    }
+    const root = skillPath.slice(0, lastSlash) // the skill's own folder
     const rel = file.replace(/\\/g, '/')
     if (rel.startsWith('/')) {
         throw new Error(`load-skill: file "${file}" must be a relative path inside the skill folder.`)
@@ -33,7 +43,7 @@ export function resolveSkillFile(skillPath: string, file: string): string {
     if (segments.some((s) => s === '..' || s === '.' || s === '')) {
         throw new Error(`load-skill: file "${file}" must not contain traversal or empty segments.`)
     }
-    return root ? `${root}/${rel}` : rel
+    return `${root}/${rel}`
 }
 
 export const loadSkill = defineNativeTool({
