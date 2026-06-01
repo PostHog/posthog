@@ -126,15 +126,14 @@ function asTransportError(err: Error | null): TransportError | null {
  * etc.) lives in `?…` query params on the matching segment — defined
  * by each segment's page comment, see e.g. configuration/page.tsx.
  */
-function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string | null {
-    // The agent can override the dock's current subject by passing
-    // `args.slug` — necessary when the dock is on a page with no agent
-    // (agent-list, unknown). Dock context is the fallback.
-    const slug = args.slug ?? contextSlug
-    if (!slug) {
+function urlForFocus(args: FocusArgs): string | null {
+    // `args.slug` is required by the type but defensive — the spec's
+    // args_schema may not enforce non-empty strings depending on the
+    // provider, and an empty slug would build `/agents//configuration`.
+    if (!args.slug) {
         return null
     }
-    const base = `/agents/${slug}`
+    const base = `/agents/${args.slug}`
     switch (args.kind) {
         case 'tab':
             // Overview is the root segment of `[slug]`, the other tabs
@@ -153,7 +152,7 @@ function urlForFocus(args: FocusArgs, contextSlug: string | undefined): string |
     }
 }
 
-function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, FocusResult>[] {
+function useFocusHandlers(): ClientToolHandler<FocusArgs, FocusResult>[] {
     const focus = useFocusStore()
     const router = useRouter()
     return useMemo(() => {
@@ -161,21 +160,17 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
             if (!focus.enabled) {
                 return { focused: false, reason: 'user_paused_follow' }
             }
-            const contextSlug =
-                context.mode === 'concierge' && 'agent' in context.page
-                    ? context.page.agent.slug
-                    : context.mode === 'playground'
-                      ? context.agent.slug
-                      : undefined
-            // Each branch returns a distinct `reason` so the model gets
-            // an actionable message instead of a generic "unresolved" —
-            // the previous catch-all was indistinguishable from a real
-            // failure in the chat UI.
-            const effectiveSlug = args.slug ?? contextSlug
-            if (!effectiveSlug) {
-                return { focused: false, reason: 'no_agent_target — pass `slug` or invoke from an agent page' }
+            // `slug` is required on every variant — see comment on
+            // `FocusArgs` in `@posthog/agent-chat/types`. Each branch
+            // returns a distinct `reason` so the agent gets an
+            // actionable message instead of a generic "unresolved".
+            if (!args.slug) {
+                return {
+                    focused: false,
+                    reason: 'missing_slug — every focus_* call must include the target agent slug',
+                }
             }
-            const url = urlForFocus(args, effectiveSlug)
+            const url = urlForFocus(args)
             if (!url) {
                 return { focused: false, reason: `unsupported_focus_kind:${args.kind}` }
             }
@@ -193,25 +188,25 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
                 id: 'focus_tab',
                 handle: (a: {
                     tab: 'overview' | 'configuration' | 'connections' | 'sessions' | 'memory'
-                    slug?: string
+                    slug: string
                 }) => dispatch({ kind: 'tab', ...a }),
             },
-            { id: 'focus_file', handle: (a: { path: string; slug?: string }) => dispatch({ kind: 'file', ...a }) },
+            { id: 'focus_file', handle: (a: { path: string; slug: string }) => dispatch({ kind: 'file', ...a }) },
             {
                 id: 'focus_revision',
-                handle: (a: { revisionId: string; slug?: string }) => dispatch({ kind: 'revision', ...a }),
+                handle: (a: { revisionId: string; slug: string }) => dispatch({ kind: 'revision', ...a }),
             },
             {
                 id: 'focus_session',
-                handle: (a: { sessionId: string; slug?: string }) => dispatch({ kind: 'session', ...a }),
+                handle: (a: { sessionId: string; slug: string }) => dispatch({ kind: 'session', ...a }),
             },
             {
                 id: 'focus_spec_section',
-                handle: (a: { section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'; slug?: string }) =>
+                handle: (a: { section: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits'; slug: string }) =>
                     dispatch({ kind: 'spec_section', ...a }),
             },
         ] as unknown as ClientToolHandler<FocusArgs, FocusResult>[]
-    }, [context, focus, router])
+    }, [focus, router])
 }
 
 /**
@@ -222,17 +217,8 @@ function useFocusHandlers(context: ChatContext): ClientToolHandler<FocusArgs, Fo
  *
  * Non-focus tools return null and fall back to the bare collapsed card.
  */
-function useToolSummaryRenderer(
-    context: ChatContext
-): (part: Extract<AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null {
+function useToolSummaryRenderer(): (part: Extract<AssistantTurnPart, { kind: 'tool_call' }>) => React.ReactNode | null {
     return useMemo(() => {
-        const contextSlug =
-            context.mode === 'concierge' && 'agent' in context.page
-                ? context.page.agent.slug
-                : context.mode === 'playground'
-                  ? context.agent.slug
-                  : undefined
-
         return (part) => {
             if (!part.toolId.startsWith('focus_')) {
                 return null
@@ -241,12 +227,12 @@ function useToolSummaryRenderer(
             if (!target) {
                 return null
             }
-            // Same precedence as the dispatcher — args.slug wins so the
-            // inline link points at the actual focus target even when
-            // the dock context has no current agent (e.g. agent list).
-            const argSlug = typeof part.args.slug === 'string' ? part.args.slug : null
-            const effectiveSlug = argSlug ?? contextSlug
-            const url = effectiveSlug ? urlForFocusToolId(part.toolId, part.args, effectiveSlug) : null
+            // `slug` is required on every focus_* call — read it
+            // straight from args. If the agent omitted it the call
+            // failed at the dispatcher, which we'll surface as the
+            // error text below.
+            const slug = typeof part.args.slug === 'string' ? part.args.slug : null
+            const url = slug ? urlForFocusToolId(part.toolId, part.args, slug) : null
             const failed = part.result !== undefined && !part.result.ok
             const errorText = failed && part.result && !part.result.ok ? part.result.error : null
 
@@ -270,7 +256,7 @@ function useToolSummaryRenderer(
                 </div>
             )
         }
-    }, [context])
+    }, [])
 }
 
 /**
@@ -298,21 +284,21 @@ function describeFocusTarget(toolId: string, args: Record<string, unknown>): str
 function urlForFocusToolId(toolId: string, args: Record<string, unknown>, slug: string): string | null {
     switch (toolId) {
         case 'focus_tab':
-            return typeof args.tab === 'string' ? urlForFocus({ kind: 'tab', tab: args.tab as never }, slug) : null
+            return typeof args.tab === 'string' ? urlForFocus({ kind: 'tab', tab: args.tab as never, slug }) : null
         case 'focus_revision':
             return typeof args.revisionId === 'string'
-                ? urlForFocus({ kind: 'revision', revisionId: args.revisionId }, slug)
+                ? urlForFocus({ kind: 'revision', revisionId: args.revisionId, slug })
                 : null
         case 'focus_session':
             return typeof args.sessionId === 'string'
-                ? urlForFocus({ kind: 'session', sessionId: args.sessionId }, slug)
+                ? urlForFocus({ kind: 'session', sessionId: args.sessionId, slug })
                 : null
         case 'focus_spec_section':
             return typeof args.section === 'string'
-                ? urlForFocus({ kind: 'spec_section', section: args.section as never }, slug)
+                ? urlForFocus({ kind: 'spec_section', section: args.section as never, slug })
                 : null
         case 'focus_file':
-            return typeof args.path === 'string' ? urlForFocus({ kind: 'file', path: args.path }, slug) : null
+            return typeof args.path === 'string' ? urlForFocus({ kind: 'file', path: args.path, slug }) : null
         default:
             return null
     }
@@ -323,7 +309,7 @@ function shortRevisionId(id: string): string {
 }
 
 function useDockHandlers(context: ChatContext): ClientToolHandler[] {
-    const focusHandlers = useFocusHandlers(context)
+    const focusHandlers = useFocusHandlers()
     const { info } = useSession()
     const teamId = info?.teamId ?? null
     const toastHandler = useMemo<ClientToolHandler<ToastArgs, ToastResult>>(
@@ -357,7 +343,7 @@ function useDockHandlers(context: ChatContext): ClientToolHandler[] {
         () => ({
             id: 'set_secret',
             render: (args, callbacks) => {
-                const a = args as { agent_slug?: string; secret?: string; mode?: 'set' | 'rotate'; purpose?: string }
+                const a = args as { agent_slug: string; secret?: string; mode?: 'set' | 'rotate'; purpose?: string }
                 if (!a.agent_slug) {
                     callbacks.reject('missing_arg: agent_slug')
                     return null
@@ -478,7 +464,7 @@ function PlaygroundDock({
     const transportError = useMemo(() => asTransportError(runner.error), [runner.error])
     const [renderMarkdown, setRenderMarkdown] = useRenderMarkdownPreference()
     const { layout, setMode, setVisible } = useDockLayout()
-    const renderToolSummary = useToolSummaryRenderer(context)
+    const renderToolSummary = useToolSummaryRenderer()
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
 
@@ -664,7 +650,7 @@ function RealConciergeDock({
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible } = useDockLayout()
-    const renderToolSummary = useToolSummaryRenderer(context)
+    const renderToolSummary = useToolSummaryRenderer()
 
     return (
         <AgentChat
@@ -717,7 +703,7 @@ function FixtureConciergeDock(): React.ReactElement {
 
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible } = useDockLayout()
-    const renderToolSummary = useToolSummaryRenderer(context)
+    const renderToolSummary = useToolSummaryRenderer()
 
     return (
         <AgentChat

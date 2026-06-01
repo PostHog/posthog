@@ -43,13 +43,19 @@ Sequence:
 
 The five focus tools and when to use each:
 
-| Tool                 | Args                                                                  | Use when                                                |
-| -------------------- | --------------------------------------------------------------------- | ------------------------------------------------------- |
-| `focus_file`         | `{ path: "skills/research.md" }`                                      | Reading or editing a specific bundle file               |
-| `focus_revision`     | `{ revisionId: "<uuid>" }`                                            | Reading or editing a revision's spec / bundle overall   |
-| `focus_session`      | `{ sessionId: "<uuid>" }`                                             | Debugging or watching a session                         |
-| `focus_spec_section` | `{ section: "tools" / "skills" / "triggers" / "secrets" / "limits" }` | Discussing a specific part of the spec                  |
-| `focus_tab`          | `{ tab: "overview" / "configuration" / "sessions" }`                  | Coarse navigation when you don't yet have a specific id |
+| Tool                 | Args (slug always required)                                                                      | Use when                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `focus_file`         | `{ slug: "<agent>", path: "skills/research.md" }`                                                | Reading or editing a specific bundle file               |
+| `focus_revision`     | `{ slug: "<agent>", revisionId: "<uuid>" }`                                                      | Reading or editing a revision's spec / bundle overall   |
+| `focus_session`      | `{ slug: "<agent>", sessionId: "<uuid>" }`                                                       | Debugging or watching a session                         |
+| `focus_spec_section` | `{ slug: "<agent>", section: "tools" / "skills" / "triggers" / "secrets" / "limits" }`           | Discussing a specific part of the spec                  |
+| `focus_tab`          | `{ slug: "<agent>", tab: "overview" / "configuration" / "connections" / "sessions" / "memory" }` | Coarse navigation when you don't yet have a specific id |
+
+**`slug` is required on every focus call.** The dock does NOT infer
+the target from whatever page the user happens to be on — the user
+navigates while you're thinking, and silently following the URL is
+a fast way to misroute. If you don't know the slug, call
+`get_context` or `agent-applications-list` first.
 
 For a multi-file flow (e.g. inspecting `agent.md` then a skill
 then the live session), call focus **before each transition**.
@@ -64,6 +70,10 @@ Every `focus_*` returns either:
   user saw it
 - `{ focused: false, reason: "user_paused_follow" }` — the user
   has "Follow the agent" turned off; the panel didn't change
+- `{ focused: false, reason: "missing_slug ..." }` — you didn't
+  pass `slug`. Look it up via `get_context` or
+  `agent-applications-list` and retry. Don't keep firing without
+  it; the dispatcher will keep refusing.
 
 When `focused: false`, **adapt**:
 
