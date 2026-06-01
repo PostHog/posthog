@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -8,14 +8,23 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from dateutil.rrule import DAILY, FR, HOURLY, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
+from dateutil.rrule import DAILY, FR, MO, MONTHLY, SA, SU, TH, TU, WE, WEEKLY, YEARLY, rrule
 
+from posthog.schema import SubscriptionFreeTierLimit
+
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+
 UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
+
+# Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
+SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -51,7 +60,6 @@ class Subscription(models.Model):
         WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
-        HOURLY = "hourly"
         DAILY = "daily"
         WEEKLY = "weekly"
         MONTHLY = "monthly"
@@ -69,7 +77,6 @@ class Subscription(models.Model):
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
-        SubscriptionFrequency.HOURLY: HOURLY,
         SubscriptionFrequency.DAILY: DAILY,
         SubscriptionFrequency.WEEKLY: WEEKLY,
         SubscriptionFrequency.MONTHLY: MONTHLY,
@@ -79,9 +86,9 @@ class Subscription(models.Model):
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
-    insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
     dashboard_export_insights = models.ManyToManyField(
-        "posthog.Insight",
+        "product_analytics.Insight",
         blank=True,
         related_name="subscriptions_dashboard_export",
     )
@@ -202,6 +209,23 @@ class Subscription(models.Model):
             return None  # DRF field validation should reject before we get here.
         return cls._compute_next_delivery_date(**merged)
 
+    @classmethod
+    def check_subscription_limit(cls, team_id: int, organization: "Organization") -> str | None:
+        """Return an error message if the team has reached its subscription limit, else None."""
+        feature = organization.get_available_feature(AvailableFeature.SUBSCRIPTIONS)
+        # Soft-deleted subscriptions free their slot.
+        existing_count = cls.objects.filter(team_id=team_id, deleted=False).count()
+
+        if feature:
+            allowed = feature.get("limit")
+            # A None limit means unlimited (paid plans without a numeric cap).
+            if allowed is not None and existing_count >= allowed:
+                return f"Your team has reached the limit of {allowed} subscriptions on your plan."
+        elif existing_count >= SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER:
+            return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
+
+        return None
+
     @property
     def url(self):
         if self.insight:
@@ -227,7 +251,6 @@ class Subscription(models.Model):
     def summary(self):
         try:
             human_frequency = {
-                "hourly": "hour",
                 "daily": "day",
                 "weekly": "week",
                 "monthly": "month",

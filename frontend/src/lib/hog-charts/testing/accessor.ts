@@ -12,9 +12,16 @@ import type { TooltipContext } from '../core/types'
 import { dimensions } from './jsdom'
 import { type HogChartTooltip, waitForHogChartTooltip } from './tooltip'
 
+/** A single entry of `TooltipContext.seriesData`. */
+type TooltipSeriesEntry<Meta = unknown> = TooltipContext<Meta>['seriesData'][number]
+
 /** Handle returned by `chart.waitForTooltip()` — every field of the structured `TooltipContext`,
- *  plus the rendered portal `element` and an `isPinned` snapshot. */
-export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> & HogChartTooltip
+ *  plus the rendered portal `element`, an `isPinned` snapshot, and `series` (seriesData indexed
+ *  by series key, for order-independent lookups like `tooltip.series.a.value`). */
+export type TooltipSnapshot<Meta = unknown> = TooltipContext<Meta> &
+    HogChartTooltip & {
+        series: Record<string, TooltipSeriesEntry<Meta>>
+    }
 
 interface ReferenceLineSummary {
     label: string | null
@@ -49,6 +56,10 @@ export interface HogChart<Meta = unknown> {
     yRightTicks(): string[]
     /** Visible x-axis tick labels (post-collision-avoidance). */
     xTicks(): string[]
+    xAxisLabel(): string | null
+    yAxisLabel(): string | null
+    xAxisLabelElement(): SVGTextElement | null
+    yAxisLabelElement(): SVGTextElement | null
     /** Whether a right-y axis was rendered. */
     hasRightAxis: boolean
     /** All reference lines currently rendered for this chart (goal/alert/marker). */
@@ -166,6 +177,12 @@ export function getHogChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-x"]')).map(
                 (el) => el.textContent ?? ''
             ),
+        xAxisLabel: () =>
+            wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-axis-title-x"]')?.textContent ?? null,
+        yAxisLabel: () =>
+            wrapper.querySelector<HTMLElement>('[data-attr="hog-chart-axis-title-y"]')?.textContent ?? null,
+        xAxisLabelElement: () => wrapper.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-x"]'),
+        yAxisLabelElement: () => wrapper.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]'),
         referenceLines: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map(
                 readReferenceLine
@@ -209,6 +226,7 @@ export function getHogChart<Meta = unknown>(
                 ...ctx,
                 element,
                 isPinned: element.classList.contains('hog-charts-tooltip--pinned'),
+                series: Object.fromEntries(ctx.seriesData.map((s) => [s.series.key, s])),
             }
         },
     }

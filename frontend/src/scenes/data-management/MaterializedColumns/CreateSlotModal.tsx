@@ -32,11 +32,11 @@ export function CreateSlotModal(): JSX.Element {
             await api.create(`api/environments/${currentTeam.id}/materialized_column_slots/assign_slot/`, {
                 property_definition_id: selectedPropertyId,
             })
-            lemonToast.success('Slot assigned successfully')
+            lemonToast.success('Property queued for materialization — it will be picked up by the next weekly cycle')
             setShowCreateModal(false)
             loadSlots()
         } catch (error: any) {
-            lemonToast.error(error.detail || 'Failed to assign slot')
+            lemonToast.error(error.detail || 'Failed to queue property for materialization')
             console.error(error)
         } finally {
             setIsSubmitting(false)
@@ -67,19 +67,20 @@ export function CreateSlotModal(): JSX.Element {
                         loading={isSubmitting}
                         disabledReason={!selectedPropertyId ? 'Please select a property' : undefined}
                     >
-                        Assign Slot
+                        Queue for materialization
                     </LemonButton>
                 </>
             }
         >
             <div className="space-y-4">
                 <p className="text-muted">
-                    Select a property to materialize. The system will automatically assign it to the next available slot
-                    for its type and start a backfill process.
+                    Select a property to queue for materialization. The slot starts in <strong>PENDING</strong> state;
+                    the next weekly backfill cycle will assign it a column, run the historical backfill, and transition
+                    it to <strong>READY</strong>. Until then HogQL falls back to JSON extraction for this property.
                 </p>
 
                 <div>
-                    <LemonLabel>Property to Materialize</LemonLabel>
+                    <LemonLabel>Property to materialize</LemonLabel>
                     {selectedProperty ? (
                         <LemonButton
                             fullWidth

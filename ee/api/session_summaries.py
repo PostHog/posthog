@@ -35,7 +35,7 @@ from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
-from posthog.temporal.session_replay.session_summary_group.types import SessionSummaryStreamUpdate
+from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
 
@@ -200,9 +200,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         min_timestamp: datetime,
         max_timestamp: datetime,
         extra_summary_context: ExtraSummaryContext | None = None,
-    ) -> EnrichedSessionGroupSummaryPatternsList:
-        """Helper function to consume the async generator and return a summary"""
-        results: list[tuple[SessionSummaryStreamUpdate, tuple[EnrichedSessionGroupSummaryPatternsList, str] | str]] = []
+    ) -> tuple[EnrichedSessionGroupSummaryPatternsList, list[FailedSessionInfo]]:
+        """Consume the workflow stream and return (patterns, failed_sessions) for the response."""
+        results: list[
+            tuple[
+                SessionSummaryStreamUpdate,
+                tuple[EnrichedSessionGroupSummaryPatternsList, str, list[FailedSessionInfo]] | str,
+            ]
+        ] = []
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user=user,
@@ -223,16 +228,16 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         # The last item in the result should be the summary, if not - raise an exception
         last_result = results[-1]
         summary_iteration = last_result[-1]
-        if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 2:
+        if not isinstance(summary_iteration, tuple) or len(summary_iteration) != 3:
             error_message = f"Unexpected result type ({type(summary_iteration)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
-        summary, _ = summary_iteration
+        summary, _, failed_sessions = summary_iteration
         if not summary or not isinstance(summary, EnrichedSessionGroupSummaryPatternsList):
             error_message = f"Unexpected result type ({type(summary)}) when generating summaries (session ids: {logging_session_ids(session_ids)}): {results}"
             logger.exception(error_message)
             raise exceptions.APIException(error_message)
-        return summary
+        return summary, failed_sessions
 
     @extend_schema(
         operation_id="create_session_summaries",
@@ -257,7 +262,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         )
         # Summarize provided sessions
         try:
-            summary = async_to_sync(self._get_summary_from_progress_stream)(
+            summary, failed_sessions = async_to_sync(self._get_summary_from_progress_stream)(
                 session_ids=session_ids,
                 user=user,
                 team=self.team,
@@ -273,8 +278,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 summary_type="group",
                 session_ids=session_ids,
                 success=True,
+                failed_session_count=len(failed_sessions),
             )
-            return Response(summary.model_dump(exclude_none=True, mode="json"), status=status.HTTP_200_OK)
+            # Sibling field rather than a wrapper, to keep existing `patterns` consumers untouched.
+            response_body = summary.model_dump(exclude_none=True, mode="json")
+            response_body["failed_sessions"] = [
+                {"session_id": fs.session_id, "category": fs.category, "reason": fs.reason} for fs in failed_sessions
+            ]
+            return Response(response_body, status=status.HTTP_200_OK)
         except Exception as err:
             logger.exception(
                 f"Failed to generate session group summary for sessions {logging_session_ids(session_ids)} from team {self.team.id} by user {user.id}: {err}",

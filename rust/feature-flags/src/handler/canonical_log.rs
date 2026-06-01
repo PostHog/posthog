@@ -5,6 +5,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
+use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
 use std::time::Instant;
@@ -307,6 +308,15 @@ pub struct FlagsCanonicalLogLine {
     pub http_status: u16,
     /// Error code from FlagError::error_code(). Uses &'static str to avoid allocation.
     pub error_code: Option<&'static str>,
+
+    /// True when the request was short-circuited by the bot filter and
+    /// skipped token rate-limit, auth, billing, and evaluation.
+    pub is_bot: bool,
+    /// Matched bot category, set iff `is_bot` is true. The enum bounds
+    /// the label set; [`Self::emit`] stringifies at log time.
+    pub bot_category: Option<BotCategory>,
+    /// Which signal fired (UA or IP), set iff `is_bot` is true.
+    pub bot_source: Option<BotSource>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -355,6 +365,9 @@ impl Default for FlagsCanonicalLogLine {
             team_cache_source: None,
             http_status: 200,
             error_code: None,
+            is_bot: false,
+            bot_category: None,
+            bot_source: None,
         }
     }
 }
@@ -424,6 +437,9 @@ impl FlagsCanonicalLogLine {
             billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
+            is_bot = self.is_bot,
+            bot_category = self.bot_category.map(|c| c.as_str()),
+            bot_source = self.bot_source.map(|s| s.as_str()),
             "canonical_log_line"
         );
     }
@@ -592,6 +608,16 @@ impl FlagsCanonicalLogLine {
     /// Populate error fields from a FlagError and emit the log line.
     pub fn emit_for_error(&mut self, error: &FlagError) {
         self.set_error(error);
+        self.emit();
+    }
+
+    /// Emit dependent histograms then the canonical log. For short-circuit
+    /// paths that bypass `run_with_canonical_log` (IP rate-limit blocked,
+    /// bot-Enforced).
+    pub fn emit_short_circuit(&self) {
+        self.emit_db_operations_metrics();
+        self.emit_timing_metrics();
+        self.emit_phase_metrics();
         self.emit();
     }
 }
@@ -1186,12 +1212,10 @@ mod tests {
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
         #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::DeserializeFiltersError, 500, "deserialize_filters_error")]
         #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
-        #[case(FlagError::NoGroupTypeMappings, 500, "no_group_type_mappings")]
         #[case(
             FlagError::DependencyNotFound(DependencyType::Flag, 1),
             500,
@@ -1208,14 +1232,9 @@ mod tests {
             "cohort_filters_parsing_error"
         )]
         #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::PropertiesNotInCache, 503, "properties_not_in_cache")]
-        #[case(
-            FlagError::StaticCohortMatchesNotCached,
-            503,
-            "static_cohort_not_cached"
-        )]
         #[case(FlagError::CacheMiss, 503, "cache_miss")]
         #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,
             #[case] expected_status: u16,

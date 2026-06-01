@@ -24,6 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from 'lib/ui/quill'
 import { capitalizeFirstLetter, objectsEqual, uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
@@ -406,6 +407,61 @@ function BooleanField({
     )
 }
 
+type SearchableChoice = { value: any; label: string }
+
+function SearchableChoiceCombobox({
+    value,
+    onChange,
+    choices,
+    disabled,
+}: {
+    value: any
+    onChange: (value: any) => void
+    choices: SearchableChoice[]
+    disabled?: boolean
+}): JSX.Element {
+    // Mirrors quill's `InputInsidePopup` combobox story: LemonButton as the trigger,
+    // ComboboxInput rendered inside ComboboxContent so the search field stays visible on
+    // open. Combobox primitive auto-scrolls the active item into view but the input lives
+    // outside the scrolling list, so it doesn't get pushed offscreen.
+    const [open, setOpen] = useState(false)
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const selectedLabel = choices.find((choice) => choice.value === value)?.label ?? null
+
+    return (
+        <Combobox
+            items={choices}
+            itemToStringValue={(choice: SearchableChoice) => choice.label}
+            open={open}
+            onOpenChange={setOpen}
+            value={choices.find((choice) => choice.value === value) ?? null}
+            onValueChange={(choice: SearchableChoice | null) => onChange(choice ? choice.value : null)}
+        >
+            <LemonButton
+                ref={triggerRef}
+                type="secondary"
+                fullWidth
+                disabled={disabled}
+                onClick={() => setOpen((prev) => !prev)}
+                className="ph-no-capture"
+            >
+                {selectedLabel ?? <span className="text-secondary">Select a value</span>}
+            </LemonButton>
+            <ComboboxContent anchor={triggerRef}>
+                <ComboboxInput placeholder="Search" showTrigger={false} />
+                <ComboboxEmpty>No items found</ComboboxEmpty>
+                <ComboboxList>
+                    {(choice: SearchableChoice) => (
+                        <ComboboxItem key={String(choice.value)} value={choice}>
+                            {choice.label}
+                        </ComboboxItem>
+                    )}
+                </ComboboxList>
+            </ComboboxContent>
+        </Combobox>
+    )
+}
+
 type CyclotronJobInputProps = {
     schema: CyclotronJobInputSchemaType
     input: CyclotronJobInputType
@@ -454,6 +510,16 @@ function CyclotronJobInputRenderer({
                 />
             )
         case 'choice':
+            if (schema.searchable) {
+                return (
+                    <SearchableChoiceCombobox
+                        value={input.value}
+                        onChange={onValueChange}
+                        choices={schema.choices ?? []}
+                        disabled={disabled}
+                    />
+                )
+            }
             return (
                 <LemonSelect
                     fullWidth

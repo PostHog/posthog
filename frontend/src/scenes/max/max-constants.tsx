@@ -135,7 +135,22 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'list_data',
     'search',
     'switch_mode',
+    'list_llm_skills',
+    'get_llm_skill',
+    'get_llm_skill_file',
 ]
+
+function skillStatusFormatter(
+    toolCall: EnhancedToolCall,
+    { completedLabel, pendingLabel, nameArgKey }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
+): string {
+    const rawName = nameArgKey ? toolCall.args?.[nameArgKey] : undefined
+    const suffix = typeof rawName === 'string' && rawName ? ` "${rawName}"` : ''
+    if (toolCall.status === 'completed') {
+        return `${completedLabel}${suffix}`
+    }
+    return `${pendingLabel}${suffix}...`
+}
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     call_mcp_server: {
@@ -535,11 +550,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         product: Scene.UserInterviews,
         flag: FEATURE_FLAGS.USER_INTERVIEWS,
         icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Analyzed user interviews'
             }
             return 'Analyzing user interviews...'
+        },
+    },
+    create_user_interview_topic: {
+        name: 'Set up user interviews',
+        description: 'Set up user interviews — plan a research topic, target participants, and draft questions',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created interview topic'
+            }
+            return 'Setting up interview topic...'
         },
     },
     create_hog_function_filters: {
@@ -643,6 +673,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Analyzing session replays...'
         },
     },
+    summarize_replay_vision_summaries: {
+        name: 'Summarize session summaries',
+        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized session summaries'
+            }
+            return 'Summarizing session summaries...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
@@ -727,6 +769,74 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             }
             return 'Filtering web analytics...'
         },
+    },
+    web_analytics_doctor: {
+        name: 'Diagnose web analytics',
+        description: 'Diagnose web analytics setup issues like missing pageviews or partial proxy coverage',
+        product: Scene.WebAnalytics,
+        icon: iconForType('web_analytics'),
+        displayFormatter: (toolCall) => {
+            return toolCall.status === 'completed' ? 'Diagnosed web analytics' : 'Diagnosing web analytics...'
+        },
+    },
+    marketing_diagnose_setup: {
+        name: 'Diagnose marketing analytics',
+        description:
+            'Diagnose marketing analytics setup with a health check across data sources, attribution, and conversion goals',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Diagnosed marketing analytics' : 'Diagnosing marketing analytics...',
+    },
+    marketing_explain_conversion_goal: {
+        name: 'Explain a conversion goal',
+        description:
+            'Explain a conversion goal by showing which events drove its count, broken down by source and integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Explained conversion goal' : 'Explaining conversion goal...',
+    },
+    marketing_list_conversion_goals: {
+        name: 'List conversion goals',
+        description: 'List conversion goals with their last-30d performance',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed conversion goals' : 'Listing conversion goals...',
+    },
+    marketing_list_data_sources: {
+        name: 'List marketing data sources',
+        description: 'List marketing data sources with platform-side health for every connected ad integration',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Listed marketing data sources' : 'Listing marketing data sources...',
+    },
+    marketing_audit_utm: {
+        name: 'Audit UTM tagging',
+        description: 'Audit UTM tagging to find issues that prevent attribution to ad platforms',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Audited UTM tagging' : 'Auditing UTM tagging...',
+    },
+    marketing_suggest_conversion_goals: {
+        name: 'Suggest conversion goals',
+        description: 'Suggest conversion goals by ranking custom events that are good candidates',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested conversion goals' : 'Suggesting conversion goals...',
+    },
+    marketing_suggest_utm_mappings: {
+        name: 'Suggest UTM mappings',
+        description:
+            'Suggest UTM mappings by detecting unmatched utm_source values and proposing custom_source_mappings entries',
+        product: Scene.MarketingAnalytics,
+        icon: iconForType('marketing_analytics'),
+        displayFormatter: (toolCall) =>
+            toolCall.status === 'completed' ? 'Suggested UTM mappings' : 'Suggesting UTM mappings...',
     },
     upsert_dashboard: {
         name: 'Create and edit dashboards',
@@ -1011,7 +1121,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Search LLM traces',
         description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
         icon: iconForType('llm_analytics'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Searched LLM traces'
@@ -1022,15 +1132,86 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
-        product: Scene.LLMAnalyticsEvaluation,
+        product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Tested evaluation code'
             }
             return 'Testing evaluation code...'
         },
+    },
+    list_llm_skills: {
+        name: 'List shared skills',
+        description: 'List shared skills stored for this team',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Listed shared skills',
+                pendingLabel: 'Listing shared skills',
+            }),
+    },
+    get_llm_skill: {
+        name: 'Load shared skill',
+        description: 'Load shared skill body and file manifest',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded shared skill',
+                pendingLabel: 'Loading shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    get_llm_skill_file: {
+        name: 'Load shared skill file',
+        description: 'Load shared skill file bundled in a skill',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded skill file',
+                pendingLabel: 'Loading skill file',
+                nameArgKey: 'file_path',
+            }),
+    },
+    create_llm_skill: {
+        name: 'Create shared skill',
+        description: 'Create shared skill to save a reusable workflow',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Created shared skill',
+                pendingLabel: 'Creating shared skill',
+                nameArgKey: 'name',
+            }),
+    },
+    update_llm_skill: {
+        name: 'Update shared skill',
+        description: 'Update shared skill by publishing a new version',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Updated shared skill',
+                pendingLabel: 'Updating shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    archive_llm_skill: {
+        name: 'Archive shared skill',
+        description: 'Archive shared skill to hide it from suggestions',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Archived shared skill',
+                pendingLabel: 'Archiving shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
 }
 
@@ -1089,20 +1270,27 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetrics,
         ]),
     },
-    [AgentMode.LLMAnalytics]: {
-        name: 'LLM analytics',
-        description: 'Analyzes LLM traces and writes evaluation code for LLM analytics.',
+    [AgentMode.AIObservability]: {
+        name: 'AI observability',
+        description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
-            Scene.LLMAnalytics,
-            Scene.LLMAnalyticsTrace,
-            Scene.LLMAnalyticsEvaluation,
-            Scene.LLMAnalyticsEvaluations,
-            Scene.LLMAnalyticsDataset,
-            Scene.LLMAnalyticsDatasets,
-            Scene.LLMAnalyticsPlayground,
-            Scene.LLMAnalyticsUsers,
+            Scene.AIObservability,
+            Scene.AIObservabilityTrace,
+            Scene.AIObservabilityEvaluation,
+            Scene.AIObservabilityEvaluations,
+            Scene.AIObservabilityDataset,
+            Scene.AIObservabilityDatasets,
+            Scene.AIObservabilityPlayground,
+            Scene.AIObservabilityUsers,
         ]),
+    },
+    [AgentMode.UserInterview]: {
+        name: 'User interviews',
+        description: 'Sets up live AI voice interviews and analyzes interview transcripts.',
+        icon: iconForType('user_interview'),
+        scenes: new Set([Scene.UserInterviews, Scene.UserInterview, Scene.UserInterviewResponse]),
+        flag: 'USER_INTERVIEWS',
     },
 }
 

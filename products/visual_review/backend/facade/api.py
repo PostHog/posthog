@@ -26,6 +26,25 @@ from .enums import ReviewDecision
 
 User = get_user_model()
 
+# Server-owned run.metadata keys — never accept these from client input.
+# Allowing clients to set these would let them target arbitrary GitHub
+# comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+_RESERVED_RUN_METADATA_KEYS = frozenset(
+    {
+        "github_comment_id",
+        "baseline_commit_sha",
+        "baseline_healed_from_merge_base",
+        "github_check_run_id",
+    }
+)
+
+
+def _sanitize_run_metadata(metadata: dict | None) -> dict:
+    if not metadata:
+        return {}
+    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+
+
 # Re-export exceptions for callers
 RepoNotFoundError = logic.RepoNotFoundError
 RunNotFoundError = logic.RunNotFoundError
@@ -97,6 +116,7 @@ def _to_snapshot(
     cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
     return contracts.Snapshot(
         id=snapshot.id,
+        run_id=snapshot.run_id,
         identifier=snapshot.identifier,
         result=snapshot.result,
         classification_reason=snapshot.classification_reason or "",
@@ -216,6 +236,11 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
     """
     raw = logic.get_baselines_overview(repo_id)
 
+    # Hydrate UserBasicInfo for everyone who created an active quarantine so the
+    # overview can show "Quarantined by X" without a per-card fetch.
+    quarantine_user_ids = {q.created_by_id for q in raw.active_quarantines_by_key.values() if q.created_by_id}
+    quarantine_user_infos = _fetch_user_basic_infos(quarantine_user_ids)
+
     entries: list[contracts.BaselineEntry] = []
     for snapshot in raw.entries:
         identifier = snapshot.identifier
@@ -226,6 +251,7 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
         # different run types is a different baseline.
         key = (run.run_type, identifier)
         metadata = snapshot.metadata or {}
+        active_quarantine = raw.active_quarantines_by_key.get(key)
         entries.append(
             contracts.BaselineEntry(
                 identifier=identifier,
@@ -236,10 +262,15 @@ def get_baselines_overview(repo_id: UUID) -> contracts.BaselineOverview:
                 height=artifact.height if artifact is not None else None,
                 tolerate_count_30d=raw.tolerate_30d_by_id.get(identifier, 0),
                 tolerate_count_90d=raw.tolerate_90d_by_id.get(identifier, 0),
-                is_quarantined=key in raw.quarantined_ids,
+                is_quarantined=active_quarantine is not None,
                 last_run_at=run.completed_at or run.created_at,
                 baseline_change_count=raw.change_count_by_key.get(key, 0),
                 recent_drift_avg=raw.recent_drift_by_key.get(key),
+                quarantine=(
+                    _to_baseline_quarantine_summary(active_quarantine, quarantine_user_infos)
+                    if active_quarantine is not None
+                    else None
+                ),
             )
         )
 
@@ -309,7 +340,7 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
         unchanged_count=input.unchanged_count,
         removed_identifiers=list(input.removed_identifiers),
         purpose=input.purpose,
-        metadata=dict(input.metadata) if input.metadata else {},
+        metadata=_sanitize_run_metadata(input.metadata),
     )
 
     upload_targets = [
@@ -491,10 +522,32 @@ def _fetch_user_basic_infos(user_ids: set[int]) -> dict[int, contracts.UserBasic
     return {u.id: _to_user_basic(u) for u in users}
 
 
+def _to_quarantine_source_run(run) -> contracts.QuarantineSourceRun | None:
+    if run is None:
+        return None
+    return contracts.QuarantineSourceRun(
+        id=run.id,
+        branch=run.branch,
+        commit_sha=run.commit_sha,
+        created_at=run.created_at,
+        pr_number=run.pr_number,
+    )
+
+
+def _quarantine_common_fields(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None
+) -> tuple[contracts.UserBasicInfo | None, contracts.QuarantineSourceRun | None]:
+    """Fields shared by both quarantine DTOs. Callers must ensure `q.source_run`
+    is preloaded — list/overview use `select_related`, and the create path
+    attaches the resolved Run directly — so accessing it never lazy-loads."""
+    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    return created_by, _to_quarantine_source_run(q.source_run)
+
+
 def _to_quarantined_entry(
     q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
 ) -> contracts.QuarantinedIdentifierEntry:
-    created_by = (user_basic_infos or {}).get(q.created_by_id) if q.created_by_id else None
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
     return contracts.QuarantinedIdentifierEntry(
         id=q.id,
         identifier=q.identifier,
@@ -504,6 +557,21 @@ def _to_quarantined_entry(
         created_at=q.created_at,
         updated_at=q.updated_at,
         created_by=created_by,
+        source_run=source_run,
+    )
+
+
+def _to_baseline_quarantine_summary(
+    q, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.BaselineQuarantineSummary:
+    created_by, source_run = _quarantine_common_fields(q, user_basic_infos)
+    return contracts.BaselineQuarantineSummary(
+        id=q.id,
+        reason=q.reason,
+        expires_at=q.expires_at,
+        created_at=q.created_at,
+        created_by=created_by,
+        source_run=source_run,
     )
 
 
@@ -525,6 +593,7 @@ def quarantine_identifier(
         run_type=run_type,
         reason=input.reason,
         expires_at=input.expires_at,
+        source_run_id=input.source_run_id,
         user_id=user_id,
         team_id=team_id,
     )

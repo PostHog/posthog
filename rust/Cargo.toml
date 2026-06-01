@@ -35,9 +35,12 @@ members = [
   "cyclotron-node",
   "cyclotron-janitor",
   "cymbal",
+  "cymbal-proto",
+  "cymbal-resolution",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
+  "hogql/parser",
   "kafka-assigner",
   "kafka-assigner-proto",
   "ingestion-consumer",
@@ -49,6 +52,7 @@ members = [
   "personhog-proto",
   "personhog-replica",
   "personhog-router",
+  "property-vals-rs",
 ]
 
 [workspace.lints.rust]
@@ -82,7 +86,9 @@ js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev 
 debug = "line-tables-only"
 
 [workspace.dependencies]
+aho-corasick = "1.1"
 anyhow = "1.0"
+arc-swap = "1.7"
 assert-json-diff = "2.0.2"
 async-compression = { version = "0.4", features = [
   "tokio",
@@ -91,6 +97,7 @@ async-compression = { version = "0.4", features = [
   "brotli",
   "zstd",
 ] }
+async-stream = "0.3"
 async-trait = "0.1.74"
 axum = { version = "0.7.5", features = ["http2", "macros", "matched-path"] }
 axum-client-ip = "0.6.0"
@@ -108,6 +115,8 @@ futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
+http-body = "1.0"
+http-body-util = "0.1"
 httpmock = "0.7.0"
 mockito = "1"
 hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
@@ -160,6 +169,8 @@ quick_cache = "0.6.21"
 ahash = "0.8.11"
 aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
 aws-sdk-s3 = "1.58.0"
+aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
+aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }

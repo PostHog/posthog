@@ -13,13 +13,13 @@ import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/t
 import { DEFAULT_LOOKBACK_DAYS } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getCupedSelection, resolveCupedEnabled } from './cuped'
+import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
 import { CupedModal } from './CupedModal'
 import { StatsMethodModal } from './StatsMethodModal'
 
 export function SettingsTab(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
-    const { updateExperiment } = useActions(experimentLogic)
+    const { updateExperimentSettings } = useActions(experimentLogic)
     const { openStatsEngineModal, openCupedModal } = useActions(modalsLogic)
     const { experimentsConfig } = useValues(experimentsConfigLogic)
     const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
@@ -31,9 +31,14 @@ export function SettingsTab(): JSX.Element {
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
 
     const teamDefaultCupedEnabled = experimentsConfig?.default_cuped_enabled ?? false
+    const teamDefaultCupedLookbackDays = experimentsConfig?.default_cuped_lookback_days ?? null
     const cupedExplicitlySet = getCupedSelection(experiment.stats_config?.cuped) !== 'default'
     const cupedEnabled = resolveCupedEnabled(experiment.stats_config?.cuped, teamDefaultCupedEnabled)
-    const cupedLookbackDays = experiment.stats_config?.cuped?.lookback_days ?? DEFAULT_LOOKBACK_DAYS
+    const cupedLookbackDays = resolveCupedLookbackDays(
+        experiment.stats_config?.cuped,
+        teamDefaultCupedLookbackDays,
+        DEFAULT_LOOKBACK_DAYS
+    )
 
     const returnTo = urls.experiment(experiment.id)
 
@@ -87,16 +92,15 @@ export function SettingsTab(): JSX.Element {
                 <h2 className="font-semibold text-lg">Conversion windows</h2>
                 <div className="flex items-center gap-2">
                     <LemonCheckbox
-                        label="Require completed conversion window"
+                        label="Require completed conversion or retention window"
                         checked={experiment.only_count_matured_users ?? false}
                         onChange={(checked) => {
-                            updateExperiment({ only_count_matured_users: checked })
+                            updateExperimentSettings({ only_count_matured_users: checked })
                         }}
                     />
                 </div>
                 <p className="text-muted text-xs mt-1">
-                    Only count participants whose full conversion window has elapsed. Applies to metrics with a custom
-                    time window. Default is set in{' '}
+                    Exclude participants whose conversion or retention window hasn't elapsed yet. Default is set in{' '}
                     <Link to={urls.settings('environment-experiments', 'environment-experiment-matured-users')}>
                         environment settings
                     </Link>

@@ -548,6 +548,8 @@ const AssistantTrendsFilter = z.object({
         .default(false)
         .optional(),
     smoothingIntervals: integer.describe('Smoothing intervals for the trend line.').default(1).optional(),
+    xAxisLabel: z.string().describe('Custom label rendered under the X axis.').optional(),
+    yAxisLabel: z.string().describe('Custom label rendered alongside the Y axis.').optional(),
     yAxisScaleType: z.enum(['log10', 'linear']).describe('Whether to scale the y-axis.').default('linear').optional(),
 })
 
@@ -802,7 +804,7 @@ const AssistantRetentionFilter = z.object({
         .describe('The event or person property to aggregate when aggregationType is sum or avg.')
         .optional(),
     aggregationPropertyType: z
-        .enum(['event', 'person'])
+        .enum(['event', 'person', 'data_warehouse'])
         .describe('The type of property to aggregate on (event or person). Defaults to event.')
         .default('event')
         .optional(),
@@ -1304,7 +1306,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'TrendsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-funnel': createQueryWrapper({
         name: 'query-funnel',
@@ -1312,7 +1313,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'FunnelsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-retention': createQueryWrapper({
         name: 'query-retention',
@@ -1320,7 +1320,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'RetentionQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-stickiness': createQueryWrapper({
         name: 'query-stickiness',
@@ -1328,7 +1327,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'StickinessQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-paths': createQueryWrapper({
         name: 'query-paths',
@@ -1336,7 +1334,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'PathsQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-lifecycle': createQueryWrapper({
         name: 'query-lifecycle',
@@ -1344,21 +1341,18 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'LifecycleQuery',
         uiResourceUri: 'ui://posthog/query-results.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-llm-traces-list': createQueryWrapper({
         name: 'query-llm-traces-list',
         schema: AssistantTracesQuery,
         kind: 'TracesQuery',
         outputFormat: 'json',
-        mcpVersion: 2,
     }),
     'query-llm-trace': createQueryWrapper({
         name: 'query-llm-trace',
         schema: AssistantTraceQuery,
         kind: 'TraceQuery',
         outputFormat: 'json',
-        mcpVersion: 2,
     }),
     'query-trends-actors': createQueryWrapper({
         name: 'query-trends-actors',
@@ -1366,7 +1360,6 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
     'query-lifecycle-actors': createQueryWrapper({
         name: 'query-lifecycle-actors',
@@ -1374,6 +1367,5 @@ export const GENERATED_TOOLS: Record<string, ReturnType<typeof createQueryWrappe
         kind: 'InsightActorsQuery',
         uiResourceUri: 'ui://posthog/insight-actors.html',
         outputFormat: 'optimized',
-        mcpVersion: 2,
     }),
 }

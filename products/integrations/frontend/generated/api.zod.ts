@@ -353,35 +353,3 @@ export const IntegrationsGithubOauthAuthorizeCreateBody = /* @__PURE__ */ zod
         config: zod.unknown().optional(),
     })
     .describe('Standard Integration serializer.')
-
-/**
- * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
-the current project already has a team-level GitHub installation, and the
-user has no ``UserIntegration`` for that installation yet, we skip the org
-picker and redirect straight to ``/login/oauth/authorize`` so the user
-only authorizes themselves and returns to PostHog Code immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
- * @summary Start GitHub personal integration linking
- */
-export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object({
-    team_id: zod
-        .number()
-        .nullish()
-        .describe("Optional team\/project id (e.g. PostHog Code); web UI uses the session's current team."),
-    connect_from: zod
-        .string()
-        .optional()
-        .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
-})

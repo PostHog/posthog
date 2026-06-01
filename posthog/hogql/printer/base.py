@@ -2,7 +2,7 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, ClassVar, Literal, Optional, Union, cast
+from typing import Any, ClassVar, Literal, Optional, Union, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
@@ -39,6 +39,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
+from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
 from posthog.clickhouse.materialized_columns import (
     MaterializedColumn,
     TablesWithMaterializedColumns,
@@ -112,6 +113,9 @@ class BasePrinter(Visitor[str]):
 
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         """Raise if this dialect does not support the given set operator. Postgres overrides to permit all."""
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `set_operator` verbatim into emitted SQL.
+        if set_operator not in get_args(ast.SetOperator):
+            raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
             raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
@@ -542,7 +546,14 @@ class BasePrinter(Visitor[str]):
 
         join_strings = []
         if node.join_type is not None:
-            join_strings.append(node.join_type)
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `join_type` verbatim into emitted SQL.
+            jt = node.join_type
+            if not (
+                jt in ast.VALID_JOIN_TYPES
+                or (jt.startswith("GLOBAL ") and jt.removeprefix("GLOBAL ") in ast.VALID_JOIN_TYPES)
+            ):
+                raise QueryError(f"Invalid join type: {jt!r}")
+            join_strings.append(jt)
 
         if isinstance(node.type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.TableType)):
             table_type: ast.TableType | ast.LazyTableType | ast.TableAliasType | ast.ColumnAliasedTableType = node.type
@@ -656,6 +667,9 @@ class BasePrinter(Visitor[str]):
                 join_strings.append(sample_clause)
 
         if node.constraint is not None:
+            # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
+            if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
+                raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
             if team_id_for_on_clause is not None:
                 combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
@@ -795,6 +809,9 @@ class BasePrinter(Visitor[str]):
         return f"({', '.join(identifiers)}) -> {self.visit(node.expr)}"
 
     def visit_order_expr(self, node: ast.OrderExpr):
+        # Allowlist gate against `setattr`-bypass — the printer interpolates `order` verbatim.
+        if node.order not in ast.VALID_ORDER_DIRECTIONS:
+            raise QueryError(f"Invalid order direction: {node.order!r}")
         result = f"{self.visit(node.expr)} {node.order}"
         if node.with_fill is not None:
             result += f" {self.visit(node.with_fill)}"
@@ -894,7 +911,8 @@ class BasePrinter(Visitor[str]):
         return self._print_escaped_string(node.value)
 
     def visit_keyword(self, node: ast.Keyword):
-        if not node.name.isidentifier():
+        # Allowlist gate against `setattr`-bypass — the printer returns `name` verbatim.
+        if node.name not in ast.VALID_KEYWORD_NAMES:
             raise QueryError(f"Invalid keyword name: {node.name}")
         return node.name
 
@@ -944,6 +962,10 @@ class BasePrinter(Visitor[str]):
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.
             if func_meta.using_placeholder_arguments and self._expands_placeholder_macros():
+                # Pre-#58714 behavior: single-arg toFloatOrDefault was degenerate and
+                # equivalent to toFloatOrZero. Rewrite here so saved queries still work.
+                if node.name == "toFloatOrDefault" and len(node.args) == 1:
+                    return self.visit(ast.Call(name="toFloatOrZero", args=node.args))
                 return self._render_placeholder_macro(
                     node=node,
                     clickhouse_name=func_meta.clickhouse_name,
@@ -1551,7 +1573,7 @@ class BasePrinter(Visitor[str]):
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
-        return f"replaceRegexpAll(nullIf(nullIf(JSONExtractRaw({', '.join([unsafe_field, *unsafe_args])}), ''), 'null'), '^\"|\"$', '')"
+        return json_extract_trim_quotes(unsafe_field, *unsafe_args)
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
@@ -1567,7 +1589,7 @@ class BasePrinter(Visitor[str]):
         """
         Get the dmat column name for a property if available.
 
-        Returns the column name (e.g., 'dmat_numeric_3') if a materialized slot exists,
+        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
         otherwise None.
         """
         if self.context.property_swapper is None:

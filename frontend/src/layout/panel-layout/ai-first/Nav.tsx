@@ -11,7 +11,6 @@ import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { NotificationsPanel } from 'lib/components/NotificationsMenu/NotificationsPanel'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
@@ -24,7 +23,7 @@ import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/
 
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from '../NavBarFooter'
-import { PROJECT_TREE_KEY, ProjectTree } from '../ProjectTree/ProjectTree'
+import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
 const NavTabChat = lazy(() => import('./tabs/NavTabChat').then((m) => ({ default: m.NavTabChat })))
 
@@ -304,45 +303,12 @@ export function Nav(): JSX.Element {
                 )}
             </nav>
 
-            {activePanelIdentifier === 'DataAndPeople' && (
-                <ProjectTree root="data-and-people://" searchPlaceholder="Search data" />
-            )}
-            {activePanelIdentifier === 'Project' && (
-                <ProjectTree
-                    root="project://"
-                    logicKey={PROJECT_TREE_KEY}
-                    searchPlaceholder="Search files"
-                    showRecents
-                />
-            )}
-            {activePanelIdentifier === 'Products' && <ProjectTree root="products://" searchPlaceholder="Search apps" />}
-            {activePanelIdentifier === 'Shortcuts' && (
-                <ProjectTree root="shortcuts://" searchPlaceholder="Search starred items" />
-            )}
-            {activePanelIdentifier === 'Notifications' && <NotificationsPanel />}
-            {activePanelIdentifier === 'Chat' && (
-                <div className="flex flex-col h-full min-h-screen max-h-screen bg-surface-tertiary border-r overflow-hidden w-[var(--project-panel-width)]">
-                    <Suspense
-                        fallback={
-                            <div className="flex flex-col gap-px px-1 pt-2">
-                                {Array.from({ length: 15 }).map((_, index) => (
-                                    <WrappingLoadingSkeleton fullWidth key={index}>
-                                        <ButtonPrimitive aria-hidden inert menuItem />
-                                    </WrappingLoadingSkeleton>
-                                ))}
-                            </div>
-                        }
-                    >
-                        <NavTabChat
-                            inPanel
-                            onItemClick={() => {
-                                clearActivePanelIdentifier()
-                                showLayoutPanel(false)
-                            }}
-                        />
-                    </Suspense>
-                </div>
-            )}
+            {/* Desktop renders panel content inline next to the nav (PanelLayoutPanel's
+                ResizableElement positions it via left:100% of this flex parent). On mobile we
+                lift the panel out to PanelLayout.tsx so it can have its own stacking context
+                independent of #project-panel-layout — this lets the dim overlay slot between
+                the nav and the panel. */}
+            {!isMobileLayout && <PanelLayoutPanels />}
         </div>
     )
 }

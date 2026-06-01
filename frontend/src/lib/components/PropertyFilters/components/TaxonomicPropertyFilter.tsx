@@ -296,16 +296,16 @@ export function TaxonomicPropertyFilter({
     // away via `showInitialSearchInline`; `disablePopover` still renders a
     // button + dropdown here, so it's fine to swap.
     //
-    // `selectingKeyOnly` rows keep the classic filter — the rebuilt menu
-    // doesn't model key-only selection semantics yet, and silently swapping
-    // would change what `onChange` commits.
+    // Key-only rows route through the rebuilt menu too — the picker fires
+    // the same `taxonomicOnChange` callback in either mode, so the commit
+    // shape is identical (cohort id → `setFilter` with `type: 'cohort'`).
     //
     // The rebuilt menu carries its own toggle inside its trigger wrapper, so
     // it needs no extra DOM and inherits the row's layout exactly. The
     // legacy path gets a thin positioned wrapper to host the floating toggle.
     const editablePicker = !menuRebuildEnabled ? (
         legacyDropdown
-    ) : useNewMenu && !selectingKeyOnly ? (
+    ) : useNewMenu ? (
         <TaxonomicPopoverMenu
             groupType={filterTaxonomicGroupType ?? groupTypes[0]}
             value={cohortOrOtherValue}

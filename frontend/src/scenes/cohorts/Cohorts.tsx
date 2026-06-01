@@ -284,6 +284,7 @@ export function Cohorts(): JSX.Element {
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
+                mcpSurfaceKey="cohorts.create"
             />
 
             <div>{filtersSection}</div>

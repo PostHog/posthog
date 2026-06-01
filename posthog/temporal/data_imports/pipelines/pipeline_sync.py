@@ -22,11 +22,12 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import build_table_name
+from posthog.temporal.data_imports.sources.common.sql import filter_dwh_columns_by_enabled_columns
 
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
@@ -139,6 +140,7 @@ async def validate_schema_and_update_table(
     table_format: DataWarehouseTable.TableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
+    primary_keys: Optional[list[str]] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -176,8 +178,13 @@ async def validate_schema_and_update_table(
         _schema_name: str = external_data_schema.name
         incremental_or_append = external_data_schema.should_use_incremental_field
 
-        table_name = build_table_name(job.pipeline, _schema_name)
-        normalized_schema_name = NamingConvention.normalize_identifier(_schema_name)
+        # `dwh_storage_key` pins the Delta path to the original unqualified name for legacy
+        # warehouse rows that got renamed to qualified form during multi-schema migration.
+        storage_key = (external_data_schema.sync_type_config or {}).get("dwh_storage_key")
+        storage_schema_name = storage_key if isinstance(storage_key, str) and storage_key else _schema_name
+
+        table_name = build_table_name(job.pipeline, storage_schema_name)
+        normalized_schema_name = NamingConvention.normalize_identifier(storage_schema_name)
         new_url_pattern = job.url_pattern_by_schema(normalized_schema_name)
 
         # Check
@@ -237,6 +244,17 @@ async def validate_schema_and_update_table(
                 table_for_update = DataWarehouseTable.raw_objects.select_for_update().get(id=table_created.id)
                 existing_columns = table_for_update.columns or {}
                 columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
+                # Project to enabled_columns so disabled columns the user already deselected don't
+                # creep back into HogQL via the Delta schema (which still contains them historically).
+                # Prefer source-detected PKs (always present) over the schema model's PKs (only set
+                # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
+                effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
+                columns = filter_dwh_columns_by_enabled_columns(
+                    columns,
+                    external_data_schema.enabled_columns,
+                    effective_primary_keys,
+                    external_data_schema.incremental_field,
+                )
                 table_for_update.columns = columns
                 table_for_update.save(update_fields=["columns"])
                 # Keep local reference in sync
