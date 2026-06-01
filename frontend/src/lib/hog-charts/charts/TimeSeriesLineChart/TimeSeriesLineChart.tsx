@@ -17,7 +17,7 @@ import {
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
-import { LineChart } from '../LineChart'
+import { LineChart } from '../LineChart/LineChart'
 import {
     resolveValueLabelsConfig,
     useSeriesWithValueLabelAllowlist,

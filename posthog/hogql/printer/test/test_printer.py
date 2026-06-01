@@ -199,6 +199,11 @@ class TestPrinter(BaseTest):
         self.assertNotIn("e.a", printed)
         self.assertNotIn("e.c", printed)
 
+    def test_column_aliases_keep_table_filter_column(self):
+        printed = self._select("select b from events as e (a, b, c, d, f, g, h, i, j, team_id)")
+        self.assertIn("WHERE equals(e.team_id,", printed)
+        self.assertNotIn("WHERE equals(e.person_mode,", printed)
+
     def test_column_aliases_unqualified_refs(self):
         printed = self._select("select a, b from events as e (a, b, c)")
         self.assertIn("e.uuid", printed)

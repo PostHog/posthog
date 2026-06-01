@@ -29,7 +29,7 @@ export const logsConfigLogic = kea<logsConfigLogicType>([
                     // `experiments_config`). The codegen path opens up when the action
                     // gets a proper request/response schema annotation.
                     // nosemgrep: prefer-codegen-api
-                    return await api.get(`api/environments/${values.currentTeamId}/logs_config/`)
+                    return await api.get(`api/projects/${values.currentTeamId}/logs_config/`)
                 },
             },
         ],

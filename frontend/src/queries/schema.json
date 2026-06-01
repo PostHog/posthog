@@ -24634,6 +24634,84 @@
             },
             "type": "object"
         },
+        "LogsAlertStateChangeSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["firing", "broken"],
+                    "type": "string"
+                },
+                "alert_id": {
+                    "type": "string"
+                },
+                "alert_name": {
+                    "type": "string"
+                },
+                "consecutive_failures": {
+                    "type": "number"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "result_count": {
+                    "type": ["number", "null"]
+                },
+                "threshold_count": {
+                    "type": "number"
+                },
+                "threshold_operator": {
+                    "enum": ["above", "below"],
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "window_minutes": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "alert_id",
+                "alert_name",
+                "action",
+                "threshold_count",
+                "threshold_operator",
+                "window_minutes",
+                "result_count",
+                "consecutive_failures",
+                "filters",
+                "url"
+            ],
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "logs",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "alert_state_change",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "LogsOrderBy": {
             "enum": ["latest", "earliest"],
             "title": "LogsOrderBy",
@@ -38273,6 +38351,9 @@
                 },
                 {
                     "$ref": "#/definitions/SignalsScoutSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
         },
@@ -38309,7 +38390,8 @@
                 "error_tracking",
                 "endpoints",
                 "pganalyze",
-                "signals_scout"
+                "signals_scout",
+                "logs"
             ],
             "type": "string"
         },
@@ -38325,7 +38407,8 @@
                 "issue_reopened",
                 "issue_spiking",
                 "endpoint_execution_failed",
-                "cross_source_issue"
+                "cross_source_issue",
+                "alert_state_change"
             ],
             "type": "string"
         },
@@ -41630,6 +41713,15 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"

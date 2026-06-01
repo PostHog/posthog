@@ -33,7 +33,6 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 1,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
@@ -123,12 +122,12 @@ describe('ToolExecutor', () => {
 
         it('accepts cached exec calls even when the current session is in tools mode', async () => {
             const filteredTools = catalog
-                .getFilteredTools({ version: 2, scopes: ['*'] })
+                .getFilteredTools({ scopes: ['*'] })
                 .filter((tool) => tool.name === 'execute-sql' || tool.name === 'organization-get')
 
             const result = (await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'tools' } },
-                makeState(filteredTools, { useSingleExec: false, version: 2 })
+                makeState(filteredTools, { useSingleExec: false })
             )) as any
 
             expect(result.isError).toBeFalsy()
@@ -161,7 +160,7 @@ describe('ToolExecutor', () => {
                     .getPreBuiltEntries()
                     .slice(0, 5)
                     .map((e) => ({ name: e.name })),
-                { useSingleExec: true, version: 2 }
+                { useSingleExec: true }
             )
 
             const result = await executor.handleToolsList(state)

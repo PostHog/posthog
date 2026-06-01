@@ -29,14 +29,21 @@ from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
 
+def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
+    if isinstance(table_type, ast.ColumnAliasedTableType):
+        return ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
+    return table_type
+
+
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
 
+    field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
+        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=field_table_type)),
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
