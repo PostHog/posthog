@@ -29,11 +29,13 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.models import SandboxSnapshot
 
 from .agentsh import (
+    BASH_ENV_SCRIPT,
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
     build_exec_prefix,
     build_setup_script,
+    generate_bash_env_script,
     generate_config_yaml,
     generate_env_wrapper,
     generate_policy_yaml,
@@ -654,7 +656,12 @@ class DockerSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        # Scope BASH_ENV to the agent-server process (not the container env) so only the
+        # agent's per-command tool shells re-source the refreshed token. Backend maintenance
+        # execs (clone/checkout/token injection) must not source it — the script could be
+        # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
         server_cmd = (
+            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
@@ -675,7 +682,9 @@ class DockerSandbox(SandboxBase):
                 f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(inner)} &"
             )
         else:
-            return f"cd /scripts && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
+            # Write the env file even without agentsh so BASH_ENV (and the
+            # in-process token resolver) can re-read a backend-refreshed token.
+            return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
     def _launch_and_check(self, command: str) -> bool:
         """Execute the agent-server command and wait for the health check.
@@ -720,6 +729,12 @@ class DockerSandbox(SandboxBase):
         if repository:
             org, repo = repository.lower().split("/")
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+        # The agent runs each tool command in a fresh shell; BASH_ENV re-sources
+        # the (backend-refreshed) GitHub token from the env file per command, so
+        # mid-session credential refreshes reach git/gh. Needed for both agentsh
+        # and non-agentsh runs.
+        self.write_file(BASH_ENV_SCRIPT, generate_bash_env_script().encode())
 
         if allowed_domains is not None:
             self._setup_agentsh(WORKING_DIR, allowed_domains)

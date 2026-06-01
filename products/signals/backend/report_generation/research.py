@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 from enum import Enum
 from typing import TYPE_CHECKING
@@ -544,90 +545,98 @@ async def run_multi_turn_research(
         internal=True,
     )
 
-    # Record the research task relationship immediately after task creation
-    if signal_report_id:
-        from products.signals.backend.models import SignalReportTask
+    # start() returned the session, so any failure past this point must end it
+    # - otherwise an orphaned sandbox can keep running until the workflow inactivity timeout
 
-        await SignalReportTask.objects.acreate(
-            team_id=context.team_id,
-            report_id=signal_report_id,
-            task_id=str(session.task.id),
-            relationship=SignalReportTask.Relationship.RESEARCH,
-        )
+    try:
+        # Record the research task relationship immediately after task creation
+        if signal_report_id:
+            from products.signals.backend.models import SignalReportTask
 
-    first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
-    findings: list[SignalFinding] = [first_finding]
-    if output_fn:
-        output_fn(f"Signal 1/{total} done: {first_finding.signal_id}")
+            await SignalReportTask.objects.acreate(
+                team_id=context.team_id,
+                report_id=signal_report_id,
+                task_id=str(session.task.id),
+                relationship=SignalReportTask.Relationship.RESEARCH,
+            )
 
-    # Turns 2..N: one follow-up per remaining signal
-    for i, signal in enumerate(signals[1:], start=2):
+        first_finding = _enforce_signal_id(first_finding, signals[0].signal_id)
+        findings: list[SignalFinding] = [first_finding]
         if output_fn:
-            output_fn(f"Investigating signal {i}/{total}...")
-        followup_prompt = build_signal_investigation_prompt(
-            signal,
-            i,
+            output_fn(f"Signal 1/{total} done: {first_finding.signal_id}")
+
+        # Turns 2..N: one follow-up per remaining signal
+        for i, signal in enumerate(signals[1:], start=2):
+            if output_fn:
+                output_fn(f"Investigating signal {i}/{total}...")
+            followup_prompt = build_signal_investigation_prompt(
+                signal,
+                i,
+                total,
+                previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
+            )
+            finding = await session.send_followup(
+                followup_prompt,
+                SignalFinding,
+                label=f"signal_{i}_of_{total}",
+            )
+            finding = _enforce_signal_id(finding, signal.signal_id)
+            findings.append(finding)
+            if output_fn:
+                output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
+
+        # Actionability assessment
+        if output_fn:
+            output_fn("Assessing actionability...")
+        actionability_prompt = build_actionability_prompt(
             total,
-            previous_finding=previous_findings_by_signal_id.get(signal.signal_id),
+            previous_actionability=previous_report_research.actionability if previous_report_research else None,
         )
-        finding = await session.send_followup(
-            followup_prompt,
-            SignalFinding,
-            label=f"signal_{i}_of_{total}",
+        actionability_result = await session.send_followup(
+            actionability_prompt,
+            ActionabilityAssessment,
+            label="actionability",
         )
-        finding = _enforce_signal_id(finding, signal.signal_id)
-        findings.append(finding)
         if output_fn:
-            output_fn(f"Signal {i}/{total} done: {finding.signal_id}")
+            output_fn(f"Actionability: {actionability_result.actionability.value}")
 
-    # Actionability assessment
-    if output_fn:
-        output_fn("Assessing actionability...")
-    actionability_prompt = build_actionability_prompt(
-        total,
-        previous_actionability=previous_report_research.actionability if previous_report_research else None,
-    )
-    actionability_result = await session.send_followup(
-        actionability_prompt,
-        ActionabilityAssessment,
-        label="actionability",
-    )
-    if output_fn:
-        output_fn(f"Actionability: {actionability_result.actionability.value}")
+        # Priority assessment (only when actionable)
+        priority_result: PriorityAssessment | None = None
+        if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
+            if output_fn:
+                output_fn("Assessing priority...")
+            priority_prompt = build_priority_prompt(
+                total,
+                previous_priority=previous_report_research.priority if previous_report_research else None,
+            )
+            priority_result = await session.send_followup(
+                priority_prompt,
+                PriorityAssessment,
+                label="priority",
+            )
+            if output_fn:
+                output_fn(f"Priority: {priority_result.priority.value}")
 
-    # Priority assessment (only when actionable)
-    priority_result: PriorityAssessment | None = None
-    if actionability_result.actionability != ActionabilityChoice.NOT_ACTIONABLE:
         if output_fn:
-            output_fn("Assessing priority...")
-        priority_prompt = build_priority_prompt(
+            output_fn("Generating title and summary...")
+        presentation_prompt = build_report_presentation_prompt(
             total,
-            previous_priority=previous_report_research.priority if previous_report_research else None,
+            previous_title=title or (previous_report_research.title if previous_report_research else None),
+            previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
         )
-        priority_result = await session.send_followup(
-            priority_prompt,
-            PriorityAssessment,
-            label="priority",
+        presentation_result = await session.send_followup(
+            presentation_prompt,
+            ReportPresentationOutput,
+            label="presentation",
         )
         if output_fn:
-            output_fn(f"Priority: {priority_result.priority.value}")
+            output_fn(f"Report title: {presentation_result.title}")
 
-    if output_fn:
-        output_fn("Generating title and summary...")
-    presentation_prompt = build_report_presentation_prompt(
-        total,
-        previous_title=title or (previous_report_research.title if previous_report_research else None),
-        previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
-    )
-    presentation_result = await session.send_followup(
-        presentation_prompt,
-        ReportPresentationOutput,
-        label="presentation",
-    )
-    if output_fn:
-        output_fn(f"Report title: {presentation_result.title}")
-
-    await session.end()
+        await session.end()
+    except (Exception, asyncio.CancelledError) as e:
+        # Shield so the session ending cannot itself be canceled - must complete
+        await asyncio.shield(session.end(status="failed", error=str(e)))
+        raise
 
     logger.info("multi_turn_research: completed with %d findings", len(findings))
     return ReportResearchOutput(
