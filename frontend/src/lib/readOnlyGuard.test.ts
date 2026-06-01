@@ -123,11 +123,7 @@ describe('readOnlyGuard', () => {
                     '/api/environments/2/conversations/views',
                 ],
                 ['ticket saved view detail write blocked', 'PATCH', '/api/environments/2/conversations/views/abc/'],
-                [
-                    'support tickets write blocked (under projects)',
-                    'POST',
-                    '/api/environments/2/conversations/tickets/',
-                ],
+                ['support tickets write blocked (under projects)', 'POST', '/api/projects/2/conversations/tickets/'],
                 [
                     'support tickets write blocked (under environments)',
                     'POST',

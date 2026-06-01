@@ -166,7 +166,7 @@ export const WithTickets: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                'api/environments/:team_id/conversations/tickets/': ticketsResponse(sampleTickets),
+                'api/projects/:team_id/conversations/tickets/': ticketsResponse(sampleTickets),
             },
         })
         return <AppWithProfileContext />
@@ -181,7 +181,7 @@ export const Empty: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                'api/environments/:team_id/conversations/tickets/': ticketsResponse([]),
+                'api/projects/:team_id/conversations/tickets/': ticketsResponse([]),
             },
         })
         return <AppWithProfileContext />
