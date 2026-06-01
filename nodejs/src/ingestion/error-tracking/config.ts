@@ -106,7 +106,7 @@ export function getDefaultErrorTrackingConsumerConfig(): ErrorTrackingConsumerCo
         ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS: 300,
         INGESTION_PIPELINE: null,
         INGESTION_LANE: null,
-        INGESTION_DMAT_COLUMN_WRITES_ENABLED: false,
+        INGESTION_DMAT_COLUMN_WRITES_ENABLED: true,
     }
 }
 
