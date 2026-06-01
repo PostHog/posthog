@@ -13,12 +13,12 @@ export const taxonomicFilterMocksDecorator = mswDecorator({
         '/api/projects/:team_id/property_definitions': {
             count: 6,
             results: [
-                { name: 'file_count', count: 205 },
-                { name: 'industry', count: 205 },
-                { name: 'name', count: 205 },
-                { name: 'plan', count: 205 },
-                { name: 'team_size', count: 205 },
-                { name: 'used_mb', count: 205 },
+                { id: 'file_count', name: 'file_count', count: 205 },
+                { id: 'industry', name: 'industry', count: 205 },
+                { id: 'name', name: 'name', count: 205 },
+                { id: 'plan', name: 'plan', count: 205 },
+                { id: 'team_size', name: 'team_size', count: 205 },
+                { id: 'used_mb', name: 'used_mb', count: 205 },
             ],
         },
         '/api/projects/:team_id/event_definitions': [
