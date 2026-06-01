@@ -558,7 +558,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
             else:
                 await asyncio.to_thread(
-                    deltalake.write_deltalake,  # type: ignore[arg-type]
+                    deltalake.write_deltalake,
                     table_or_uri=delta_table,
                     data=batch,
                     mode="append",
