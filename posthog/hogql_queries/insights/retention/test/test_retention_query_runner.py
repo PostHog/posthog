@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
@@ -4001,7 +4002,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_retention_with_breakdown_hogql_expression(self):
+    @parameterized.expand(
+        [
+            ("plain", "upper(properties.browser)"),
+            # The `AS` clause exercises strip_user_aliases: it must be dropped, not break the query.
+            ("with_alias", "upper(properties.browser) AS browser_upper"),
+        ]
+    )
+    def test_retention_with_breakdown_hogql_expression(self, _name: str, breakdown: str):
         # upper(...) makes the buckets uppercased, which only happens if the expression
         # is evaluated as SQL rather than treated as a property name.
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
@@ -4035,7 +4043,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                     "totalIntervals": 6,
                     "period": "Day",
                 },
-                "breakdownFilter": {"breakdown": "upper(properties.browser)", "breakdown_type": "hogql"},
+                "breakdownFilter": {"breakdown": breakdown, "breakdown_type": "hogql"},
             }
         )
 
