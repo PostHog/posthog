@@ -233,6 +233,59 @@ class TestConversationSerializers(APIBaseTest):
         self.assertEqual(mock_get_state.call_count, 1)
 
 
+class TestConversationSerializerRuntimeMessages(APIBaseTest):
+    def test_sandbox_conversation_returns_empty_messages(self):
+        """Sandbox conversations don't persist messages Django-side — `messages` is always empty."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="Sandbox conversation",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            messages_json=[{"type": "ai", "content": "should be ignored on the sandbox path"}],
+        )
+
+        # aget_state must never be invoked for a sandbox conversation — the guard short-circuits first.
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+            data = ConversationSerializer(
+                conversation,
+                context={"team": self.team, "user": self.user},
+            ).data
+
+        self.assertEqual(data["messages"], [])
+        self.assertEqual(data["agent_runtime"], Conversation.AgentRuntime.SANDBOX.value)
+        mock_get_state.assert_not_called()
+
+    def test_langgraph_conversation_returns_populated_messages(self):
+        """LangGraph conversations keep today's behavior — messages come from the graph state."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            title="LangGraph conversation",
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.LANGGRAPH,
+        )
+
+        state = AssistantState(messages=[AssistantMessage(content="Hello from LangGraph", type="ai")])
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = state.model_dump()
+                tasks = []
+
+            mock_get_state.return_value = MockSnapshot()
+
+            data = ConversationSerializer(
+                conversation,
+                context={"team": self.team, "user": self.user},
+            ).data
+
+        self.assertEqual(data["agent_runtime"], Conversation.AgentRuntime.LANGGRAPH.value)
+        self.assertEqual(len(data["messages"]), 1)
+        self.assertEqual(data["messages"][0]["content"], "Hello from LangGraph")
+
+
 class TestConversationSerializerArtifactEnrichment(APIBaseTest):
     """Test artifact enrichment functionality in the serializer."""
 

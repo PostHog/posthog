@@ -58,11 +58,21 @@ class ConversationSerializer(ConversationMinimalSerializer):
             "messages",
             "has_unsupported_content",
             "agent_mode",
+            "agent_runtime",
             "is_sandbox",
             "pending_approvals",
         ]
         read_only_fields = fields
 
+    agent_runtime = serializers.ChoiceField(
+        choices=Conversation.AgentRuntime.choices,
+        read_only=True,
+        help_text=(
+            "Runtime that owns this conversation. 'langgraph' conversations return their messages "
+            "in the `messages` field; 'sandbox' conversations return an empty `messages` array and "
+            "load history from the products/tasks logs endpoint instead."
+        ),
+    )
     messages = serializers.SerializerMethodField()
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
@@ -70,6 +80,11 @@ class ConversationSerializer(ConversationMinimalSerializer):
     pending_approvals = serializers.SerializerMethodField()
 
     def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+        # Sandbox conversations don't persist messages Django-side — history lives in S3
+        # ACP logs, fetched via the products/tasks `logs/` endpoint (02_CORE.md § 4.7).
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return []
+
         if conversation.messages_json is not None:
             return conversation.messages_json
 
@@ -161,6 +176,10 @@ class ConversationSerializer(ConversationMinimalSerializer):
             Tuple of (state, has_unsupported_content, interrupt_payloads).
             interrupt_payloads is a dict mapping proposal_id to the interrupt value (including payload).
         """
+        # Sandbox conversations have no LangGraph checkpoint — their state lives in S3 ACP logs.
+        if conversation.agent_runtime == Conversation.AgentRuntime.SANDBOX:
+            return None, False, {}
+
         try:
             team = self.context["team"]
             user = self.context["user"]
