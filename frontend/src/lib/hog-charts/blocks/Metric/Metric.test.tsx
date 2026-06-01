@@ -2,7 +2,7 @@ import { render } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
-import { Metric } from './Metric'
+import { Metric, type MetricChange } from './Metric'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
 const LABELS = ['Jan', 'Feb', 'Mar', 'Apr']
@@ -207,50 +207,45 @@ describe('Metric', () => {
             expect(container.textContent).toBe('')
         })
 
-        it('renders a supplied change pill in number-only mode', () => {
+        it.each<{ name: string; change: MetricChange; goodDirection?: 'up' | 'down'; expectedColor: string }>([
+            {
+                name: 'positive change uses the positive color',
+                change: { value: 12.5, label: '+12.5%' },
+                expectedColor: 'rgb(0, 136, 0)',
+            },
+            {
+                name: 'negative change uses the negative color',
+                change: { value: -4.2, label: '-4.2%' },
+                expectedColor: 'rgb(170, 0, 0)',
+            },
+            {
+                name: 'negative change flips to the positive color when goodDirection is "down"',
+                change: { value: -1.2, label: '-1.2%' },
+                goodDirection: 'down',
+                expectedColor: 'rgb(0, 136, 0)',
+            },
+        ])('$name', ({ change, goodDirection, expectedColor }) => {
             const { container } = render(
                 <Metric
                     title="Revenue"
                     value={8800}
-                    change={{ value: 12.5, label: '+12.5%' }}
+                    change={change}
+                    goodDirection={goodDirection}
                     positiveColor={POSITIVE_COLOR}
                     negativeColor={NEGATIVE_COLOR}
                 />
             )
-            expect(container.textContent).toContain('+12.5%')
+            expect(container.textContent).toContain(change.label)
             const pill = container.querySelector('.rounded-full') as HTMLElement | null
-            expect(pill?.style.color).toBe('rgb(0, 136, 0)')
+            expect(pill?.style.color).toBe(expectedColor)
         })
 
-        it('paints the pill with the negative color and a down chevron when change is negative', () => {
+        it('points the change chevron down for a negative change', () => {
             const { container } = render(
-                <Metric
-                    title="Revenue"
-                    value={8800}
-                    change={{ value: -4.2, label: '-4.2%' }}
-                    positiveColor={POSITIVE_COLOR}
-                    negativeColor={NEGATIVE_COLOR}
-                />
+                <Metric title="Revenue" value={8800} change={{ value: -4.2, label: '-4.2%' }} />
             )
-            const pill = container.querySelector('.rounded-full') as HTMLElement | null
-            expect(pill?.style.color).toBe('rgb(170, 0, 0)')
-            const chevron = pill?.querySelector('svg')
+            const chevron = container.querySelector('.rounded-full svg')
             expect(chevron?.className.baseVal ?? chevron?.getAttribute('class')).toContain('rotate-180')
-        })
-
-        it('flips the pill color for a negative change when goodDirection is "down"', () => {
-            const { container } = render(
-                <Metric
-                    title="Error rate"
-                    value={0.5}
-                    change={{ value: -1.2, label: '-1.2%' }}
-                    goodDirection="down"
-                    positiveColor={POSITIVE_COLOR}
-                    negativeColor={NEGATIVE_COLOR}
-                />
-            )
-            const pill = container.querySelector('.rounded-full') as HTMLElement | null
-            expect(pill?.style.color).toBe('rgb(0, 136, 0)')
         })
 
         it('applies dataAttr to the root', () => {
