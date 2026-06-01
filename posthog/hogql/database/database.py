@@ -270,9 +270,10 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
-# Tables that live only under the `posthog.` namespace (not at the root). Built once at
-# import and shared by reference behind per-Database node wrappers, same as ROOT_TABLES.
-# Add new posthog-namespace tables here.
+# READ BEFORE EDITING:
+# --------------------
+# Do NOT add any new table to this, add them to the `posthog` table node.
+# This is so that we don't pollute the global namespace any further than it already is
 POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
@@ -304,9 +305,8 @@ POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 }
 
 
-# Lock the shared catalog singletons: any in-place edit now raises (see _FrozenFields) instead of
-# corrupting the process-wide instance. A consumer that needs to edit must take a private copy via
-# Database.get_table(), which clones on first access (TableNode.ensure_materialized).
+# Freeze the shared singletons so any in-place edit raises (see _FrozenFields); editing requires a
+# private copy via Database.get_table(), which clones on first access.
 for _frozen_node in (
     *ROOT_TABLES__DO_NOT_ADD_ANY_MORE.values(),
     *POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE.values(),
@@ -316,9 +316,8 @@ for _frozen_node in (
 
 
 def _shared_catalog_nodes(frozen: dict[str, TableNode]) -> dict[str, TableNode]:
-    # Copy-on-write: wrap each frozen table in a fresh per-Database node that shares the table
-    # payload by reference. The shared table's fields are write-protected, so ensure_materialized()
-    # clones it on first mutating access; a query copies only the handful of tables it touches.
+    # Copy-on-write: fresh per-Database node wrappers sharing the frozen table payloads by reference;
+    # ensure_materialized() clones a table on first access, so a query copies only what it touches.
     return {name: TableNode(name=node.name, table=node.table, hidden=node.hidden) for name, node in frozen.items()}
 
 
@@ -336,6 +335,7 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                 name="posthog",
                 children={
                     **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
+                    # Add new tables here
                     **_shared_catalog_nodes(POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE),
                 },
             ),

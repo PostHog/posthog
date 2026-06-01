@@ -26,12 +26,9 @@ if TYPE_CHECKING:
 class _FrozenFields(dict):
     """A table `fields` mapping that rejects in-place mutation.
 
-    The HogQL catalog is built once per process and shared by reference across every request and
-    team. Wrapping the shared tables' `fields` in this type means any attempt to edit a shared
-    table raises immediately (in production), at the offending call site, instead of silently
-    corrupting the singleton for everyone else. A consumer that needs to edit must take a private
-    copy first via `Database.get_table()`; `model_copy(deep=True)` downgrades these back to plain
-    mutable dicts (see `__deepcopy__`), so clones are freely editable.
+    The catalog is a process-wide shared singleton; this makes editing a shared table raise at the
+    call site instead of silently corrupting it. `model_copy(deep=True)` downgrades to a plain dict
+    (see `__deepcopy__`), so private clones from `Database.get_table()` stay editable.
     """
 
     __slots__ = ()
@@ -252,9 +249,8 @@ class Table(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
     def __setattr__(self, name: str, value: Any) -> None:
-        # Reject attribute writes on a frozen catalog singleton (its fields mapping is _FrozenFields),
-        # the same guarantee _FrozenFields gives for fields[...] edits. Clones carry a plain dict, so
-        # they stay writable. model_copy sets __dict__ directly and never routes through here.
+        # Block attribute writes on a frozen singleton (extends _FrozenFields' guard to attrs); clones
+        # carry a plain dict so stay writable, and model_copy sets __dict__ directly, bypassing this.
         if type(self.__dict__.get("fields")) is _FrozenFields:
             raise TypeError(
                 "HogQL catalog table is frozen (shared process-wide singleton); "
@@ -324,10 +320,9 @@ class TableNode(BaseModel):
         return self.table
 
     def ensure_materialized(self) -> FieldOrTable | None:
-        # Copy-on-write: shared catalog singletons carry frozen (write-protected) fields. Clone on
-        # first mutating access so edits land on a private copy; model_copy downgrades the frozen
-        # fields back to a plain mutable dict (see _FrozenFields.__deepcopy__). The freeze state is
-        # the single source of truth for "needs cloning" so there is no flag to keep in sync.
+        # Copy-on-write: clone a shared frozen table on first access so edits stay private; model_copy
+        # downgrades its frozen fields to a plain dict (see _FrozenFields.__deepcopy__). The freeze
+        # state is the only "needs cloning" signal, so there's no separate flag to keep in sync.
         if isinstance(self.table, Table) and isinstance(self.table.fields, _FrozenFields):
             self.table = self.table.model_copy(deep=True)
         return self.table
