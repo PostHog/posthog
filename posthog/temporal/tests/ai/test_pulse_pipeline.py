@@ -89,7 +89,8 @@ async def test_persist_findings_is_idempotent_on_retry(ateam):
     rows, team_ids, status = await _findings()
     assert len(rows) == 2  # no duplicates
     assert all(tid == ateam.id for tid in team_ids)  # team_id denormalized from digest
-    assert status == PulseDigestStatus.DELIVERED
+    # persist no longer flips DELIVERED — that happens at the end of the workflow, after synthesis.
+    assert status == PulseDigestStatus.GENERATING
 
 
 @pytest.mark.asyncio
@@ -127,11 +128,11 @@ def test_root_cause_message_walks_temporal_cause_chain():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_persist_findings_short_circuits_when_already_delivered(ateam):
+async def test_persist_findings_short_circuits_when_findings_exist(ateam):
     digest_id = await create_or_get_digest_activity(ateam.id, PERIOD, START, END)
     await persist_findings(ateam.id, digest_id, [_enriched("$pageview")])
 
-    # A second invocation with different findings must NOT overwrite a DELIVERED digest.
+    # A second invocation with different findings must NOT overwrite a digest that already has findings.
     ids = await persist_findings(ateam.id, digest_id, [_enriched("different")])
 
     @sync_to_async

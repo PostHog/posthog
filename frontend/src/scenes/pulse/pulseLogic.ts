@@ -13,6 +13,9 @@ import {
     PulseWatchedCandidate,
 } from './pulseTypes'
 
+const SCAN_POLL_INTERVAL_MS = 3000
+const SCAN_POLL_ATTEMPTS = 40 // ~2 minutes — covers a slow scan plus digest synthesis
+
 const DEFAULT_SUBSCRIPTION: PulseSubscriptionType = {
     id: null,
     enabled: false,
@@ -39,7 +42,9 @@ export const pulseLogic = kea<pulseLogicType>([
         setExpandedDigestId: (id: string | null) => ({ id }),
         updateSubscriptionLocal: (patch: Partial<PulseSubscriptionType>) => ({ patch }),
         saveSubscription: true,
-        pollScanStatus: true,
+        pollScan: true,
+        markScanInProgress: true,
+        scanResolved: true,
     }),
     loaders(({ values }) => ({
         digests: [
@@ -140,35 +145,64 @@ export const pulseLogic = kea<pulseLogicType>([
                 loadFindingsFailure: () => true,
             },
         ],
+        isScanInProgress: [
+            false,
+            {
+                triggerScanSuccess: () => true,
+                triggerScanFailure: () => false,
+                markScanInProgress: () => true,
+                scanResolved: () => false,
+            },
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         saveSubscriptionSuccess: () => {
             lemonToast.success('Pulse settings saved')
         },
         saveSubscriptionFailure: () => {
             lemonToast.error('Failed to save Pulse settings')
         },
+        triggerScan: () => {
+            // Remember the current digest so we can tell when a *new* one finishes (the scan creates a
+            // fresh digest), and budget a bounded number of polls so we don't loop forever.
+            cache.preScanDigestId = values.latestDigest?.id ?? null
+            cache.scanPollsLeft = SCAN_POLL_ATTEMPTS
+        },
         triggerScanSuccess: () => {
-            lemonToast.success('Pulse scan started — new findings will appear here shortly.')
-            // Pick up the freshly-created (generating) digest, which starts the poll loop below.
-            actions.loadDigests()
-            actions.loadFindings()
+            lemonToast.success('Pulse scan started — findings will appear here shortly.')
+            actions.pollScan()
         },
         triggerScanFailure: () => {
             lemonToast.error('Failed to start Pulse scan.')
         },
-        loadDigestsSuccess: ({ digests }) => {
-            const latest = digests[0]
-            if (latest && (latest.status === 'pending' || latest.status === 'generating')) {
-                actions.pollScanStatus()
-            }
-        },
-        pollScanStatus: async (_, breakpoint) => {
-            // Poll while the latest digest is still generating; breakpoint cancels superseded polls,
-            // and the loop ends on its own once loadDigestsSuccess sees a settled (delivered/failed) status.
-            await breakpoint(4000)
+        pollScan: async (_, breakpoint) => {
+            await breakpoint(SCAN_POLL_INTERVAL_MS)
             actions.loadDigests()
             actions.loadFindings()
+        },
+        loadDigestsSuccess: ({ digests }) => {
+            const latest = digests[0]
+            const isGenerating = !!latest && (latest.status === 'pending' || latest.status === 'generating')
+            if (values.isScanInProgress) {
+                cache.scanPollsLeft = (cache.scanPollsLeft ?? 0) - 1
+                // Done once a *new* digest (different from the one present at trigger time) has settled,
+                // i.e. findings AND the summary are ready — or once the poll budget runs out.
+                const newDigestSettled =
+                    !!latest &&
+                    latest.id !== cache.preScanDigestId &&
+                    (latest.status === 'delivered' || latest.status === 'failed')
+                if (newDigestSettled || cache.scanPollsLeft <= 0) {
+                    actions.scanResolved()
+                } else {
+                    actions.pollScan()
+                }
+            } else if (isGenerating) {
+                // A scan we didn't trigger here (e.g. scheduled) is mid-flight — reflect it and poll.
+                cache.preScanDigestId = null
+                cache.scanPollsLeft = SCAN_POLL_ATTEMPTS
+                actions.markScanInProgress()
+                actions.pollScan()
+            }
         },
     })),
     selectors({
@@ -184,11 +218,6 @@ export const pulseLogic = kea<pulseLogicType>([
             (s) => [s.findings, s.latestDigest],
             (findings, latestDigest): PulseFindingType[] =>
                 latestDigest ? findings.filter((f) => f.digest === latestDigest.id) : [],
-        ],
-        isScanInProgress: [
-            (s) => [s.latestDigest],
-            (latestDigest): boolean =>
-                !!latestDigest && (latestDigest.status === 'pending' || latestDigest.status === 'generating'),
         ],
     }),
 ])

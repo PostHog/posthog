@@ -149,7 +149,7 @@ describe('pulseLogic', () => {
             .toMatchValues({ watchedCandidates: [WATCHED] })
     })
 
-    it('flags scan in progress and schedules a poll while the latest digest is generating', async () => {
+    it('reflects an in-progress scan and polls while the latest digest is generating', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/pulse_digests/': () => [
@@ -160,7 +160,8 @@ describe('pulseLogic', () => {
         })
         await expectLogic(logic, () => logic.actions.loadDigests()).toDispatchActions([
             'loadDigestsSuccess',
-            'pollScanStatus',
+            'markScanInProgress',
+            'pollScan',
         ])
         expect(logic.values.isScanInProgress).toBe(true)
     })
@@ -168,6 +169,19 @@ describe('pulseLogic', () => {
     it('does not flag scan in progress for a delivered digest', async () => {
         await expectLogic(logic, () => logic.actions.loadDigests()).toDispatchActions(['loadDigestsSuccess'])
         expect(logic.values.isScanInProgress).toBe(false)
+    })
+
+    it('starts polling and shows progress immediately after a manual scan trigger', async () => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/pulse_digests/trigger_scan/': () => [202, { workflow_id: 'wf-1' }],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.triggerScan()).toDispatchActions([
+            'triggerScanSuccess',
+            'pollScan',
+        ])
+        expect(logic.values.isScanInProgress).toBe(true)
     })
 
     it('loads a past digest on getDigest', async () => {

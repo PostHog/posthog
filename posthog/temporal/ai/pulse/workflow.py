@@ -352,6 +352,15 @@ class PulseScanWorkflow(PostHogWorkflow):
                 retry_policy=retry_policy,
             )
 
+            # Mark DELIVERED only now: findings persisted, summary synthesized, notifications sent.
+            # This makes "delivered" mean fully-ready, so the UI can stop polling and show the summary.
+            await workflow.execute_activity(
+                set_digest_status_activity,
+                args=[inputs.team_id, digest_id, PulseDigestStatus.DELIVERED.value],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=retry_policy,
+            )
+
             metrics.increment_scan_outcome("delivered")
             metrics.record_finding_count(len(enriched))
             return {"digest_id": digest_id, "finding_count": len(enriched)}

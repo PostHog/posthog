@@ -18,8 +18,11 @@ logger = structlog.get_logger(__name__)
 def _persist_findings_sync(
     digest_id: str, team_id: int, findings: list[EnrichedFinding]
 ) -> list[tuple[str, EnrichedFinding]]:
-    """Persist findings once. Returns (finding_id, finding) pairs. Idempotent:
-    short-circuits if the digest is already DELIVERED or already has findings."""
+    """Persist findings once. Returns (finding_id, finding) pairs. Idempotent: short-circuits if the
+    digest is already DELIVERED or already has findings.
+
+    Does NOT flip the digest to DELIVERED — the workflow does that only after synthesis + notification,
+    so DELIVERED means the digest is fully ready (findings AND the "big picture" summary)."""
     with team_scope(team_id, canonical=True):
         digest = PulseDigest.objects.get(id=digest_id, team_id=team_id)
 
@@ -46,9 +49,6 @@ def _persist_findings_sync(
             for idx, f in enumerate(findings)
         ]
         created = PulseFinding.objects.bulk_create(rows)
-
-        digest.status = PulseDigestStatus.DELIVERED
-        digest.save(update_fields=["status"])
 
         return [(str(row.id), f) for row, f in zip(created, findings)]
 
