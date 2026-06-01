@@ -298,10 +298,6 @@ tools:
         enabled: false
     surveys-responses-count-retrieve:
         operation: surveys_responses_count_retrieve
-        # Disabled: this endpoint returns counts for every survey in the project without
-        # filtering by per-survey object-level access control, so an agent scoped to a
-        # subset of surveys could read counts for surveys it can't otherwise access.
-        # Re-enable once the endpoint filters its survey set through user_access_control.
         enabled: false
     surveys-responses-list:
         operation: surveys_responses_list
