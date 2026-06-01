@@ -74,6 +74,8 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
+import { posthogAiContextLogic } from './posthogAiContextLogic'
+import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { EnhancedToolCall, getToolCallDescriptionAndWidget } from './Thread'
 import {
@@ -625,6 +627,34 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     trace_id: traceId,
                 }
                 actions.addMessage(message)
+            }
+
+            // Sandbox runtime: POST the non-streaming /sandbox/ routing endpoint, then hand the SSE
+            // connection off to sandboxStreamLogic. The LangGraph EventSource loop below is never
+            // entered for sandbox conversations. See 02_CORE.md § 7.1.
+            if (values.conversation?.agent_runtime === 'sandbox') {
+                try {
+                    const conversationId = values.conversation?.id || values.conversationId
+                    if (conversationId && streamData.content) {
+                        const { task_id, run_id, just_created_run } = await api.conversations.sandbox(conversationId, {
+                            content: streamData.content,
+                            trace_id: traceId,
+                            attached_context: posthogAiContextLogic.values.attachments,
+                        })
+                        sandboxStreamLogic.actions.openSseForRun({
+                            taskId: task_id,
+                            runId: run_id,
+                            // Fresh runs need everything from the top; follow-ups resume from latest.
+                            startLatest: !just_created_run,
+                        })
+                    }
+                } catch (e) {
+                    posthog.captureException(e)
+                } finally {
+                    actions.decrActiveStreamingThreads()
+                    releaseStreamingLock()
+                }
+                return
             }
 
             let caughtException = false

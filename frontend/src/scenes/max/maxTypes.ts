@@ -237,3 +237,47 @@ export const createMaxContextHelpers = {
 export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
+
+/**
+ * The shape `mcpToolRegistry` renderers receive — a merged `ToolInvocation` flattened with the
+ * fields the renderer adapters read. Built by `sandboxStreamLogic` from ACP frames. See
+ * docs/internal/posthog-ai-migration/03_RICH_UI.md §§ 2.1, 3.1.
+ */
+export interface McpToolCallMessage {
+    /** Stable id — the tool call id. */
+    id: string
+    /** Registry lookup key — see 03_RICH_UI.md § 2.2. */
+    resolvedKey: string
+    rawServerName: string
+    rawToolName: string
+    innerToolName?: string
+    /** rawInput at `tool_call` (for `exec`, includes the wrapper `{ command }`). */
+    rawInput: Record<string, unknown>
+    /** JSON-parsed inner args when `innerToolName` is set. */
+    innerInput?: Record<string, unknown>
+    rawOutput?: unknown
+    /** Accumulated ACP `content[]`. */
+    content: unknown[]
+    status: 'pending' | 'in_progress' | 'completed' | 'failed'
+    title?: string
+    kind?: string
+    error?: { message?: string } | null
+}
+
+/**
+ * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).
+ *
+ * Unlike the rich `MaxUIContext` payloads used by the LangGraph runtime, the sandbox runtime
+ * carries only typed references the agent fetches on demand via its read tools. See
+ * docs/internal/posthog-ai-migration/01_CONTEXT.md § 1. This is a new export added alongside
+ * the existing context types during the coexistence window — existing types are untouched.
+ */
+export interface AttachedContext {
+    type: 'dashboard' | 'insight' | 'event' | 'action' | 'error_tracking_issue' | 'evaluation' | 'notebook' | 'text'
+    /** Entity id — int for dashboards/actions, short_id for insights/notebooks, UUID for error tracking issues. */
+    id?: string | number
+    /** Optional human-readable label for entity types. */
+    name?: string
+    /** Free-text value — only set when `type === 'text'`. */
+    value?: string
+}

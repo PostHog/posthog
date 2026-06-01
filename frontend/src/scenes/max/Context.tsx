@@ -19,6 +19,7 @@ import {
     MaxInsightContext,
     MaxNotebookContext,
 } from './maxTypes'
+import { posthogAiContextLogic } from './posthogAiContextLogic'
 
 function pluralize(count: number, word: string): string {
     return `${count} ${word}${count > 1 ? 's' : ''}`
@@ -330,12 +331,44 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
     )
 }
 
+/**
+ * Sandbox-runtime chips, rendered from the flat `posthogAiContextLogic.chipsForDisplay`. The X on
+ * each chip dispatches `detach(key)` — one removal path, no source distinction. Coexistence
+ * sibling to `ContextTags` (LangGraph). See docs/internal/posthog-ai-migration/01_CONTEXT.md § 3.3.
+ */
+export function SandboxContextTags({ size = 'default' }: { size?: 'small' | 'default' }): JSX.Element | null {
+    const { chipsForDisplay } = useValues(posthogAiContextLogic)
+
+    if (chipsForDisplay.length === 0) {
+        return null
+    }
+
+    return (
+        <>
+            {chipsForDisplay.map((chip) => (
+                <Tooltip key={chip.key} title={chip.label}>
+                    <LemonTag
+                        icon={chip.icon as JSX.Element}
+                        onClose={chip.onRemove}
+                        closable
+                        closeOnClick
+                        className={clsx('flex items-center text-secondary', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                    >
+                        <span className="truncate min-w-0 flex-1">{chip.label}</span>
+                    </LemonTag>
+                </Tooltip>
+            ))}
+        </>
+    )
+}
+
 interface ContextDisplayProps {
     size?: 'small' | 'default'
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
-    const { showContextUI, contextDisabledReason } = useValues(maxThreadLogic)
+    const { showContextUI, contextDisabledReason, conversation } = useValues(maxThreadLogic)
+    const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
     const { handleTaxonomicFilterChange } = useActions(maxContextLogic)
@@ -372,8 +405,14 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                         />
                     </span>
                 </Tooltip>
-                <ContextToolInfoTags size={size} />
-                <ContextTags size={size} />
+                {isSandboxRuntime ? (
+                    <SandboxContextTags size={size} />
+                ) : (
+                    <>
+                        <ContextToolInfoTags size={size} />
+                        <ContextTags size={size} />
+                    </>
+                )}
             </div>
         </div>
     )
