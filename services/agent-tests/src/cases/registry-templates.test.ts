@@ -50,7 +50,7 @@ describe('registry-pinned templates: real e2e', () => {
                     {
                         // Runtime-required fields — what `load-skill` resolves against.
                         id: 'research',
-                        path: 'skills/research.md',
+                        path: 'skills/research/SKILL.md',
                         description: 'How to research a question',
                         // Registry lineage — preserved post-freeze so the join table
                         // and the "Used by" panel can correlate.
@@ -62,8 +62,9 @@ describe('registry-pinned templates: real e2e', () => {
             },
             files: {
                 'agent.md': 'you have a research skill (pinned from the registry).',
-                // Mirrors what `registry_freeze.py` writes for an aliased skill.
-                'skills/research.md': 'Step 1: ask questions. Step 2: cite sources.',
+                // Mirrors what `registry_freeze.py` writes for an aliased skill:
+                // a self-contained `skills/<alias>/` folder with SKILL.md at the root.
+                'skills/research/SKILL.md': 'Step 1: ask questions. Step 2: cite sources.',
             },
         })
         const res = await request(c.ingress).post('/agents/registry-pinned-skill/run').send({ message: 'go' })
@@ -77,6 +78,47 @@ describe('registry-pinned templates: real e2e', () => {
         const parsed = JSON.parse(toolResult.content[0].text) as { id: string; body: string }
         expect(parsed.id).toBe('research')
         expect(parsed.body).toContain('cite sources')
+    })
+
+    it('@posthog/load-skill reads a nested companion file inside the skill folder', async () => {
+        // Progressive disclosure: SKILL.md points at a reference doc under a
+        // subfolder; the model pulls it on demand with `file`. Proves the
+        // runtime reads nested files in the spec's `skill/<dir>/...` layout.
+        c.setScript([
+            fauxCallTool('@posthog/load-skill', { id: 'research', file: 'references/deep.md' }),
+            fauxText('read the deep reference'),
+        ])
+        await c.deployAgent({
+            slug: 'registry-nested-skill',
+            spec: {
+                skills: [
+                    {
+                        id: 'research',
+                        path: 'skills/research/SKILL.md',
+                        description: 'How to research a question',
+                        from_template: '019e7fb7-f4c0-75e2-9055-7c29a5cbb925',
+                        version: 1,
+                        alias: 'research',
+                    },
+                ],
+            },
+            files: {
+                'agent.md': 'you have a research skill with reference docs.',
+                'skills/research/SKILL.md': 'See references/deep.md for the deep dive.',
+                'skills/research/references/deep.md': 'DEEP-MARKER: the full methodology.',
+            },
+        })
+        const res = await request(c.ingress).post('/agents/registry-nested-skill/run').send({ message: 'go' })
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        const toolResult = session!.conversation[2] as unknown as {
+            role: 'toolResult'
+            content: Array<{ text: string }>
+        }
+        const parsed = JSON.parse(toolResult.content[0].text) as { id: string; path: string; body: string }
+        expect(parsed.path).toBe('skills/research/references/deep.md')
+        expect(parsed.body).toContain('DEEP-MARKER')
     })
 
     it('spec carrying a custom_template tool ref parses and dispatches the tool', async () => {

@@ -89,8 +89,15 @@ class TestFreezeRegistryIntegration(APIBaseTest):
         res = self.client.post(f"{self.freeze_url_base}/{revision.id}/freeze/")
 
         assert res.status_code == status.HTTP_200_OK, res.content
-        # Bundle copies happened via the proxy.
-        mock_janitor.return_value.put_file.assert_any_call(str(revision.id), "skills/research.md", "# Research body")
+        # Bundle copies happened via the proxy. The SKILL.md is assembled
+        # (frontmatter + body) and lives inside the skill's own directory.
+        skill_md = next(
+            c.args[2]
+            for c in mock_janitor.return_value.put_file.call_args_list
+            if c.args[1] == "skills/research/SKILL.md"
+        )
+        assert "name: research" in skill_md
+        assert "# Research body" in skill_md
         mock_janitor.return_value.put_file.assert_any_call(str(revision.id), "skills/research/examples/one.md", "ex 1")
         # Final freeze step ran.
         mock_janitor.return_value.freeze.assert_called_once_with(str(revision.id))

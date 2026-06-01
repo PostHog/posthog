@@ -1,3 +1,8 @@
+---
+name: triage-playbook
+description: Structured triage flow — phases for context gathering, hypothesis, and reporting. Load when starting an investigation.
+---
+
 # Skill — triage playbook
 
 A structured flow for the first 5 minutes of any investigation.

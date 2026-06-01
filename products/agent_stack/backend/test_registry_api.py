@@ -40,6 +40,7 @@ class TestSkillTemplateViewSet(APIBaseTest):
             self.base_url,
             data={
                 "name": "with-files",
+                "description": "a skill with files",
                 "body": "# Skill",
                 "files": [
                     {"path": "examples/one.md", "content": "ex 1"},
@@ -189,6 +190,27 @@ class TestSkillTemplateViewSet(APIBaseTest):
         res = self.client.delete(f"{self.base_url}name/fc/files/single.md/")
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_create_nested_subfolder_file(self) -> None:
+        # The MCP files-create path supports subfolders (references/, scripts/, …).
+        self._create("nest", body="hi")
+        res = self.client.post(
+            f"{self.base_url}name/nest/files/",
+            data={"path": "references/deep/notes.md", "content": "deep"},
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_201_CREATED, res.content
+        detail = self.client.get(f"{self.base_url}name/nest/").json()
+        assert any(f["path"] == "references/deep/notes.md" for f in detail["files"])
+
+    def test_create_file_rejects_traversal(self) -> None:
+        self._create("trav", body="hi")
+        res = self.client.post(
+            f"{self.base_url}name/trav/files/",
+            data={"path": "../escape.md", "content": "x"},
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_rename_file(self) -> None:
         self._create("fr", body="hi", files=[{"path": "a.md", "content": "alpha"}])
         # Get the file id via the detail view.
@@ -225,15 +247,52 @@ class TestSkillTemplateViewSet(APIBaseTest):
         self._create("dup")
         res = self.client.post(
             self.base_url,
-            data={"name": "dup", "body": "again"},
+            data={"name": "dup", "description": "again", "body": "again"},
             content_type="application/json",
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_missing_description_rejected(self) -> None:
+        res = self.client.post(
+            self.base_url,
+            data={"name": "no-desc", "body": "x"},
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_blank_description_rejected(self) -> None:
+        res = self.client.post(
+            self.base_url,
+            data={"name": "blank-desc", "description": "   ", "body": "x"},
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_persists_license_compatibility_and_metadata(self) -> None:
+        res = self.client.post(
+            self.base_url,
+            data={
+                "name": "rich",
+                "description": "a rich skill",
+                "body": "# body",
+                "license": "Apache-2.0",
+                "compatibility": "Requires git",
+                "metadata": {"author": "ph"},
+                "allowed_tools": ["Read", "Bash"],
+            },
+            content_type="application/json",
+        )
+        assert res.status_code == status.HTTP_201_CREATED, res.content
+        body = res.json()
+        assert body["license"] == "Apache-2.0"
+        assert body["compatibility"] == "Requires git"
+        assert body["metadata"] == {"author": "ph"}
+        assert body["allowed_tools"] == ["Read", "Bash"]
+
     # ---- Helpers ----
 
     def _create(self, name: str, body: str = "x", files: list[dict] | None = None) -> dict:
-        payload: dict = {"name": name, "body": body}
+        payload: dict = {"name": name, "description": "a description", "body": body}
         if files is not None:
             payload["files"] = files
         res = self.client.post(self.base_url, data=payload, content_type="application/json")

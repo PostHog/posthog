@@ -26,6 +26,25 @@ from .models import (
     AgentSkillTemplate,
     AgentSkillTemplateFile,
 )
+from .skill_frontmatter import (
+    COMPATIBILITY_MAX,
+    DESCRIPTION_MAX,
+    NAME_MAX,
+    SkillSpecError,
+    validate_allowed_tools,
+    validate_compatibility,
+    validate_description,
+    validate_metadata_map,
+)
+
+
+def _spec(fn: Any, value: Any) -> Any:
+    """Run an Agent Skills spec validator, surfacing failures as DRF errors."""
+    try:
+        return fn(value)
+    except SkillSpecError as exc:
+        raise serializers.ValidationError(exc.message, code="spec")
+
 
 # Slug rules — lowercase a-z + digits + hyphen; no leading/trailing hyphen;
 # no consecutive hyphens. Mirrors the LLMSkill validation so the registry
@@ -101,7 +120,7 @@ def _validate_source_size(value: str) -> str:
 class SkillTemplateFileSerializer(serializers.ModelSerializer):
     path = serializers.CharField(
         max_length=512,
-        help_text="Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.",
+        help_text="Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`, `assets/x/y.json`). Becomes `bundle/skills/<alias>/<path>` at freeze. No `..` traversal or absolute paths.",
     )
     content = serializers.CharField(
         allow_blank=True,
@@ -132,6 +151,12 @@ class SkillTemplateSummarySerializer(serializers.ModelSerializer):
         help_text="Number of frozen agent revisions pinning this template (any version)."
     )
     created_by = UserBasicSerializer(read_only=True, help_text="Publisher. Null for canonical PostHog-owned templates.")
+    license = serializers.CharField(
+        help_text="Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset."
+    )
+    compatibility = serializers.CharField(
+        help_text="Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset."
+    )
 
     class Meta:
         model = AgentSkillTemplate
@@ -143,6 +168,8 @@ class SkillTemplateSummarySerializer(serializers.ModelSerializer):
             "is_latest",
             "file_count",
             "usage_count",
+            "license",
+            "compatibility",
             "metadata",
             "allowed_tools",
             "created_by",
@@ -175,41 +202,64 @@ class SkillTemplateCreateSerializer(serializers.Serializer):
     """Initial-create payload — produces v1."""
 
     name = serializers.CharField(
-        max_length=128,
-        help_text="Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.",
+        max_length=NAME_MAX,
+        help_text="Slug-shaped name unique per team (max 64 chars, per the Agent Skills spec). `@posthog/<slug>` is reserved for canonical templates.",
     )
     description = serializers.CharField(
-        max_length=4096,
-        allow_blank=True,
-        required=False,
-        default="",
-        help_text="One-line description shown in the list view + system-prompt skill index.",
+        max_length=DESCRIPTION_MAX,
+        help_text="Required description (1–1024 chars, per the Agent Skills spec) — what the skill does and when to use it. Shown in the list view + system-prompt skill index.",
     )
     body = serializers.CharField(
         allow_blank=True,
         required=False,
         default="",
-        help_text="Initial SKILL.md markdown.",
+        help_text="Initial SKILL.md markdown body. Any leading YAML frontmatter is stripped at freeze — frontmatter is assembled from the structured fields.",
+    )
+    license = serializers.CharField(
+        max_length=256,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Agent Skills `license` frontmatter — license name or a reference to a bundled license file.",
+    )
+    compatibility = serializers.CharField(
+        max_length=COMPATIBILITY_MAX,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network access). Max 500 chars.",
     )
     files = serializers.ListField(
         child=SkillTemplateFileSerializer(),
         required=False,
         default=list,
-        help_text="Optional companion files at creation time.",
+        help_text="Optional companion files (scripts/, references/, assets/ — arbitrarily nested) at creation time.",
     )
     metadata = serializers.JSONField(
         required=False,
         default=dict,
-        help_text="Free-form, agentskills.io-compatible bag (license, compatibility, …).",
+        help_text="Agent Skills `metadata` map (string → string) for non-promoted keys like author or version.",
     )
     allowed_tools = serializers.JSONField(
         required=False,
         default=list,
-        help_text="Optional list of tool ids the skill is meant to reach for.",
+        help_text="Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze.",
     )
 
     def validate_name(self, value: str) -> str:
         return _validate_template_name(value)
+
+    def validate_description(self, value: str) -> str:
+        return _spec(validate_description, value)
+
+    def validate_compatibility(self, value: str) -> str:
+        return _spec(validate_compatibility, value)
+
+    def validate_metadata(self, value: Any) -> dict[str, str]:
+        return _spec(validate_metadata_map, value)
+
+    def validate_allowed_tools(self, value: Any) -> list[str]:
+        return _spec(validate_allowed_tools, value)
 
     def validate_body(self, value: str) -> str:
         return _validate_body_size(value)
@@ -246,10 +296,9 @@ class SkillTemplatePublishSerializer(serializers.Serializer):
     """
 
     description = serializers.CharField(
-        max_length=4096,
+        max_length=DESCRIPTION_MAX,
         required=False,
-        allow_blank=True,
-        help_text="Overrides the prior description. Omit to keep the prior value.",
+        help_text="Overrides the prior description (1–1024 chars, non-empty). Omit to keep the prior value.",
     )
     body = serializers.CharField(
         required=False,
@@ -261,11 +310,37 @@ class SkillTemplatePublishSerializer(serializers.Serializer):
         required=False,
         help_text="Structured edits. Each `old` must match exactly once in the current body / file.",
     )
-    metadata = serializers.JSONField(required=False, help_text="Overrides metadata. Omit to keep the prior value.")
+    license = serializers.CharField(
+        max_length=256,
+        required=False,
+        allow_blank=True,
+        help_text="Overrides the `license` frontmatter. Omit to keep the prior value.",
+    )
+    compatibility = serializers.CharField(
+        max_length=COMPATIBILITY_MAX,
+        required=False,
+        allow_blank=True,
+        help_text="Overrides the `compatibility` frontmatter (max 500 chars). Omit to keep the prior value.",
+    )
+    metadata = serializers.JSONField(
+        required=False, help_text="Overrides the metadata map. Omit to keep the prior value."
+    )
     allowed_tools = serializers.JSONField(
         required=False,
         help_text="Overrides allowed_tools. Omit to keep the prior value.",
     )
+
+    def validate_description(self, value: str) -> str:
+        return _spec(validate_description, value)
+
+    def validate_compatibility(self, value: str) -> str:
+        return _spec(validate_compatibility, value)
+
+    def validate_metadata(self, value: Any) -> dict[str, str]:
+        return _spec(validate_metadata_map, value)
+
+    def validate_allowed_tools(self, value: Any) -> list[str]:
+        return _spec(validate_allowed_tools, value)
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         body_given = "body" in attrs
@@ -279,11 +354,11 @@ class SkillTemplatePublishSerializer(serializers.Serializer):
 
 class SkillTemplateDuplicateSerializer(serializers.Serializer):
     name = serializers.CharField(
-        max_length=128,
-        help_text="Slug for the new duplicate. Must not collide with an existing template.",
+        max_length=NAME_MAX,
+        help_text="Slug for the new duplicate (max 64 chars). Must not collide with an existing template.",
     )
     description = serializers.CharField(
-        max_length=4096,
+        max_length=DESCRIPTION_MAX,
         required=False,
         allow_blank=True,
         help_text="Description for the new template. Defaults to the source's description.",
@@ -294,7 +369,10 @@ class SkillTemplateDuplicateSerializer(serializers.Serializer):
 
 
 class SkillTemplateFileWriteSerializer(serializers.Serializer):
-    path = serializers.CharField(max_length=512, help_text="Relative path inside the skill folder.")
+    path = serializers.CharField(
+        max_length=512,
+        help_text="Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`). No `..` traversal or absolute paths.",
+    )
     content = serializers.CharField(allow_blank=True, help_text="File body.")
     content_type = serializers.CharField(
         max_length=128,
@@ -313,8 +391,13 @@ class SkillTemplateFileWriteSerializer(serializers.Serializer):
 
 
 class SkillTemplateFileRenameSerializer(serializers.Serializer):
-    from_path = serializers.CharField(max_length=512, help_text="Existing file path inside the skill folder.")
-    to_path = serializers.CharField(max_length=512, help_text="New path. Must not collide with another file.")
+    from_path = serializers.CharField(
+        max_length=512, help_text="Existing file path inside the skill folder (subfolders allowed)."
+    )
+    to_path = serializers.CharField(
+        max_length=512,
+        help_text="New path (subfolders allowed); may move the file between subfolders. Must not collide with another file.",
+    )
 
     def validate_from_path(self, value: str) -> str:
         return _validate_file_path(value)

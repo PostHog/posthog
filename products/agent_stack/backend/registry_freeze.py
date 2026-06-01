@@ -17,7 +17,9 @@ At `/revisions/<id>/freeze` time the Django side:
 1. Resolves each `from_template` to a concrete row at the requested
    version (or `is_latest=True` if unpinned).
 2. Copies the resolved content into the bundle via the janitor proxy
-   (`bundle/skills/<alias>.md` + files; `bundle/tools/<alias>/{source.ts,compiled.js}`).
+   (`bundle/skills/<alias>/SKILL.md` + companion files; `bundle/tools/<alias>/{source.ts,compiled.js}`).
+   The SKILL.md frontmatter is assembled to the Agent Skills spec
+   (https://agentskills.io/specification.md), not copied verbatim.
 3. Stamps the resolved `version` back into the spec entry so the
    frozen revision is reproducible.
 4. Inserts one join row per ref (`AgentRevisionSkillTemplate`,
@@ -37,6 +39,7 @@ the freeze pipeline run unconditionally without breaking legacy specs.
 
 from __future__ import annotations
 
+import re
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -53,6 +56,7 @@ from .models import (
     AgentRevisionSkillTemplate,
     AgentSkillTemplate,
 )
+from .skill_frontmatter import assemble_skill_md
 
 
 class FreezeError(Exception):
@@ -125,7 +129,7 @@ def freeze_templates_into_bundle(
         # lineage rides through as extra keys (preserved on the JSONB row
         # but stripped from the parsed runtime view).
         skill["id"] = alias
-        skill["path"] = f"skills/{alias}.md"
+        skill["path"] = f"skills/{alias}/SKILL.md"
         skill.setdefault("description", template.description)
         skill["version"] = template.version
         skill_refs.append(
@@ -276,12 +280,25 @@ def _write_skill_to_bundle(
     template: AgentSkillTemplate,
     alias: str,
 ) -> None:
-    """Copy `template.body` + companion files into the bundle.
+    """Assemble a spec-compliant `SKILL.md` + companion files into the bundle.
 
-    Layout matches the plan: `bundle/skills/<alias>.md` (the SKILL.md)
-    plus `bundle/skills/<alias>/<file_path>` for each companion file.
+    Layout follows the Agent Skills spec directory model: the skill is a
+    self-contained folder `bundle/skills/<alias>/` whose index is
+    `SKILL.md` (frontmatter assembled from the registry's structured
+    columns — `name` set to the alias so it matches the parent dir) and
+    whose companion files (`scripts/`, `references/`, `assets/`, or any
+    nested path) sit alongside it under the same root.
     """
-    janitor.put_file(revision_id, f"skills/{alias}.md", template.body)
+    skill_md = assemble_skill_md(
+        alias=alias,
+        description=template.description,
+        body=template.body,
+        license=template.license,
+        compatibility=template.compatibility,
+        metadata=template.metadata or {},
+        allowed_tools=list(template.allowed_tools or []),
+    )
+    janitor.put_file(revision_id, f"skills/{alias}/SKILL.md", skill_md)
     for f in template.files.all():
         janitor.put_file(revision_id, f"skills/{alias}/{f.path}", f.content)
 
@@ -313,12 +330,26 @@ def _write_custom_tool_to_bundle(
 
 # ── small helpers ─────────────────────────────────────────────────────────
 
+# An alias becomes a bundle directory segment (`skills/<alias>/…`,
+# `tools/<alias>/…`) and the runtime spec `id`. Constrain it to a single
+# safe path segment so a draft spec can't escape the bundle root via
+# `../`, nested `a/b`, or absolute paths. Permits hyphen + underscore so
+# existing tool aliases (e.g. `stripe_lookup`) stay valid.
+_ALIAS_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
 
 def _require_alias(entry: dict[str, Any], *, kind: str, index: int) -> str:
     alias = entry.get("alias")
     if not isinstance(alias, str) or not alias:
         raise FreezeError(
             f"spec.{kind}s[{index}] missing required `alias` (used as the bundle directory name).",
+            kind=kind,
+            index=index,
+        )
+    if not _ALIAS_RE.match(alias):
+        raise FreezeError(
+            f"spec.{kind}s[{index}] alias {alias!r} must be a single path segment "
+            "(letters, digits, hyphen, underscore) — no slashes or '..'.",
             kind=kind,
             index=index,
         )

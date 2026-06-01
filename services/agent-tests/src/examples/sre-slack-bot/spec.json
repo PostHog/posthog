@@ -32,12 +32,12 @@
     "skills": [
         {
             "id": "triage-playbook",
-            "path": "skills/triage-playbook.md",
+            "path": "skills/triage-playbook/SKILL.md",
             "description": "Structured triage flow — phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
         },
         {
             "id": "slack-thread-protocol",
-            "path": "skills/slack-thread-protocol.md",
+            "path": "skills/slack-thread-protocol/SKILL.md",
             "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
         }
     ],

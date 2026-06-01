@@ -38,14 +38,14 @@ describe('dynamic skill loading: real e2e', () => {
                 skills: [
                     {
                         id: 'research',
-                        path: 'skills/research.md',
+                        path: 'skills/research/SKILL.md',
                         description: 'How to research a question',
                     },
                 ],
             },
             files: {
                 'agent.md': 'you have a research skill available.',
-                'skills/research.md': 'Step 1: ask questions. Step 2: write down sources.',
+                'skills/research/SKILL.md': 'Step 1: ask questions. Step 2: write down sources.',
             },
         })
         const res = await request(c.ingress).post('/agents/skill-using-agent/run').send({ message: 'go' })
@@ -68,9 +68,9 @@ describe('dynamic skill loading: real e2e', () => {
         await c.deployAgent({
             slug: 'skill-ghost',
             spec: {
-                skills: [{ id: 'research', path: 'skills/research.md', description: 'desc' }],
+                skills: [{ id: 'research', path: 'skills/research/SKILL.md', description: 'desc' }],
             },
-            files: { 'agent.md': 'x', 'skills/research.md': 'body' },
+            files: { 'agent.md': 'x', 'skills/research/SKILL.md': 'body' },
         })
         const res = await request(c.ingress).post('/agents/skill-ghost/run').send({ message: 'go' })
         await c.drain()

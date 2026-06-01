@@ -1520,12 +1520,17 @@ export const AgentSkillTemplatesCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const agentSkillTemplatesCreateBodyNameMax = 128
+export const agentSkillTemplatesCreateBodyNameMax = 64
 
-export const agentSkillTemplatesCreateBodyDescriptionDefault = ``
-export const agentSkillTemplatesCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesCreateBodyDescriptionMax = 1024
 
 export const agentSkillTemplatesCreateBodyBodyDefault = ``
+export const agentSkillTemplatesCreateBodyLicenseDefault = ``
+export const agentSkillTemplatesCreateBodyLicenseMax = 256
+
+export const agentSkillTemplatesCreateBodyCompatibilityDefault = ``
+export const agentSkillTemplatesCreateBodyCompatibilityMax = 500
+
 export const agentSkillTemplatesCreateBodyFilesItemPathMax = 512
 
 export const agentSkillTemplatesCreateBodyFilesItemContentTypeDefault = `text/plain`
@@ -1536,13 +1541,33 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
         name: zod
             .string()
             .max(agentSkillTemplatesCreateBodyNameMax)
-            .describe('Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.'),
+            .describe(
+                'Slug-shaped name unique per team (max 64 chars, per the Agent Skills spec). `@posthog/<slug>` is reserved for canonical templates.'
+            ),
         description: zod
             .string()
             .max(agentSkillTemplatesCreateBodyDescriptionMax)
-            .default(agentSkillTemplatesCreateBodyDescriptionDefault)
-            .describe('One-line description shown in the list view + system-prompt skill index.'),
-        body: zod.string().default(agentSkillTemplatesCreateBodyBodyDefault).describe('Initial SKILL.md markdown.'),
+            .describe(
+                'Required description (1–1024 chars, per the Agent Skills spec) — what the skill does and when to use it. Shown in the list view + system-prompt skill index.'
+            ),
+        body: zod
+            .string()
+            .default(agentSkillTemplatesCreateBodyBodyDefault)
+            .describe(
+                'Initial SKILL.md markdown body. Any leading YAML frontmatter is stripped at freeze — frontmatter is assembled from the structured fields.'
+            ),
+        license: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyLicenseMax)
+            .default(agentSkillTemplatesCreateBodyLicenseDefault)
+            .describe('Agent Skills `license` frontmatter — license name or a reference to a bundled license file.'),
+        compatibility: zod
+            .string()
+            .max(agentSkillTemplatesCreateBodyCompatibilityMax)
+            .default(agentSkillTemplatesCreateBodyCompatibilityDefault)
+            .describe(
+                'Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network access). Max 500 chars.'
+            ),
         files: zod
             .array(
                 zod.object({
@@ -1551,7 +1576,7 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
                         .string()
                         .max(agentSkillTemplatesCreateBodyFilesItemPathMax)
                         .describe(
-                            'Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.'
+                            'Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`, `assets/x/y.json`). Becomes `bundle/skills/<alias>/<path>` at freeze. No `..` traversal or absolute paths.'
                         ),
                     content: zod
                         .string()
@@ -1566,12 +1591,19 @@ export const AgentSkillTemplatesCreateBody = /* @__PURE__ */ zod
                 })
             )
             .optional()
-            .describe('Optional companion files at creation time.'),
+            .describe(
+                'Optional companion files (scripts/, references/, assets/ — arbitrarily nested) at creation time.'
+            ),
         metadata: zod
             .unknown()
             .optional()
-            .describe('Free-form, agentskills.io-compatible bag (license, compatibility, …).'),
-        allowed_tools: zod.unknown().optional().describe('Optional list of tool ids the skill is meant to reach for.'),
+            .describe('Agent Skills `metadata` map (string → string) for non-promoted keys like author or version.'),
+        allowed_tools: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze."
+            ),
     })
     .describe('Initial-create payload — produces v1.')
 
@@ -1643,6 +1675,16 @@ export const AgentSkillTemplatesNameArchiveCreateParams = /* @__PURE__ */ zod.ob
 
 export const AgentSkillTemplatesNameArchiveCreateBody = /* @__PURE__ */ zod
     .object({
+        license: zod
+            .string()
+            .describe(
+                'Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset.'
+            ),
+        compatibility: zod
+            .string()
+            .describe(
+                'Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset.'
+            ),
         body: zod.string().describe('Markdown body. The `SKILL.md` equivalent.'),
     })
     .describe('Detail shape: adds body + files. Used by the registry detail page.')
@@ -1678,15 +1720,15 @@ export const AgentSkillTemplatesNameDuplicateCreateParams = /* @__PURE__ */ zod.
         ),
 })
 
-export const agentSkillTemplatesNameDuplicateCreateBodyNameMax = 128
+export const agentSkillTemplatesNameDuplicateCreateBodyNameMax = 64
 
-export const agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax = 1024
 
 export const AgentSkillTemplatesNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(agentSkillTemplatesNameDuplicateCreateBodyNameMax)
-        .describe('Slug for the new duplicate. Must not collide with an existing template.'),
+        .describe('Slug for the new duplicate (max 64 chars). Must not collide with an existing template.'),
     description: zod
         .string()
         .max(agentSkillTemplatesNameDuplicateCreateBodyDescriptionMax)
@@ -1734,7 +1776,9 @@ export const AgentSkillTemplatesNameFilesCreateBody = /* @__PURE__ */ zod.object
     path: zod
         .string()
         .max(agentSkillTemplatesNameFilesCreateBodyPathMax)
-        .describe('Relative path inside the skill folder.'),
+        .describe(
+            'Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`). No `..` traversal or absolute paths.'
+        ),
     content: zod.string().describe('File body.'),
     content_type: zod
         .string()
@@ -1782,11 +1826,13 @@ export const AgentSkillTemplatesNameFilesRenameCreateBody = /* @__PURE__ */ zod.
     from_path: zod
         .string()
         .max(agentSkillTemplatesNameFilesRenameCreateBodyFromPathMax)
-        .describe('Existing file path inside the skill folder.'),
+        .describe('Existing file path inside the skill folder (subfolders allowed).'),
     to_path: zod
         .string()
         .max(agentSkillTemplatesNameFilesRenameCreateBodyToPathMax)
-        .describe('New path. Must not collide with another file.'),
+        .describe(
+            'New path (subfolders allowed); may move the file between subfolders. Must not collide with another file.'
+        ),
 })
 
 /**
@@ -1853,7 +1899,11 @@ export const AgentSkillTemplatesNamePublishCreateParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const agentSkillTemplatesNamePublishCreateBodyDescriptionMax = 4096
+export const agentSkillTemplatesNamePublishCreateBodyDescriptionMax = 1024
+
+export const agentSkillTemplatesNamePublishCreateBodyLicenseMax = 256
+
+export const agentSkillTemplatesNamePublishCreateBodyCompatibilityMax = 500
 
 export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1861,7 +1911,7 @@ export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
             .string()
             .max(agentSkillTemplatesNamePublishCreateBodyDescriptionMax)
             .optional()
-            .describe('Overrides the prior description. Omit to keep the prior value.'),
+            .describe('Overrides the prior description (1–1024 chars, non-empty). Omit to keep the prior value.'),
         body: zod.string().optional().describe('Full new body. Mutually exclusive with `edits`.'),
         edits: zod
             .array(
@@ -1880,7 +1930,17 @@ export const AgentSkillTemplatesNamePublishCreateBody = /* @__PURE__ */ zod
             )
             .optional()
             .describe('Structured edits. Each `old` must match exactly once in the current body / file.'),
-        metadata: zod.unknown().optional().describe('Overrides metadata. Omit to keep the prior value.'),
+        license: zod
+            .string()
+            .max(agentSkillTemplatesNamePublishCreateBodyLicenseMax)
+            .optional()
+            .describe('Overrides the `license` frontmatter. Omit to keep the prior value.'),
+        compatibility: zod
+            .string()
+            .max(agentSkillTemplatesNamePublishCreateBodyCompatibilityMax)
+            .optional()
+            .describe('Overrides the `compatibility` frontmatter (max 500 chars). Omit to keep the prior value.'),
+        metadata: zod.unknown().optional().describe('Overrides the metadata map. Omit to keep the prior value.'),
         allowed_tools: zod.unknown().optional().describe('Overrides allowed_tools. Omit to keep the prior value.'),
     })
     .describe(

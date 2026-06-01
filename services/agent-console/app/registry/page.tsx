@@ -3,8 +3,8 @@
  *
  * Three tabs:
  *   - **Native tools** — live data from `/agent_native_tools/`.
- *   - **Skills** — mocked until the `agent_skill_template` table lands.
- *   - **Custom tools** — mocked until `agent_custom_tool_template` lands.
+ *   - **Skills** — live; supports drag-and-drop folder / zip upload.
+ *   - **Custom tools** — live data from `/agent_custom_tool_templates/`.
  *
  * Each tab is a searchable list of cards. Click a card to drill into a
  * detail page (separate routes — landing here only). See the plan at

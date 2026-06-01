@@ -13,6 +13,8 @@ from unittest.mock import MagicMock
 
 from django.db.models import ProtectedError
 
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from .models import (
@@ -63,6 +65,12 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
             is_latest=True,
         )
 
+    def _written(self, path: str) -> str:
+        for call in self.janitor.put_file.call_args_list:
+            if call.args[1] == path:
+                return call.args[2]
+        raise AssertionError(f"no put_file for {path!r}")
+
     # ---- happy path ----
 
     def test_no_refs_is_noop(self) -> None:
@@ -86,8 +94,10 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
         ref = result.skill_refs[0]
         assert ref.pinned_version == 1
         assert ref.alias == "research"
-        # Bundle write: SKILL.md
-        self.janitor.put_file.assert_any_call(str(self.revision.id), "skills/research.md", "# Research")
+        # Bundle write: a spec-compliant SKILL.md inside the skill's own dir.
+        skill_md = self._written("skills/research/SKILL.md")
+        assert "name: research" in skill_md
+        assert "# Research" in skill_md
 
     def test_skill_with_files_writes_each_file(self) -> None:
         skill = self._skill(name="researchf", body="body")
@@ -150,7 +160,9 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
         self.revision.save()
         result = freeze_templates_into_bundle(self.revision, self.janitor, team_id=self.team.pk)
         assert result.skill_refs[0].pinned_version == 1
-        self.janitor.put_file.assert_any_call(str(self.revision.id), "skills/pinned.md", "v1 body")
+        skill_md = self._written("skills/pinned/SKILL.md")
+        assert "name: pinned" in skill_md
+        assert "v1 body" in skill_md
 
     def test_omitted_version_stamps_latest(self) -> None:
         v1 = self._skill(name="lo", body="v1 body", version=1)
@@ -186,7 +198,9 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
         }
         self.revision.save()
         freeze_templates_into_bundle(self.revision, self.janitor, team_id=self.team.pk)
-        self.janitor.put_file.assert_any_call(str(self.revision.id), "skills/research.md", "canonical body")
+        skill_md = self._written("skills/research/SKILL.md")
+        assert "name: research" in skill_md
+        assert "canonical body" in skill_md
 
     # ---- error paths ----
 
@@ -210,6 +224,27 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
             freeze_templates_into_bundle(self.revision, self.janitor, team_id=self.team.pk)
         assert "alias" in exc.value.message
         assert exc.value.index == 0
+
+    @parameterized.expand(
+        [
+            ("traversal", "../escape"),
+            ("nested", "a/b"),
+            ("absolute", "/etc/passwd"),
+            ("dot", "."),
+            ("space", "bad alias"),
+        ]
+    )
+    def test_unsafe_alias_raises(self, _name: str, alias: str) -> None:
+        skill = self._skill(name="unsafe", body="b")
+        self.revision.spec = {
+            "skills": [{"from_template": str(skill.id), "alias": alias}],
+        }
+        self.revision.save()
+        with pytest.raises(FreezeError) as exc:
+            freeze_templates_into_bundle(self.revision, self.janitor, team_id=self.team.pk)
+        assert exc.value.kind == "skill"
+        # The bundle must not have been written with an escaping path.
+        self.janitor.put_file.assert_not_called()
 
     def test_archived_template_not_resolvable(self) -> None:
         skill = self._skill(name="dead", body="b")
@@ -260,11 +295,11 @@ class TestFreezeTemplatesIntoBundle(BaseTest):
         assert result.resolved_spec["skills"][0]["version"] == 1
         # Freeze also stamps the runtime fields the runner's zod schema requires.
         assert result.resolved_spec["skills"][0]["id"] == "s"
-        assert result.resolved_spec["skills"][0]["path"] == "skills/s.md"
+        assert result.resolved_spec["skills"][0]["path"] == "skills/s/SKILL.md"
         self.revision.refresh_from_db()
         assert self.revision.spec["skills"][0]["version"] == 1
         assert self.revision.spec["skills"][0]["id"] == "s"
-        assert self.revision.spec["skills"][0]["path"] == "skills/s.md"
+        assert self.revision.spec["skills"][0]["path"] == "skills/s/SKILL.md"
 
     def test_custom_tool_freeze_reshapes_into_runtime_kind(self) -> None:
         tool = self._tool(name="reshape", source="ts", compiled="js")

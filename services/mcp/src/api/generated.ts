@@ -37455,7 +37455,7 @@ export namespace Schemas {
     export interface SkillTemplateFile {
       readonly id: string;
       /**
-         * Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.
+         * Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`, `assets/x/y.json`). Becomes `bundle/skills/<alias>/<path>` at freeze. No `..` traversal or absolute paths.
          * @maxLength 512
          */
       path: string;
@@ -37473,22 +37473,32 @@ export namespace Schemas {
      */
     export interface SkillTemplateCreate {
       /**
-         * Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.
-         * @maxLength 128
+         * Slug-shaped name unique per team (max 64 chars, per the Agent Skills spec). `@posthog/<slug>` is reserved for canonical templates.
+         * @maxLength 64
          */
       name: string;
       /**
-         * One-line description shown in the list view + system-prompt skill index.
-         * @maxLength 4096
+         * Required description (1–1024 chars, per the Agent Skills spec) — what the skill does and when to use it. Shown in the list view + system-prompt skill index.
+         * @maxLength 1024
          */
-      description?: string;
-      /** Initial SKILL.md markdown. */
+      description: string;
+      /** Initial SKILL.md markdown body. Any leading YAML frontmatter is stripped at freeze — frontmatter is assembled from the structured fields. */
       body?: string;
-      /** Optional companion files at creation time. */
+      /**
+         * Agent Skills `license` frontmatter — license name or a reference to a bundled license file.
+         * @maxLength 256
+         */
+      license?: string;
+      /**
+         * Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network access). Max 500 chars.
+         * @maxLength 500
+         */
+      compatibility?: string;
+      /** Optional companion files (scripts/, references/, assets/ — arbitrarily nested) at creation time. */
       files?: SkillTemplateFile[];
-      /** Free-form, agentskills.io-compatible bag (license, compatibility, …). */
+      /** Agent Skills `metadata` map (string → string) for non-promoted keys like author or version. */
       metadata?: unknown;
-      /** Optional list of tool ids the skill is meant to reach for. */
+      /** Optional list of tool ids the skill expects to reach for. Emitted as the spec's space-separated `allowed-tools` frontmatter at freeze. */
       allowed_tools?: unknown;
     }
 
@@ -37505,6 +37515,10 @@ export namespace Schemas {
       readonly file_count: number;
       /** Number of frozen agent revisions pinning this template (any version). */
       readonly usage_count: number;
+      /** Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset. */
+      license: string;
+      /** Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset. */
+      compatibility: string;
       readonly metadata: unknown;
       readonly allowed_tools: unknown;
       /** Publisher. Null for canonical PostHog-owned templates. */
@@ -37518,13 +37532,13 @@ export namespace Schemas {
 
     export interface SkillTemplateDuplicate {
       /**
-         * Slug for the new duplicate. Must not collide with an existing template.
-         * @maxLength 128
+         * Slug for the new duplicate (max 64 chars). Must not collide with an existing template.
+         * @maxLength 64
          */
       name: string;
       /**
          * Description for the new template. Defaults to the source's description.
-         * @maxLength 4096
+         * @maxLength 1024
          */
       description?: string;
     }
@@ -37546,12 +37560,12 @@ export namespace Schemas {
 
     export interface SkillTemplateFileRename {
       /**
-         * Existing file path inside the skill folder.
+         * Existing file path inside the skill folder (subfolders allowed).
          * @maxLength 512
          */
       from_path: string;
       /**
-         * New path. Must not collide with another file.
+         * New path (subfolders allowed); may move the file between subfolders. Must not collide with another file.
          * @maxLength 512
          */
       to_path: string;
@@ -37559,7 +37573,7 @@ export namespace Schemas {
 
     export interface SkillTemplateFileWrite {
       /**
-         * Relative path inside the skill folder.
+         * Relative path inside the skill folder; may include subfolders (e.g. `references/api.md`, `scripts/run.py`). No `..` traversal or absolute paths.
          * @maxLength 512
          */
       path: string;
@@ -37580,15 +37594,25 @@ export namespace Schemas {
      */
     export interface SkillTemplatePublish {
       /**
-         * Overrides the prior description. Omit to keep the prior value.
-         * @maxLength 4096
+         * Overrides the prior description (1–1024 chars, non-empty). Omit to keep the prior value.
+         * @maxLength 1024
          */
       description?: string;
       /** Full new body. Mutually exclusive with `edits`. */
       body?: string;
       /** Structured edits. Each `old` must match exactly once in the current body / file. */
       edits?: SkillTemplateEdit[];
-      /** Overrides metadata. Omit to keep the prior value. */
+      /**
+         * Overrides the `license` frontmatter. Omit to keep the prior value.
+         * @maxLength 256
+         */
+      license?: string;
+      /**
+         * Overrides the `compatibility` frontmatter (max 500 chars). Omit to keep the prior value.
+         * @maxLength 500
+         */
+      compatibility?: string;
+      /** Overrides the metadata map. Omit to keep the prior value. */
       metadata?: unknown;
       /** Overrides allowed_tools. Omit to keep the prior value. */
       allowed_tools?: unknown;
@@ -37607,6 +37631,10 @@ export namespace Schemas {
       readonly file_count: number;
       /** Number of frozen agent revisions pinning this template (any version). */
       readonly usage_count: number;
+      /** Agent Skills `license` frontmatter — license name or a reference to a bundled license file. Blank if unset. */
+      license: string;
+      /** Agent Skills `compatibility` frontmatter — environment requirements (intended product, packages, network). Blank if unset. */
+      compatibility: string;
       readonly metadata: unknown;
       readonly allowed_tools: unknown;
       /** Publisher. Null for canonical PostHog-owned templates. */
