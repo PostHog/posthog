@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Generates wire-level conformance goldens for the agent CLI.
+ * Generates wire-level conformance expected requests for the agent CLI.
  *
  * Drives the REAL generated MCP tool handlers for a corpus of (tool, params) cases,
  * capturing the exact request each handler builds (`context.api.request(...)`). The
@@ -22,7 +22,7 @@ import { GENERATED_TOOL_MAP } from '../src/tools/generated'
 
 const PROJECT_ID = '2'
 const BASE_URL = 'http://localhost:8010'
-const OUT_PATH = path.resolve(__dirname, '..', 'schema', 'cli-conformance-goldens.json')
+const OUT_PATH = path.resolve(__dirname, '..', 'schema', 'cli-conformance-expected-requests.json')
 
 class CaptureSignal extends Error {
     constructor(public readonly request: CapturedRequest) {
@@ -89,7 +89,7 @@ async function main(): Promise<void> {
         },
     } as unknown as Parameters<ReturnType<(typeof GENERATED_TOOL_MAP)[string]>['handler']>[0]
 
-    const goldens: Record<string, unknown> = {}
+    const expectedRequests: Record<string, unknown> = {}
     const skipped: string[] = []
 
     for (const { tool: name, params } of CORPUS) {
@@ -111,7 +111,7 @@ async function main(): Promise<void> {
                 continue
             }
             const c = err.request
-            goldens[name] = {
+            expectedRequests[name] = {
                 params,
                 request: {
                     method: c.method,
@@ -123,9 +123,9 @@ async function main(): Promise<void> {
         }
     }
 
-    fs.writeFileSync(OUT_PATH, JSON.stringify(goldens, null, 2) + '\n')
+    fs.writeFileSync(OUT_PATH, JSON.stringify(expectedRequests, null, 2) + '\n')
     process.stdout.write(
-        `Wrote ${Object.keys(goldens).length} conformance golden(s) to ${path.relative(process.cwd(), OUT_PATH)}\n`
+        `Wrote ${Object.keys(expectedRequests).length} conformance expected request(s) to ${path.relative(process.cwd(), OUT_PATH)}\n`
     )
     if (skipped.length > 0) {
         process.stdout.write(`Skipped ${skipped.length}: ${skipped.join('; ')}\n`)

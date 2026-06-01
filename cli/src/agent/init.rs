@@ -30,7 +30,9 @@ pub fn run(path: &str, agent: bool) -> Result<()> {
     if install_steering {
         write_steering(path)?;
     } else {
-        println!("Skipped agent steering block. You can add it later with `posthog-cli init --agent`.");
+        println!(
+            "Skipped agent steering block. You can add it later with `posthog-cli init --agent`."
+        );
     }
 
     Ok(())

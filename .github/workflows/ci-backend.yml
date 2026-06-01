@@ -1323,10 +1323,10 @@ jobs:
                       exit 1
                   fi
                   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-                  # Regenerate the agent CLI conformance goldens from the just-regenerated MCP handlers.
+                  # Regenerate the agent CLI conformance expected requests from the just-regenerated MCP handlers.
                   # Non-fatal: cli-manifest.json staleness is already enforced by build:openapi above; this
-                  # keeps the goldens in sync without putting the critical OpenAPI path at risk.
-                  pnpm --filter=@posthog/mcp run generate-cli-conformance || echo "::warning::generate-cli-conformance failed; CLI conformance goldens may be stale"
+                  # keeps the expected requests in sync without putting the critical OpenAPI path at risk.
+                  pnpm --filter=@posthog/mcp run generate-cli-conformance || echo "::warning::generate-cli-conformance failed; CLI conformance expected requests may be stale"
                   if git diff --exit-code; then
                       echo "OpenAPI types are up to date"
                       echo "needs-commit=false" >> $GITHUB_OUTPUT
@@ -1395,7 +1395,7 @@ jobs:
                   commit_message: 'chore: update OpenAPI generated types'
                   repo: ${{ github.repository }}
                   branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/** services/mcp/schema/cli-manifest.json services/mcp/schema/cli-conformance-goldens.json'
+                  file_pattern: 'frontend/src/generated/** products/*/frontend/generated/** products/*/mcp/*.yaml services/mcp/definitions/*.yaml services/mcp/src/api/generated.ts services/mcp/src/generated/** services/mcp/schema/generated-tool-definitions.json services/mcp/schema/tool-definitions-all.json services/mcp/src/tools/generated/** services/mcp/schema/cli-manifest.json services/mcp/schema/cli-conformance-expected-requests.json'
               env:
                   GITHUB_TOKEN: ${{ steps.openapi-app-token.outputs.token }}
 

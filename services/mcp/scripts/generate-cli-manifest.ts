@@ -218,7 +218,7 @@ function buildParam(
     if (location === 'body') {
         const meta = bodyMeta[wire ?? name]
         // Only OpenAPI body-field defaults are live (param_overrides defaults are `.default().optional()`,
-        // which zod's optional short-circuits — verified by the activity-log-list golden).
+        // which zod's optional short-circuits — verified by the activity-log-list expected request).
         if (meta?.default !== undefined) {
             param.default = meta.default
         }

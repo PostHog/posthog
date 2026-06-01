@@ -282,11 +282,11 @@ mod tests {
 
     const PROJECT_ID: &str = "2";
 
-    // Wire-level goldens captured from the REAL MCP handlers by
+    // Wire-level expected requests captured from the REAL MCP handlers by
     // services/mcp/scripts/generate-cli-conformance.ts. Asserting against these makes
     // request parity with the MCP a CI-enforced invariant, not a re-derivation.
-    const CONFORMANCE_GOLDENS: &str =
-        include_str!("../../../services/mcp/schema/cli-conformance-goldens.json");
+    const CONFORMANCE_EXPECTED_REQUESTS: &str =
+        include_str!("../../../services/mcp/schema/cli-conformance-expected-requests.json");
 
     fn req(tool_name: &str, params: Value) -> ResolvedRequest {
         let manifest = load_manifest().expect("manifest parses");
@@ -303,7 +303,7 @@ mod tests {
         );
     }
 
-    // Golden expectations are derived from the authoritative MCP source:
+    // Expected requests are derived from the authoritative MCP source:
     //   services/mcp/src/tools/generated/feature_flags.ts and
     //   services/mcp/src/api/client.ts (request / normalizeQuery / runActorsQuery).
 
@@ -516,22 +516,22 @@ mod tests {
     }
 
     #[test]
-    fn live_conformance_against_mcp_goldens() {
-        let goldens: serde_json::Map<String, Value> =
-            serde_json::from_str(CONFORMANCE_GOLDENS).expect("goldens parse");
+    fn live_conformance_against_mcp_expected_requests() {
+        let expected_requests: serde_json::Map<String, Value> =
+            serde_json::from_str(CONFORMANCE_EXPECTED_REQUESTS).expect("expected requests parse");
         let manifest = load_manifest().unwrap();
         assert!(
-            goldens.len() >= 5,
+            expected_requests.len() >= 5,
             "expected a meaningful conformance corpus"
         );
 
-        for (name, entry) in &goldens {
+        for (name, entry) in &expected_requests {
             let params = &entry["params"];
             let expected = &entry["request"];
             let tool = manifest
                 .tools
                 .get(name)
-                .unwrap_or_else(|| panic!("golden tool {name} missing from manifest"));
+                .unwrap_or_else(|| panic!("expected-request tool {name} missing from manifest"));
             let r =
                 build_request(tool, params, PROJECT_ID).unwrap_or_else(|e| panic!("{name}: {e}"));
 

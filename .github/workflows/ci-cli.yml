@@ -7,7 +7,7 @@ on:
             - 'cli/**'
             # The agent conformance tests embed these generated artifacts at build time.
             - 'services/mcp/schema/cli-manifest.json'
-            - 'services/mcp/schema/cli-conformance-goldens.json'
+            - 'services/mcp/schema/cli-conformance-expected-requests.json'
             - '.github/workflows/ci-cli.yml'
 
 concurrency:
