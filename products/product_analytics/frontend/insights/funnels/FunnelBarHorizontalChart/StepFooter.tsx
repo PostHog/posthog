@@ -12,6 +12,7 @@ import {
 } from 'scenes/funnels/funnelUtils'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 
+import { type Noun } from '~/models/groupsModel'
 import type { FunnelsFilter } from '~/queries/schema/schema-general'
 import { type FunnelStepWithConversionMetrics } from '~/types'
 
@@ -19,7 +20,7 @@ interface StepFooterProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     funnelsFilter: FunnelsFilter | null | undefined
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
     isOptional: boolean
     showPersonsModal: boolean
     onOpenConverted: () => void
