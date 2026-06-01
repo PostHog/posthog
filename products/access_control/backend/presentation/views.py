@@ -33,9 +33,7 @@ from .serializers import (
     PropertyAccessControlUpdateSerializer,
 )
 
-PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE = (
-    "Property access control requires the Property access control feature."
-)
+PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE = "Property access control feature is required"
 
 
 class _SingletonStateSchema(AutoSchema):
