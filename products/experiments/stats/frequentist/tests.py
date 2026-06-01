@@ -187,10 +187,11 @@ class SequentialTwoSidedTTest(StatisticalTest):
         pooled_variance = calculate_variance_pooled(treatment_stat, control_stat, difference_type, unadjusted_mean)
         n = get_sample_size(treatment_stat) + get_sample_size(control_stat)
 
-        # No t-distribution in the always-valid construction. Surface this explicitly so
-        # downstream consumers don't quietly use a meaningless dof value.
+        # No t-distribution in the always-valid construction, so neither the degrees of
+        # freedom nor a t-statistic carry meaning here. Surface both as NaN so downstream
+        # consumers don't quietly use a meaningless value.
         degrees_of_freedom = math.nan
-        t_statistic = calculate_t_statistic(point_estimate, pooled_variance)
+        t_statistic = math.nan
 
         p_value = sequential_p_value(
             point_estimate=point_estimate,

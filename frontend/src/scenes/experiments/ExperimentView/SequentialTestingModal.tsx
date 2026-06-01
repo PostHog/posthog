@@ -8,6 +8,7 @@ import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
+    MAX_SEQUENTIAL_TUNING_PARAMETER,
     SequentialSelection,
     getSequentialSelection,
     resolveSequentialTuningParameter,
@@ -123,9 +124,15 @@ export function SequentialTestingModal(): JSX.Element {
                         <LemonInput
                             type="number"
                             min={1}
+                            max={MAX_SEQUENTIAL_TUNING_PARAMETER}
                             value={tuningParameter}
                             onChange={(value) => {
-                                if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) {
+                                if (
+                                    typeof value !== 'number' ||
+                                    !Number.isFinite(value) ||
+                                    value < 1 ||
+                                    value > MAX_SEQUENTIAL_TUNING_PARAMETER
+                                ) {
                                     return
                                 }
                                 updateTuningParameter(Math.round(value))

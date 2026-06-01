@@ -96,7 +96,7 @@ class TeamExperimentsConfig(models.Model):
     default_sequential_tuning_parameter = models.PositiveIntegerField(
         null=True,
         blank=True,
-        validators=[MinValueValidator(1)],
+        validators=[MinValueValidator(1), MaxValueValidator(1_000_000_000)],
         help_text=(
             "Default tuning parameter for sequential testing. Roughly the sample size at which the "
             "confidence sequence is tightest. Overridden by the experiment-level "

@@ -5,7 +5,10 @@ import { LemonInput } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { DEFAULT_SEQUENTIAL_TUNING_PARAMETER } from 'scenes/experiments/ExperimentView/sequential'
+import {
+    DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
+    MAX_SEQUENTIAL_TUNING_PARAMETER,
+} from 'scenes/experiments/ExperimentView/sequential'
 
 import { experimentsConfigLogic } from './experimentsConfigLogic'
 
@@ -26,7 +29,9 @@ export function DefaultSequentialTuningParameter(): JSX.Element {
         setLocalValue(displayValue)
     }, [displayValue])
 
-    const isInvalid = localValue !== undefined && (!Number.isFinite(localValue) || localValue < 1)
+    const isInvalid =
+        localValue !== undefined &&
+        (!Number.isFinite(localValue) || localValue < 1 || localValue > MAX_SEQUENTIAL_TUNING_PARAMETER)
 
     const commit = (): void => {
         if (isInvalid) {
@@ -52,6 +57,7 @@ export function DefaultSequentialTuningParameter(): JSX.Element {
         <LemonInput
             type="number"
             min={1}
+            max={MAX_SEQUENTIAL_TUNING_PARAMETER}
             value={localValue}
             onChange={(value) => setLocalValue(value)}
             onBlur={commit}

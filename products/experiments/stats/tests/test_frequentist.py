@@ -250,6 +250,7 @@ class TestSequentialTwoSidedTTest(TestCase):
         self.assertAlmostEqual(seq_result.point_estimate, fixed_result.point_estimate, places=6)
         self.assertEqual(seq_result.test_type, "sequential_two_sided")
         self.assertTrue(math.isnan(seq_result.degrees_of_freedom))
+        self.assertTrue(math.isnan(seq_result.test_statistic))
 
     def test_sequential_p_value_with_zero_effect_returns_one(self):
         from products.experiments.stats.frequentist.method import TestType
