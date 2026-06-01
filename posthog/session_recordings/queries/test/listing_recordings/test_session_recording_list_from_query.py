@@ -1,6 +1,6 @@
 import re
 from contextlib import nullcontext
-from datetime import datetime
+from datetime import UTC, datetime
 from itertools import product
 from typing import Literal
 from uuid import uuid4
@@ -369,7 +369,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=59000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=6)),
+            kafka_timestamp=(datetime.now(UTC).replace(tzinfo=None) - relativedelta(minutes=6)),
         )
 
         produce_replay_summary(
@@ -383,7 +383,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=61000,
-            kafka_timestamp=(datetime.utcnow() - relativedelta(minutes=3)),
+            kafka_timestamp=(datetime.now(UTC).replace(tzinfo=None) - relativedelta(minutes=3)),
         )
 
         (session_recordings, _, _, _) = self._filter_recordings_by({})

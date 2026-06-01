@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import structlog
@@ -1517,7 +1517,7 @@ def _extract_recent_assistant_text_from_logs(task_run: Any) -> str | None:
     latest_text: str | None = None
     latest_agent_timestamp: datetime | None = None
     latest_user_timestamp: datetime | None = None
-    cutoff = datetime.utcnow() - timedelta(minutes=5)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
 
     for line in log_content.strip().split("\n"):
         line = line.strip()
