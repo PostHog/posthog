@@ -33,7 +33,14 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import BracketIdentifierQuoter, Column, Table
+from posthog.temporal.data_imports.sources.common.sql import (
+    BracketIdentifierQuoter,
+    Column,
+    Table,
+    compute_projected_columns,
+    format_projected_select_clause,
+    project_arrow_columns,
+)
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation, TableStats
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
@@ -73,13 +80,17 @@ def _build_query(
     incremental_field_type: IncrementalFieldType | None,
     db_incremental_field_last_value: Any | None,
     add_limit: bool = False,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     # Every identifier interpolated below is validated by the bracket
     # quoter — bad input (`;`, `]`, whitespace, etc.) raises before any
     # SQL is built. Parameter values still flow through pymssql binding.
     qualified_table = _IDENTIFIER_QUOTER.quote_qualified(schema, table_name)
     top = "TOP 100 " if add_limit else ""
-    base_query = f"SELECT {top}* FROM {qualified_table}"
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause = format_projected_select_clause(projected, _IDENTIFIER_QUOTER)
+    base_query = f"SELECT {top}{select_clause} FROM {qualified_table}"
 
     if not should_use_incremental_field:
         return base_query, {}
@@ -561,9 +572,22 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         incremental_field = inputs.incremental_field
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
+        enabled_columns = inputs.enabled_columns
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
+                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                full_table = self.get_table_metadata(cursor, schema, table_name)
+
+                # Resolve PKs before projection so SELECT and Arrow schema agree.
+                if primary_keys is None and "id" in full_table:
+                    primary_keys = ["id"]
+
+                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                table = project_arrow_columns(full_table, projected)
+                arrow_schema = table.to_arrow_schema()
+                logger.debug(f"Source schema: {arrow_schema}")
+
                 inner_query, inner_query_args = _build_query(
                     schema,
                     table_name,
@@ -571,12 +595,10 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     incremental_field,
                     incremental_field_type,
                     db_incremental_field_last_value,
+                    enabled_columns=enabled_columns,
+                    primary_keys=primary_keys,
                 )
 
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                table = self.get_table_metadata(cursor, schema, table_name)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
                 rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
                 chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
                 partition_settings = (
@@ -584,10 +606,6 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                     if should_use_incremental_field
                     else None
                 )
-
-                # Fallback on checking for an `id` field on the table
-                if primary_keys is None and "id" in table:
-                    primary_keys = ["id"]
 
         def get_rows() -> Iterator[Any]:
             with self.connect(config) as streaming_connection:
@@ -599,6 +617,8 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                         incremental_field,
                         incremental_field_type,
                         db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
                     if incremental_field:
                         query = f"{query} ORDER BY {_IDENTIFIER_QUOTER.quote(incremental_field)} ASC"

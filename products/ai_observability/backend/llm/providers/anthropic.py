@@ -40,6 +40,7 @@ class AnthropicConfig:
     TIMEOUT: float = 300.0
 
     SUPPORTED_MODELS: list[str] = [
+        "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-opus-4-6",
@@ -59,6 +60,7 @@ class AnthropicConfig:
     ]
 
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
+        "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-opus-4-6",
@@ -71,6 +73,7 @@ class AnthropicConfig:
     ]
 
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-sonnet-4-6",
         "claude-opus-4-6",

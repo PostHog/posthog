@@ -157,6 +157,8 @@ services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observabi
 
 # LLM Gateway - owned by @PostHog/team-ai-gateway
 nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
 products/ai_observability/backend/api/proxy.py @PostHog/team-ai-gateway
 products/ai_observability/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
 products/ai_observability/frontend/playground/ @PostHog/team-ai-gateway
@@ -195,6 +197,9 @@ tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
+
+# User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
+products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 
 # OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
 posthog/api/documentation.py @PostHog/team-devex

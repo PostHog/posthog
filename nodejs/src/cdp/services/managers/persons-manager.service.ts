@@ -21,6 +21,8 @@ export type PersonManagerPerson = {
     id: string
     properties: Record<string, any>
     team_id: number
+    // Populated by fetchPersonsByPersonIds when the person has at least one distinct_id
+    distinct_id?: string
 }
 
 export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
@@ -74,6 +76,7 @@ export class PersonsManagerService {
             properties: dbPerson.properties,
             name: getPersonDisplayName(team, id, dbPerson.properties),
             url: `${this.siteUrl}/project/${teamId}/person/${encodeURIComponent(id)}`,
+            distinct_id: dbPerson.distinct_id,
         }
     }
 
@@ -85,7 +88,9 @@ export class PersonsManagerService {
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
-            teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id }))
+            teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
+            undefined,
+            'cdp/hogflow-person-enrichment'
         )
 
         // Map results back to the original keys
@@ -111,8 +116,38 @@ export class PersonsManagerService {
         logger.debug('[PersonManager]', 'Fetching persons', { teamPersons })
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
-            teamPersons.map(({ teamId, id }) => ({ teamId, personId: id }))
+            teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
+            undefined,
+            'cdp/hogflow-person-enrichment'
         )
+
+        // Fetch one distinct_id per person so callers that need to identify the user
+        // (e.g. capture-based hog templates) can do so without a separate round-trip.
+        // Grouping by team lets us call the single-team RPC once per team in the batch.
+        const intIdsByTeam = new Map<number, string[]>()
+        for (const row of personRows) {
+            const list = intIdsByTeam.get(row.team_id) ?? []
+            list.push(row.id)
+            intIdsByTeam.set(row.team_id, list)
+        }
+
+        const distinctIdLookups = await Promise.all(
+            [...intIdsByTeam].map(async ([teamId, intIds]) => {
+                const map = await this.personRepository.fetchDistinctIdsForPersons(teamId, intIds, {
+                    limitPerPerson: 1,
+                })
+                return { teamId, map }
+            })
+        )
+
+        const distinctIdByTeamAndIntId = new Map<string, string>()
+        for (const { teamId, map } of distinctIdLookups) {
+            for (const [intId, distinctIds] of Object.entries(map)) {
+                if (distinctIds.length > 0) {
+                    distinctIdByTeamAndIntId.set(`${teamId}:${intId}`, distinctIds[0])
+                }
+            }
+        }
 
         // Map results back to the original keys
         const result: Record<string, PersonManagerPerson | undefined> = {}
@@ -124,6 +159,7 @@ export class PersonsManagerService {
                 id: row.uuid,
                 properties: row.properties,
                 team_id: row.team_id,
+                distinct_id: distinctIdByTeamAndIntId.get(`${row.team_id}:${row.id}`),
             }
         }
 

@@ -49,8 +49,8 @@ export const getDataModelingDagsListUrl = (projectId: string, params?: DataModel
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/data_modeling_dags/?${stringifiedParams}`
-        : `/api/environments/${projectId}/data_modeling_dags/`
+        ? `/api/projects/${projectId}/data_modeling_dags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_dags/`
 }
 
 export const dataModelingDagsList = async (
@@ -65,7 +65,7 @@ export const dataModelingDagsList = async (
 }
 
 export const getDataModelingDagsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_modeling_dags/`
+    return `/api/projects/${projectId}/data_modeling_dags/`
 }
 
 export const dataModelingDagsCreate = async (
@@ -93,8 +93,8 @@ export const getDataModelingEdgesListUrl = (projectId: string, params?: DataMode
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/data_modeling_edges/?${stringifiedParams}`
-        : `/api/environments/${projectId}/data_modeling_edges/`
+        ? `/api/projects/${projectId}/data_modeling_edges/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_edges/`
 }
 
 export const dataModelingEdgesList = async (
@@ -109,7 +109,7 @@ export const dataModelingEdgesList = async (
 }
 
 export const getDataModelingEdgesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_modeling_edges/`
+    return `/api/projects/${projectId}/data_modeling_edges/`
 }
 
 export const dataModelingEdgesCreate = async (
@@ -137,8 +137,8 @@ export const getDataModelingNodesListUrl = (projectId: string, params?: DataMode
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/data_modeling_nodes/?${stringifiedParams}`
-        : `/api/environments/${projectId}/data_modeling_nodes/`
+        ? `/api/projects/${projectId}/data_modeling_nodes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
 export const dataModelingNodesList = async (
@@ -153,7 +153,7 @@ export const dataModelingNodesList = async (
 }
 
 export const getDataModelingNodesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/`
+    return `/api/projects/${projectId}/data_modeling_nodes/`
 }
 
 export const dataModelingNodesCreate = async (
@@ -170,7 +170,7 @@ export const dataModelingNodesCreate = async (
 }
 
 export const getDataModelingNodesDagIdsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/data_modeling_nodes/dag_ids/`
+    return `/api/projects/${projectId}/data_modeling_nodes/dag_ids/`
 }
 
 /**

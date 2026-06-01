@@ -66,6 +66,10 @@ export type CyclotronPerson = {
     properties: Record<string, any>
     name: string
     url: string
+    // Populated whenever the manager could resolve a distinct_id for this person.
+    // Always present when looked up by distinct_id; for person_id lookups, present
+    // when the person has at least one distinct_id in the persondistinctid table.
+    distinct_id?: string
 }
 
 export type HogFunctionInvocationGlobals = {
