@@ -30,6 +30,7 @@ from products.batch_exports.backend.service import sync_batch_export
 pytestmark = [
     pytest.mark.django_db,
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
+    pytest.mark.temporal_container,
 ]
 
 

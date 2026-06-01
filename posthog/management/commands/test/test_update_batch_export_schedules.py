@@ -21,6 +21,7 @@ from products.batch_exports.backend.service import pause_batch_export, sync_batc
 
 pytestmark = [
     pytest.mark.django_db,
+    pytest.mark.temporal_container,
 ]
 
 DUMMY_CONFIG = {

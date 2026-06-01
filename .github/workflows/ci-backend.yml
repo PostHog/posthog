@@ -1424,6 +1424,22 @@ jobs:
                     }]
                   ')
 
+                  # Single shard for the @pytest.mark.temporal_container tests that live in
+                  # the Core tree (posthog/ + ee/) but need the real Temporal docker container.
+                  # The Core segment deselects them; this segment boots Temporal and runs them.
+                  temporal_core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" '
+                    [range(1; 2) | {
+                      segment: "TemporalCore",
+                      "person-on-events": false,
+                      "python-version": "3.12.12",
+                      "clickhouse-server-image": $image,
+                      concurrency: 1,
+                      group: .,
+                      artifact_key: ("temporal-core-" + (.|tostring)),
+                      compat: false
+                    }]
+                  ')
+
                   compat_source="${COMPAT_MATRIX_JSON:-[]}"
                   compat=$(jq -cn --argjson compat "$compat_source" '
                     [
@@ -1443,8 +1459,9 @@ jobs:
                     --argjson core "$core" \
                     --argjson core_persons_on_events "$core_persons_on_events" \
                     --argjson temporal "$temporal" \
+                    --argjson temporal_core "$temporal_core" \
                     --argjson compat "$compat" \
-                    '$core + $core_persons_on_events + $temporal + $compat')
+                    '$core + $core_persons_on_events + $temporal + $temporal_core + $compat')
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include")"
@@ -1507,7 +1524,8 @@ jobs:
               shell: bash
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
+                  # Only the Temporal/TemporalCore segments need the (slow-booting) Temporal container.
+                  COMPOSE_PROFILES: ${{ (matrix.segment == 'Temporal' || matrix.segment == 'TemporalCore') && 'temporal,azure' || 'azure' }}
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
@@ -1627,7 +1645,7 @@ jobs:
               # background above and will be ready by the time temporal tests run.
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
+                  COMPOSE_PROFILES: ${{ (matrix.segment == 'Temporal' || matrix.segment == 'TemporalCore') && 'temporal,azure' || 'azure' }}
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               run: bin/ci-wait-for-docker wait
 
@@ -1709,7 +1727,7 @@ jobs:
                       && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
                       || 'posthog'
                       )
-                  }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
+                  }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations and not temporal_container" \
                       --ignore=posthog/temporal \
                       --ignore=posthog/dags \
                       --ignore=common/hogvm/python/test \
@@ -1791,16 +1809,48 @@ jobs:
                       exit $exit_code
                   fi
 
+            - name: Run Core temporal-container tests
+              id: run-temporal-core-tests
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'TemporalCore' }}
+              shell: bash
+              env:
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+              run: |
+                  set +e
+                  # The @pytest.mark.temporal_container tests live across the Core tree but
+                  # need the real Temporal container. Collect posthog/ ee/ (same ignores as
+                  # the Core segment) and run only the marked ones. Unsharded — there are few.
+                  pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog ee -m "temporal_container and not async_migrations" \
+                      --ignore=posthog/temporal \
+                      --ignore=posthog/dags \
+                      --ignore=common/hogvm/python/test \
+                      --reruns 2 --reruns-delay 1 \
+                      -r fEsxX \
+                      --junitxml=junit-temporal-core.xml
+                  exit_code=$?
+                  set -e
+                  if [ $exit_code -eq 5 ]; then
+                      # Unlike the sharded segments, zero collected here means the marker
+                      # wiring is broken (the registry expects a non-empty set).
+                      echo "::error::No temporal_container tests collected — marker wiring is broken"
+                      exit 1
+                  else
+                      exit $exit_code
+                  fi
+
             # Post tests
             - name: Show docker compose logs on failure
-              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure' && steps.run-temporal-core-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              # Only upload timing data on main branch to avoid artifact bloat from PRs
-              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
+              # Only upload timing data on main branch to avoid artifact bloat from PRs.
+              # TemporalCore doesn't shard or store durations, so it has nothing to upload.
+              if: ${{ github.ref == 'refs/heads/master' && needs.changes.outputs.backend == 'true' && matrix.segment != 'TemporalCore' && !matrix.person-on-events && matrix.clickhouse-server-image == needs.get_clickhouse_versions.outputs.oldest_supported_image }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -1809,14 +1859,14 @@ jobs:
 
             - name: Verify new snapshots for flakiness
               # Only in UPDATE mode - CHECK mode doesn't update snapshots
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && matrix.segment != 'TemporalCore' }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
               # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && matrix.segment != 'TemporalCore' }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -1832,7 +1882,7 @@ jobs:
 
             - name: Upload snapshot patch
               # Only in UPDATE mode
-              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat }}
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events && !matrix.compat && matrix.segment != 'TemporalCore' }}
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}

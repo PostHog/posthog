@@ -23,9 +23,11 @@ from pathlib import Path
 # If this test fails for a file you added/changed, pick one:
 #   1. (preferred) Switch to WorkflowEnvironment.start_time_skipping() / ActivityEnvironment
 #      so the test needs no docker container at all.
-#   2. Keep the real-container dependency and register the file below, with a one-line
-#      reason. Then make sure the file actually runs under a CI segment that boots
-#      Temporal (today: the Temporal Django segment, or the product turbo-tests job).
+#   2. Keep the real-container dependency, register the file below with a one-line reason,
+#      AND make sure it runs under a CI segment that boots Temporal. For tests in the Core
+#      tree (posthog/ + ee/) that means marking them @pytest.mark.temporal_container — the
+#      Core segment deselects that marker and the TemporalCore segment runs it. (The eval
+#      harness is the exception: it runs in ci-ai, not the Core Django job.)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

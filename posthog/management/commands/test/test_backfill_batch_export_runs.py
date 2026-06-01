@@ -22,6 +22,8 @@ from posthog.temporal.tests.utils.models import create_batch_export
 
 from products.batch_exports.backend.tests.temporal.backfills.conftest import wait_for_workflows
 
+pytestmark = [pytest.mark.temporal_container]
+
 
 @pytest.fixture
 def org(db):

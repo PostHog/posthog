@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 from unittest import mock
@@ -603,6 +604,7 @@ def team_api_test_factory():
                 response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
 
+        @pytest.mark.temporal_container
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -648,6 +650,7 @@ def team_api_test_factory():
                 with self.assertRaises(RPCError):
                     describe_schedule(temporal, batch_export_id)
 
+        @pytest.mark.temporal_container
         def test_delete_team_with_already_deleted_batch_export(self):
             """Team deletion should succeed even if batch exports were already soft-deleted."""
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

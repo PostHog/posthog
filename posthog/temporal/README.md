@@ -508,11 +508,12 @@ Prefer the in-process server. Reach for the real container only when you specifi
 
 `ci-backend.yml` splits backend tests into segments (see the `build_django_matrix` step):
 
-- **Core** — `pytest posthog ee/` with `--ignore=posthog/temporal`. Sharded widely.
-- **Temporal** — `pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal`.
-- **Product** turbo-tests — each `products/*/backend` suite, in its own job.
+- **Core** — `pytest posthog ee/` with `--ignore=posthog/temporal`. Sharded widely. Does **not** boot the `temporal` profile, and deselects `-m temporal_container`.
+- **Temporal** — `pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal`. Boots `temporal`.
+- **TemporalCore** — a single shard that boots `temporal` and runs the `@pytest.mark.temporal_container` tests that live in the Core tree (`posthog/` + `ee/`) but need the real container (batch-export API tests, schedule-reconciliation commands, the two `test_team` batch-export deletion tests).
+- **Product** turbo-tests — each `products/*/backend` suite, in its own job. Boots `temporal`.
 
-All of these currently boot the `temporal` profile, so a real-container dependency added to a Core test "just works" — which quietly couples the broadly-sharded Core segment to a service most of its tests never touch. To keep that honest, `posthog/test/test_temporal_container_dependencies.py` scans `posthog/` and `ee/` for real-container calls and fails if it finds an **unregistered** one. If you add such a test, the failure tells you to either switch to the in-process server or register the file and make sure it runs under a segment that boots Temporal. The current real-container tests outside `posthog/temporal/` are listed in that registry.
+A real-container test added to the Core tree without the `temporal_container` marker would now fail (Core has no `temporal` profile). Two guards keep this honest: the `TemporalCore` step fails if the marker collects nothing, and `posthog/test/test_temporal_container_dependencies.py` scans `posthog/` and `ee/` for real-container calls and fails if it finds an **unregistered** one — pointing you to switch to the in-process server or register + mark the test. The current real-container tests outside `posthog/temporal/` are listed in that registry.
 
 ### The `django_db(transaction=True)` rule
 

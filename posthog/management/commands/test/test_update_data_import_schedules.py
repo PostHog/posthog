@@ -19,7 +19,7 @@ from products.data_warehouse.backend.data_load.service import sync_external_data
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-pytestmark = [pytest.mark.django_db]
+pytestmark = [pytest.mark.django_db, pytest.mark.temporal_container]
 
 
 @pytest.fixture
