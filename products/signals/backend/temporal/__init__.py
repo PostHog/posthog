@@ -63,6 +63,21 @@ from products.signals.backend.temporal.summary import (
     reset_report_to_potential_activity,
 )
 
+# The headless Signals scout runs on its own dedicated worker
+# (`SIGNALS_SCOUT_TASK_QUEUE`). These are still included in the lists below so they
+# remain registered on the shared signals worker (`VIDEO_EXPORT_TASK_QUEUE`) during
+# the dedicated-worker rollout; the dual registration is removed once the scout worker
+# is stable.
+SCOUT_WORKFLOWS = [
+    RunSignalsScoutWorkflow,
+    SignalsScoutCoordinatorWorkflow,
+]
+
+SCOUT_ACTIVITIES = [
+    fetch_enabled_signals_scout_runs_activity,
+    run_signals_scout_activity,
+]
+
 WORKFLOWS = [
     BackfillErrorTrackingWorkflow,
     TeamSignalGroupingWorkflow,
@@ -74,15 +89,13 @@ WORKFLOWS = [
     TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
-    RunSignalsScoutWorkflow,
-    SignalsScoutCoordinatorWorkflow,
+    *SCOUT_WORKFLOWS,
 ]
 
 ACTIVITIES = [
     dispatch_inbox_slack_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
-    fetch_enabled_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
@@ -110,11 +123,11 @@ ACTIVITIES = [
     restore_grouping_pause_activity,
     run_agentic_report_activity,
     run_signal_semantic_search_activity,
-    run_signals_scout_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
+    *SCOUT_ACTIVITIES,
 ]

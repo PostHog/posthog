@@ -29,10 +29,11 @@ SIGNALS_SCOUT_COORDINATOR_WORKFLOW_NAME = "run-signals-scout-coordinator"
 
 
 async def create_signals_scout_coordinator_schedule(client: Client) -> None:
-    """Create or update the hourly schedule that drives the Signals agent coordinator.
+    """Create or update the hourly schedule that drives the Signals scout coordinator.
 
-    The coordinator runs on the existing signals task queue (currently
-    `VIDEO_EXPORT_TASK_QUEUE`, shared with the rest of the signals temporal worker).
+    The coordinator runs on the dedicated scout task queue (`SIGNALS_SCOUT_TASK_QUEUE`),
+    serviced by the `temporal-worker-signals-scout` deployment. Child scout runs inherit
+    the parent's task queue, so the whole chain executes on that worker.
     `ScheduleOverlapPolicy.SKIP` is a defense-in-depth guard against pathologically
     slow ticks; the coordinator itself dispatches children fire-and-forget so its
     lifetime is normally seconds and overlap should never fire in practice.
@@ -42,7 +43,7 @@ async def create_signals_scout_coordinator_schedule(client: Client) -> None:
             SIGNALS_SCOUT_COORDINATOR_WORKFLOW_NAME,
             asdict(CoordinatorWorkflowInput()),
             id=SIGNALS_SCOUT_COORDINATOR_SCHEDULE_ID,
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            task_queue=settings.SIGNALS_SCOUT_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),

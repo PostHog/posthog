@@ -179,6 +179,8 @@ from products.replay_vision.backend.temporal import (
 )
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
+    SCOUT_ACTIVITIES as SIGNALS_SCOUT_ACTIVITIES,
+    SCOUT_WORKFLOWS as SIGNALS_SCOUT_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
 from products.tasks.backend.temporal import (
@@ -283,6 +285,11 @@ _task_queue_specs = [
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
         SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+    ),
+    (
+        settings.SIGNALS_SCOUT_TASK_QUEUE,
+        SIGNALS_SCOUT_WORKFLOWS,
+        SIGNALS_SCOUT_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,

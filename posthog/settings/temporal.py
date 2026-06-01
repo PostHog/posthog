@@ -107,4 +107,5 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 DEPLOYMENTS_TASK_QUEUE = _set_temporal_task_queue("deployments-task-queue")
+SIGNALS_SCOUT_TASK_QUEUE = _set_temporal_task_queue("signals-scout-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
