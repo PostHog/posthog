@@ -2,8 +2,8 @@
 
 ## PostHog CLI
 
-`posthog-cli` exposes the full PostHog API as composable shell commands. Prefer it for reading and
-writing PostHog data: it pipes into `jq` and scripts, and is cheap on context because commands are
+`posthog-cli` exposes the full PostHog API as composable shell commands. Always use it for reading and
+writing PostHog data when it is available: it pipes into `jq` and scripts, and is cheap on context because commands are
 discovered on demand rather than loaded up front.
 
 Discover commands — do not guess names:
