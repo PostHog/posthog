@@ -462,9 +462,13 @@ describe('ErrorTrackingConsumer', () => {
             consumer = await createConsumer(hub)
 
             await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
-                const keys = await client.keys(
-                    `@posthog-test/error-tracking-rate-limiter/tokens/${team.id}:exceptions:*`
-                )
+                // Per-issue buckets are hash-tagged (`tokens/{teamId}/…`); the team-global
+                // bucket is keyed straight off the id (`tokens/teamId:exceptions:global`).
+                const tokens = `@posthog-test/error-tracking-rate-limiter/tokens`
+                const keys = [
+                    ...(await client.keys(`${tokens}/{${team.id}}/*`)),
+                    ...(await client.keys(`${tokens}/${team.id}:*`)),
+                ]
                 if (keys.length > 0) {
                     await client.del(...keys)
                 }

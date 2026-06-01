@@ -12966,6 +12966,11 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
+
     /**
      * * `pending` - Pending
     * `delivered` - Delivered
@@ -18517,6 +18522,9 @@ export namespace Schemas {
       results: HeatmapResponseItem[];
     }
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type HogFlowVariablesItem = {[key: string]: string};
 
     /**
@@ -18535,15 +18543,47 @@ export namespace Schemas {
 
     export interface HogFlowMasking {
       /**
+         * Hash TTL in seconds (60 to ~94M / 3y).
          * @minimum 60
          * @maximum 94608000
          * @nullable
          */
       ttl?: number | null;
-      /** @nullable */
+      /**
+         * Min matching events before triggering (k-anonymity).
+         * @nullable
+         */
       threshold?: number | null;
+      /** HogQL template, e.g. '{person.properties.email}'. */
       hash: string;
+      /** Auto-compiled from hash. Do not set. */
       bytecode?: unknown;
+    }
+
+    /**
+     * * `continue` - continue
+    * `branch` - branch
+     */
+    export type HogFlowEdgeTypeEnum = typeof HogFlowEdgeTypeEnum[keyof typeof HogFlowEdgeTypeEnum];
+
+
+    export const HogFlowEdgeTypeEnum = {
+      Continue: 'continue',
+      Branch: 'branch',
+    } as const;
+
+    export interface HogFlowEdge {
+      /** Target action id. */
+      to: string;
+      /** continue: fall-through (sequential or the no-match path of conditional_branch). branch: requires 'index' matching config.conditions[index].
+
+      * `continue` - continue
+      * `branch` - branch */
+      type: HogFlowEdgeTypeEnum;
+      /** Required for type='branch'. Index into config.conditions on conditional_branch / wait_until_condition. */
+      index?: number;
+      /** Source action id. */
+      from: string;
     }
 
     /**
@@ -18597,43 +18637,96 @@ export namespace Schemas {
     }
 
     export interface HogFlowAction {
+      /** Unique node ID within the workflow. */
       id: string;
-      /** @maxLength 400 */
+      /**
+         * Display name.
+         * @maxLength 400
+         */
       name: string;
+      /** Optional description. */
       description?: string;
+      /** On failure: continue (skip), abort (stop), complete (mark done), branch (follow error edge).
+
+      * `continue` - continue
+      * `abort` - abort
+      * `complete` - complete
+      * `branch` - branch */
       on_error?: OnErrorEnum | null;
+      /** Created at (epoch ms). Frontend-managed. */
       created_at?: number;
+      /** Updated at (epoch ms). Frontend-managed. */
       updated_at?: number;
+      /** Property filters gating this action. */
       filters?: HogFunctionFilters | null;
-      /** @maxLength 100 */
+      /**
+         * trigger | function | function_email | function_sms | function_push | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.
+         * @maxLength 100
+         */
       type: string;
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, max_wait_duration: <duration>} (same rules as delay). exit: {reason}. */
       config: unknown;
+      /** Output variable definition for downstream actions. */
       output_variable?: unknown;
     }
 
     export interface HogFlow {
       readonly id: string;
       /**
+         * Workflow name.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional description. */
       description?: string;
       readonly version: number;
+      /** draft (no execution), active (live), archived (disabled).
+
+      * `draft` - Draft
+      * `active` - Active
+      * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
-      trigger?: unknown;
+      readonly trigger: unknown;
+      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+
+      * `exit_on_conversion` - Conversion
+      * `exit_on_trigger_not_matched` - Trigger Not Matched
+      * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+      * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
-      edges?: unknown;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions: HogFlowAction[];
       /** @nullable */
       readonly abort_action: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+    }
+
+    /**
+     * Test trigger payload, typically {event, person, groups}.
+     */
+    export type HogFlowInvocationGlobals = { [key: string]: unknown };
+
+    export interface HogFlowInvocation {
+      /** Optional override; omit to use saved definition. */
+      configuration?: HogFlow;
+      /** Test trigger payload, typically {event, person, groups}. */
+      globals?: HogFlowInvocationGlobals;
+      /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
+      mock_async_functions?: boolean;
+      /** Start from this action ID instead of the trigger. */
+      current_action_id?: string;
     }
 
     export interface HogFlowMinimal {
@@ -18691,6 +18784,9 @@ export namespace Schemas {
      */
     export type HogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type HogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
@@ -24910,6 +25006,7 @@ export namespace Schemas {
     * `error_tracking` - Error tracking
     * `pganalyze` - pganalyze
     * `signals_scout` - Signals scout
+    * `logs` - Logs
      */
     export type SourceProductEnum = typeof SourceProductEnum[keyof typeof SourceProductEnum];
 
@@ -24924,6 +25021,7 @@ export namespace Schemas {
       ErrorTracking: 'error_tracking',
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
+      Logs: 'logs',
     } as const;
 
     /**
@@ -24935,6 +25033,7 @@ export namespace Schemas {
     * `issue_reopened` - Issue reopened
     * `issue_spiking` - Issue spiking
     * `cross_source_issue` - Cross source issue
+    * `alert_state_change` - Alert state change
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -24948,6 +25047,7 @@ export namespace Schemas {
       IssueReopened: 'issue_reopened',
       IssueSpiking: 'issue_spiking',
       CrossSourceIssue: 'cross_source_issue',
+      AlertStateChange: 'alert_state_change',
     } as const;
 
     export interface SignalSourceConfig {
@@ -25761,12 +25861,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -28757,29 +28873,50 @@ export namespace Schemas {
       readonly exception?: string | null;
     }
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
+         * Workflow name.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
+      /** Optional description. */
       description?: string;
       readonly version?: number;
+      /** draft (no execution), active (live), archived (disabled).
+
+      * `draft` - Draft
+      * `active` - Active
+      * `archived` - Archived */
       status?: HogFlowStatusEnum;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
       readonly updated_at?: string;
-      trigger?: unknown;
+      readonly trigger?: unknown;
+      /** Optional dedup: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Server compiles bytecode from hash. Omit to disable. */
       trigger_masking?: HogFlowMasking | null;
+      /** Conversion goal: {filters: [<cond>, ...], window_minutes}. <cond>: {key, value, operator, type: event|person|group}. Empty filters = any event in window. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
       conversion?: unknown;
+      /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
+
+      * `exit_on_conversion` - Conversion
+      * `exit_on_trigger_not_matched` - Trigger Not Matched
+      * `exit_on_trigger_not_matched_or_conversion` - Trigger Not Matched Or Conversion
+      * `exit_only_at_end` - Only At End */
       exit_condition?: ExitConditionEnum;
-      edges?: unknown;
+      /** Graph edges: [{from, to, type: 'continue'|'branch', index?}]. 'continue' = fall-through (sequential, or no-match path of conditional_branch). 'branch' requires 'index': matches config.conditions[index] on conditional_branch / wait_until_condition. Every non-exit action needs a reachable next action ('No next action found' otherwise). */
+      edges?: HogFlowEdge[];
+      /** Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too. */
       actions?: HogFlowAction[];
       /** @nullable */
       readonly abort_action?: string | null;
+      /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
     }
@@ -28789,6 +28926,9 @@ export namespace Schemas {
      */
     export type PatchedHogFlowTemplateCreatedBy = { [key: string]: unknown } | null;
 
+    /**
+     * Variable: {key, type: string|number|boolean, default}.
+     */
     export type PatchedHogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
@@ -31795,12 +31935,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -40308,6 +40464,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -41253,8 +41421,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsListStatus = typeof EnvironmentsHogFlowsListStatus[keyof typeof EnvironmentsHogFlowsListStatus];
+
+
+    export const EnvironmentsHogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsLogsRetrieveParams = {
     /**
@@ -41424,8 +41607,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -41439,8 +41637,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
+
+
+    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
     created_at?: string;
@@ -45325,6 +45538,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
+    };
+
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
+
+
+    export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -46627,8 +46852,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsListStatus = typeof HogFlowsListStatus[keyof typeof HogFlowsListStatus];
+
+
+    export const HogFlowsListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsLogsRetrieveParams = {
     /**
@@ -46798,8 +47038,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesListStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
+
+
+    export const HogFlowsSchedulesListStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFlowsSchedulesCreateParams = {
     created_at?: string;
@@ -46813,8 +47068,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * * `draft` - Draft
+    * `active` - Active
+    * `archived` - Archived
+     */
+    status?: HogFlowsSchedulesCreateStatus;
     updated_at?: string;
     };
+
+    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
+
+
+    export const HogFlowsSchedulesCreateStatus = {
+      Active: 'active',
+      Archived: 'archived',
+      Draft: 'draft',
+    } as const;
 
     export type HogFunctionTemplatesListParams = {
     /**
@@ -49292,10 +49562,13 @@ export namespace Schemas {
     internal?: boolean;
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -49360,10 +49633,13 @@ export namespace Schemas {
     export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     };
