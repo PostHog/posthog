@@ -59,6 +59,14 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P4,
 )
 
+_SLACK_PRIORITY_LABELS: dict[str, str] = {
+    AutonomyPriority.P0: "🆘 P0",
+    AutonomyPriority.P1: "‼️ P1",
+    AutonomyPriority.P2: "❗ P2",
+    AutonomyPriority.P3: "⚠️ P3",
+    AutonomyPriority.P4: "👀 P4",
+}
+
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
     choice.value: str(choice.label) for choice in SignalSourceConfig.SourceProduct
 }
@@ -71,6 +79,10 @@ def _priority_rank(value: str | None) -> int | None:
         return _PRIORITY_ORDER.index(value)
     except ValueError:
         return None
+
+
+def _slack_priority_label(value: str) -> str:
+    return _SLACK_PRIORITY_LABELS.get(value, value)
 
 
 def _meets_min_priority(report_priority: str | None, min_priority: str | None) -> bool:
@@ -266,7 +278,7 @@ def _build_message_blocks(
     recipient_label = recipient.slack_mention or recipient.plain_name
     metadata_parts = [f"Matched to {recipient_label} per code"]
     if priority:
-        metadata_parts.insert(0, priority)
+        metadata_parts.insert(0, _slack_priority_label(priority))
 
     body_parts: list[str] = [f"*{' • '.join(metadata_parts)}*"]
     summary_text = _summary_excerpt(report.summary or "")
