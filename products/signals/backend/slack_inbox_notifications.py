@@ -76,18 +76,6 @@ _SOURCE_PRODUCT_LABELS: dict[str, str] = {
 }
 
 
-class SlackNotificationJudgmentsPending(RuntimeError):
-    """Raised when Slack dispatch needs report judgments that are not persisted yet."""
-
-
-@dataclass(frozen=True)
-class _NotificationReadiness:
-    can_notify: bool
-    pending_judgments: bool
-    reason: str
-    priority: str | None = None
-
-
 def _priority_rank(value: str | None) -> int | None:
     if value is None:
         return None
@@ -154,39 +142,6 @@ def _latest_actionability(report: SignalReport) -> str | None:
         return None
     value = data.get("actionability")
     return value if isinstance(value, str) else None
-
-
-def _notification_readiness(report: SignalReport) -> _NotificationReadiness:
-    if report.status != SignalReport.Status.READY:
-        return _NotificationReadiness(can_notify=False, pending_judgments=False, reason="report_not_ready")
-
-    actionability = _latest_actionability(report)
-    if actionability is None:
-        return _NotificationReadiness(can_notify=False, pending_judgments=True, reason="missing_actionability")
-    if actionability == ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
-        priority = _latest_priority(report)
-        if _priority_rank(priority) is None:
-            return _NotificationReadiness(can_notify=False, pending_judgments=True, reason="missing_priority")
-
-        return _NotificationReadiness(can_notify=True, pending_judgments=False, reason="ready", priority=priority)
-    if actionability in (ActionabilityChoice.NOT_ACTIONABLE, ActionabilityChoice.REQUIRES_HUMAN_INPUT):
-        return _NotificationReadiness(can_notify=False, pending_judgments=False, reason="not_actionable")
-    return _NotificationReadiness(can_notify=False, pending_judgments=True, reason="invalid_actionability")
-
-
-def _load_report_notification_readiness(
-    report_id: str, team_id: int
-) -> tuple[SignalReport | None, _NotificationReadiness]:
-    try:
-        report = SignalReport.objects.get(id=report_id, team_id=team_id)
-    except SignalReport.DoesNotExist:
-        logger.warning(
-            "dispatch_inbox_item_notifications: report not found",
-            extra={"report_id": report_id, "team_id": team_id},
-        )
-        return None, _NotificationReadiness(can_notify=False, pending_judgments=False, reason="report_not_found")
-
-    return report, _notification_readiness(report)
 
 
 @dataclass(frozen=True)
@@ -409,19 +364,24 @@ def dispatch_inbox_item_notifications(
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
 
-    Best-effort: per-target Slack errors are logged but do not raise. Missing
-    judgments are an invariant violation: callers must run this only after the
-    report's actionability and priority judgments are persisted.
+    Best-effort: per-target Slack errors are logged but do not raise.
     """
-    report, readiness = _load_report_notification_readiness(report_id, team_id)
-    if report is None:
+    try:
+        report = SignalReport.objects.get(id=report_id, team_id=team_id)
+    except SignalReport.DoesNotExist:
+        logger.warning(
+            "dispatch_inbox_item_notifications: report not found",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
         return 0
 
-    if readiness.pending_judgments:
-        raise SlackNotificationJudgmentsPending(
-            f"Report {report_id} is ready for Slack only after judgments are persisted ({readiness.reason})"
-        )
-    if not readiness.can_notify:
+    if report.status != SignalReport.Status.READY:
+        return 0
+    if _latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+        return 0
+
+    priority = _latest_priority(report)
+    if _priority_rank(priority) is None:
         return 0
 
     targets = _notification_targets_for_report(report)
@@ -437,7 +397,7 @@ def dispatch_inbox_item_notifications(
     # since the same channel id under a different integration is a distinct destination.
     channels: dict[tuple[int, str], list[SignalUserAutonomyConfig]] = {}
     for config in targets:
-        if not _meets_min_priority(readiness.priority, config.slack_notification_min_priority):
+        if not _meets_min_priority(priority, config.slack_notification_min_priority):
             continue
         if config.user_id not in users_by_id:
             logger.warning(
@@ -466,7 +426,7 @@ def dispatch_inbox_item_notifications(
             ]
             blocks, text = _build_message_blocks(
                 report,
-                priority=readiness.priority,
+                priority=priority,
                 source_products=sources,
                 recipients=recipients,
                 implementation_pr_url=implementation_pr_url,

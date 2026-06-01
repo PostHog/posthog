@@ -18,7 +18,6 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
-    SlackNotificationJudgmentsPending,
     _RecipientPresentation,
     _build_message_blocks,
     _meets_min_priority,
@@ -342,14 +341,13 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
 @pytest.mark.parametrize(
     ("priority", "actionability"),
     [
-        (None, None),
         (None, ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
         (AutonomyPriority.P1, None),
         ("XX", ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
-        (AutonomyPriority.P1, "unknown"),
+        (AutonomyPriority.P1, ActionabilityChoice.NOT_ACTIONABLE),
     ],
 )
-def test_dispatch_raises_pending_when_required_judgments_are_missing(
+def test_dispatch_skips_until_immediately_actionable_with_valid_priority(
     org_and_team: tuple[Organization, Team], priority: str | None, actionability: str | None
 ) -> None:
     org, team = org_and_team
@@ -365,39 +363,6 @@ def test_dispatch_raises_pending_when_required_judgments_are_missing(
         priority=priority,
         actionability=actionability,
         suggested_logins=["missing-judgment-bot"],
-    )
-
-    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
-        with pytest.raises(SlackNotificationJudgmentsPending):
-            dispatch_inbox_item_notifications(str(report.id), team.id)
-
-    assert slack_cls.call_count == 0
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "actionability",
-    [
-        ActionabilityChoice.NOT_ACTIONABLE,
-        ActionabilityChoice.REQUIRES_HUMAN_INPUT,
-    ],
-)
-def test_dispatch_skips_reports_with_non_actionable_judgment(
-    org_and_team: tuple[Organization, Team], actionability: str
-) -> None:
-    org, team = org_and_team
-    user = _make_reviewer_user(org, "reviewer-non-actionable@example.com", "non-actionable-bot")
-    integration = _make_slack_integration(team, user)
-    SignalUserAutonomyConfig.objects.create(
-        user=user,
-        slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
-    )
-    report = _make_ready_report(
-        team,
-        priority=AutonomyPriority.P1,
-        actionability=actionability,
-        suggested_logins=["non-actionable-bot"],
     )
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
