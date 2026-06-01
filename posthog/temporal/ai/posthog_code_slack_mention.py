@@ -17,12 +17,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.slack_thread import (
-    SlackThreadContext,
-    SlackThreadHandler,
-    ack_emoji_for,
-    stale_ack_emojis_for,
-)
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.repo_selection import (
     RepoSelectionRejectedError,
@@ -617,7 +612,7 @@ def resolve_posthog_code_slack_user_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -646,7 +641,7 @@ def handle_posthog_code_rules_command_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     dispatch_rules_command(
@@ -672,7 +667,7 @@ def collect_posthog_code_thread_messages_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -697,7 +692,7 @@ def cascade_posthog_code_repository_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     all_repos = _get_full_repo_names(integration)
@@ -734,7 +729,7 @@ def select_posthog_code_repository_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     all_repos = _get_full_repo_names(integration)
@@ -766,7 +761,7 @@ async def discover_posthog_code_repository_via_agent_activity(
 
     integration = await Integration.objects.select_related("team", "team__organization").aget(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
 
@@ -887,7 +882,7 @@ def enforce_posthog_code_billing_quota_activity(
 
     integration = Integration.objects.select_related("team").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -907,7 +902,7 @@ def post_posthog_code_no_repos_activity(
 ) -> None:
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -936,7 +931,7 @@ def post_posthog_code_repo_picker_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -991,7 +986,7 @@ def block_posthog_code_task_if_no_personal_github_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1045,13 +1040,13 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
 
-    # Refuse before the ack reaction or the permalink fetch: a denied mention
-    # should not first ack-react and then refuse a second later.
+    # Refuse before the :seedling: reaction or the permalink fetch: a denied
+    # mention should not first ack-react and then refuse a second later.
     if _block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -1064,10 +1059,7 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        # Deterministic per ts so activity retries (maximum_attempts=3) land on
-        # the same emoji and `_safe_react`'s `already_reacted` short-circuit
-        # keeps the ack idempotent.
-        _safe_react(slack.client, channel, user_message_ts, ack_emoji_for(user_message_ts))
+        _safe_react(slack.client, channel, user_message_ts, "seedling")
 
     user_text = re.sub(r"<@[A-Z0-9]+>", "", event.get("text", "")).strip()
     title = user_text[:255] if user_text else "Task from Slack"
@@ -1194,7 +1186,7 @@ def create_posthog_code_routing_rule_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1264,7 +1256,7 @@ def forward_posthog_code_followup_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1536,7 +1528,7 @@ def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str |
     if not user_message_ts:
         return
 
-    for stale_emoji in stale_ack_emojis_for(user_message_ts):
+    for stale_emoji in ("eyes", "seedling"):
         try:
             slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name=stale_emoji)
         except Exception:
@@ -1704,7 +1696,7 @@ def post_posthog_code_picker_timeout_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -1732,7 +1724,7 @@ def post_posthog_code_internal_error_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-posthog-code",
+        kind="slack",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
