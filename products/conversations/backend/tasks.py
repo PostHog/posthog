@@ -1,7 +1,6 @@
 """Celery tasks for the conversations product."""
 
 import html as html_mod
-import json
 from datetime import timedelta
 from email.utils import formataddr
 from typing import Any, cast
@@ -11,7 +10,8 @@ from uuid import UUID
 from django.core import mail
 from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
-from django.db.models.expressions import RawSQL
+from django.db.models.fields.json import JSONField
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import requests
@@ -441,13 +441,16 @@ def _set_comment_delivery_status(team_id: int, comment_id: UUID, status_value: s
 
     Merges at the DB level (JSONB ``||``) rather than read-modify-write: a concurrent
     edit to another key (e.g. an agent flipping ``is_private``) must not be clobbered.
+    The dict values flow through ORM ``Value`` params, so this is fully parameterized.
     """
-    CommentModel.objects.filter(id=comment_id, team_id=team_id).update(
-        item_context=RawSQL(
-            "COALESCE(item_context, '{}') || %s::jsonb",
-            [json.dumps({"email_delivery_status": status_value})],
-        )
+    merged = models.Func(
+        Coalesce("item_context", models.Value({}, output_field=JSONField())),
+        models.Value({"email_delivery_status": status_value}, output_field=JSONField()),
+        template="%(expressions)s",
+        arg_joiner=" || ",
+        output_field=JSONField(),
     )
+    CommentModel.objects.filter(id=comment_id, team_id=team_id).update(item_context=merged)
 
 
 def _mark_outbox_sent(outbox: EmailOutboxMessage) -> None:
