@@ -50,8 +50,15 @@ const addTwoVariants = async (page: Page): Promise<void> => {
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
+    // Wait for the flags list to finish mounting before typing — filling the search box
+    // while the list is still initializing lets its filter state reset our value, leaving
+    // the key on a non-visible page. Assert the value stuck so the filter is really applied.
+    await expect(page.locator('h1')).toContainText('Feature flags')
+    const search = page.locator('[data-attr="feature-flag-search"]')
+    await expect(search).toBeVisible()
     // Filtering by the exact key forces it onto the single visible page and keeps the lookup fast
-    await page.locator('[data-attr="feature-flag-search"]').fill(name)
+    await search.fill(name)
+    await expect(search).toHaveValue(name)
     const row = page.locator(`[data-row-key="${name}"]`)
     await expect(row).toBeVisible()
     await row.locator('[data-attr="more-button"]').click()
