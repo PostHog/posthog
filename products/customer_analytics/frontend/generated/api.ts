@@ -59,8 +59,8 @@ export const getAccountsListUrl = (projectId: string, params?: AccountsListParam
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/accounts/?${stringifiedParams}`
-        : `/api/environments/${projectId}/accounts/`
+        ? `/api/projects/${projectId}/accounts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/`
 }
 
 export const accountsList = async (
@@ -75,7 +75,7 @@ export const accountsList = async (
 }
 
 export const getAccountsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/accounts/`
+    return `/api/projects/${projectId}/accounts/`
 }
 
 export const accountsCreate = async (
@@ -107,8 +107,8 @@ export const getAccountsNotebooksListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/accounts/${accountId}/notebooks/?${stringifiedParams}`
-        : `/api/environments/${projectId}/accounts/${accountId}/notebooks/`
+        ? `/api/projects/${projectId}/accounts/${accountId}/notebooks/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${accountId}/notebooks/`
 }
 
 export const accountsNotebooksList = async (
@@ -124,7 +124,7 @@ export const accountsNotebooksList = async (
 }
 
 export const getAccountsNotebooksCreateUrl = (projectId: string, accountId: string) => {
-    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/`
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/`
 }
 
 export const accountsNotebooksCreate = async (
@@ -142,7 +142,7 @@ export const accountsNotebooksCreate = async (
 }
 
 export const getAccountsNotebooksRetrieveUrl = (projectId: string, accountId: string, shortId: string) => {
-    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
 }
 
 export const accountsNotebooksRetrieve = async (
@@ -158,7 +158,7 @@ export const accountsNotebooksRetrieve = async (
 }
 
 export const getAccountsNotebooksDestroyUrl = (projectId: string, accountId: string, shortId: string) => {
-    return `/api/environments/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
 }
 
 export const accountsNotebooksDestroy = async (
@@ -174,7 +174,7 @@ export const accountsNotebooksDestroy = async (
 }
 
 export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<AccountApi> => {
@@ -185,7 +185,7 @@ export const accountsRetrieve = async (projectId: string, id: string, options?: 
 }
 
 export const getAccountsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsUpdate = async (
@@ -203,7 +203,7 @@ export const accountsUpdate = async (
 }
 
 export const getAccountsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsPartialUpdate = async (
@@ -221,7 +221,7 @@ export const accountsPartialUpdate = async (
 }
 
 export const getAccountsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/accounts/${id}/`
+    return `/api/projects/${projectId}/accounts/${id}/`
 }
 
 export const accountsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
@@ -243,8 +243,8 @@ export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJ
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/customer_journeys/?${stringifiedParams}`
-        : `/api/environments/${projectId}/customer_journeys/`
+        ? `/api/projects/${projectId}/customer_journeys/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_journeys/`
 }
 
 export const customerJourneysList = async (
@@ -259,7 +259,7 @@ export const customerJourneysList = async (
 }
 
 export const getCustomerJourneysCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/customer_journeys/`
+    return `/api/projects/${projectId}/customer_journeys/`
 }
 
 export const customerJourneysCreate = async (
@@ -349,8 +349,8 @@ export const getCustomerProfileConfigsListUrl = (projectId: string, params?: Cus
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/customer_profile_configs/?${stringifiedParams}`
-        : `/api/environments/${projectId}/customer_profile_configs/`
+        ? `/api/projects/${projectId}/customer_profile_configs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/customer_profile_configs/`
 }
 
 export const customerProfileConfigsList = async (
@@ -365,7 +365,7 @@ export const customerProfileConfigsList = async (
 }
 
 export const getCustomerProfileConfigsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/customer_profile_configs/`
+    return `/api/projects/${projectId}/customer_profile_configs/`
 }
 
 export const customerProfileConfigsCreate = async (

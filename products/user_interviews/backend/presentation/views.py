@@ -1,7 +1,7 @@
 import re
 import json
-from functools import cached_property
-from typing import Any, cast
+from functools import cache, cached_property
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -18,7 +18,6 @@ import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from elevenlabs import ElevenLabs
 from posthoganalytics.ai.openai import OpenAI
 from rest_framework import filters, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -51,7 +50,17 @@ from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInte
 
 logger = structlog.get_logger(__name__)
 
-elevenlabs_client = ElevenLabs()
+if TYPE_CHECKING:
+    from elevenlabs import ElevenLabs
+
+
+@cache
+def _get_elevenlabs_client() -> "ElevenLabs":
+    # Deferred import + cached instance: the elevenlabs SDK is slow to import and
+    # only the audio transcription path needs it, not every process that loads this module.
+    from elevenlabs import ElevenLabs
+
+    return ElevenLabs()
 
 
 class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
@@ -89,7 +98,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File, interviewee_emails: list[str]) -> str:
-        transcript = elevenlabs_client.speech_to_text.convert(
+        transcript = _get_elevenlabs_client().speech_to_text.convert(
             model_id="scribe_v1",
             file=audio,
             num_speakers=10,  # Maximum number of speakers, not expected one

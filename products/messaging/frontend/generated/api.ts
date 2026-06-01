@@ -50,8 +50,8 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_categories/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_categories/`
+        ? `/api/projects/${projectId}/messaging_categories/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_categories/`
 }
 
 export const messagingCategoriesList = async (
@@ -66,7 +66,7 @@ export const messagingCategoriesList = async (
 }
 
 export const getMessagingCategoriesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/`
+    return `/api/projects/${projectId}/messaging_categories/`
 }
 
 export const messagingCategoriesCreate = async (
@@ -152,7 +152,7 @@ export const messagingCategoriesDestroy = async (
 }
 
 export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_from_customerio/`
+    return `/api/projects/${projectId}/messaging_categories/import_from_customerio/`
 }
 
 /**
@@ -174,7 +174,7 @@ export const messagingCategoriesImportFromCustomerioCreate = async (
 }
 
 export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/import_preferences_csv/`
+    return `/api/projects/${projectId}/messaging_categories/import_preferences_csv/`
 }
 
 /**
@@ -210,7 +210,7 @@ export const messagingCategoriesImportPreferencesCsvCreate = async (
 }
 
 export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/optout_sync_config/`
+    return `/api/projects/${projectId}/messaging_categories/optout_sync_config/`
 }
 
 /**
@@ -228,7 +228,7 @@ export const messagingCategoriesOptoutSyncConfigRetrieve = async (
 }
 
 export const getMessagingCategoriesRemoveCustomerioAppConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_customerio_app_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_customerio_app_config/`
 }
 
 /**
@@ -245,7 +245,7 @@ export const messagingCategoriesRemoveCustomerioAppConfigDestroy = async (
 }
 
 export const getMessagingCategoriesRemoveTrackConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_track_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_track_config/`
 }
 
 /**
@@ -262,7 +262,7 @@ export const messagingCategoriesRemoveTrackConfigDestroy = async (
 }
 
 export const getMessagingCategoriesRemoveWebhookConfigDestroyUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/remove_webhook_config/`
+    return `/api/projects/${projectId}/messaging_categories/remove_webhook_config/`
 }
 
 /**
@@ -279,7 +279,7 @@ export const messagingCategoriesRemoveWebhookConfigDestroy = async (
 }
 
 export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_track_config/`
+    return `/api/projects/${projectId}/messaging_categories/save_track_config/`
 }
 
 /**
@@ -305,7 +305,7 @@ export const messagingCategoriesSaveTrackConfigCreate = async (
 }
 
 export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_categories/save_webhook_config/`
+    return `/api/projects/${projectId}/messaging_categories/save_webhook_config/`
 }
 
 /**
@@ -329,7 +329,7 @@ export const messagingCategoriesSaveWebhookConfigCreate = async (
 }
 
 export const getMessagingPreferencesAddOptOutCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/add_opt_out/`
+    return `/api/projects/${projectId}/messaging_preferences/add_opt_out/`
 }
 
 /**
@@ -350,7 +350,7 @@ export const messagingPreferencesAddOptOutCreate = async (
 }
 
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/generate_link/`
+    return `/api/projects/${projectId}/messaging_preferences/generate_link/`
 }
 
 /**
@@ -367,7 +367,7 @@ export const messagingPreferencesGenerateLinkCreate = async (
 }
 
 export const getMessagingPreferencesOptOutsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/opt_outs/`
+    return `/api/projects/${projectId}/messaging_preferences/opt_outs/`
 }
 
 /**
@@ -381,7 +381,7 @@ export const messagingPreferencesOptOutsRetrieve = async (projectId: string, opt
 }
 
 export const getMessagingPreferencesWebhookUrlRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_preferences/webhook_url/`
+    return `/api/projects/${projectId}/messaging_preferences/webhook_url/`
 }
 
 /**
@@ -409,8 +409,8 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/messaging_templates/?${stringifiedParams}`
-        : `/api/environments/${projectId}/messaging_templates/`
+        ? `/api/projects/${projectId}/messaging_templates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_templates/`
 }
 
 export const messagingTemplatesList = async (
@@ -425,7 +425,7 @@ export const messagingTemplatesList = async (
 }
 
 export const getMessagingTemplatesCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/messaging_templates/`
+    return `/api/projects/${projectId}/messaging_templates/`
 }
 
 export const messagingTemplatesCreate = async (
