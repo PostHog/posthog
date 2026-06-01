@@ -111,6 +111,27 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
+    dashboard-delete-tile:
+        operation: dashboards_delete_tile
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Delete dashboard tile
+        description: >
+            Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as the delete button
+            in the UI — the underlying Insight, Text, or ButtonTile object is preserved (so an insight that lives on
+            multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill
+            the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as
+            `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use
+            dashboard-delete.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-get:
         operation: dashboards_retrieve
         enabled: true

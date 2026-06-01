@@ -7456,6 +7456,11 @@ export interface DashboardTileApi {
     readonly widget: NestedApi
 }
 
+export interface DeleteTileRequestApi {
+    /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+    tile_id: number
+}
+
 /**
  * * `preserve` - preserve
  * `two_column` - two_column
@@ -7753,6 +7758,17 @@ export type DashboardsCreateTextTileCreateFormat =
     (typeof DashboardsCreateTextTileCreateFormat)[keyof typeof DashboardsCreateTextTileCreateFormat]
 
 export const DashboardsCreateTextTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat
+}
+
+export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
+
+export const DashboardsDeleteTileFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
