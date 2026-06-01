@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { widgetDateRangeSchema } from './widgetDateRangeOptions'
-
 /** Shared widget config fields inherited by all widget types. */
 export const baseWidgetConfigSchema = z.object({
     filterTestAccounts: z.boolean().optional(),

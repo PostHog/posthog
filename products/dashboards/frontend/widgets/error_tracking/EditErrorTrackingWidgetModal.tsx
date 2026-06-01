@@ -14,11 +14,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
+import { isWidgetConfigValidationError } from '../../utils'
 import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
 import { resolveWidgetFilterTestAccounts } from '../../widget_types/configSchemas'
-import { isWidgetConfigValidationError } from '../../widget_types/widgetConfigValidation'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/widgetDateRangeOptions'
-import { DASHBOARD_WIDGET_MODAL_WIDTH } from '../constants'
+import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
     WIDGET_SETTINGS_FIELD_FULL_WIDTH_CLASS,
@@ -174,7 +173,7 @@ export function EditErrorTrackingWidgetModal({
                     ? 'Configure tile details and which error tracking issues appear on this dashboard.'
                     : 'Configure tile details for this dashboard widget.'
             }
-            width={DASHBOARD_WIDGET_MODAL_WIDTH}
+            width={680}
             footer={
                 <>
                     <div className="flex-1" />
