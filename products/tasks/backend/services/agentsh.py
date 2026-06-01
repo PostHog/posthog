@@ -9,6 +9,9 @@ AGENTSH_DAEMON_PORT = 18080
 SESSION_ID_FILE = "/tmp/agentsh-session-id"
 ENV_FILE = "/tmp/agent-env"
 ENV_WRAPPER_SCRIPT = "/tmp/agentsh-env-wrapper.sh"
+# Sourced via BASH_ENV on every `bash -c` the agent runs, so git/gh pick up a
+# mid-session GitHub credential refresh (the backend rewrites ENV_FILE in place).
+BASH_ENV_SCRIPT = "/tmp/agentsh-bash-env.sh"
 AGENTSH_AUDIT_DB = "/var/lib/agentsh/events.db"
 INFRASTRUCTURE_DOMAINS = [
     "*.posthog.com",
@@ -107,6 +110,19 @@ while IFS= read -r -d $'\\0' line; do
   export "$line"
 done < {ENV_FILE}
 exec "$@"
+"""
+
+
+def generate_bash_env_script() -> str:
+    """
+    Generate the script sourced via ``BASH_ENV``.
+    """
+    return f"""\
+while IFS= read -r -d $'\\0' kv 2>/dev/null; do
+  case "$kv" in
+    GH_TOKEN=*|GITHUB_TOKEN=*) export "$kv" ;;
+  esac
+done < {ENV_FILE} 2>/dev/null
 """
 
 
