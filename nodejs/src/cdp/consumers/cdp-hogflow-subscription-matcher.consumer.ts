@@ -222,22 +222,20 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // `events` and the property-based `condition` are OR'd: a step can wait on either,
         // and either matching wakes the job. The condition is evaluated on every incoming
         // event, which is what makes property-based waits event-driven rather than polled.
-        // contextId carries both ids so a bytecode error log identifies the flow + action
-        // without having to scan the hogflow JSON for which action an id belongs to.
-        const contextId = `${hogflowId}/${action.id}`
+        const context = { hogFlowId: hogflowId, actionId: action.id }
         for (const eventConfig of action.config.events ?? []) {
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
         }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, contextId)
+        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, context)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
-        const contextId = `${hogflow.id}/conversion`
+        const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
-            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
                 return true
             }
         }
@@ -425,10 +423,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
 type IndexedBatch = {
     teamIds: number[]
-    // Parallel arrays of (teamId, id) pairs, zipped row-wise in the lookup query so a
-    // job only matches when BOTH its team and its id came from the same event. Sending
-    // deduped teamId[] + id[] separately would let the query's ANY/ANY form match a job
-    // whose team and distinct_id came from two different events (cross-team false positive).
+    // Parallel (teamId, id) pair arrays for the correlated lookup (see findParkedJobs).
     distinctTeamIds: number[]
     distinctIds: string[]
     personTeamIds: number[]
@@ -465,7 +460,6 @@ function indexBatch(invocationGlobals: HogFunctionInvocationGlobals[]): IndexedB
         const distinctId = globals.event.distinct_id
         if (distinctId) {
             const key = `${teamId}:${distinctId}`
-            // First time we see this (team, distinct_id) pair, add it to the lookup arrays.
             if (!byDistinctId.has(key)) {
                 distinctTeamIds.push(teamId)
                 distinctIds.push(distinctId)
@@ -522,11 +516,15 @@ function collectCandidateGlobals(
     return [...seen]
 }
 
+// Logged as separate fields on a bytecode error so it's filterable by flow/action.
+// actionId is absent for a conversion goal (not an action).
+type BytecodeContext = { hogFlowId: string; actionId?: string }
+
 // Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
 // every events[].filters at save time, so missing/empty bytecode means a malformed row:
 // we fail closed (return false) rather than falling back to event-name-only matching, which
 // would silently bypass property filters.
-async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, contextId: string): Promise<boolean> {
+async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, context: BytecodeContext): Promise<boolean> {
     if (!Array.isArray(bytecode) || bytecode.length === 0) {
         return false
     }
@@ -536,8 +534,8 @@ async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, cont
     } catch (err) {
         // A broken filter silently never matches and the workflow falls through to its
         // timeout branch, which is usually the wrong outcome. Surface loudly so we notice.
-        logger.error('🔴', 'Bytecode evaluation error', { contextId, err })
-        captureException(err, { extra: { contextId } })
+        logger.error('🔴', 'Bytecode evaluation error', { ...context, err })
+        captureException(err, { extra: { ...context } })
         counterHogflowMatcherBytecodeError.inc()
         return false
     }

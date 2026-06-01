@@ -324,8 +324,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
 
         it('logs the hogflow id alongside the action id when wait-step bytecode evaluation throws', async () => {
-            // contextId must identify the flow so an operator does not have to scan hogflow
-            // JSON to map an action id back to its workflow.
             const errorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as any)
             const execSpy = jest.spyOn(hogExec, 'execHog').mockRejectedValue(new Error('boom'))
             const captureSpy = jest.spyOn(posthogUtils, 'captureException').mockReturnValue(undefined as any)
@@ -346,8 +344,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 const errorCall = errorSpy.mock.calls.find((c) => c[1] === 'Bytecode evaluation error')
                 expect(errorCall).toBeDefined()
-                expect(errorCall![2]).toMatchObject({ contextId: 'flow-1/wait_node' })
-                expect(captureSpy).toHaveBeenCalledWith(expect.any(Error), { extra: { contextId: 'flow-1/wait_node' } })
+                expect(errorCall![2]).toMatchObject({ hogFlowId: 'flow-1', actionId: 'wait_node' })
+                expect(captureSpy).toHaveBeenCalledWith(expect.any(Error), {
+                    extra: { hogFlowId: 'flow-1', actionId: 'wait_node' },
+                })
             } finally {
                 errorSpy.mockRestore()
                 execSpy.mockRestore()
