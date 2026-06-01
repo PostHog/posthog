@@ -37,6 +37,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    "products.cdp",
     "products.dashboards",
     "products.data_modeling",
     "products.error_tracking",
@@ -52,6 +53,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.business_knowledge",
     "products.user_interviews",
     "products.warehouse_sources",
 ]
@@ -65,6 +67,7 @@ depends_on = [
     "products.analytics_platform",
     "products.batch_exports",
     "products.business_knowledge",
+    "products.cdp",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -116,6 +119,7 @@ layer = "modules"
 path = "products.actions"
 depends_on = [
     "posthog",
+    "products.cdp",
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
@@ -127,6 +131,7 @@ path = "products.alerts"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.product_analytics",
 ]
 layer = "modules"
@@ -152,6 +157,7 @@ path = "products.cdp"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
 ]
 layer = "modules"
 
@@ -206,6 +212,7 @@ path = "products.data_warehouse"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools",
@@ -256,6 +263,7 @@ path = "products.error_tracking"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.notifications",
 ]
 layer = "modules"
@@ -340,6 +348,7 @@ layer = "modules"
 path = "products.logs"
 depends_on = [
     "posthog",
+    "products.cdp",
 ]
 layer = "modules"
 
@@ -453,12 +462,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.query_performance_ai"
-depends_on = ["products.tasks",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.replay"
 depends_on = [
     "ee",
@@ -469,6 +472,7 @@ layer = "modules"
 [[modules]]
 path = "products.replay_vision"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -486,9 +490,21 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.actions",
+    "products.ai_observability",
+    "products.alerts",
+    "products.cdp",
+    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks", "products.warehouse_sources",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.product_analytics",
+    "products.surveys",
+    "products.tasks",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -596,6 +612,9 @@ path = "products.workflows"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
+    "products.cdp",
+    "products.feature_flags",
 ]
 layer = "modules"
 
@@ -748,4 +767,18 @@ expose = [
 ]
 from = [
     "products.wizard",
+]
+
+[[modules]]
+path = "products.engineering_analytics"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.engineering_analytics",
 ]

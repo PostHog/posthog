@@ -1,12 +1,22 @@
-import { actions, kea, listeners, path, props, selectors } from 'kea'
+import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 
+import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
+
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
+import { Params } from 'scenes/sceneTypes'
 
 import type { metricsSceneLogicType } from './metricsSceneLogicType'
 
 export const getMetricsSqlEditorTabId = (id: string): string => `metrics-sql-editor-${id}`
+
+export type MetricsSceneActiveTab = 'viewer' | 'sql'
+const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['viewer', 'sql']
+export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'viewer'
 
 export interface MetricsLogicProps {
     tabId: string
@@ -17,10 +27,46 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
     path(['products', 'metrics', 'frontend', 'metricsSceneLogic']),
     tabAwareScene(),
     actions({
+        setActiveTab: (activeTab: MetricsSceneActiveTab) => ({ activeTab }),
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
+    }),
+    reducers({
+        activeTab: [DEFAULT_ACTIVE_TAB as MetricsSceneActiveTab, { setActiveTab: (_, { activeTab }) => activeTab }],
     }),
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
+    }),
+    tabAwareUrlToAction(({ actions, values, cache }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (cache.isSyncingUrl) {
+                return
+            }
+            const requested = params.activeTab
+            if (
+                typeof requested === 'string' &&
+                VALID_ACTIVE_TABS.includes(requested as MetricsSceneActiveTab) &&
+                requested !== values.activeTab
+            ) {
+                actions.setActiveTab(requested as MetricsSceneActiveTab)
+            }
+        }
+        return { '*': urlToAction }
+    }),
+    tabAwareActionToUrl(({ values, cache }) => {
+        const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
+            cache.isSyncingUrl = true
+            const result = syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                return params
+            })
+            queueMicrotask(() => {
+                cache.isSyncingUrl = false
+            })
+            return result
+        }
+        return {
+            setActiveTab: () => syncUrl(),
+        }
     }),
     listeners(({ cache }) => ({
         keepSqlEditorMounted: ({ editorTabId }) => {

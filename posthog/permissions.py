@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -27,7 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
-from posthog.scopes import APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
 from posthog.utils import get_can_create_org
 
 CREATE_ACTIONS = ["create", "update"]
@@ -489,7 +490,25 @@ class APIScopePermission(ScopeBasePermission):
             if not key_scopes:
                 self.message = "OAuth token has no scopes and cannot access this resource"
                 return False
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            key_scopes = list(request.successful_authenticator.scopes)
+            if not key_scopes:
+                self.message = "ID-JAG access token has no scopes and cannot access this resource"
+                return False
         else:
+            # Session (and other non-token) auth normally bypasses API-scope checks — scopes
+            # are a PAK/OAuth concept; logged-in users are gated by team membership + access
+            # control instead. But INTERNAL scope objects are a programmatic-only security
+            # boundary (e.g. `signal_scout_internal:write`, the sandbox-only scout write scope)
+            # and must be unreachable via session auth — otherwise any logged-in team member
+            # could bypass the boundary (e.g. write durable scout scratchpad that is read
+            # verbatim into the scout's prompt). Mirror the internal-scope guard applied to the
+            # `*` wildcard below.
+            session_required_scopes = self._get_required_scopes(request, view) or []
+            session_required_objects = {s.split(":", 1)[0] for s in session_required_scopes}
+            if not session_required_objects.isdisjoint(INTERNAL_API_SCOPE_OBJECTS):
+                self.message = "This action requires a programmatic token carrying an internal scope"
+                return False
             return True
 
         required_scopes = self._get_required_scopes(request, view)
@@ -502,8 +521,15 @@ class APIScopePermission(ScopeBasePermission):
 
         # `*` is the "Full access to all scopes" consent option; INTERNAL viewsets
         # are programmatic-only and must not be reachable via user-consented tokens.
+        # Also fall through when *any* required_scope on this action targets an
+        # INTERNAL_API_SCOPE_OBJECTS object (e.g. `signal_scout_internal:write` on
+        # a viewset whose own `scope_object` is the public sibling like `signal_scout`).
+        # Those scope objects are intentionally not selectable in the consent UI, and
+        # `*` must not be a backdoor past that.
         scope_object = self._get_scope_object(request, view)
-        if "*" in key_scopes and scope_object != "INTERNAL":
+        required_scope_objects = {s.split(":", 1)[0] for s in required_scopes}
+        action_targets_internal = not required_scope_objects.isdisjoint(INTERNAL_API_SCOPE_OBJECTS)
+        if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
         for required_scope in required_scopes:
@@ -542,6 +568,14 @@ class APIScopePermission(ScopeBasePermission):
         elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            # ID-JAG access tokens are bound to the specific PostHog Organization
+            # whose OrganizationDomain pinned the trusted IdP — carried in the
+            # `org_id` claim. Pin `scoped_organizations` to that single org so
+            # the token cannot reach other orgs the resolved user happens to
+            # be a member of (cross-org confused-deputy defense).
+            scoped_organizations = [request.successful_authenticator.organization_id]
+            scoped_teams = None
         else:
             raise ValueError("Unexpected authentication type")
 
