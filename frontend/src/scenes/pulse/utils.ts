@@ -1,6 +1,6 @@
 import { percentage } from 'lib/utils'
 
-import { PulseSensitivity } from './pulseTypes'
+import { PulseFindingType, PulseSensitivity } from './pulseTypes'
 
 export function formatSignedPct(pct: number): string {
     return `${pct >= 0 ? '+' : ''}${percentage(pct, 0)}`
@@ -22,6 +22,20 @@ export function describeChange(pct: number): ChangeDescriptor {
         return { direction: 'up', tone: 'success', label: formatSignedPct(pct) }
     }
     return { direction: 'down', tone: 'danger', label: formatSignedPct(pct) }
+}
+
+// Seed question handed to Max ("Ask Max why") — investigative, never asserts a cause.
+export function buildMaxSeedPrompt(finding: PulseFindingType): string {
+    const breakdown = finding.attribution_breakdown
+    const breakdownClause =
+        breakdown && breakdown.value
+            ? ` The shift looks concentrated in ${breakdown.value}${breakdown.property ? ` (${breakdown.property})` : ''}.`
+            : ''
+    return (
+        `Why did "${finding.metric_label}" change by ${formatSignedPct(finding.change_pct)} this week?` +
+        breakdownClause +
+        ` PostHog Pulse flagged it with this note: "${finding.narrative}". Help me dig into the likely causes.`
+    )
 }
 
 export const ROBUST_Z_TOOLTIP =

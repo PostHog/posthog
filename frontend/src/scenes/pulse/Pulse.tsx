@@ -22,14 +22,17 @@ import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SidePanelTab } from '~/types'
 
 import { pulseLogic } from './pulseLogic'
 import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
-import { SENSITIVITY_PRESETS, ROBUST_Z_TOOLTIP, describeChange } from './utils'
+import { SENSITIVITY_PRESETS, ROBUST_Z_TOOLTIP, buildMaxSeedPrompt, describeChange } from './utils'
 
 export const scene: SceneExport = {
     component: Pulse,
@@ -60,7 +63,9 @@ function statusTone(status: PulseDigestStatus): LemonTagType {
 }
 
 function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const change = describeChange(finding.change_pct)
+    const askMax = (): void => openSidePanel(SidePanelTab.Max, `!${buildMaxSeedPrompt(finding)}`)
 
     return (
         <LemonCard>
@@ -70,17 +75,23 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                 <Tooltip title={ROBUST_Z_TOOLTIP}>
                     <span className="text-muted-alt text-xs cursor-help">Why flagged?</span>
                 </Tooltip>
-                {finding.metric_descriptor?.url ? (
-                    <LemonButton
-                        type="tertiary"
-                        size="xsmall"
-                        to={finding.metric_descriptor.url as string}
-                        targetBlank
-                        className="ml-auto"
-                    >
-                        View insight
-                    </LemonButton>
-                ) : null}
+                <div className="ml-auto flex items-center gap-1">
+                    {finding.metric_descriptor?.url ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            to={finding.metric_descriptor.url as string}
+                            targetBlank
+                        >
+                            View insight
+                        </LemonButton>
+                    ) : null}
+                    <AIConsentPopoverWrapper onApprove={askMax}>
+                        <LemonButton type="tertiary" size="xsmall" onClick={askMax} sideIcon={null}>
+                            Ask Max why
+                        </LemonButton>
+                    </AIConsentPopoverWrapper>
+                </div>
             </div>
             <p className="text-sm mb-0">{finding.narrative}</p>
         </LemonCard>
