@@ -118,8 +118,8 @@ export function SdkDoctorScene(): JSX.Element {
                     <SdkDoctorErrorState loadError={loadError} onRetry={scanEvents} />
                 ) : Object.keys(augmentedData).length === 0 ? (
                     <div className="text-center text-muted p-4">
-                        No SDK information found. Are you sure you have our SDK installed? You can scan events to get
-                        started.
+                        No events captured by a PostHog SDK in the last 7 days. Make sure your SDK is installed and
+                        sending events, then scan again.
                     </div>
                 ) : needsUpdatingCount === 0 ? (
                     <section className="mb-2">
