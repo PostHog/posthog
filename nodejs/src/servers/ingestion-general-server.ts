@@ -27,7 +27,7 @@ import {
 } from '../ingestion/common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '../ingestion/common/outputs/registry'
-import { newScope } from '../ingestion/common/scopes'
+import { extend, newScope } from '../ingestion/common/scopes'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -159,7 +159,7 @@ export class IngestionGeneralServer implements NodeServer {
         // and is owned by that scope. The server extracts it from the
         // started container to pass on to CDP services etc.
         const staticDropEventTokens = this.config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-        const sharedServicesScope = sharedInfraScope.extend('shared', (container, builder) =>
+        const sharedServicesScope = extend(sharedInfraScope, 'shared', (container, builder) =>
             builder.add('teamManager', new TeamManagerComponent(container.postgres)).add('staticDropEventTokens', {
                 start: () => Promise.resolve({ value: staticDropEventTokens, stop: () => Promise.resolve() }),
             })

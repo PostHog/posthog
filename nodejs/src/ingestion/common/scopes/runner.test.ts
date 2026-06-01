@@ -1,14 +1,20 @@
 import { Component } from './component'
-import { ComponentRunner } from './runner'
+import { EmptyScope } from './empty-scope'
+import { ScopeRunner } from './runner'
+import { ScopeBuilder } from './scope-builder'
 import { makeComponent } from './test-fixtures'
 
-describe('ComponentRunner', () => {
-    it('starts entries in registration order and assembles the container', async () => {
+describe('ScopeRunner', () => {
+    it('starts entries and assembles the container', async () => {
         const log: string[] = []
         const a = makeComponent('a', log)
         const b = makeComponent('b', log)
 
-        const runner = new ComponentRunner('phase', { a, b })
+        const runner = new ScopeRunner(
+            new EmptyScope(),
+            () => ScopeBuilder.empty().add('a', a).add('b', b).components(),
+            'phase'
+        )
         const { value } = await runner.start()
 
         expect(log).toEqual(['start:a', 'start:b'])
@@ -21,7 +27,11 @@ describe('ComponentRunner', () => {
         const b = makeComponent('b', log)
         const c = makeComponent('c', log)
 
-        const runner = new ComponentRunner('phase', { a, b, c })
+        const runner = new ScopeRunner(
+            new EmptyScope(),
+            () => ScopeBuilder.empty().add('a', a).add('b', b).add('c', c).components(),
+            'phase'
+        )
         const { stop } = await runner.start()
         await stop()
 
@@ -38,7 +48,11 @@ describe('ComponentRunner', () => {
             }),
         }
 
-        const runner = new ComponentRunner('phase', { a, b })
+        const runner = new ScopeRunner(
+            new EmptyScope(),
+            () => ScopeBuilder.empty().add('a', a).add('b', b).components(),
+            'phase'
+        )
 
         await expect(runner.start()).rejects.toThrow('b failed')
         // Only entries that successfully started are rolled back, in reverse.

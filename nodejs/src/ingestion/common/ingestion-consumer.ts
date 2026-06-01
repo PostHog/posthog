@@ -9,7 +9,7 @@ import { IngestionConsumerConfig } from '../config'
 import { BatchResult, FeedResult } from '../pipelines/batching-pipeline'
 import { createOkContext } from '../pipelines/helpers'
 import { OkResultWithContext } from '../pipelines/pipeline.interface'
-import { Scope } from './scopes'
+import { Scope, extend } from './scopes'
 import { KafkaConsumerComponent, KafkaConsumerInterface } from './utils/kafka-consumer'
 import { PromiseScheduler } from './utils/promise-scheduler'
 
@@ -70,7 +70,7 @@ export class CommonIngestionConsumerScope<S extends ContainerWithPromiseSchedule
         pipelineFactory: PipelineFactory<S>
     ) {
         const consumerName = this.name
-        this.innerScope = scope.extend('common-consumer', (container, builder) => {
+        this.innerScope = extend(scope, 'common-consumer', (container, builder) => {
             const pipeline = pipelineFactory({ container })
             const handler = new KafkaBatchHandler(config, consumerName, pipeline, container.promiseScheduler)
             return builder.add(

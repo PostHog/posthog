@@ -1,26 +1,57 @@
 import { logger } from '../../../utils/logger'
 import { Component, ComponentMap, Started } from './component'
+import type { Startable } from './scope'
 
 /**
- * A `Component` whose value is the assembled container. It boots every
- * entry's component in parallel (order is irrelevant), and its `stop`
- * tears down only the ones that started, in reverse. If any entry fails
- * to start, the already-started ones are rolled back and the first error
- * is rethrown.
+ * A `Component` that runs a child layer on top of a parent scope. On
+ * `start` it acquires the parent (refcounted), builds the child's component
+ * map from the parent's container, boots those components in parallel, and
+ * exposes `parent ∪ child`. If a child entry fails, the already-started
+ * children are rolled back, the parent is released, and the first error is
+ * rethrown. The returned `stop` tears children down in reverse order, then
+ * releases the parent. A root scope is this runner over an `EmptyScope`.
  */
-export class ComponentRunner<S extends Record<string, object>> implements Component<S> {
+export class ScopeRunner<SParent extends Record<string, object>, SChild extends Record<string, object>>
+    implements Component<SParent & SChild>
+{
     constructor(
-        private readonly scopeName: string,
-        private readonly components: ComponentMap<S>
+        private readonly parent: Startable<SParent>,
+        private readonly childComponents: (parentContainer: SParent) => ComponentMap<SChild>,
+        private readonly name: string
     ) {}
 
-    async start(): Promise<Started<S>> {
-        const entries: Array<[string, Component<object>]> = Object.entries(this.components)
-        logger.info(`Scope[${this.scopeName}]: starting ${entries.length} entries in parallel`)
+    async start(): Promise<Started<SParent & SChild>> {
+        const parentHandle = await this.parent.start()
+        try {
+            const children = await this.startChildren(parentHandle.container)
+            return {
+                value: { ...parentHandle.container, ...children.value },
+                stop: async (): Promise<void> => {
+                    try {
+                        await children.stop()
+                    } finally {
+                        await parentHandle.stop()
+                    }
+                },
+            }
+        } catch (err) {
+            try {
+                await parentHandle.stop()
+            } catch (parentStopErr) {
+                logger.error(`Scope[${this.name}]: parent stop failed during rollback`, { error: parentStopErr })
+            }
+            throw err
+        }
+    }
+
+    private async startChildren(parentContainer: SParent): Promise<Started<SChild>> {
+        const components: ComponentMap<SChild> = this.childComponents(parentContainer)
+        const entries: Array<[string, Component<object>]> = Object.entries(components)
+        logger.info(`Scope[${this.name}]: starting ${entries.length} entries in parallel`)
 
         const results = await Promise.allSettled(
             entries.map(async ([name, component]) => {
-                logger.info(`Scope[${this.scopeName}]: starting ${name}`)
+                logger.info(`Scope[${this.name}]: starting ${name}`)
                 return await component.start()
             })
         )
@@ -40,27 +71,28 @@ export class ComponentRunner<S extends Record<string, object>> implements Compon
 
         if (failures.length > 0) {
             for (const f of failures) {
-                logger.error(`Scope[${this.scopeName}]: ${f.name} start failed`, { error: f.error })
+                logger.error(`Scope[${this.name}]: ${f.name} start failed`, { error: f.error })
             }
-            logger.error(`Scope[${this.scopeName}]: start failed, rolling back ${started.length} started value(s)`)
+            logger.error(`Scope[${this.name}]: start failed, rolling back ${started.length} started value(s)`)
             await this.teardown(started)
             throw failures[0].error
         }
 
-        // `components` is typed `ComponentMap<S>`, so each entry's value is the
-        // `S[K]` for its key — the assembled record is therefore `S`. The
-        // assertion only bridges `Object.fromEntries` erasing per-key types.
-        const value = Object.fromEntries(started.map((s) => [s.name, s.value])) as S
+        // `components` is typed `ComponentMap<SChild>`, so each entry's value
+        // is the `SChild[K]` for its key — the assembled record is therefore
+        // `SChild`. The assertion only bridges `Object.fromEntries` erasing
+        // per-key types.
+        const value = Object.fromEntries(started.map((s) => [s.name, s.value])) as SChild
         return { value, stop: () => this.teardown(started) }
     }
 
     private async teardown(started: Array<{ name: string; stop: () => Promise<void> }>): Promise<void> {
         for (let i = started.length - 1; i >= 0; i--) {
-            logger.info(`Scope[${this.scopeName}]: stopping ${started[i].name}`)
+            logger.info(`Scope[${this.name}]: stopping ${started[i].name}`)
             try {
                 await started[i].stop()
             } catch (err) {
-                logger.error(`Scope[${this.scopeName}]: ${started[i].name} stop failed`, { error: err })
+                logger.error(`Scope[${this.name}]: ${started[i].name} stop failed`, { error: err })
                 throw err
             }
         }

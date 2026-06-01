@@ -5,7 +5,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { EventFilterManagerComponent } from '../common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '../common/ingestion-consumer'
 import { ProducerName } from '../common/outputs'
-import { Scope } from '../common/scopes'
+import { Scope, extend } from '../common/scopes'
 import { PromiseSchedulerComponent } from '../common/utils/promise-scheduler'
 import { IngestionOutputsConfig } from '../config'
 import { KafkaProducerRegistry } from '../outputs/kafka-producer-registry'
@@ -27,7 +27,7 @@ export function createClientWarningsConsumer(
     config: ClientWarningsConsumerConfig,
     sharedScope: ClientWarningsSharedScope
 ) {
-    const scope = sharedScope.extend('clientwarnings', (container, builder) =>
+    const scope = extend(sharedScope, 'clientwarnings', (container, builder) =>
         builder
             .add('promiseScheduler', new PromiseSchedulerComponent())
             .add(

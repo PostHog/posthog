@@ -1,7 +1,7 @@
 import { logger } from '../../../utils/logger'
 import { CallerSet } from './caller-set'
-import { Component, Started } from './component'
-import { ExtendedRunner } from './extended-runner'
+import { Component } from './component'
+import { ScopeRunner } from './runner'
 import { ScopeBuilder } from './scope-builder'
 
 /**
@@ -16,16 +16,25 @@ export interface StartedScope<S extends Record<string, object>> {
 }
 
 /**
+ * Anything a `ScopeRunner` can sit on top of: it starts into a container
+ * and a stop. Both `Scope` (refcounted, logged) and `EmptyScope` (the
+ * silent bottom of every tree) satisfy it.
+ */
+export interface Startable<S extends Record<string, object>> {
+    start(): Promise<StartedScope<S>>
+}
+
+/**
  * The owning system: wraps a `Component` in a refcount so concurrent and
  * repeated callers share a single boot, and the underlying component is
  * torn down only once the last caller releases. Start and stop never run
  * concurrently: an in-flight transition is awaited before the next one is
  * evaluated, and the started state is re-checked afterwards.
  */
-export class Scope<S extends Record<string, object> = Record<never, object>> {
+export class Scope<S extends Record<string, object> = Record<never, object>> implements Startable<S> {
     private readonly callers = new CallerSet()
     private transition: Promise<void> | null = null
-    private current?: Started<S>
+    private current?: { value: S; stop: () => Promise<void> }
 
     constructor(
         readonly name: string,
@@ -49,23 +58,6 @@ export class Scope<S extends Record<string, object> = Record<never, object>> {
             container,
             stop: () => this.releaseCaller(release),
         }
-    }
-
-    /**
-     * Build a child scope on top of this one. The `configure` callback
-     * receives this scope's started container and a fresh builder, and
-     * returns the builder with the child's entries registered. The returned
-     * scope's container is `parent ∪ child`.
-     *
-     * On `start`: this scope is started (or refcounted onto), then the
-     * callback runs with the resolved container and the child is started.
-     * On `stop`: the child is stopped, then this scope is released.
-     */
-    extend<S2 extends Record<string, object>>(
-        name: string,
-        configure: (parentContainer: S, builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S2>
-    ): Scope<S & S2> {
-        return new Scope<S & S2>(name, new ExtendedRunner<S, S2>(this, configure, name))
     }
 
     private async ensureStarted(): Promise<void> {
@@ -119,12 +111,37 @@ export class Scope<S extends Record<string, object> = Record<never, object>> {
 /**
  * Builds a root scope with the given name. The `configure` callback
  * receives an empty builder and returns the builder with the scope's
- * entries registered. Mirrors `Scope.extend` so root and child scopes
- * have the same construction shape.
+ * entries registered. A root is just an extension over the empty bottom,
+ * so its container has no parent entries.
  */
 export function newScope<S extends Record<string, object>>(
     name: string,
     configure: (builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S>
 ): Scope<S> {
     return configure(ScopeBuilder.empty()).build(name)
+}
+
+/**
+ * Builds a child scope on top of `parent`. The `configure` callback
+ * receives the parent's started container and a fresh builder, and returns
+ * the builder with the child's entries registered. The child's container
+ * is `parent ∪ child`.
+ *
+ * On `start`: the parent is started (or refcounted onto), then the callback
+ * runs with the resolved container and the child entries are started.
+ * On `stop`: the child entries are stopped, then the parent is released.
+ */
+export function extend<S extends Record<string, object>, S2 extends Record<string, object>>(
+    parent: Scope<S>,
+    name: string,
+    configure: (parentContainer: S, builder: ScopeBuilder<Record<never, object>>) => ScopeBuilder<S2>
+): Scope<S & S2> {
+    return new Scope<S & S2>(
+        name,
+        new ScopeRunner<S, S2>(
+            parent,
+            (parentContainer) => configure(parentContainer, ScopeBuilder.empty()).components(),
+            name
+        )
+    )
 }

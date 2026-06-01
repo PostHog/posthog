@@ -1,5 +1,6 @@
 import { Component, ComponentMap, ValueOf } from './component'
-import { ComponentRunner } from './runner'
+import { EmptyScope } from './empty-scope'
+import { ScopeRunner } from './runner'
 import { Scope } from './scope'
 
 /**
@@ -8,7 +9,7 @@ import { Scope } from './scope'
  * starts. Until then, the builder is just a typed recipe.
  */
 export class ScopeBuilder<S extends Record<string, object> = Record<never, object>> {
-    private constructor(private readonly components: ComponentMap<S>) {}
+    private constructor(private readonly map: ComponentMap<S>) {}
 
     static empty(): ScopeBuilder<Record<never, object>> {
         return new ScopeBuilder<Record<never, object>>({})
@@ -22,11 +23,16 @@ export class ScopeBuilder<S extends Record<string, object> = Record<never, objec
         // `ComponentMap<S & Record<Name, ValueOf<C>>>`, but a computed-key
         // spread only types as a string index signature, so assert the shape
         // the method signature already guarantees.
-        const components: Record<string, Component<object>> = { ...this.components, [name]: component }
-        return new ScopeBuilder<S & Record<Name, ValueOf<C>>>(components as ComponentMap<S & Record<Name, ValueOf<C>>>)
+        const map: Record<string, Component<object>> = { ...this.map, [name]: component }
+        return new ScopeBuilder<S & Record<Name, ValueOf<C>>>(map as ComponentMap<S & Record<Name, ValueOf<C>>>)
+    }
+
+    /** The accumulated components, consumed by the runner when the scope starts. */
+    components(): ComponentMap<S> {
+        return this.map
     }
 
     build(name: string): Scope<S> {
-        return new Scope<S>(name, new ComponentRunner<S>(name, this.components))
+        return new Scope<S>(name, new ScopeRunner<Record<never, object>, S>(new EmptyScope(), () => this.map, name))
     }
 }
