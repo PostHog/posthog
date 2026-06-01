@@ -5,11 +5,16 @@ from django.dispatch import receiver
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.api import _invalidate_repo_list_cache
-
 
 @receiver(post_save, sender=Integration)
 @receiver(post_delete, sender=Integration)
 def invalidate_repo_list_on_github_change(sender: Any, instance: Integration, **kwargs) -> None:
-    if instance.kind == "github":
-        _invalidate_repo_list_cache(instance.team_id)
+    if instance.kind != "github":
+        return
+    # Deferred: products.slack_app.backend.api imports posthog.temporal.ai workflows at module
+    # scope, which pulls the whole ee.hogai chat-agent core. This receiver is wired from
+    # AppConfig.ready(), so a module-level import would drag the AI core into every process's
+    # startup. The cache helper is only needed when a GitHub integration actually changes.
+    from products.slack_app.backend.api import _invalidate_repo_list_cache  # noqa: PLC0415
+
+    _invalidate_repo_list_cache(instance.team_id)
