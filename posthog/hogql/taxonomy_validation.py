@@ -25,6 +25,11 @@ class TaxonomyReference:
     name: str
     start: int | None = None
     end: int | None = None
+    # The `start`/`end` range covers the whole token in source (quotes, `properties.` prefix and all),
+    # so a quick-fix that replaces that range must rebuild the whole token — not just the bare name —
+    # or it strips the quotes/prefix. `fix_template` formats the suggested name into a valid replacement.
+    # `None` means "warn, but offer no one-click fix" (e.g. nested `properties.a.b`).
+    fix_template: str | None = "{}"
 
 
 class TaxonomyReferenceVisitor(TraversingVisitor):
@@ -58,7 +63,12 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
 
     def _collect_property_field(self, node: ast.Field) -> None:
         if len(node.chain) >= 2 and node.chain[0] == "properties" and isinstance(node.chain[1], str):
-            self.property_names.append(TaxonomyReference(node.chain[1], node.start, node.end))
+            # The range spans the whole `properties.<name>` field, so the fix must too. Only offer it
+            # for the simple two-segment shape; a nested `properties.a.b` would need to keep the suffix.
+            fix_template = "properties.{}" if len(node.chain) == 2 else None
+            self.property_names.append(
+                TaxonomyReference(node.chain[1], node.start, node.end, fix_template=fix_template)
+            )
 
     def _collect_property_array_access(self, node: ast.ArrayAccess) -> None:
         if (
@@ -66,7 +76,9 @@ class TaxonomyReferenceVisitor(TraversingVisitor):
             and isinstance(node.property, ast.Constant)
             and isinstance(node.property.value, str)
         ):
-            self.property_names.append(TaxonomyReference(node.property.value, node.property.start, node.property.end))
+            self.property_names.append(
+                TaxonomyReference(node.property.value, node.property.start, node.property.end, fix_template="'{}'")
+            )
 
 
 def validate_taxonomy_references(
@@ -121,7 +133,7 @@ def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> 
         return None
     if not isinstance(value_node, ast.Constant) or not isinstance(value_node.value, str):
         return None
-    return TaxonomyReference(value_node.value, value_node.start, value_node.end)
+    return TaxonomyReference(value_node.value, value_node.start, value_node.end, fix_template="'{}'")
 
 
 def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
@@ -131,7 +143,7 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
     references: list[TaxonomyReference] = []
     for expr in node.exprs:
         if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-            references.append(TaxonomyReference(expr.value, expr.start, expr.end))
+            references.append(TaxonomyReference(expr.value, expr.start, expr.end, fix_template="'{}'"))
     return references
 
 
@@ -168,7 +180,10 @@ def _warnings_for_unknown_references(
         if suggestion:
             message += f" Did you mean '{suggestion}'?"
 
-        warnings.append(HogQLNotice(message=message, start=reference.start, end=reference.end, fix=suggestion))
+        # `fix` is the literal replacement text for the marked range, so it carries the quotes /
+        # `properties.` prefix; the message keeps the bare name for readability.
+        fix = reference.fix_template.format(suggestion) if suggestion and reference.fix_template else None
+        warnings.append(HogQLNotice(message=message, start=reference.start, end=reference.end, fix=fix))
 
     return warnings
 
