@@ -1098,12 +1098,6 @@ POSTHOG_AI_PRODUCTS = ["posthog_ai", "slack_app", "subscriptions"]
 # ai_product values billed as signals credits.
 SIGNALS_AI_PRODUCTS = ["signals"]
 
-# Products that emit a paired $ai_trace and are billed only on a completed, billable trace — we
-# only charge for completed traces (a billable trace marks the turn complete; free tool-only turns,
-# e.g. docs-search/summarize-sessions, are excluded). Products not listed here emit no $ai_trace and
-# are billed per-generation via the empty-trace fallback.
-AI_PRODUCTS_REQUIRING_TRACES = ["posthog_ai"]
-
 
 def _get_teams_with_ai_credits_for_products(
     begin: datetime,
@@ -1116,14 +1110,15 @@ def _get_teams_with_ai_credits_for_products(
     Shared implementation for AI billing credit aggregation, whitelisting on the
     `ai_product` event property — only generations tagged with an `ai_products` value are billed.
 
-    Products in `AI_PRODUCTS_REQUIRING_TRACES` emit a paired $ai_trace and are billed only on a
-    completed, billable trace — we only charge for completed traces. Traces are billable only if they
-    contain tool calls that include at least one non-excluded tool. Free (non-billable) traces:
+    A billable $ai_generation (with positive cost) is billed when its trace is billable OR it has no
+    trace. Products that emit a paired $ai_trace (e.g. posthog_ai) are billed only on a billable trace;
+    a trace is billable only if it contains tool calls including at least one non-excluded tool. Free
+    (non-billable) traces:
         - Traces that only contain 'summarize_sessions' tool calls
         - Traces that only contain 'search' tool calls with kind='docs'
 
-    Products NOT in `AI_PRODUCTS_REQUIRING_TRACES` (e.g. signals, slack_app) emit no $ai_trace, so the
-    LEFT JOIN never matches; they are billed per-generation via the empty-trace fallback.
+    Products that emit no $ai_trace (e.g. signals, slack_app) have no matching trace, so they are
+    billed via the empty-trace fallback.
 
     We are also performing additional filtering to maintain current trace tool calls and not all messages
     in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
@@ -1217,14 +1212,11 @@ def _get_teams_with_ai_credits_for_products(
                 SELECT
                     customer_team_id,
                     trace_id,
-                    ai_product,
-                    ai_billable,
                     cost_usd
                 FROM (
                     SELECT
                         JSONExtractInt(properties, 'team_id') AS customer_team_id,
                         JSONExtractString(properties, '$ai_trace_id') AS trace_id,
-                        JSONExtractString(properties, 'ai_product') AS ai_product,
                         toDecimal32OrNull(
                             JSONExtractString(properties, '$ai_total_cost_usd'),
                             5
@@ -1241,7 +1233,8 @@ def _get_teams_with_ai_credits_for_products(
                         AND JSONExtractString(properties, 'ai_product') IN %(ai_products)s
                 )
                 WHERE
-                    cost_usd > 0
+                    ai_billable = 1
+                    AND cost_usd > 0
             )
             SELECT
                 c.customer_team_id AS team,
@@ -1253,16 +1246,10 @@ def _get_teams_with_ai_credits_for_products(
             FROM costs c
             LEFT JOIN trace_analysis t ON c.trace_id = t.trace_id
             WHERE
-                -- Every billed generation must be $ai_billable. Trace-required products (e.g.
-                -- posthog_ai) must ALSO have a matching billable $ai_trace — an unmatched LEFT JOIN
-                -- yields is_billable=0, so `t.is_billable = 1` requires the trace to exist and be
-                -- billable (free tool-only turns excluded). Traceless products (slack_app,
-                -- subscriptions) bill on $ai_billable alone, so the trace join is ignored for them.
-                c.ai_billable = 1
-                AND (
-                    c.ai_product NOT IN %(trace_required_products)s
-                    OR t.is_billable = 1
-                )
+                -- keep rows whose trace is billable, or that have no trace (traceless products bill
+                -- on $ai_billable alone, already enforced in the costs CTE). Use empty(), not
+                -- IS NULL: join_use_nulls=0 yields '' — not NULL — for an unmatched trace_id.
+                t.is_billable = 1 OR empty(t.trace_id)
             GROUP BY
                 c.customer_team_id
             HAVING
@@ -1278,7 +1265,6 @@ def _get_teams_with_ai_credits_for_products(
                 "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
                 "ai_products": tuple(ai_products),
-                "trace_required_products": tuple(AI_PRODUCTS_REQUIRING_TRACES),
             },
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,

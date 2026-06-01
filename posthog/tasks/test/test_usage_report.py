@@ -4005,12 +4005,11 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self.assertEqual(ai_result, [(self.org_1_team_1.id, 120)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
-    def test_ai_credits_excludes_traceless_generations(self, mock_region: MagicMock) -> None:
-        """A billable posthog_ai generation with no matching $ai_trace is NOT billed.
+    def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
+        """A billable generation with no matching $ai_trace bills via the empty-trace fallback.
 
-        posthog_ai requires a paired $ai_trace because we only bill completed traces; the
-        empty-trace fallback is scoped to traceless products like signals. This pins that a
-        traceless posthog_ai generation does not bill.
+        The predicate is uniform across products: bill when the trace is billable OR there is no
+        trace. So a billable posthog_ai generation whose $ai_trace was not captured still bills.
         """
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
@@ -4042,7 +4041,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
 
-        self.assertEqual(result, [])
+        # 3.0 USD * 100 * 1.2 = 360
+        self.assertEqual(result, [(self.org_1_team_1.id, 360)])
 
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_traceless_whitelisted_product(self, mock_region: MagicMock) -> None:
