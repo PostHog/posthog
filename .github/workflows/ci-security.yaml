@@ -143,6 +143,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
+                    --jobs 4 \
                     --include "*.ts" \
                     --include "*.tsx" \
                     --include "*.js" \
