@@ -74,7 +74,18 @@ export class ScopeRunner<SParent extends Record<string, object>, SChild extends 
                 logger.error(`Scope[${this.name}]: ${f.name} start failed`, { error: f.error })
             }
             logger.error(`Scope[${this.name}]: start failed, rolling back ${started.length} started value(s)`)
-            await this.teardown(started)
+            // Keep the start failure as the primary cause; if rolling back the
+            // partially-started scope also fails, fold those errors in rather
+            // than dropping them or letting them mask the root cause.
+            try {
+                await this.teardown(started)
+            } catch (rollbackErr) {
+                const rollbackErrors = rollbackErr instanceof AggregateError ? rollbackErr.errors : [rollbackErr]
+                throw new AggregateError(
+                    [failures[0].error, ...rollbackErrors],
+                    `Scope[${this.name}]: start failed and rollback teardown failed`
+                )
+            }
             throw failures[0].error
         }
 
@@ -87,14 +98,21 @@ export class ScopeRunner<SParent extends Record<string, object>, SChild extends 
     }
 
     private async teardown(started: Array<{ name: string; stop: () => Promise<void> }>): Promise<void> {
+        // Stop every component even if one throws, so a single failed stop
+        // can't leak the resources owned by earlier-declared components. Every
+        // stop error is collected and rethrown together once teardown is done.
+        const errors: unknown[] = []
         for (let i = started.length - 1; i >= 0; i--) {
             logger.info(`Scope[${this.name}]: stopping ${started[i].name}`)
             try {
                 await started[i].stop()
             } catch (err) {
                 logger.error(`Scope[${this.name}]: ${started[i].name} stop failed`, { error: err })
-                throw err
+                errors.push(err)
             }
+        }
+        if (errors.length > 0) {
+            throw new AggregateError(errors, `Scope[${this.name}]: ${errors.length} component(s) failed to stop`)
         }
     }
 }
