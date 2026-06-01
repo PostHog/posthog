@@ -7,6 +7,7 @@ from products.notifications.backend.facade.enums import (
     TargetType,
 )
 from products.notifications.backend.logic import create_notification
+from products.notifications.backend.resolvers import RecipientsResolver
 
 __all__ = [
     "create_notification",
@@ -14,6 +15,7 @@ __all__ = [
     "NotificationResourceType",
     "NotificationType",
     "Priority",
+    "RecipientsResolver",
     "SourceType",
     "TargetType",
 ]

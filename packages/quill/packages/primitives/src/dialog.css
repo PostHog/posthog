@@ -25,10 +25,11 @@
         top: calc(max(1rem, 10vh + 1.25rem * var(--nested-dialogs, 0)));
         width: 100%;
         max-width: calc(100vw - 3rem);
+        overflow: hidden;
         font-size: var(--text-xs, 0.75rem);
         line-height: 1.625;
         background-color: var(--background);
-        border-radius: var(--radius-xl);
+        border-radius: var(--radius-lg);
         outline: none;
         box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 10%, transparent);
 

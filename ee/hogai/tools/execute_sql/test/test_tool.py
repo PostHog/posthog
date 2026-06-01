@@ -1,18 +1,24 @@
-from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+from posthog.schema import (
+    ArtifactContentType,
+    AssistantToolCallMessage,
+    ChartDisplayType,
+    DataVisualizationNode,
+    VisualizationArtifactContent,
+)
 
 from posthog.models import Insight
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool
+from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import Conversation
+from ee.models import AgentArtifact, Conversation
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -45,6 +51,7 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
         _create_event(team=self.team, distinct_id="user2", event="test_event")
         _create_event(team=self.team, distinct_id="user3", event="another_event")
+        await sync_to_async(flush_persons_and_events)()
 
         tool = await self._create_tool()
 
@@ -61,6 +68,55 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(artifact_messages.messages[1], AssistantToolCallMessage)
         self.assertIn("test_event", artifact_messages.messages[1].content)
         self.assertIn("another_event", artifact_messages.messages[1].content)
+
+    async def test_successful_sql_execution_can_set_chart_axis_labels(self):
+        _create_event(team=self.team, distinct_id="user1", event="test_event")
+        _create_event(team=self.team, distinct_id="user2", event="test_event")
+        _create_event(team=self.team, distinct_id="user3", event="another_event")
+        await sync_to_async(flush_persons_and_events)()
+
+        tool = await self._create_tool()
+
+        tool_args = ExecuteSQLToolArgs.model_validate(
+            {
+                "query": "SELECT event, count() AS events, uniq(distinct_id) AS people FROM events GROUP BY event",
+                "viz_title": "Event counts",
+                "viz_description": "Count events and people by event type",
+                "display": "ActionsBar",
+                "chart_settings": {
+                    "xAxis": {"column": "event"},
+                    "yAxis": [
+                        {"column": "events"},
+                        {"column": "people", "settings": {"display": {"yAxisPosition": "right"}}},
+                    ],
+                    "xAxisLabel": "Event name",
+                    "leftYAxisSettings": {"label": "Events"},
+                    "rightYAxisSettings": {"label": "People", "showTicks": False},
+                },
+            }
+        )
+
+        result_text, artifact_messages = await tool._arun_impl(**tool_args.model_dump())
+
+        self.assertEqual(result_text, "")
+        self.assertIsNotNone(artifact_messages)
+        artifact = await AgentArtifact.objects.aget(short_id=artifact_messages.messages[0].artifact_id)
+        content = VisualizationArtifactContent.model_validate(artifact.data)
+
+        query = content.query
+        assert isinstance(query, DataVisualizationNode)
+        chart_settings = query.chartSettings
+        assert chart_settings is not None
+        left_y_axis_settings = chart_settings.leftYAxisSettings
+        assert left_y_axis_settings is not None
+        right_y_axis_settings = chart_settings.rightYAxisSettings
+        assert right_y_axis_settings is not None
+
+        self.assertEqual(query.display, ChartDisplayType.ACTIONS_BAR)
+        self.assertEqual(chart_settings.xAxisLabel, "Event name")
+        self.assertEqual(left_y_axis_settings.label, "Events")
+        self.assertEqual(right_y_axis_settings.label, "People")
+        self.assertEqual(right_y_axis_settings.showTicks, False)
 
     async def test_artifact_id_in_output(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")

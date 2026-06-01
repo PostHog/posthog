@@ -7,12 +7,10 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone as django_timezone
 
-import posthoganalytics
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -103,9 +101,6 @@ async def execute_task_processing_workflow_async(
     """
     Start the task processing workflow asynchronously. Fire-and-forget.
     Use this from async contexts (e.g., within Temporal activities).
-
-    Args:
-        skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
     logger.info(
         "execute_task_processing_workflow_async_called",
@@ -114,51 +109,7 @@ async def execute_task_processing_workflow_async(
     task_run_for_metrics = await _aget_task_run_for_metrics(run_id)
     observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
     try:
-        team = await Team.objects.select_related("organization").aget(id=team_id)
-
-        if skip_user_check:
-            logger.info("task_processing_skip_user_check", extra={"task_id": task_id, "team_id": team_id})
-            tasks_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                f"team_{team_id}",
-                groups={"organization": str(team.organization_id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        else:
-            if not user_id:
-                logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
-                observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="missing_user")
-                await _terminalize_unstarted_task_run_async(run_id, "Failed to start task workflow: missing user id")
-                return
-
-            logger.info("task_processing_fetching_team_and_user", extra={"team_id": team_id, "user_id": user_id})
-            user = await User.objects.aget(id=user_id)
-
-            logger.info(
-                "task_processing_checking_feature_flag",
-                extra={"distinct_id": user.distinct_id, "organization_id": team.organization_id},
-            )
-            tasks_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                user.distinct_id,
-                groups={"organization": str(team.organization_id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-        logger.info("task_processing_feature_flag_result", extra={"task_id": task_id, "tasks_enabled": tasks_enabled})
-
-        if not tasks_enabled:
-            logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
-            observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="feature_flag")
-            await _terminalize_unstarted_task_run_async(
-                run_id,
-                "Failed to start task workflow: tasks feature is disabled",
-            )
-            return
+        await Team.objects.select_related("organization").aget(id=team_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
@@ -188,7 +139,7 @@ async def execute_task_processing_workflow_async(
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
-    except (Team.DoesNotExist, User.DoesNotExist) as e:
+    except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
             "task_processing_permission_validation_failed",
@@ -223,9 +174,6 @@ def execute_task_processing_workflow(
     """
     Start the task processing workflow synchronously. Fire-and-forget.
     Use this from sync contexts (e.g., API endpoints).
-
-    Args:
-        skip_user_check: If True, skip user-based feature flag check. Use for automated/system tasks.
     """
     task_run_for_metrics = _get_task_run_for_metrics(run_id)
     observe_task_run_workflow_start(task_run_for_metrics, outcome="attempted", reason="requested")
@@ -235,49 +183,7 @@ def execute_task_processing_workflow(
             extra={"task_id": task_id, "run_id": run_id, "team_id": team_id, "user_id": user_id},
         )
 
-        team = Team.objects.get(id=team_id)
-
-        if settings.DEBUG:
-            logger.info("task_processing_debug_skip_feature_flag", extra={"task_id": task_id})
-            tasks_enabled = True
-        elif skip_user_check:
-            logger.info("task_processing_skip_user_check", extra={"task_id": task_id, "team_id": team_id})
-            tasks_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                f"team_{team_id}",
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        else:
-            if not user_id:
-                logger.warning("task_processing_missing_user_id", extra={"task_id": task_id})
-                observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="missing_user")
-                _terminalize_unstarted_task_run(run_id, "Failed to start task workflow: missing user id")
-                return
-
-            user = User.objects.get(id=user_id)
-
-            tasks_enabled = posthoganalytics.feature_enabled(
-                "tasks",
-                user.distinct_id,
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-
-        logger.info("task_processing_feature_flag_result", extra={"task_id": task_id, "tasks_enabled": tasks_enabled})
-
-        if not tasks_enabled:
-            logger.warning("task_processing_blocked_feature_flag", extra={"task_id": task_id})
-            observe_task_run_workflow_start(task_run_for_metrics, outcome="blocked", reason="feature_flag")
-            _terminalize_unstarted_task_run(
-                run_id,
-                "Failed to start task workflow: tasks feature is disabled",
-            )
-            return
+        Team.objects.get(id=team_id)
 
         workflow_id = TaskRun.get_workflow_id(task_id, run_id)
         slack_context_dict = _normalize_slack_context(slack_thread_context)
@@ -315,7 +221,7 @@ def execute_task_processing_workflow(
         logger.info("task_processing_workflow_started", extra={"task_id": task_id, "run_id": run_id})
         observe_task_run_workflow_start(task_run_for_metrics, outcome="started", reason="accepted")
 
-    except (Team.DoesNotExist, User.DoesNotExist) as e:
+    except Team.DoesNotExist as e:
         observe_task_run_workflow_start(task_run_for_metrics, outcome="failed", reason="permission_validation")
         logger.exception(
             "task_processing_permission_validation_failed",

@@ -4,6 +4,7 @@ import { Slide, ToastContainer } from 'react-toastify'
 import { Command } from 'lib/components/Command/Command'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -29,6 +30,29 @@ import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 import { MaxInstance } from './max/Max'
 
 window.process = MOCK_NODE_PROCESS
+
+/**
+ * Wraps each rendered scene so that when the scene unmounts (on tab change
+ * or scene swap), every running CSS / Web Animation under it is cancelled
+ * before the DOM detaches. This severs the `DocumentTimeline -> animation
+ * -> element` chain that otherwise pins detached scene trees in memory
+ * across SPA navigation, and lets the browser GC the trees normally.
+ *
+ * `display: contents` keeps the wrapper transparent to layout.
+ */
+function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
+    const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
+    return (
+        // `className="contents"` is load-bearing: the wrapper must take a DOM
+        // node so the ref has something to attach to (we need an element to
+        // call `getAnimations({ subtree: true })` on), but it must also be
+        // transparent to layout. `display: contents` removes it from the box
+        // tree so children render as if there's no wrapper.
+        <div ref={ref} className="contents">
+            {children}
+        </div>
+    )
+}
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner, showingDevTools } = useValues(appLogic)
@@ -102,11 +126,9 @@ function AppScene(): JSX.Element | null {
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneComponent
-                key={`tab-${activeSceneLogicPropsWithTabId.tabId}`}
-                user={user}
-                {...activeSceneComponentParamsWithTabId}
-            />
+            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
+                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
+            </SceneAnimationRoot>
         )
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />

@@ -52,68 +52,80 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
     {
         value: DetectorType.COPOD,
         label: 'COPOD',
-        tooltip: 'Copula-based outlier detection — efficient and parameter-free.',
+        tooltip:
+            'Scores each point against the historical distribution using copulas. Parameter-free, so it works without tuning a sensitivity threshold.',
     },
     {
         value: DetectorType.ECOD,
         label: 'ECOD',
-        tooltip: 'Empirical cumulative distribution — parameter-free and interpretable.',
+        tooltip:
+            'Scores each point against the empirical distribution of past values. Parameter-free and explainable — good when you need to justify why a point was flagged.',
     },
     {
         value: 'ensemble',
         label: 'Ensemble',
-        tooltip: 'Combine multiple detectors with AND/OR logic for more precise anomaly detection.',
+        tooltip:
+            'Combine multiple detectors with AND/OR logic. Use AND to reduce false alarms (all detectors must agree) or OR to catch a wider range of anomalies (any detector flags).',
     },
     {
         value: DetectorType.HBOS,
         label: 'HBOS',
-        tooltip: 'Histogram-based outlier score — very fast, good for high-volume alerting.',
+        tooltip:
+            'Very fast histogram-based detection. Pick this for high-volume alerting where speed matters more than precision.',
     },
     {
         value: DetectorType.IQR,
         label: 'IQR',
-        tooltip: 'Interquartile range — classic box plot method for detecting outliers.',
+        tooltip:
+            'Flags values outside the typical range, the same way a box plot does. Robust to existing outliers and works without picking a sensitivity threshold.',
     },
     {
         value: DetectorType.ISOLATION_FOREST,
         label: 'Isolation Forest',
-        tooltip: 'Isolates anomalies using random forest — good for complex patterns.',
+        tooltip:
+            'Detects points that look unusual across multiple features. Best for metrics with complex patterns or when combined with lag features.',
     },
     {
         value: DetectorType.KNN,
         label: 'KNN',
-        tooltip: 'K-nearest neighbors distance — points far from others are anomalies.',
+        tooltip:
+            'Compares each point to its nearest neighbors in recent history. Good for catching points that are unlike anything seen recently.',
     },
     {
         value: DetectorType.LOF,
         label: 'LOF',
-        tooltip: 'Local outlier factor — density-based, good for seasonal data.',
+        tooltip:
+            'Compares each point\'s local density against its neighbors. Best for seasonal or cyclical data where "normal" depends on local context.',
     },
     {
         value: DetectorType.MAD,
         label: 'MAD',
         tooltip:
-            'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
+            "Like Z-Score but uses the median instead of the mean. Choose this if your data already contains spikes you don't want skewing the baseline.",
     },
     {
         value: DetectorType.OCSVM,
         label: 'OCSVM',
-        tooltip: 'One-class SVM — learns a boundary around normal data.',
+        tooltip:
+            'Learns the shape of normal data and flags anything outside it. Good for noisy metrics where simple thresholds produce too many false alarms.',
     },
     {
         value: DetectorType.PCA,
         label: 'PCA',
-        tooltip: 'PCA-based — detects anomalies via reconstruction error.',
+        tooltip:
+            "Reduces data to its main patterns and flags points that don't fit. Useful when normal behavior has a few dominant trends.",
     },
     {
         value: DetectorType.THRESHOLD,
         label: 'Threshold',
-        tooltip: 'Simple upper/lower bounds. Alerts when the value crosses a fixed limit.',
+        tooltip:
+            'Alerts when the value crosses a fixed upper or lower bound. Use when you already know the safe range (e.g. "error rate above 5%").',
     },
     {
         value: DetectorType.ZSCORE,
         label: 'Z-Score',
-        tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
+        tooltip:
+            "Flags points that are unusually far from the rolling average. Good general-purpose detector — start here if you're not sure which to pick.",
     },
 ]
 
@@ -207,7 +219,10 @@ export function DetectorSelector({ value, onChange, calculationInterval }: Detec
     return (
         <div className="space-y-4">
             <div>
-                <Label text="Detector" tooltip="Statistical method used to identify anomalies in your data." />
+                <Label
+                    text="Detector"
+                    tooltip="Statistical method used to identify anomalies in your data. Hover each option for a description, or start with Z-Score if you're not sure."
+                />
                 <LemonSelect
                     data-attr="alertForm-detector-type"
                     value={selectedType}

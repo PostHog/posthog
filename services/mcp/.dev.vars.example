@@ -10,8 +10,6 @@ MCP_APPS_BASE_URL=http://localhost:8787
 POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=http://localhost:8010
 POSTHOG_UI_APPS_TOKEN=your_posthog_ui_apps_token_here
 
-INKEEP_API_KEY=your_inkeep_api_key_here
-
 # MCPCat project ID for analytics (optional, disables MCPCat if not set)
 MCP_CAT_PROJECT_ID=
 

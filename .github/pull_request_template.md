@@ -33,7 +33,12 @@
 ## 🤖 Agent context
 
 <!-- Fill this section if an agent co-authored or authored this PR. Remove it for fully human-authored PRs. -->
-<!-- Include: tools/agent used, link to session, key decisions made, and anything that helps reviewers. -->
+<!-- Include:
+     - tools/agent used and link to session
+     - key human prompts that shaped this work, so reviewers can see the intent behind the changes, not just the diff
+     - decisions made along the way (what was tried, rejected, chosen, and why)
+     - anything else that helps reviewers
+-->
 <!-- Rules for agent-authored PRs:
      - All PRs must be attributable to a human author, even if agent-assisted.
      - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.

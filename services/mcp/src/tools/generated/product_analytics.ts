@@ -9,6 +9,7 @@ import {
     InsightsPartialUpdateBody,
     InsightsPartialUpdateParams,
     InsightsRetrieveParams,
+    InsightsRetrieveQueryParams,
 } from '@/generated/product_analytics/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -27,8 +28,32 @@ const AssistantDataVisualizationGoalLine = z.object({
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
 })
 
+const AssistantDataVisualizationYAxisSettings = z.object({
+    label: z.string().describe('Label rendered beside this Y axis.').optional(),
+    scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
+    showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
+    showTicks: z.coerce.boolean().describe('Show tick labels on this Y axis.').optional(),
+    startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+        .optional(),
+})
+
+const AssistantDataVisualizationAxisSettings = z.object({
+    display: AssistantDataVisualizationAxisDisplaySettings.describe(
+        'Display settings for a plotted Y series.'
+    ).optional(),
+})
+
 const AssistantDataVisualizationAxis = z.object({
     column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
+    settings: AssistantDataVisualizationAxisSettings.describe(
+        'Optional series settings. Only applies to Y-axis series.'
+    ).optional(),
 })
 
 const AssistantDataVisualizationChartSettings = z.object({
@@ -36,6 +61,10 @@ const AssistantDataVisualizationChartSettings = z.object({
         .array(AssistantDataVisualizationGoalLine)
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+        'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
+    ).optional(),
     seriesBreakdownColumn: z
         .string()
         .nullable()
@@ -52,6 +81,7 @@ const AssistantDataVisualizationChartSettings = z.object({
     xAxis: AssistantDataVisualizationAxis.describe(
         'Column used as the X axis. Typically a time bucket or categorical column.'
     ).optional(),
+    xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
         .array(AssistantDataVisualizationAxis)
         .describe('One or more numeric columns plotted as Y series.')
@@ -165,6 +195,21 @@ const insightDelete = (): ToolBase<typeof InsightDeleteSchema, Schemas.Insight> 
 })
 
 const InsightGetSchema = InsightsRetrieveParams.omit({ project_id: true })
+    .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+    .extend({
+        filters_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                "Object (or pre-encoded JSON string) to override the insight's filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token."
+            ),
+        variables_override: z
+            .union([z.string(), z.record(z.string(), z.unknown())])
+            .optional()
+            .describe(
+                'Object (or pre-encoded JSON string) to override the insight\'s HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+            ),
+    })
 
 const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.Insight>> => ({
     name: 'insight-get',
@@ -174,6 +219,10 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
         const result = await context.api.request<Schemas.Insight>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insights/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                filters_override: params.filters_override,
+                variables_override: params.variables_override,
+            },
         })
         const filtered = omitResponseFields(result, [
             'result',

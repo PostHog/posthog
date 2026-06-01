@@ -155,6 +155,7 @@ export type NotebookNodeAction = Pick<LemonButtonProps, 'icon'> & {
 
 export interface NotebookEditor extends RichContentEditorType {
     findCommentPosition: (markId: string) => number | null
+    getAllCommentTexts: () => Record<string, string>
     removeComment: (pos: number) => void
     getText: () => string
 }

@@ -2,9 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils'
+import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -136,7 +137,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         tickDates: [
             (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.tickPositions],
             (timezone, dates, tickPositions): Dayjs[] =>
-                tickPositions.map((dateIndex) => dayjsLocalToTimezone(dates[dateIndex], timezone)),
+                tickPositions.map((dateIndex) => parseDateInTimezone(dates[dateIndex], timezone)),
         ],
         dateRange: [
             (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
@@ -144,8 +145,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return null
                 }
-                const first = dayjsLocalToTimezone(dates[0], timezone)
-                const last = dayjsLocalToTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
+                const first = parseDateInTimezone(dates[0], timezone)
+                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
                 return [first, last]
             },
         ],
@@ -207,7 +208,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     const incidentDates = ['2026-01-06', '2026-01-07']
                     const specialAnnotations: DatedAnnotationType[] = incidentDates
                         .map((dateStr, index) => {
-                            const dateInTimezone = dayjsLocalToTimezone(dateStr, timezone).startOf('day')
+                            const dateInTimezone = parseDateInTimezone(dateStr, timezone).startOf('day')
 
                             // Only include if date is within the date range
                             if (dateInTimezone >= dateRange[0] && dateInTimezone < dateRange[1]) {
@@ -263,7 +264,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 }
                 // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
                 // drift Monday-aligned dates backward and bias every fractional index by 1/7.
-                const firstDate = dayjsLocalToTimezone(dates[0], timezone)
+                const firstDate = parseDateInTimezone(dates[0], timezone)
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {

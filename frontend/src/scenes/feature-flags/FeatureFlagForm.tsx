@@ -839,7 +839,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     data-attr={`feature-flag-variant-key-${index}`}
                                                                 />
                                                                 {variantErrors[index]?.key && (
-                                                                    <span className="text-danger text-xs">
+                                                                    <span className="Field--error text-danger text-xs">
                                                                         {variantErrors[index].key}
                                                                     </span>
                                                                 )}

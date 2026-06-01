@@ -1,0 +1,111 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Tracing
+feature: tracing
+url_prefix: /tracing
+ui_apps:
+    trace-span:
+        type: detail
+        view_prop: data
+    trace-span-list:
+        type: list
+        detail_tool: apm-trace-get
+        detail_args: '{ trace_id: item.trace_id }'
+        item_name_field: name
+        click_prop: onSpanClick
+tools:
+    apm-attribute-values-list:
+        operation: tracing_spans_values_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing attribute values
+        description: >
+            List values for a specific span or resource attribute key. Use to discover what values exist for a given
+            attribute before building filters.
+        feature_flag: tracing
+        response:
+            include:
+                - results
+    apm-attributes-list:
+        operation: tracing_spans_attributes_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing span attributes
+        description: >
+            List available span or resource attribute names. Use attribute_type "span" for span-level attributes or
+            "resource" for resource-level attributes (e.g. k8s labels). Use this to discover available attribute keys
+            before building filters.
+        feature_flag: tracing
+        response:
+            include:
+                - results
+                - count
+    apm-services-list:
+        operation: tracing_spans_service_names_retrieve
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List tracing service names
+        description: >
+            List distinct service names that have emitted trace spans. Use to discover available services before
+            filtering spans by service name.
+        feature_flag: tracing
+        response:
+            include:
+                - results
+    apm-sparkline-query:
+        operation: tracing_spans_sparkline_create
+        enabled: false
+    apm-trace-get:
+        operation: tracing_spans_trace_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Retrieve trace spans
+        description: >
+            Fetch all spans for a specific trace by its hex trace ID. Returns the full span tree for the trace including
+            parent-child relationships, timing, and status information. Use this to inspect a specific trace in detail
+            after discovering it via the query tool.
+        ui_app: trace-span-list
+        feature_flag: tracing
+        response:
+            include:
+                - results
+    query-apm-spans:
+        operation: tracing_spans_query_create
+        enabled: true
+        scopes:
+            - tracing:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Query tracing spans
+        description_file: ./prompts/query-apm-spans.md
+        ui_app: trace-span-list
+        feature_flag: tracing
+        response:
+            include:
+                - results

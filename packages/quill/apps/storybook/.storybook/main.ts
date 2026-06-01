@@ -91,7 +91,12 @@ const config: StorybookConfig = {
         // Also pick up stories co-located in packages
         '../../../packages/*/src/**/*.stories.@(js|jsx|mjs|ts|tsx)',
     ],
-    addons: ['@storybook/addon-docs', '@storybook/addon-toolbars', 'storybook-addon-pseudo-states'],
+    addons: [
+        '@storybook/addon-docs',
+        '@storybook/addon-toolbars',
+        'storybook-addon-pseudo-states',
+        'storybook-dark-mode',
+    ],
     framework: {
         name: '@storybook/react-vite',
         options: {},

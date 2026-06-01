@@ -1,7 +1,7 @@
 import './MetricRowGroup.scss'
 
 import { useActions } from 'kea'
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
@@ -118,7 +118,7 @@ interface CollapsibleBreakdownSectionProps {
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
-    handleTooltipMouseLeave: () => void
+    handleTooltipMouseLeave: (e: React.MouseEvent) => void
     handleTooltipMouseMove: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
 }
 
@@ -524,7 +524,44 @@ export function MetricRowGroup({
         isPositioned: false,
     })
     const tooltipRef = useRef<HTMLDivElement>(null)
+    const tooltipCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     const colors = useChartColors()
+
+    const clearTooltipCloseTimer = (): void => {
+        if (tooltipCloseTimerRef.current !== null) {
+            clearTimeout(tooltipCloseTimerRef.current)
+            tooltipCloseTimerRef.current = null
+        }
+    }
+
+    const hideTooltipState = (): void => {
+        setTooltipState((prev) => ({
+            ...prev,
+            isVisible: false,
+            variantResult: null,
+            isPositioned: false,
+        }))
+    }
+
+    const scheduleTooltipClose = (): void => {
+        clearTooltipCloseTimer()
+        tooltipCloseTimerRef.current = setTimeout(() => {
+            tooltipCloseTimerRef.current = null
+            hideTooltipState()
+        }, 150)
+    }
+
+    const closeTooltipNow = (): void => {
+        clearTooltipCloseTimer()
+        hideTooltipState()
+    }
+
+    useEffect(() => {
+        return () => {
+            clearTooltipCloseTimer()
+        }
+    }, [])
+
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
 
     const { reportExperimentTimeseriesViewed, retryPrimaryMetric, retrySecondaryMetric } = useActions(experimentLogic)
@@ -587,6 +624,7 @@ export function MetricRowGroup({
             return
         }
 
+        clearTooltipCloseTimer()
         const position = calculateTooltipPosition(chartCell, variantResult)
         setTooltipState({
             isVisible: true,
@@ -596,13 +634,17 @@ export function MetricRowGroup({
         })
     }
 
-    const handleTooltipMouseLeave = (): void => {
-        setTooltipState((prev) => ({
-            ...prev,
-            isVisible: false,
-            variantResult: null,
-            isPositioned: false,
-        }))
+    // The portaled tooltip sits above the row. Defer closing only when the cursor
+    // exits upward (toward the tooltip) so the click affordance is reachable.
+    // Sideways or downward exits — i.e. moving to another variant row — close
+    // immediately so row-to-row transitions stay snappy.
+    const handleTooltipMouseLeave = (e: React.MouseEvent): void => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (e.clientY <= rect.top + 1) {
+            scheduleTooltipClose()
+        } else {
+            closeTooltipNow()
+        }
     }
 
     const handleTooltipMouseMove = (e: React.MouseEvent, variantResult: ExperimentVariantResult): void => {
@@ -732,6 +774,16 @@ export function MetricRowGroup({
                             left: tooltipState.position.x,
                             top: tooltipState.position.y,
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
+                        }}
+                        onMouseEnter={clearTooltipCloseTimer}
+                        onMouseLeave={(e) => {
+                            // Defer only when leaving downward — toward a row that may pick the tooltip back up.
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            if (e.clientY >= rect.bottom - 1) {
+                                scheduleTooltipClose()
+                            } else {
+                                closeTooltipNow()
+                            }
                         }}
                         onClick={
                             timeseriesEnabled && tooltipState.variantResult

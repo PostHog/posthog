@@ -36,7 +36,7 @@ from posthog.temporal.ai.anomaly_investigation.tools import (
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 10
-AGENT_MODEL = "claude-sonnet-4-5"
+AGENT_MODEL = "claude-sonnet-4-6"
 MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
 # Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
 # this guards against a single stuck HTTP call hanging for the whole activity budget.

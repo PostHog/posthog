@@ -12,64 +12,30 @@ import * as zod from 'zod'
 /**
  * Create a new managed migration/batch import.
  */
-export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['completed', 'failed', 'paused', 'running'])
-            .optional()
-            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
-        import_config: zod.unknown(),
-    })
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod.object({}).describe('Serializer for BatchImport model')
 
 /**
  * Viewset for BatchImport model
  */
-export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['completed', 'failed', 'paused', 'running'])
-            .optional()
-            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
-        import_config: zod.unknown(),
-    })
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod.object({}).describe('Serializer for BatchImport model')
 
 /**
  * Viewset for BatchImport model
  */
 export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['completed', 'failed', 'paused', 'running'])
-            .optional()
-            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
-        import_config: zod.unknown().optional(),
-    })
+    .object({})
     .describe('Serializer for BatchImport model')
 
 /**
  * Pause a running batch import.
  */
 export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['completed', 'failed', 'paused', 'running'])
-            .optional()
-            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
-        import_config: zod.unknown(),
-    })
+    .object({})
     .describe('Serializer for BatchImport model')
 
 /**
  * Resume a paused batch import.
  */
 export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
-    .object({
-        status: zod
-            .enum(['completed', 'failed', 'paused', 'running'])
-            .optional()
-            .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
-        import_config: zod.unknown(),
-    })
+    .object({})
     .describe('Serializer for BatchImport model')

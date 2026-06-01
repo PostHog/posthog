@@ -12,6 +12,7 @@ import {
     GroupsTypesMetricsPartialUpdateParams,
     GroupsTypesMetricsRetrieveParams,
 } from '@/generated/customer_analytics/api'
+import { UsageMetricFiltersSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -20,6 +21,10 @@ const UsageMetricsCreateSchema = GroupsTypesMetricsCreateParams.omit({ project_i
     .extend({
         group_type_index: GroupsTypesMetricsCreateParams.shape['group_type_index'].describe(
             'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
+        ),
+        filters: UsageMetricFiltersSchema,
+        math_property: GroupsTypesMetricsCreateBody.shape['math_property'].describe(
+            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
         ),
     })
 
@@ -112,6 +117,10 @@ const UsageMetricsPartialUpdateSchema = GroupsTypesMetricsPartialUpdateParams.om
     .extend({
         group_type_index: GroupsTypesMetricsPartialUpdateParams.shape['group_type_index'].describe(
             'Legacy URL parameter retained for backward compatibility. Pass `0`. The stored value does not scope the metric — usage metrics apply to both groups and persons regardless of this value.'
+        ),
+        filters: UsageMetricFiltersSchema.optional(),
+        math_property: GroupsTypesMetricsPartialUpdateBody.shape['math_property'].describe(
+            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
         ),
     })
 

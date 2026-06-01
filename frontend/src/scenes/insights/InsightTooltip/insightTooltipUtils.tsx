@@ -3,7 +3,7 @@ import React from 'react'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
-import { getConstrainedWeekRange } from 'lib/utils/dateTimeUtils'
+import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -151,15 +151,22 @@ export function getFormattedDate(input?: string | number, options?: FormattedDat
         return input
     }
 
-    const day = dayjs.tz(input, timezone)
+    const tz = timezone ?? 'UTC'
+    const day = typeof input === 'string' ? parseDateInTimezone(input, tz) : dayjs.tz(input, tz)
     if (input === undefined || !day.isValid()) {
         return String(input)
     }
 
     // Handle week interval separately
     if (interval === 'week') {
-        const dateFrom = dayjs.tz(dateRange?.date_from, timezone)
-        const dateTo = dayjs.tz(dateRange?.date_to, timezone)
+        const dateFrom =
+            typeof dateRange?.date_from === 'string'
+                ? parseDateInTimezone(dateRange.date_from, tz)
+                : dayjs.tz(dateRange?.date_from, tz)
+        const dateTo =
+            typeof dateRange?.date_to === 'string'
+                ? parseDateInTimezone(dateRange.date_to, tz)
+                : dayjs.tz(dateRange?.date_to, tz)
         const { start: weekStart, end: weekEnd } = getConstrainedWeekRange(
             day,
             { start: dateFrom, end: dateTo },

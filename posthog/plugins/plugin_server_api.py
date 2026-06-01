@@ -53,6 +53,11 @@ def reload_evaluations_on_workers(team_id: int, evaluation_ids: list[str]):
     publish_message("reload-evaluations", {"teamId": team_id, "evaluationIds": evaluation_ids})
 
 
+def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
+    logger.info(f"Reloading taggers {tagger_ids} on workers")
+    publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
+
+
 def reload_all_hog_functions_on_workers():
     logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})
@@ -93,6 +98,15 @@ def create_hog_flow_scheduled_invocation(
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/scheduled_invocations",
         json={"variables": variables},
+        headers=get_internal_api_headers(),
+    )
+
+
+def bulk_replay_hog_flow_invocations(team_id: int, hog_flow_id: str, items: list[dict]) -> requests.Response:
+    logger.info("Bulk replaying blocked hog flow invocations", hog_flow_id=hog_flow_id, count=len(items))
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/bulk_replay_invocations",
+        json={"items": items},
         headers=get_internal_api_headers(),
     )
 

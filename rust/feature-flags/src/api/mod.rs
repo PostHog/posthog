@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod concurrency_metrics;
 pub mod endpoint;
 pub mod errors;
 pub mod flag_definitions;

@@ -96,6 +96,57 @@ describe('filterSchemaByOperationIds', () => {
         expect(filtered.components.schemas).not.toHaveProperty('WidgetResponseNested')
     })
 
+    it('preserves component parameters referenced by filtered operations', () => {
+        const spec = buildSpec()
+        spec.paths['/api/widgets/'].post.parameters = [
+            { $ref: '#/components/parameters/ProjectIdPath' },
+            { $ref: '#/components/parameters/FormatQuery' },
+            { $ref: '#/components/parameters/FilterParam' },
+        ]
+        spec.components.parameters = {
+            ProjectIdPath: {
+                in: 'path',
+                name: 'project_id',
+                required: true,
+                schema: { type: 'string' },
+                description: 'The project ID.',
+            },
+            FormatQuery: {
+                in: 'query',
+                name: 'format',
+                schema: { type: 'string' },
+            },
+            // Param that references a component schema — should pull that schema in too.
+            FilterParam: {
+                in: 'query',
+                name: 'filter',
+                schema: { $ref: '#/components/schemas/WidgetCreateMeta' },
+            },
+            UnreferencedParam: {
+                in: 'query',
+                name: 'stale',
+                schema: { type: 'string' },
+            },
+        }
+
+        const filtered = filterSchemaByOperationIds(spec, new Set(['widgets_create']))
+
+        expect(filtered.components.parameters).toHaveProperty('ProjectIdPath')
+        expect(filtered.components.parameters).toHaveProperty('FormatQuery')
+        expect(filtered.components.parameters).toHaveProperty('FilterParam')
+        expect(filtered.components.parameters).not.toHaveProperty('UnreferencedParam')
+        expect(filtered.components.parameters.ProjectIdPath.description).toBe('The project ID.')
+
+        // FilterParam's inner schema ref should pull WidgetCreateMeta into the filtered schemas.
+        expect(filtered.components.schemas).toHaveProperty('WidgetCreateMeta')
+    })
+
+    it('omits components.parameters when no operation references one', () => {
+        const filtered = filterSchemaByOperationIds(buildSpec(), new Set(['widgets_create']))
+
+        expect(filtered.components).not.toHaveProperty('parameters')
+    })
+
     it('keeps response status keys and only description when includeResponseSchemas is false', () => {
         const spec = buildSpec()
         spec.paths['/api/widgets/'].post.responses = {

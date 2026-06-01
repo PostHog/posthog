@@ -55,41 +55,28 @@ describe('payload conversion helpers', () => {
 
     it.each([
         [
-            'already keyed by variant key',
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
-        ],
-        [
             'keyed by variant index',
-            {
-                0: '{"color":"red"}',
-                1: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
+            variants,
+            { 0: '{"color":"red"}', 1: '{"color":"blue"}' },
+            { control: '{"color":"red"}', test: '{"color":"blue"}' },
         ],
         [
-            'with mixed keys while preferring explicit variant keys',
-            {
-                control: '{"color":"red"}',
-                0: '{"color":"green"}',
-                1: '{"color":"blue"}',
-            },
-            {
-                control: '{"color":"red"}',
-                test: '{"color":"blue"}',
-            },
+            'numeric-string variant keys (regression)',
+            [
+                { key: '2', rollout_percentage: 50 },
+                { key: '0', rollout_percentage: 50 },
+            ],
+            { 0: '{"for":"variant-2"}', 1: '{"for":"variant-0"}' },
+            { '2': '{"for":"variant-2"}', '0': '{"for":"variant-0"}' },
         ],
-    ])('converts multivariate payloads %s', (_label, payloads, expected) => {
-        expect(convertIndexBasedPayloadsToVariantKeys(variants, payloads)).toEqual(expected)
+        [
+            'skips indices without a matching variant',
+            variants,
+            { 0: '{"color":"red"}', 5: '{"orphan":true}' },
+            { control: '{"color":"red"}' },
+        ],
+    ])('converts multivariate payloads %s', (_label, vars, payloads, expected) => {
+        expect(convertIndexBasedPayloadsToVariantKeys(vars, payloads)).toEqual(expected)
     })
 
     it('keeps boolean flag payload handling unchanged', () => {
@@ -334,6 +321,60 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes.length).toBe(0)
+        })
+    })
+
+    describe('hasUnsavedChanges selector (drives beforeUnload dialog)', () => {
+        // The beforeUnload hook reads this selector to decide whether to warn on navigation.
+        // User form edits go through kea-forms' setFeatureFlagValue / setFeatureFlagValues,
+        // which update only `featureFlag`. `originalFeatureFlag` is the baseline from server load.
+
+        it('is false after the flag loads cleanly', async () => {
+            await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('becomes true after the name is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after the key is edited via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('key', 'edited-key')
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('becomes true after filters change via the form', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    groups: [{ properties: [], rollout_percentage: 42, variant: null }],
+                })
+            }).toMatchValues({ hasUnsavedChanges: true })
+        })
+
+        it('returns to false when the edited value is reverted to the loaded state', async () => {
+            const originalName = logic.values.featureFlag.name
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', 'temp-edit')
+            }).toMatchValues({ hasUnsavedChanges: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('name', originalName)
+            }).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('tracks changes when the whole form is replaced via setFeatureFlagValues', async () => {
+            await expectLogic(logic, () => {
+                // Form `defaults` narrow `ensure_experience_continuity` to `boolean`, but
+                // FeatureFlagType allows `boolean | null`. The runtime accepts either —
+                // the cast bridges the form-vs-entity type gap that kea-typegen surfaces.
+                logic.actions.setFeatureFlagValues({
+                    ...logic.values.featureFlag,
+                    name: 'Bulk edit',
+                } as Parameters<typeof logic.actions.setFeatureFlagValues>[0])
+            }).toMatchValues({ hasUnsavedChanges: true })
         })
     })
 

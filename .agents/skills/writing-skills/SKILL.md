@@ -77,12 +77,12 @@ Available functions:
 - `render_hogql_example({"kind": "TrendsQuery", ...})` — renders a query spec to HogQL SQL
 - `hogql_functions()` — returns all available HogQL function names
 
-## Good example: `query-examples`
+## Good example: `querying-posthog-data`
 
 - Clear entry point linking to 30+ reference files
 - Progressive disclosure — agents load only what they need
 - Mix of static `.md` and generated `.md.j2` content
-- See [`products/posthog_ai/skills/query-examples/SKILL.md`](products/posthog_ai/skills/query-examples/SKILL.md)
+- See [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](products/posthog_ai/skills/querying-posthog-data/SKILL.md)
 
 ## Bad example: `llm-analytics`
 

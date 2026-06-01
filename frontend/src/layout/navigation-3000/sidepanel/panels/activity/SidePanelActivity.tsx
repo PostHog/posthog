@@ -15,7 +15,6 @@ import { IconWithCount } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     SidePanelActivityTab,
@@ -53,7 +52,6 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
-    const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const hasAccess = userHasAccess(AccessControlResourceType.ActivityLog, AccessControlLevel.Viewer)
@@ -101,7 +99,7 @@ export const SidePanelActivity = (): JSX.Element => {
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
                 className="flex flex-col flex-1 overflow-hidden"
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                overrideShouldShowGate={!!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
             >
                 <div className="flex flex-col flex-1 overflow-hidden">
                     <div className="mx-2 shrink-0">

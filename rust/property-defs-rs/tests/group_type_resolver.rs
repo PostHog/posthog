@@ -231,6 +231,48 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn get_group_type_mapping_by_dashboard_id(
+        &self,
+        _: Request<GetGroupTypeMappingByDashboardIdRequest>,
+    ) -> Result<Response<GetGroupTypeMappingByDashboardIdResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn create_group(
+        &self,
+        _: Request<CreateGroupRequest>,
+    ) -> Result<Response<CreateGroupResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn update_group(
+        &self,
+        _: Request<UpdateGroupRequest>,
+    ) -> Result<Response<UpdateGroupResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn delete_groups_batch_for_team(
+        &self,
+        _: Request<DeleteGroupsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn update_group_type_mapping(
+        &self,
+        _: Request<UpdateGroupTypeMappingRequest>,
+    ) -> Result<Response<UpdateGroupTypeMappingResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn delete_group_type_mapping(
+        &self,
+        _: Request<DeleteGroupTypeMappingRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn delete_group_type_mappings_batch_for_team(
+        &self,
+        _: Request<DeleteGroupTypeMappingsBatchForTeamRequest>,
+    ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

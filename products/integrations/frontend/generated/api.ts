@@ -26,8 +26,10 @@ import type {
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
+    SlackChannelsResponseApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
+    UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
 } from './api.schemas'
@@ -239,6 +241,51 @@ export const integrationsDestroy = async (projectId: string, id: number, options
     })
 }
 
+export const getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_environments/`
+}
+
+export const integrationsAnthropicManagedAgentEnvsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentEnvsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agent_vaults/`
+}
+
+export const integrationsAnthropicManagedAgentVaultsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentVaultsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsAnthropicManagedAgentsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/anthropic_managed_agents/`
+}
+
+export const integrationsAnthropicManagedAgentsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsChannelsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/channels/`
 }
@@ -247,8 +294,8 @@ export const integrationsChannelsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -569,6 +616,46 @@ export const integrationsDomainConnectCheckRetrieve = async (
 }
 
 /**
+ * Reuse a GitHub installation already linked to a sibling team in the same organization.
+ */
+export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/link_existing/`
+}
+
+export const integrationsGithubLinkExistingCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
+ * Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one.
+ */
+export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/oauth_authorize/`
+}
+
+export const integrationsGithubOauthAuthorizeCreate = async (
+    projectId: string,
+    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(integrationConfigApi),
+    })
+}
+
+/**
  * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
  * @summary List personal GitHub integrations
  */
@@ -619,6 +706,45 @@ export const usersIntegrationsGithubDestroy = async (
 }
 
 /**
+ * List branches for a repository accessible to a personal GitHub installation.
+ * @summary List branches for a personal GitHub installation repository
+ */
+export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
+        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
+}
+
+export const usersIntegrationsGithubBranchesRetrieve = async (
+    uuid: string,
+    installationId: string,
+    params: UsersIntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(
+        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+/**
  * List repositories accessible to a specific GitHub installation (paginated, cached).
  * @summary List repositories for a personal GitHub installation
  */
@@ -658,17 +784,44 @@ export const usersIntegrationsGithubReposRetrieve = async (
 }
 
 /**
+ * Refresh repositories accessible to a specific GitHub installation.
+ * @summary Refresh repositories for a personal GitHub installation
+ */
+export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
+    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
+}
+
+export const usersIntegrationsGithubReposRefreshCreate = async (
+    uuid: string,
+    installationId: string,
+    options?: RequestInit
+): Promise<GitHubReposRefreshResponseApi> => {
+    return apiMutator<GitHubReposRefreshResponseApi>(
+        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
 
 ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
 ``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
 under projects).
 
-- If the current project has **no** team-level GitHub ``Integration``, returns
-  ``install_url`` pointing at ``/installations/new`` (configure org + repos).
-- If the team **already** has a GitHub installation, returns ``install_url``
-  pointing at ``/login/oauth/authorize`` so the user only authorizes as
-  themselves for that installation (no repo scoping UI on GitHub).
+Usually returns ``install_url`` pointing at ``/installations/new`` so the
+user can pick any GitHub org (new or already connected).  GitHub's install
+page handles both cases: orgs where the app is installed show "Configure"
+(no admin needed), orgs where it isn't show "Install" (needs admin).
+
+**PostHog Code fast path:** when ``connect_from`` is ``"posthog_code"``,
+the current project already has a team-level GitHub installation, and the
+user has no ``UserIntegration`` for that installation yet, we skip the org
+picker and redirect straight to ``/login/oauth/authorize`` so the user
+only authorizes themselves and returns to PostHog Code immediately.
 
 In both cases the response key is ``install_url`` for compatibility with callers.
  * @summary Start GitHub personal integration linking

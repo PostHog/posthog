@@ -22,7 +22,7 @@ function DialogPortal({ ...props }: DialogPrimitive.Portal.Props): React.ReactEl
 }
 
 function DialogClose({ ...props }: DialogPrimitive.Close.Props): React.ReactElement {
-    return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+    return <DialogPrimitive.Close data-slot="dialog-close focus-visible:z-10" {...props} />
 }
 
 function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props): React.ReactElement {

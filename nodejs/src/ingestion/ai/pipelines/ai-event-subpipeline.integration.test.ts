@@ -92,7 +92,12 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             updatePersonWithPropertiesDiffForUpdate: jest.fn().mockResolvedValue([existingPerson, [], false]),
         } as any,
         groupStore: {} as any,
-        splitAiEventsConfig: { enabled: false, enabledTeams: '*', stripHeavyTeams: [] },
+        splitAiEventsConfig: {
+            enabled: false,
+            enabledTeams: '*',
+            enabledPercentage: 0,
+            stripHeavyTeams: [],
+        },
         groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,

@@ -20,7 +20,12 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
     archived: zod.boolean().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.'
+        ),
 })
 
 export const SurveysCreateParams = /* @__PURE__ */ zod.object({

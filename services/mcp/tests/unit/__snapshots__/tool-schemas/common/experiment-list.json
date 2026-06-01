@@ -1,6 +1,18 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "archived": {
+            "description": "Filter by archived state. Defaults to non-archived experiments only.",
+            "type": "boolean"
+        },
+        "created_by_id": {
+            "description": "Filter to experiments created by the given user ID.",
+            "type": "number"
+        },
+        "feature_flag_id": {
+            "description": "Filter to experiments linked to the given feature flag ID.",
+            "type": "number"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -8,6 +20,19 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "order": {
+            "description": "Field to order by. Prefix with '-' for descending. Allowlisted fields include name, created_at, updated_at, start_date, end_date, duration, and status.",
+            "type": "string"
+        },
+        "search": {
+            "description": "Free-text search applied to the experiment name (case-insensitive).",
+            "type": "string"
+        },
+        "status": {
+            "description": "Filter by experiment status. Values: \"draft\" (not yet launched), \"running\" (launched, flag active), \"paused\" (launched, flag deactivated — mutually exclusive with running), \"stopped\" or \"complete\" (both mean ended), \"all\" (no filter). Defaults to all non-archived experiments.",
+            "enum": ["all", "complete", "draft", "paused", "running", "stopped"],
+            "type": "string"
         }
     },
     "type": "object"

@@ -3,7 +3,10 @@ import inspect
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar, cast
+
+from django.conf import settings
+from django.db import close_old_connections
 
 from asgiref.sync import sync_to_async
 from temporalio import workflow
@@ -65,6 +68,61 @@ def asyncify(fn: Callable[P, T]) -> Callable[P, Coroutine[Any, Any, T]]:
         return await sync_to_async(fn)(*args, **kwargs)
 
     return wrapper
+
+
+def _close_db_connections() -> None:
+    """Close old database connections to prevent usage of stale connections in long-running Temporal workers."""
+    if not settings.TEST:
+        close_old_connections()
+
+
+def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
+    """Decorator that evicts stale Django DB connections around an activity.
+
+    Long-running Temporal workers don't go through Django's request cycle, so the
+    ``request_started`` / ``request_finished`` signals that normally call
+    ``close_old_connections()`` never fire. Connections that have exceeded
+    ``CONN_MAX_AGE`` or been killed by the database stay in the pool until the
+    next query fails. Apply this decorator to activities that touch the Django
+    ORM directly to mirror the request-cycle behaviour.
+
+    Skipped under ``settings.TEST`` to avoid tearing down the test DB connection
+    that ``transaction=True`` fixtures rely on.
+
+    Stack below ``@activity.defn``. For sync activities wrapped in ``@asyncify``,
+    place ``@close_db_connections`` *innermost* so connection cleanup runs on the
+    same ``sync_to_async`` thread as the ORM work::
+
+        @activity.defn
+        @close_db_connections
+        async def my_activity(...): ...
+
+        @activity.defn
+        @asyncify
+        @close_db_connections
+        def my_sync_activity(...): ...
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @wraps(fn)
+        async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            await sync_to_async(_close_db_connections)()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                await sync_to_async(_close_db_connections)()
+
+        return cast(Callable[P, T], async_wrapper)
+
+    @wraps(fn)
+    def sync_wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        _close_db_connections()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _close_db_connections()
+
+    return sync_wrapper
 
 
 def get_scheduled_start_time():

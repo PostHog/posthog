@@ -650,6 +650,7 @@
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
+    --z-chart-tooltip: calc(var(--z-modal) - 50);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code

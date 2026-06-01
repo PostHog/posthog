@@ -22,6 +22,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BATCH_TABLE,
+    STATUS_TABLE,
+    STATUS_VIEW,
+)
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -32,6 +37,73 @@ from products.data_warehouse.backend.models.external_table_definitions import ex
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
+
+
+@pytest.fixture(scope="package")
+def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
+    """Create sourcebatch/sourcebatchstatus tables in the default test database.
+
+    The v3 pipeline tests patch WAREHOUSE_SOURCES_DATABASE_URL to point at
+    the Django test database, but the product migration only runs on the
+    dedicated warehouse_sources_queue DB. This fixture bridges the gap by
+    creating non-partitioned copies of the tables in the test DB.
+    """
+    with django_db_blocker.unblock():
+        from django.db import connection
+
+        with connection.cursor() as cur:
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {BATCH_TABLE} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    team_id BIGINT NOT NULL,
+                    schema_id VARCHAR(200) NOT NULL,
+                    source_id VARCHAR(200) NOT NULL,
+                    job_id VARCHAR(200) NOT NULL,
+                    run_uuid VARCHAR(200) NOT NULL,
+                    batch_index INT NOT NULL,
+                    s3_path TEXT NOT NULL,
+                    row_count INT NOT NULL,
+                    byte_size BIGINT NOT NULL,
+                    is_final_batch BOOLEAN NOT NULL,
+                    total_batches INT,
+                    total_rows BIGINT,
+                    sync_type VARCHAR(32) NOT NULL,
+                    cumulative_row_count BIGINT NOT NULL DEFAULT 0,
+                    resource_name VARCHAR(400) NOT NULL,
+                    is_resume BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
+                    metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute(f"""
+                CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    batch_id UUID NOT NULL REFERENCES {BATCH_TABLE}(id) ON DELETE CASCADE,
+                    job_state VARCHAR(32) NOT NULL,
+                    attempt SMALLINT NOT NULL DEFAULT 0,
+                    exec_time TIMESTAMPTZ,
+                    error_response JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """)
+            cur.execute(f"DROP VIEW IF EXISTS {STATUS_VIEW}")
+            cur.execute(f"""
+                CREATE VIEW {STATUS_VIEW} AS
+                SELECT DISTINCT ON (batch_id) *
+                FROM {STATUS_TABLE}
+                ORDER BY batch_id ASC, created_at DESC, id DESC
+            """)
+
+
+@pytest.fixture
+def _clean_sourcebatch_tables(_ensure_sourcebatch_tables):
+    """Truncate sourcebatch tables between tests so v3 runs start clean."""
+    yield
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(f"TRUNCATE {STATUS_TABLE}, {BATCH_TABLE} RESTART IDENTITY CASCADE")
 
 
 @pytest_asyncio.fixture
@@ -1576,6 +1648,204 @@ def paddle_subscriptions():
                     }
                 ],
                 "custom_data": None,
+            }
+        ]
+    }
+
+
+# Customer.io list-endpoint fixtures — shapes mirror real EU API responses with all
+# names/IDs/timestamps replaced with synthetic values.
+
+
+@pytest.fixture
+def customer_io_broadcasts():
+    return {
+        "broadcasts": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Test broadcast",
+                "type": "api_triggered",
+                "created": 1700000000,
+                "updated": 1700000000,
+                "active": True,
+                "state": "draft",
+                "actions": [],
+                "first_started": None,
+                "tags": [],
+                "scheduled_start": None,
+                "scheduled_start_should_backfill": False,
+                "scheduled_stop": None,
+                "scheduled_stop_should_sunset": False,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_campaigns():
+    return {
+        "campaigns": [
+            {
+                "id": 100,
+                "deduplicate_id": "100:1700000000",
+                "name": "Welcome series",
+                "type": "triggered",
+                "created": 1700000000,
+                "updated": 1700000000,
+                "active": True,
+                "state": "running",
+                "actions": [200],
+                "first_started": 1700000000,
+                "tags": ["onboarding"],
+                "scheduled_start": None,
+                "scheduled_start_should_backfill": False,
+                "scheduled_stop": None,
+                "scheduled_stop_should_sunset": False,
+                "event_name": "signed_up",
+                "event_type": "event",
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_collections():
+    return {
+        "collections": [
+            {
+                "id": 1,
+                "name": "Products",
+                "rows": 0,
+                "bytes": 0,
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
+                "schema": {"fields": []},
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_newsletters():
+    return {
+        "newsletters": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "content_ids": [10],
+                "name": "Monthly newsletter",
+                "sent_at": 1700000000,
+                "created": 1700000000,
+                "updated": 1700000000,
+                "type": "newsletter",
+                "tags": [],
+                "recipient_segment_ids": [50],
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_object_types():
+    return {
+        "types": [
+            {
+                "id": "1",
+                "name": "Account",
+                "enabled": True,
+                "icon": "company",
+                "singular_name": "Account",
+                "slug": "accounts",
+                "singular_slug": "account",
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_segments():
+    return {
+        "segments": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Active users",
+                "description": "Users active in the last 30 days",
+                "state": "finished",
+                "progress": None,
+                "type": "dynamic",
+                "tags": [],
+                "conditions": "true",
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_sender_identities():
+    return {
+        "sender_identities": [
+            {
+                "id": 1,
+                "deduplicate_id": "1:1700000000",
+                "name": "Marketing",
+                "email": "marketing@example.com",
+                "phone": None,
+                "address": "1 Example Way",
+                "template_type": "transactional",
+                "auto_generated": False,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_snippets():
+    return {
+        "snippets": [
+            {
+                "name": "footer",
+                "value": "<p>Unsubscribe</p>",
+                "updated_at": 1700000000,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_subscription_topics():
+    return {
+        "topics": [
+            {
+                "id": 1,
+                "identifier": "topic_1",
+                "name": "Product updates",
+                "description": "Updates about new features",
+                "subscribed_by_default": True,
+            }
+        ]
+    }
+
+
+@pytest.fixture
+def customer_io_transactional():
+    return {
+        "messages": [
+            {
+                "id": 1,
+                "name": "Password reset",
+                "description": "Password reset email",
+                "send_to_unsubscribed": True,
+                "link_tracking": True,
+                "open_tracking": True,
+                "hide_message_body": False,
+                "queue_drafts": False,
+                "trigger_name": None,
+                "created_at": 1700000000,
+                "updated_at": 1700000000,
             }
         ]
     }

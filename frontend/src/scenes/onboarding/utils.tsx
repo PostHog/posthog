@@ -8,6 +8,7 @@ import {
     IconDownload,
     IconGear,
     IconGraph,
+    IconLive,
     IconLlmAnalytics,
     IconLogomark,
     IconMessage,
@@ -37,13 +38,14 @@ import {
     GraphsHog,
     MailHog,
     MicrophoneHog,
+    ReadingHog,
     RobotHog,
 } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { type AvailableOnboardingProducts } from '~/types'
+import { type AvailableOnboardingProducts, type OnboardingProduct } from '~/types'
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -55,6 +57,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconDownload,
     IconGear,
     IconGraph,
+    IconLive,
     IconLlmAnalytics,
     IconLogomark,
     IconMessage,
@@ -76,9 +79,15 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
 
 export function getProductIcon(
     iconKey?: string | null,
-    { iconColor, className }: { iconColor?: string; className?: string } = {}
+    { iconColor, className, productType }: { iconColor?: string; className?: string; productType?: string | null } = {}
 ): JSX.Element {
-    const IconComponent = iconKey ? ICON_MAP[iconKey] : undefined
+    // Prefer the centralized productType → icon mapping so surfaces like billing match the icons
+    // used in onboarding even when the API response doesn't include an icon_key.
+    const onboardingProduct = productType
+        ? (availableOnboardingProducts as Partial<Record<string, OnboardingProduct>>)[productType]
+        : undefined
+    const resolvedIconKey = onboardingProduct?.icon ?? iconKey
+    const IconComponent = resolvedIconKey ? ICON_MAP[resolvedIconKey] : undefined
     if (IconComponent) {
         return <IconComponent className={className} color={iconColor} />
     }
@@ -286,5 +295,22 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Workflows,
         setupEffort: 'medium',
         socialProof: 'Used by 3K+ teams',
+    },
+    [ProductKey.LOGS]: {
+        name: 'Logs',
+        description: 'Search, filter, and monitor your application logs',
+        userCentricDescription: 'Understand what your app is doing in real time',
+        capabilities: ['Full-text log search', 'Structured log filtering', 'Alerting on log patterns'],
+        valueProps: [
+            { title: 'Full-text log search', problem: 'Find the exact log line that caused an incident' },
+            { title: 'Structured filtering', problem: 'Drill into logs by service, severity, or any attribute' },
+            { title: 'Log-based alerting', problem: 'Get notified the moment an error pattern appears' },
+        ],
+        hedgehog: ReadingHog,
+        icon: 'IconLive',
+        iconColor: 'var(--color-product-logs-light)',
+        url: urls.logs(),
+        scene: Scene.Logs,
+        setupEffort: 'low',
     },
 }

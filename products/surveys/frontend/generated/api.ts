@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    GenerateSurveyTranslationsRequestApi,
+    GenerateSurveyTranslationsResponseApi,
     PaginatedSurveyListApi,
     PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
@@ -193,6 +195,24 @@ export const surveysDuplicateToProjectsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+    })
+}
+
+export const getSurveysGenerateTranslationsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/surveys/${id}/generate_translations/`
+}
+
+export const surveysGenerateTranslationsCreate = async (
+    projectId: string,
+    id: string,
+    generateSurveyTranslationsRequestApi: GenerateSurveyTranslationsRequestApi,
+    options?: RequestInit
+): Promise<GenerateSurveyTranslationsResponseApi> => {
+    return apiMutator<GenerateSurveyTranslationsResponseApi>(getSurveysGenerateTranslationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(generateSurveyTranslationsRequestApi),
     })
 }
 

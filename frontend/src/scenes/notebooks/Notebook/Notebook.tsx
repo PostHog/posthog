@@ -37,9 +37,18 @@ export function Notebook({
     editable = true,
     initialAutofocus = 'start',
     initialContent,
+    cachedNotebook,
+    cachedInsightsByShortId,
+    cachedInlineQueryResultsByNodeId,
     className,
 }: NotebookProps): JSX.Element {
-    const logicProps: NotebookLogicProps = { shortId, mode }
+    const logicProps: NotebookLogicProps = {
+        shortId,
+        mode,
+        cachedNotebook,
+        cachedInsightsByShortId,
+        cachedInlineQueryResultsByNodeId,
+    }
     const logic = notebookLogic(logicProps)
     const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
         useValues(logic)

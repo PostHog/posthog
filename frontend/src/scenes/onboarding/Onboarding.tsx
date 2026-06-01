@@ -37,6 +37,7 @@ import {
     LLMAnalyticsSDKInstructions,
     LLMAnalyticsSDKTagOverrides,
 } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import { LogsSDKInstructions } from './sdks/logs/LogsSDKInstructions'
 import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import {
     ProductAnalyticsSDKInstructions,
@@ -416,6 +417,14 @@ const WorkflowsOnboarding = (): JSX.Element => {
     )
 }
 
+const LogsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingInstallStep sdkInstructionMap={LogsSDKInstructions} hideInstallationCheck />
+        </OnboardingWrapper>
+    )
+}
+
 const WorkflowsInstallHeader = (): JSX.Element => {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()
 
@@ -471,6 +480,7 @@ export const onboardingViews = {
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
     [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
     [ProductKey.WORKFLOWS]: WorkflowsOnboarding,
+    [ProductKey.LOGS]: LogsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {

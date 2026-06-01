@@ -114,9 +114,9 @@ function DayItem({ day, startDate, endDate, viewing, minDate, maxDate, onClick }
             data-is-same-day={sameDay}
             className={cn(
                 'w-10 h-10 flex items-center justify-center',
-                isBetween && 'bg-accent/30',
-                isStart && !sameDay && 'bg-accent/30 rounded-l-full',
-                isEnd && !sameDay && 'bg-accent/30 rounded-r-full'
+                isBetween && 'bg-fill-selected',
+                isStart && !sameDay && 'bg-fill-selected rounded-l-full',
+                isEnd && !sameDay && 'bg-fill-selected rounded-r-full'
             )}
         >
             <button
@@ -514,7 +514,7 @@ export function DateTimePicker({
     return (
         <div
             className={cn(
-                'bg-popover text-popover-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
+                'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
                 compact ? 'w-[19rem]' : 'w-[19rem] lg:w-full max-w-[49rem]',
                 className
             )}

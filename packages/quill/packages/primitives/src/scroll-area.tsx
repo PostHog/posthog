@@ -100,7 +100,7 @@ function ScrollToEdgeButton({
             aria-label={config.label}
             onClick={handleClick}
             className={cn(
-                'bg-background not-disabled:hover:bg-accent absolute z-10 grid place-items-center rounded-full shadow-md',
+                'bg-background not-disabled:hover:bg-fill-hover absolute z-10 grid place-items-center rounded-full shadow-md',
                 'opacity-0 scale-95 pointer-events-none',
                 'transition-[opacity,transform,background-color] duration-150 ease-out',
                 'motion-reduce:transition-none',

@@ -64,8 +64,14 @@ def _apply_partitioning(
         return pa_table
 
     if existing_delta_table:
-        delta_schema = existing_delta_table.schema().to_arrow()
-        if PARTITION_KEY not in delta_schema.names:
+        # Check the table's *partition columns* — not its schema columns. A delta
+        # table can contain `_ph_partition_key` in its schema without being
+        # partitioned by it (e.g. leftover from a prior write that included the
+        # column but was committed with `partition_by=None`). Writing with
+        # `partition_by=PARTITION_KEY` in that case raises
+        # `DeltaError: Specified table partitioning does not match table partitioning`.
+        partition_columns = getattr(existing_delta_table.metadata(), "partition_columns", None) or []
+        if PARTITION_KEY not in partition_columns:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
 
@@ -225,6 +231,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.COMPLETED,
+        logger=logger,
         latest_error=None,
     )
 
@@ -258,6 +265,7 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
         job_id=export_signal.job_id,
         team_id=export_signal.team_id,
         status=ExternalDataJob.Status.FAILED,
+        logger=logger,
         latest_error=str(error),
     )
 

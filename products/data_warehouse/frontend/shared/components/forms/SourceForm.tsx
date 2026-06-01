@@ -25,10 +25,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
-import { SSH_FIELD, sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
+import {
+    SSH_FIELD,
+    type SourceWizardLogicProps,
+    sourceWizardLogic,
+} from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
-import { parseConnectionString } from './parseConnectionString'
+import { parseConnectionStringForSource } from './parsers'
 
 export interface SourceFormProps {
     sourceConfig: SourceConfig
@@ -38,11 +42,7 @@ export interface SourceFormProps {
     jobInputs?: Record<string, any>
     initialAccessMethod?: 'warehouse' | 'direct'
     setSourceConfigValue?: (key: FieldName, value: any) => void
-}
-
-const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
-    Postgres: 5432,
-    Redshift: 5439,
+    sourceWizardLogicProps?: SourceWizardLogicProps
 }
 
 export function SourceAccessMethodSelector({
@@ -97,7 +97,8 @@ export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,
-    isUpdateMode?: boolean
+    isUpdateMode?: boolean,
+    setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void
 ): JSX.Element => {
     // It doesn't make sense for this to show on an update to an existing connection since we likely just want to change
     // a field or two. There is also some divergence in creates vs. updates that make this a bit more complex to handle.
@@ -117,30 +118,22 @@ export const sourceFieldToElement = (
                             type="text"
                             onChange={(updatedConnectionString) => {
                                 onChange(updatedConnectionString)
-                                const { host, port, database, user, password, isValid } =
-                                    parseConnectionString(updatedConnectionString)
+                                const { isValid, fields } = parseConnectionStringForSource(
+                                    sourceConfig.name,
+                                    updatedConnectionString
+                                )
 
                                 if (isValid) {
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'database'],
-                                        database || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'host'],
-                                        host || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'user'],
-                                        user || ''
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'port'],
-                                        port || CONNECTION_STRING_DEFAULT_PORT[sourceConfig.name]
-                                    )
-                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                        ['payload', 'password'],
-                                        password || ''
-                                    )
+                                    for (const { path, value } of fields) {
+                                        if (setSourceConnectionDetailsValue) {
+                                            setSourceConnectionDetailsValue(['payload', ...path], value)
+                                        } else {
+                                            sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                                ['payload', ...path],
+                                                value
+                                            )
+                                        }
+                                    }
                                 }
                             }}
                         />
@@ -164,7 +157,13 @@ export const sourceFieldToElement = (
                             {isEnabled && (
                                 <Group name={field.name}>
                                     {field.fields.map((field) =>
-                                        sourceFieldToElement(field, sourceConfig, lastValue?.[field.name])
+                                        sourceFieldToElement(
+                                            field,
+                                            sourceConfig,
+                                            lastValue?.[field.name],
+                                            isUpdateMode,
+                                            setSourceConnectionDetailsValue
+                                        )
                                     )}
                                 </Group>
                             )}
@@ -182,7 +181,13 @@ export const sourceFieldToElement = (
             field.options
                 .find((n) => n.value === (value ?? field.defaultValue))
                 ?.fields?.map((optionField) =>
-                    sourceFieldToElement(optionField, sourceConfig, lastValue?.[optionField.name])
+                    sourceFieldToElement(
+                        optionField,
+                        sourceConfig,
+                        lastValue?.[optionField.name],
+                        isUpdateMode,
+                        setSourceConnectionDetailsValue
+                    )
                 )
 
         return (
@@ -264,7 +269,8 @@ export const sourceFieldToElement = (
             { ...SSH_FIELD, name: field.name, label: field.label },
             sourceConfig,
             lastValue,
-            isUpdateMode
+            isUpdateMode,
+            setSourceConnectionDetailsValue
         )
     }
 
@@ -618,7 +624,12 @@ function CDCConfigSection(): JSX.Element {
 
 export default function SourceFormContainer(props: SourceFormProps): JSX.Element {
     return (
-        <Form logic={sourceWizardLogic} formKey="sourceConnectionDetails" enableFormOnSubmit>
+        <Form
+            logic={sourceWizardLogic}
+            props={props.sourceWizardLogicProps}
+            formKey="sourceConnectionDetails"
+            enableFormOnSubmit
+        >
             <SourceFormComponent {...props} />
         </Form>
     )
@@ -632,19 +643,20 @@ export function SourceFormComponent({
     jobInputs,
     initialAccessMethod,
     setSourceConfigValue,
+    sourceWizardLogicProps,
 }: SourceFormProps): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const setSourceConnectionDetailsValue = sourceWizardLogicProps
+        ? sourceWizardLogic(sourceWizardLogicProps).actions.setSourceConnectionDetailsValue
+        : undefined
 
     // Default showDescription to same as showPrefix for backward compatibility
     const shouldShowDescription = showDescription ?? showPrefix
     const [selectedAccessMethod, setSelectedAccessMethod] = React.useState<'warehouse' | 'direct'>(
         initialAccessMethod ?? 'warehouse'
     )
-    const isPostgresDirectQuery =
-        sourceConfig.name === 'Postgres' &&
-        !!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] &&
-        selectedAccessMethod === 'direct'
+    const isPostgresDirectQuery = sourceConfig.name === 'Postgres' && selectedAccessMethod === 'direct'
 
     useEffect(() => {
         if (initialAccessMethod) {
@@ -668,25 +680,22 @@ export function SourceFormComponent({
 
     return (
         <div className="space-y-4 ph-no-capture">
-            {!isUpdateMode &&
-                sourceConfig.name === 'Postgres' &&
-                showAccessMethodSelector &&
-                featureFlags[FEATURE_FLAGS.DWH_POSTGRES_DIRECT_QUERY] && (
-                    <>
-                        <LemonField name="access_method">
-                            {({ value, onChange }) => (
-                                <SourceAccessMethodSelector
-                                    value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
-                                    onChange={(nextValue) => {
-                                        setSelectedAccessMethod(nextValue)
-                                        onChange(nextValue)
-                                    }}
-                                />
-                            )}
-                        </LemonField>
-                        <LemonDivider />
-                    </>
-                )}
+            {!isUpdateMode && sourceConfig.name === 'Postgres' && showAccessMethodSelector && (
+                <>
+                    <LemonField name="access_method">
+                        {({ value, onChange }) => (
+                            <SourceAccessMethodSelector
+                                value={(value as 'warehouse' | 'direct' | undefined) || selectedAccessMethod}
+                                onChange={(nextValue) => {
+                                    setSelectedAccessMethod(nextValue)
+                                    onChange(nextValue)
+                                }}
+                            />
+                        )}
+                    </LemonField>
+                    <LemonDivider />
+                </>
+            )}
             {isPostgresDirectQuery && (
                 <LemonField
                     name="prefix"
@@ -736,7 +745,15 @@ export function SourceFormComponent({
             <Group name="payload">
                 {availableSources[sourceConfig.name].fields
                     .filter((field) => !(isPostgresDirectQuery && field.type === 'ssh-tunnel'))
-                    .map((field) => sourceFieldToElement(field, sourceConfig, jobInputs?.[field.name], isUpdateMode))}
+                    .map((field) =>
+                        sourceFieldToElement(
+                            field,
+                            sourceConfig,
+                            jobInputs?.[field.name],
+                            isUpdateMode,
+                            setSourceConnectionDetailsValue
+                        )
+                    )}
             </Group>
             {!isUpdateMode &&
                 sourceConfig.name === 'Postgres' &&

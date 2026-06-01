@@ -57,6 +57,7 @@ from .insight_caching_state import InsightCachingState
 from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
+from .integration_repository_cache import IntegrationRepositoryCacheEntry
 from .llm_prompt import LLMPrompt
 from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .messaging import MessagingRecord
@@ -163,6 +164,7 @@ __all__ = [
     "InsightViewed",
     "InstanceSetting",
     "Integration",
+    "IntegrationRepositoryCacheEntry",
     "InviteExpiredException",
     "MaterializedColumnSlot",
     "MaterializedColumnSlotState",

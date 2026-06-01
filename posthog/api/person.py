@@ -422,7 +422,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (*tuple(api_settings.DEFAULT_RENDERER_CLASSES), csvrenderers.PaginatedCSVRenderer),
     )
     parser_classes = [JSONParser]
-    queryset = Person.objects.all()
+    queryset = Person.objects.all()  # nosemgrep: no-direct-persons-db-orm
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     lifecycle_class = Lifecycle
@@ -446,7 +446,12 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                # nosemgrep: no-direct-persons-db-orm
+                queryset=PersonDistinctId.objects.filter(
+                    team_id=self.team_id
+                ).order_by(  # nosemgrep: no-direct-persons-db-orm
+                    "id"
+                ),  # nosemgrep: no-direct-persons-db-orm
                 to_attr="distinct_ids_cache",
             )
         )
@@ -1263,7 +1268,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, AttributeError):
             raise ValidationError("One or more UUIDs are invalid.")
 
-        persons = get_persons_by_uuids(self.team, uuids)
+        persons = get_persons_by_uuids(self.team_id, uuids)
 
         results: dict[str, Any] = {}
         for person in persons:

@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-components",
-    "version": "0.2.0-alpha.0",
+    "version": "0.3.0-beta.1",
     "private": true,
     "description": "Internal workspace package (private, not published). The middle layer of the quill design system — higher-level compositions of primitives that wire several of them together with sensible defaults (e.g. a FormField that composes Label + Input + validation state, or a ConfirmDialog that composes Dialog + Button + destructive variant). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",

@@ -47,6 +47,17 @@ service PersonHogReplica {
   rpc GetGroupTypeMappingsByTeamIds(personhog.types.v1.GetGroupTypeMappingsByTeamIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
   rpc GetGroupTypeMappingsByProjectId(personhog.types.v1.GetGroupTypeMappingsByProjectIdRequest) returns (personhog.types.v1.GroupTypeMappingsResponse);
   rpc GetGroupTypeMappingsByProjectIds(personhog.types.v1.GetGroupTypeMappingsByProjectIdsRequest) returns (personhog.types.v1.GroupTypeMappingsBatchResponse);
+  rpc GetGroupTypeMappingByDashboardId(personhog.types.v1.GetGroupTypeMappingByDashboardIdRequest) returns (personhog.types.v1.GetGroupTypeMappingByDashboardIdResponse);
+
+  // Group writes
+  rpc CreateGroup(personhog.types.v1.CreateGroupRequest) returns (personhog.types.v1.CreateGroupResponse);
+  rpc UpdateGroup(personhog.types.v1.UpdateGroupRequest) returns (personhog.types.v1.UpdateGroupResponse);
+  rpc DeleteGroupsBatchForTeam(personhog.types.v1.DeleteGroupsBatchForTeamRequest) returns (personhog.types.v1.DeleteGroupsBatchForTeamResponse);
+
+  // Group type mapping writes
+  rpc UpdateGroupTypeMapping(personhog.types.v1.UpdateGroupTypeMappingRequest) returns (personhog.types.v1.UpdateGroupTypeMappingResponse);
+  rpc DeleteGroupTypeMapping(personhog.types.v1.DeleteGroupTypeMappingRequest) returns (personhog.types.v1.DeleteGroupTypeMappingResponse);
+  rpc DeleteGroupTypeMappingsBatchForTeam(personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamRequest) returns (personhog.types.v1.DeleteGroupTypeMappingsBatchForTeamResponse);
 
   // Person deletes (temporary: should move to leader once it supports deletes)
   rpc DeletePersons(personhog.types.v1.DeletePersonsRequest) returns (personhog.types.v1.DeletePersonsResponse);

@@ -26,7 +26,7 @@ npx @posthog/wizard@latest mcp add
       "args": [
         "-y",
         "mcp-remote@latest",
-        "https://mcp.posthog.com/mcp", // You can replace this with https://mcp.posthog.com/sse if your client does not support Streamable HTTP
+        "https://mcp.posthog.com/mcp",
         "--header",
         "Authorization:${POSTHOG_AUTH_HEADER}"
       ],
@@ -340,6 +340,20 @@ x-posthog-mcp-mode: tools
 | `cli`   | Force cli mode (single `posthog` tool wraps all tools). |
 
 The header wins when both the header and the query parameter are set. Any other value is ignored and the auto-detection takes over.
+
+### Consumer attribution
+
+Wrapping apps and AI-tool plugins that install or proxy the PostHog MCP can self-identify so usage can be attributed to the install path (e.g. plugin-installed vs. manually-pasted URL). The wrapped MCP client (Claude Code, Cursor, …) is already captured separately via the MCP `clientInfo` handshake — this signal is only for the wrapping context.
+
+```text
+https://mcp.posthog.com/mcp?consumer=plugin
+```
+
+```http
+x-posthog-mcp-consumer: plugin
+```
+
+The header wins when both the header and the query parameter are set. Reserved values: `plugin` (AI-tool plugin installs), `posthog-code` (PostHog Code Tasks sandbox), `slack` (Slack integration).
 
 ### Data processing
 

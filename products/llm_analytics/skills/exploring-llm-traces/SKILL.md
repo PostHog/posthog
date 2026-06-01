@@ -207,24 +207,6 @@ posthog:query-llm-traces-list
 }
 ```
 
-### By SQL (for full-text search or custom aggregations)
-
-Use SQL when you need something `query-llm-traces-list` can't express — typically full-text search across message content or custom aggregations.
-
-```sql
-SELECT
-    properties.$ai_trace_id AS trace_id,
-    properties.$ai_model AS model,
-    timestamp
-FROM events
-WHERE
-    event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 1 HOUR
-    AND properties.$ai_input ILIKE '%search term%'
-ORDER BY timestamp DESC
-LIMIT 20
-```
-
 For more complex SQL patterns, read these references:
 
 - [Single trace retrieval](./references/example-llm-trace.md.j2) — fetches a single trace by ID with all events and properties (renders the `TraceQuery` HogQL)

@@ -509,3 +509,62 @@ class TestNotifyAlert:
         # targets_notified stays empty so Temporal retry re-attempts delivery
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {}
+
+    async def test_firing_dispatches_realtime_notification(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                return_value=["alice@posthog.com"],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        assert mock_create_notification.call_count == 1
+        data = mock_create_notification.call_args.args[0]
+        assert data.notification_type.value == "alert_firing"
+        assert data.team_id == alert_with_user.team_id
+        assert data.resource_type == "insight"
+        assert data.target_type.value == "user"
+        assert data.source_type.value == "insight"
+        assert data.source_id == str(alert_with_user.insight.short_id)
+        assert data.resource_id == str(alert_with_user.insight.short_id)
+        assert data.title.startswith("Alert firing:")
+
+    async def test_realtime_failure_does_not_break_email_path(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                return_value=["alice@posthog.com"],
+            ) as mock_breaches,
+            patch(
+                "posthog.temporal.alerts.activities.create_notification",
+                side_effect=RuntimeError("kafka down"),
+            ),
+        ):
+            env = ActivityEnvironment()
+            # Must not raise; realtime dispatch swallows errors internally.
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(
+                    alert_id=str(alert_with_user.id),
+                    alert_check_id=str(check.id),
+                    breaches=["value above threshold"],
+                ),
+            )
+
+        mock_breaches.assert_called_once()
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}

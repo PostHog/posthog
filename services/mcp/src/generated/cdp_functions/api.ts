@@ -23,7 +23,6 @@ export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
     type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     updated_at: zod.iso.datetime({}).optional(),
 })

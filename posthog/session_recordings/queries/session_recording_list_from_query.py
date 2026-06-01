@@ -121,6 +121,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         hogql_query_modifiers: HogQLQueryModifiers | None = None,
         allow_event_property_expansion: bool = False,
         max_execution_time: int | None = None,
+        extra_having_predicates: list[ast.Expr] | None = None,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,
@@ -181,6 +182,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
         self._max_execution_time = max_execution_time
+        self._extra_having_predicates = extra_having_predicates or []
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
@@ -465,5 +467,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        exprs.extend(self._extra_having_predicates)
 
         return ast.And(exprs=exprs)

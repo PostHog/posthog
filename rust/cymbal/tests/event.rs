@@ -301,12 +301,6 @@ fn extract_exception_list(response: &SuccessResponse) -> ExceptionList {
     props.exception_list
 }
 
-fn extract_exception_list_raw(response: &SuccessResponse) -> serde_json::Value {
-    let event = response.first_event();
-    let props = event.as_ref().unwrap().properties.clone();
-    props["$exception_list"].clone()
-}
-
 // Tests
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -553,10 +547,8 @@ async fn handles_missing_sourcemap(db: PgPool) {
     let (status, body): (_, SuccessResponse) = harness.post_event(&event).await;
 
     assert!(status.is_success());
-    // Use raw JSON extraction to avoid losing resolve_failure during
-    // typed deserialization (Frame's resolve_failure is skip_deserializing).
-    let exception_list = extract_exception_list_raw(&body);
-    assert_json_snapshot!(exception_list, {
+    let exception_list = extract_exception_list(&body);
+    assert_json_snapshot!(exception_list.0, {
         "[].id" => "REDACTED",
     });
 }

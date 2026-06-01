@@ -137,6 +137,28 @@ export interface NotebookApi {
     _create_in_folder?: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
+    /** @nullable */
+    readonly access_token: string | null
+    settings?: unknown | null
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
+}
+
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
     readonly id?: string

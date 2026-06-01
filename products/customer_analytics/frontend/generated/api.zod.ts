@@ -61,7 +61,7 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
@@ -74,7 +74,9 @@ export const GroupsTypesMetricsCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(groupsTypesMetricsCreateBodyMathPropertyMax)
         .nullish()
-        .describe('Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.'),
+        .describe(
+            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
+        ),
 })
 
 export const groupsTypesMetricsUpdateBodyNameMax = 255
@@ -111,7 +113,7 @@ export const GroupsTypesMetricsUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
         .record(zod.string(), zod.unknown())
         .describe(
-            'HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
@@ -124,7 +126,9 @@ export const GroupsTypesMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(groupsTypesMetricsUpdateBodyMathPropertyMax)
         .nullish()
-        .describe('Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.'),
+        .describe(
+            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
+        ),
 })
 
 export const groupsTypesMetricsPartialUpdateBodyNameMax = 255
@@ -163,7 +167,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            'HogQL filter definition used to compute the metric. Same shape as HogFunction filters: a dict containing an `events` list and optional `properties` list.'
+            'Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.\n\n**Events** (default, when `source` is missing or `\"events\"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n**Data warehouse** (`source: \"data_warehouse\"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.'
         ),
     math: zod
         .enum(['count', 'sum'])
@@ -176,5 +180,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(groupsTypesMetricsPartialUpdateBodyMathPropertyMax)
         .nullish()
-        .describe('Event property to sum. Required when `math` is `sum` and forbidden when `math` is `count`.'),
+        .describe(
+            'Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.'
+        ),
 })

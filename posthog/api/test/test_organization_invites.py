@@ -7,6 +7,8 @@ from unittest.mock import ANY, patch
 
 from django.core import mail
 from django.core.cache import cache
+from django.db import connection
+from django.utils import timezone
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -1436,6 +1438,321 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {"target_email": "cross_org_test@posthog.com"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestOnboardingDelegationInviteAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        # Delegation grants ADMIN-level access on accept; the caller must themselves hold ADMIN+.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _delegate_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/invites/delegate/"
+
+    def test_delegate_rejects_non_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch("posthoganalytics.capture")
+    def test_delegate_creates_admin_level_invite_with_flag(self, _mock_capture):
+        response = self.client.post(
+            self._delegate_url(),
+            {"target_email": "engineer@example.com", "message": "please help"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+        self.assertTrue(invite.is_setup_delegation)
+        self.assertEqual(invite.level, OrganizationMembership.Level.ADMIN)
+        self.assertEqual(invite.message, "please help")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+    def test_delegate_requires_target_email(self):
+        response = self.client.post(self._delegate_url(), {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_malformed_email(self):
+        response = self.client.post(self._delegate_url(), {"target_email": "not-an-email"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_self_delegation(self):
+        response = self.client.post(self._delegate_url(), {"target_email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_email_already_in_org(self):
+        existing = User.objects.create_user(email="member@example.com", password=None, first_name="M")
+        existing.join(organization=self.organization, level=OrganizationMembership.Level.MEMBER)
+
+        response = self.client.post(self._delegate_url(), {"target_email": "member@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_delegate_rejects_when_existing_pending_invite(self):
+        # Prior non-delegation invite for this email — don't silently clobber it.
+        OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="engineer@example.com",
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Generic code used to avoid leaking distinct "existing_member" vs "existing_invite" signals.
+        self.assertIn("cannot_delegate_to_email", str(response.content))
+
+    def test_delegate_acceptance_marks_delegator_only(self):
+        # _mark_delegators_accepted stamps only users whose FK points at this invite.
+        # The delegate is NOT a delegator — their own onboarding_delegation_accepted_at stays null.
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+
+        delegate = User.objects.create_user(email="engineer@example.com", password=None, first_name="Eng")
+        invite.use(delegate, prevalidated=True)
+
+        self.user.refresh_from_db()
+        delegate.refresh_from_db()
+        self.assertIsNotNone(self.user.onboarding_delegation_accepted_at)
+        # Acceptance must not un-suppress the delegator: they explicitly exited via delegation.
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+        # Delegate was never a delegator; stamping this field here would pollute the meaning
+        # for users who happen to be a delegate in one org and a delegator in another.
+        self.assertIsNone(delegate.onboarding_delegation_accepted_at)
+
+    def test_delegate_resets_stale_accepted_timestamp_for_new_delegation(self):
+        stale_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="old-delegate@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = stale_invite
+        self.user.onboarding_delegation_accepted_at = timezone.now()
+        self.user.save()
+
+        response = self.client.post(self._delegate_url(), {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegation_accepted_at)
+        self.assertEqual(self.user.onboarding_delegated_to_invite.target_email, "engineer@example.com")
+
+
+class TestOnboardingSkipAPI(APIBaseTest):
+    def _skip_url(self) -> str:
+        return "/api/users/@me/onboarding/skip/"
+
+    def test_skip_sets_timestamp_and_reason(self):
+        response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "later")
+
+    def test_skip_is_idempotent_preserves_first_timestamp(self):
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        first_ts = self.user.onboarding_skipped_at
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_skipped_at, first_ts)
+
+    def test_skip_rejects_invalid_reason(self):
+        response = self.client.post(self._skip_url(), {"reason": "nope"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_skip_rejects_delegated_reason(self):
+        # The delegate endpoint is the only path that should produce reason="delegated".
+        response = self.client.post(self._skip_url(), {"reason": "delegated"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_skip_clears_stale_delegation_fk(self):
+        # If a user previously delegated but then changes their mind to "later",
+        # clear the stale delegation link so the redirect-suppression state stays consistent.
+        invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            created_by=self.user,
+            target_email="engineer@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = invite
+        self.user.onboarding_skipped_at = timezone.now()
+        self.user.onboarding_skipped_reason = "delegated"
+        self.user.save()
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegated_to_invite_id)
+        self.assertEqual(self.user.onboarding_skipped_reason, "later")
+
+    def test_user_patch_cannot_set_onboarding_skipped_reason(self):
+        # Regression guard: DRF's Meta.read_only_fields is silently ignored for explicitly
+        # declared serializer fields. The dedicated /onboarding/skip/ endpoint rejects
+        # reason="delegated" and runs atomic state cleanup; the user PATCH path must NOT
+        # be a back door that bypasses those guarantees.
+        for attempted_value in ("delegated", "later", "other"):
+            response = self.client.patch("/api/users/@me/", {"onboarding_skipped_reason": attempted_value})
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            self.user.refresh_from_db()
+            self.assertIsNone(self.user.onboarding_skipped_reason)
+            self.assertIsNone(self.user.onboarding_skipped_at)
+
+    def test_skip_does_not_delete_cross_org_stale_invite_pointer(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_invite = OrganizationInvite.objects.create(
+            organization=other_org,
+            created_by=self.user,
+            target_email="cross-org@example.com",
+            level=OrganizationMembership.Level.ADMIN,
+            is_setup_delegation=True,
+        )
+        self.user.onboarding_delegated_to_invite = other_invite
+        # Pointer says current org; actual invite is in another org.
+        self.user.onboarding_delegated_to_organization_id = self.organization.id
+        self.user.onboarding_skipped_reason = "delegated"
+        self.user.save()
+
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(OrganizationInvite.objects.filter(id=other_invite.id).exists())
+
+
+class TestDelegationCancellationUnsuppressesRedirect(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def test_cancelling_delegation_invite_unsuppresses_redirect(self):
+        delegate_url = f"/api/organizations/{self.organization.id}/invites/delegate/"
+        response = self.client.post(delegate_url, {"target_email": "engineer@example.com"})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invite = OrganizationInvite.objects.get(target_email="engineer@example.com")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id, invite.id)
+        self.assertIsNotNone(self.user.onboarding_skipped_at)
+        self.assertEqual(self.user.onboarding_skipped_reason, "delegated")
+
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/invites/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Full redirect condition: both the FK *and* the skip timestamp/reason must be cleared
+        # so the frontend's sceneLogic suppression stops firing and onboarding re-engages.
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.onboarding_delegated_to_invite_id)
+        self.assertIsNone(self.user.onboarding_skipped_at)
+        self.assertIsNone(self.user.onboarding_skipped_reason)
+
+
+class TestOnboardingDelegationStateTransitionTable(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        set_instance_setting("EMAIL_HOST", "localhost")
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _delegate_url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/invites/delegate/"
+
+    def _skip_url(self) -> str:
+        return "/api/users/@me/onboarding/skip/"
+
+    def _assert_user_state(
+        self,
+        *,
+        reason: str | None,
+        has_skip_ts: bool,
+        has_invite_fk: bool,
+        has_accepted_ts: bool,
+    ) -> None:
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.onboarding_skipped_reason, reason)
+        self.assertEqual(self.user.onboarding_skipped_at is not None, has_skip_ts)
+        self.assertEqual(self.user.onboarding_delegated_to_invite_id is not None, has_invite_fk)
+        self.assertEqual(self.user.onboarding_delegation_accepted_at is not None, has_accepted_ts)
+
+    @parameterized.expand(
+        [
+            (
+                "delegate_sets_pending_delegation_state",
+                "_run_delegate_only",
+                {"reason": "delegated", "has_skip_ts": True, "has_invite_fk": True, "has_accepted_ts": False},
+            ),
+            (
+                "delegate_then_accept_marks_accepted_without_unsuppressing",
+                "_run_delegate_then_accept",
+                {"reason": "delegated", "has_skip_ts": True, "has_invite_fk": False, "has_accepted_ts": True},
+            ),
+            (
+                "delegate_then_skip_later_clears_delegation_and_keeps_skip",
+                "_run_delegate_then_skip_later",
+                {"reason": "later", "has_skip_ts": True, "has_invite_fk": False, "has_accepted_ts": False},
+            ),
+            (
+                "delegate_then_cancel_unsuppresses_onboarding",
+                "_run_delegate_then_cancel",
+                {"reason": None, "has_skip_ts": False, "has_invite_fk": False, "has_accepted_ts": False},
+            ),
+        ]
+    )
+    def test_state_transition(self, _name: str, run_method_name: str, expected: dict) -> None:
+        """Each parametrised case runs in its own Django test transaction, so DB state is
+        reset between cases by the test runner — no manual reset is needed."""
+        getattr(self, run_method_name)()
+        self._assert_user_state(**expected)
+
+    def _run_delegate_only(self) -> None:
+        self._last_delegate_email = f"engineer+{random.randint(100000, 999999)}@example.com"
+        response = self.client.post(self._delegate_url(), {"target_email": self._last_delegate_email})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    def _run_delegate_then_accept(self) -> None:
+        self._run_delegate_only()
+        invite = OrganizationInvite.objects.get(target_email=self._last_delegate_email)
+        delegate = User.objects.create_user(email=self._last_delegate_email, password=None, first_name="Eng")
+        invite.use(delegate, prevalidated=True)
+
+    def _run_delegate_then_skip_later(self) -> None:
+        self._run_delegate_only()
+        response = self.client.post(self._skip_url(), {"reason": "later"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+    def _run_delegate_then_cancel(self) -> None:
+        self._run_delegate_only()
+        invite = OrganizationInvite.objects.get(target_email=self._last_delegate_email)
+        response = self.client.delete(f"/api/organizations/{self.organization.id}/invites/{invite.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
+class TestOnboardingDelegationMigrationIndex(APIBaseTest):
+    def test_partial_index_exists_and_is_valid(self):
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT i.indisvalid
+                FROM pg_index i
+                JOIN pg_class c ON c.oid = i.indexrelid
+                WHERE c.relname = 'posthog_user_onboarding_delegated_to_invite_id_idx'
+                """
+            )
+            row = cursor.fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertTrue(row[0])
 
 
 @patch("posthog.permissions.TimeSensitiveActionPermission.has_permission", return_value=True)

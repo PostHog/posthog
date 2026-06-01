@@ -223,6 +223,7 @@ export const MCP_SERVER_OAUTH_SCOPES = [
     'event_definition:write',
     'error_tracking:read',
     'logs:read',
+    'tracing:read',
 ]
 
 export const getScopeDescription = (scope: string): string | undefined => {

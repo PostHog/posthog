@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconRefresh, IconX } from '@posthog/icons'
@@ -8,7 +8,6 @@ import { recommendationsTabLogic } from './recommendationsTabLogic'
 
 export interface RecommendationCardProps {
     recommendationId: string
-    nextRefreshAt?: string | null
     title: string
     description?: string
     progress?: { current: number; total: number; label: string }
@@ -18,7 +17,6 @@ export interface RecommendationCardProps {
 
 export function RecommendationCard({
     recommendationId,
-    nextRefreshAt,
     title,
     description,
     progress,
@@ -26,7 +24,8 @@ export function RecommendationCard({
     children,
 }: RecommendationCardProps): JSX.Element {
     const { dismissRecommendation, restoreRecommendation, refreshRecommendation } = useActions(recommendationsTabLogic)
-    const canRefresh = !nextRefreshAt || new Date(nextRefreshAt) <= new Date()
+    const { refreshingIds } = useValues(recommendationsTabLogic)
+    const isRefreshing = refreshingIds.has(recommendationId)
 
     return (
         <div className="border rounded-lg bg-surface-primary p-4">
@@ -53,8 +52,8 @@ export function RecommendationCard({
                         size="xsmall"
                         type="tertiary"
                         icon={<IconRefresh />}
+                        loading={isRefreshing}
                         onClick={() => refreshRecommendation(recommendationId)}
-                        disabledReason={!canRefresh ? 'Too early to refresh' : undefined}
                         tooltip="Refresh this recommendation"
                     />
                     {dismissed ? (

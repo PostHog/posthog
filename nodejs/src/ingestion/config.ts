@@ -158,8 +158,13 @@ export type IngestionConsumerConfig = {
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
-    /** '*' for all teams, or comma-separated team IDs */
+    /** '*' for all teams, or comma-separated team IDs always routed to ai_events */
     INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+    /**
+     * Sticky percentage rollout (0-100), unioned with INGESTION_AI_EVENT_SPLITTING_TEAMS.
+     * Bucketed deterministically on team_id so increases are monotonic and per-team writes don't flap.
+     */
+    INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: number
     /**
      * Teams whose events copy should have heavy AI properties stripped — i.e. the post-migration final state
      * where heavy columns live only in the AI events table. '*' for all teams, or comma-separated team IDs.
@@ -264,6 +269,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
         INGESTION_AI_EVENT_SPLITTING_TEAMS: '*',
+        INGESTION_AI_EVENT_SPLITTING_PERCENTAGE: 0,
         INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS: '',
 
         // Clickhouse topics
