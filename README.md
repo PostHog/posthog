@@ -113,8 +113,6 @@ The pricing for our paid plan is completely transparent and available on [our pr
 
 <img src="https://res.cloudinary.com/dmukukwp6/image/upload/v1/posthog.com/src/components/Home/images/mission-control-hog" alt="Hedgehog working on a Mission Control Center" width="350px"/>
 
-Hey! If you're reading this, you've proven yourself as a dedicated README reader.
+Hey! If you're reading this, you've proven yourself as a dedicated README reader. yolo 🦔
 
 You might also make a great addition to our team. We're growing fast [and would love for you to join us](https://posthog.com/careers).
-
-yolo 🦔
