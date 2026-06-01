@@ -67,8 +67,7 @@ export const getCustomApiBaseUrl = (): string | undefined => env.POSTHOG_API_BAS
  * at a non-clickable hostname (e.g. cluster-internal Hono routing). Falls back to
  * `POSTHOG_API_BASE_URL` when unset.
  */
-export const getPublicApiBaseUrl = (): string | undefined =>
-    env.POSTHOG_API_PUBLIC_URL || env.POSTHOG_API_BASE_URL
+export const getPublicBaseUrl = (): string | undefined => env.POSTHOG_PUBLIC_URL || env.POSTHOG_API_BASE_URL
 
 const CLOUD_HOSTS = new Set(['us.posthog.com', 'eu.posthog.com'])
 

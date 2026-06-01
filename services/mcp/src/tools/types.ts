@@ -51,7 +51,7 @@ export type Env = {
      */
     POSTHOG_API_BASE_URL: string | undefined
     /**
-     * Public-facing PostHog API URL used when rendering links the user clicks
+     * Public-facing PostHog URL used when rendering links the user clicks
      * (e.g. `_posthogUrl` in tool responses).
      *
      * When `POSTHOG_API_BASE_URL` is set to a cluster-internal hostname for outbound
@@ -59,7 +59,7 @@ export type Env = {
      * the corresponding public URL (e.g. https://us.posthog.com) so rendered links
      * remain clickable. Falls back to `POSTHOG_API_BASE_URL` when unset.
      */
-    POSTHOG_API_PUBLIC_URL: string | undefined
+    POSTHOG_PUBLIC_URL: string | undefined
     /**
      * Base URL for serving MCP UI app static assets.
      * When using Workers Static Assets, this is the Worker's own public URL.

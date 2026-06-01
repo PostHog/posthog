@@ -11,7 +11,7 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
-    getPublicApiBaseUrl,
+    getPublicBaseUrl,
     MCP_SERVER_NAME,
     MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
@@ -255,7 +255,7 @@ export class MCP extends McpAgent<Env> {
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
-                publicBaseUrl: getPublicApiBaseUrl(),
+                publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.requestProperties.clientUserAgent,
                 mcpClientName: this.mcpClientName,
                 mcpClientVersion: this.mcpClientVersion,

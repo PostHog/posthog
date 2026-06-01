@@ -15,7 +15,7 @@ import { hash } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl, getPublicApiBaseUrl } from './constants'
+import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
@@ -95,7 +95,7 @@ export class RequestContext {
             this.apiInstance = new ApiClient({
                 apiToken: this.props.apiToken,
                 baseUrl,
-                publicBaseUrl: getPublicApiBaseUrl(),
+                publicBaseUrl: getPublicBaseUrl(),
                 clientUserAgent: this.props.clientUserAgent,
                 mcpClientName: this.props.mcpClientName,
                 mcpClientVersion: this.props.mcpClientVersion,

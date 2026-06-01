@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
     getAuthorizationServerUrl,
     getBaseUrlForRegion,
-    getPublicApiBaseUrl,
+    getPublicBaseUrl,
     isCloudApi,
     isLocalApi,
     toCloudRegion,
@@ -91,23 +91,23 @@ describe('OAuth Region Routing', () => {
         })
     })
 
-    describe('getPublicApiBaseUrl', () => {
-        it('returns POSTHOG_API_PUBLIC_URL when set', () => {
+    describe('getPublicBaseUrl', () => {
+        it('returns POSTHOG_PUBLIC_URL when set', () => {
             process.env.POSTHOG_API_BASE_URL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
-            process.env.POSTHOG_API_PUBLIC_URL = 'https://us.posthog.com'
-            expect(getPublicApiBaseUrl()).toBe('https://us.posthog.com')
+            process.env.POSTHOG_PUBLIC_URL = 'https://us.posthog.com'
+            expect(getPublicBaseUrl()).toBe('https://us.posthog.com')
         })
 
-        it('falls back to POSTHOG_API_BASE_URL when POSTHOG_API_PUBLIC_URL is not set', () => {
+        it('falls back to POSTHOG_API_BASE_URL when POSTHOG_PUBLIC_URL is not set', () => {
             process.env.POSTHOG_API_BASE_URL = 'http://localhost:8010'
-            delete process.env.POSTHOG_API_PUBLIC_URL
-            expect(getPublicApiBaseUrl()).toBe('http://localhost:8010')
+            delete process.env.POSTHOG_PUBLIC_URL
+            expect(getPublicBaseUrl()).toBe('http://localhost:8010')
         })
 
         it('returns undefined when neither is set', () => {
             delete process.env.POSTHOG_API_BASE_URL
-            delete process.env.POSTHOG_API_PUBLIC_URL
-            expect(getPublicApiBaseUrl()).toBeUndefined()
+            delete process.env.POSTHOG_PUBLIC_URL
+            expect(getPublicBaseUrl()).toBeUndefined()
         })
     })
 
