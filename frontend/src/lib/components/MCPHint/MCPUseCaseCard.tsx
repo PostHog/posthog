@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
@@ -61,8 +60,6 @@ export function MCPUseCaseCard({
 
     const { examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
 
-    const isStorybook = inStorybook() || inStorybookTestRunner()
-
     return (
         <div
             className={cn(
@@ -72,11 +69,7 @@ export function MCPUseCaseCard({
         >
             <div className="flex items-center gap-2">
                 <IconSparkles className="size-4 shrink-0" />
-                <h4
-                    className={cn('m-0 text-sm font-semibold rainbow-text', { 'rainbow-text-animating': !isStorybook })}
-                >
-                    Or do it from your agent
-                </h4>
+                <h4 className="m-0 text-sm font-semibold">Or do it from your agent</h4>
             </div>
             <div className="text-sm text-default">
                 Ask <AgentBadgeRotator />:
