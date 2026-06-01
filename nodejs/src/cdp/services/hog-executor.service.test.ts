@@ -1407,6 +1407,20 @@ describe('Hog Executor', () => {
         })
 
         it('replaces access token placeholders in body, headers, and url', async () => {
+            // Self-contained fetch stub — don't rely on a leaked impl from a prior test.
+            // The parent beforeEach restores fetch to the real impl before every test, so
+            // this needs to set its own stub to avoid hitting the network.
+            jest.mocked(fetch).mockImplementation(() => {
+                return Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            })
+
             const mockIntegrationInputs = {
                 oauth: {
                     value: {
