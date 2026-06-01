@@ -1,9 +1,13 @@
 import type { ComponentType } from 'react'
 
-import { IconNotebook, IconWrench } from '@posthog/icons'
+import { IconDashboard, IconGraph, IconNotebook, IconRewindPlay, IconWarning, IconWrench } from '@posthog/icons'
 
 import type { McpToolCallMessage } from './maxTypes'
+import { CreateInsightAdapter } from './messages/adapters/CreateInsightAdapter'
 import { CreateNotebookWidget } from './messages/adapters/CreateNotebookWidget'
+import { ErrorTrackingAdapter } from './messages/adapters/ErrorTrackingAdapter'
+import { SearchSessionRecordingsAdapter } from './messages/adapters/SearchSessionRecordingsAdapter'
+import { UpsertDashboardAdapter } from './messages/adapters/UpsertDashboardAdapter'
 import { FallbackMcpToolRenderer } from './messages/FallbackMcpToolRenderer'
 
 export interface McpToolRendererProps {
@@ -50,7 +54,65 @@ class MapBackedRegistry implements McpToolRegistry {
  */
 export const mcpToolRegistry: McpToolRegistry = new MapBackedRegistry()
 
-// Custom adapters are registered here as they land. The skeleton ships with the fallback only.
+// Custom adapters are registered here as they land. Each lives behind a `phai-sandbox-tool-{slug}`
+// gate (runtime config, not here). The single-exec inner tool names exist in two conventions —
+// hyphenated and snake_case — so we register both aliases to be robust to whichever the MCP
+// server emits.
+
+// --- Data tools: insight ---
+// VisualizationArtifactAnswer renderer — create / update / query / read insight.
+for (const key of [
+    'insight-create',
+    'insight-update',
+    'insight-query',
+    'insight-read',
+    'create_insight',
+    'edit_insight',
+    'read_insight',
+]) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Insight',
+        icon: <IconGraph />,
+        Renderer: CreateInsightAdapter,
+    })
+}
+
+// --- Data tools: dashboard ---
+for (const key of ['dashboard-create', 'dashboard-update', 'upsert_dashboard']) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Dashboard',
+        icon: <IconDashboard />,
+        Renderer: UpsertDashboardAdapter,
+    })
+}
+
+// --- Data tools: session recordings ---
+for (const key of ['query-session-recordings-list', 'search_session_recordings', 'filter_session_recordings']) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Session recordings',
+        icon: <IconRewindPlay />,
+        Renderer: SearchSessionRecordingsAdapter,
+    })
+}
+
+// --- Data tools: error tracking ---
+for (const key of [
+    'query-error-tracking-issues-list',
+    'query-error-tracking-issue',
+    'query-error-tracking-issue-events',
+    'search_error_tracking_issues',
+    'filter_error_tracking_issues',
+]) {
+    mcpToolRegistry.register({
+        key,
+        displayName: 'Error tracking',
+        icon: <IconWarning />,
+        Renderer: ErrorTrackingAdapter,
+    })
+}
 
 // --- Data tools: notebooks ---
 // The generated CRUD tools and the handwritten notebook-edit (the collab-safe content editor)
