@@ -16,6 +16,7 @@ FORBIDDEN_AT_SETUP = [
     "scipy",  # only reached via ai_observability clustering — must not be at startup
     "posthog.session_recordings.session_recording_api",  # pulls the session_summary workflow
     "google.genai",  # Gemini SDK — only reached via the session-summary video workflow
+    "mimesis",  # fake-data generator — only used by demo-data tasks
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot
