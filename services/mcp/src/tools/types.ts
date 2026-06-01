@@ -29,6 +29,8 @@ export type State = {
     mcpClientName: string | undefined
     mcpClientVersion: string | undefined
     mcpProtocolVersion: string | undefined
+    mcpConsumer: string | undefined
+    mcpVendorClient: string | undefined
 } & Record<PrefixedString<'session'>, SessionState> &
     Record<PrefixedString<'groupTypes'>, GroupType[] | undefined> &
     Record<PrefixedString<'groupTypesFetchedAt'>, number | undefined> &
@@ -118,8 +120,6 @@ export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> =
     'title' | 'description' | 'scopes' | 'annotations'
 > & {
     _meta?: ToolMeta
-    /** When set, the tool is only available in this MCP version (1 = v1 only, 2 = v2 only). */
-    mcpVersion?: number
 }
 
 export type ZodObjectAny = z.ZodType<any>

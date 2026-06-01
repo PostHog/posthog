@@ -39,14 +39,20 @@ function protoGroupToDomain(proto: ProtoGroup): DomainGroup {
 export class PersonHogGroupOperations {
     constructor(private client: Client<typeof PersonHogService>) {}
 
-    async fetchGroup(teamId: number, groupTypeIndex: number, groupKey: string): Promise<DomainGroup | undefined> {
+    async fetchGroup(
+        teamId: number,
+        groupTypeIndex: number,
+        groupKey: string,
+        callerTag?: string
+    ): Promise<DomainGroup | undefined> {
         const response = await this.client.getGroup(
             create(GetGroupRequestSchema, {
                 teamId: BigInt(teamId),
                 groupTypeIndex,
                 groupKey,
                 readOptions: eventualReadOptions(),
-            })
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
         return response.group ? protoGroupToDomain(response.group) : undefined
     }
@@ -54,7 +60,8 @@ export class PersonHogGroupOperations {
     async fetchGroupsByKeys(
         teamIds: number[],
         groupTypeIndexes: number[],
-        groupKeys: string[]
+        groupKeys: string[],
+        callerTag?: string
     ): Promise<
         {
             team_id: number
@@ -77,7 +84,8 @@ export class PersonHogGroupOperations {
                     })
                 ),
                 readOptions: eventualReadOptions(),
-            })
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
 
         const results: {
@@ -102,7 +110,8 @@ export class PersonHogGroupOperations {
     }
 
     async fetchGroupTypesByTeamIds(
-        teamIds: number[]
+        teamIds: number[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (teamIds.length === 0) {
             return {}
@@ -112,7 +121,8 @@ export class PersonHogGroupOperations {
             create(GetGroupTypeMappingsByTeamIdsRequestSchema, {
                 teamIds: teamIds.map(BigInt),
                 readOptions: eventualReadOptions(),
-            })
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
 
         const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}
@@ -126,7 +136,8 @@ export class PersonHogGroupOperations {
     }
 
     async fetchGroupTypesByProjectIds(
-        projectIds: number[]
+        projectIds: number[],
+        callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
         if (projectIds.length === 0) {
             return {}
@@ -136,7 +147,8 @@ export class PersonHogGroupOperations {
             create(GetGroupTypeMappingsByProjectIdsRequestSchema, {
                 projectIds: projectIds.map(BigInt),
                 readOptions: eventualReadOptions(),
-            })
+            }),
+            callerTag ? { headers: { 'x-caller-tag': callerTag } } : undefined
         )
 
         const result: Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]> = {}

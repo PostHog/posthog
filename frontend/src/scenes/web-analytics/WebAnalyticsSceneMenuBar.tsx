@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconSearch } from '@posthog/icons'
+import { IconBolt, IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -85,8 +85,10 @@ export function WebAnalyticsSceneMenuBar(): JSX.Element | null {
 }
 
 function WebAnalyticsSceneMenuBarInner(): JSX.Element {
-    const { shouldFilterTestAccounts, hiddenTiles, productTab } = useValues(webAnalyticsLogic)
-    const { setShouldFilterTestAccounts, setTileVisibility } = useActions(webAnalyticsLogic)
+    const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, shouldFilterTestAccounts, showFocusMode } =
+        useValues(webAnalyticsLogic)
+    const { enterFocusMode, exitFocusMode, openFocusModeModal, setShouldFilterTestAccounts, setTileVisibility } =
+        useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -144,6 +146,28 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                     <IconSearch />
                     Session Attribution Explorer
                 </SceneMenuBarItem>
+                {showFocusMode && (
+                    <SceneMenuBarItem
+                        onClick={openFocusModeModal}
+                        data-attr="web-analytics-menubar-focus-mode-settings"
+                        opensFloatingUi
+                    >
+                        <IconGear />
+                        Focus mode settings
+                    </SceneMenuBarItem>
+                )}
+                {showFocusMode &&
+                    (isFocusModeActive ? (
+                        <SceneMenuBarItem onClick={exitFocusMode} data-attr="web-analytics-menubar-exit-focus-mode">
+                            <IconX />
+                            Exit focus mode
+                        </SceneMenuBarItem>
+                    ) : hasSavedFocusMode ? (
+                        <SceneMenuBarItem onClick={enterFocusMode} data-attr="web-analytics-menubar-enter-focus-mode">
+                            <IconTarget />
+                            Enter focus mode
+                        </SceneMenuBarItem>
+                    ) : null)}
                 <SceneMenuBarSeparator />
                 <SceneMenuBarCheckboxItem
                     checked={shouldFilterTestAccounts}
@@ -158,7 +182,7 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                             <SceneMenuBarCheckboxItem
                                 key={tileId}
                                 checked={!hiddenTiles.includes(tileId)}
-                                onCheckedChange={(checked) => setTileVisibility(tileId, !checked)}
+                                onCheckedChange={(checked) => setTileVisibility(tileId, checked)}
                                 data-attr={`web-analytics-menubar-tile-${tileId}`}
                             >
                                 {TILE_LABELS[tileId]}

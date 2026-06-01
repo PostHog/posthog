@@ -135,7 +135,22 @@ export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
     'list_data',
     'search',
     'switch_mode',
+    'list_llm_skills',
+    'get_llm_skill',
+    'get_llm_skill_file',
 ]
+
+function skillStatusFormatter(
+    toolCall: EnhancedToolCall,
+    { completedLabel, pendingLabel, nameArgKey }: { completedLabel: string; pendingLabel: string; nameArgKey?: string }
+): string {
+    const rawName = nameArgKey ? toolCall.args?.[nameArgKey] : undefined
+    const suffix = typeof rawName === 'string' && rawName ? ` "${rawName}"` : ''
+    if (toolCall.status === 'completed') {
+        return `${completedLabel}${suffix}`
+    }
+    return `${pendingLabel}${suffix}...`
+}
 
 export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     call_mcp_server: {
@@ -658,6 +673,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Analyzing session replays...'
         },
     },
+    summarize_replay_vision_summaries: {
+        name: 'Summarize session summaries',
+        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Summarized session summaries'
+            }
+            return 'Summarizing session summaries...'
+        },
+    },
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
@@ -1094,7 +1121,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Search LLM traces',
         description: 'Search LLM traces to analyze model usage, costs, latency, and errors',
         icon: iconForType('llm_analytics'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Searched LLM traces'
@@ -1105,15 +1132,86 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     run_hog_eval_test: {
         name: 'Test evaluation',
         description: 'Test evaluation code against sample events',
-        product: Scene.LLMAnalyticsEvaluation,
+        product: Scene.AIObservabilityEvaluation,
         icon: iconForType('llm_evaluations'),
-        modes: [AgentMode.LLMAnalytics],
+        modes: [AgentMode.AIObservability],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Tested evaluation code'
             }
             return 'Testing evaluation code...'
         },
+    },
+    list_llm_skills: {
+        name: 'List shared skills',
+        description: 'List shared skills stored for this team',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Listed shared skills',
+                pendingLabel: 'Listing shared skills',
+            }),
+    },
+    get_llm_skill: {
+        name: 'Load shared skill',
+        description: 'Load shared skill body and file manifest',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded shared skill',
+                pendingLabel: 'Loading shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    get_llm_skill_file: {
+        name: 'Load shared skill file',
+        description: 'Load shared skill file bundled in a skill',
+        icon: <IconBook />,
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Loaded skill file',
+                pendingLabel: 'Loading skill file',
+                nameArgKey: 'file_path',
+            }),
+    },
+    create_llm_skill: {
+        name: 'Create shared skill',
+        description: 'Create shared skill to save a reusable workflow',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Created shared skill',
+                pendingLabel: 'Creating shared skill',
+                nameArgKey: 'name',
+            }),
+    },
+    update_llm_skill: {
+        name: 'Update shared skill',
+        description: 'Update shared skill by publishing a new version',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Updated shared skill',
+                pendingLabel: 'Updating shared skill',
+                nameArgKey: 'skill_name',
+            }),
+    },
+    archive_llm_skill: {
+        name: 'Archive shared skill',
+        description: 'Archive shared skill to hide it from suggestions',
+        product: Scene.AIObservability,
+        icon: <IconBook />,
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) =>
+            skillStatusFormatter(toolCall, {
+                completedLabel: 'Archived shared skill',
+                pendingLabel: 'Archiving shared skill',
+                nameArgKey: 'skill_name',
+            }),
     },
 }
 
@@ -1172,19 +1270,19 @@ export const MODE_DEFINITIONS: Record<
             Scene.ExperimentsSharedMetrics,
         ]),
     },
-    [AgentMode.LLMAnalytics]: {
+    [AgentMode.AIObservability]: {
         name: 'AI observability',
         description: 'Analyzes LLM traces and writes evaluation code for AI observability.',
         icon: iconForType('llm_analytics'),
         scenes: new Set([
-            Scene.LLMAnalytics,
-            Scene.LLMAnalyticsTrace,
-            Scene.LLMAnalyticsEvaluation,
-            Scene.LLMAnalyticsEvaluations,
-            Scene.LLMAnalyticsDataset,
-            Scene.LLMAnalyticsDatasets,
-            Scene.LLMAnalyticsPlayground,
-            Scene.LLMAnalyticsUsers,
+            Scene.AIObservability,
+            Scene.AIObservabilityTrace,
+            Scene.AIObservabilityEvaluation,
+            Scene.AIObservabilityEvaluations,
+            Scene.AIObservabilityDataset,
+            Scene.AIObservabilityDatasets,
+            Scene.AIObservabilityPlayground,
+            Scene.AIObservabilityUsers,
         ]),
     },
     [AgentMode.UserInterview]: {

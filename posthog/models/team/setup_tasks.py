@@ -66,10 +66,10 @@ class SetupTaskId(StrEnum):
     ResolveFirstError = "resolve_first_error"
 
     # AI observability
-    IngestFirstLlmEvent = "ingest_first_llm_event"
+    IngestFirstAiEvent = "ingest_first_llm_event"
     ViewFirstTrace = "view_first_trace"
     TrackCosts = "track_costs"
-    SetUpLlmEvaluation = "set_up_llm_evaluation"
+    SetUpAiEvaluation = "set_up_llm_evaluation"
     RunAIPlayground = "run_ai_playground"
 
     # Revenue Analytics

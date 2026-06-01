@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use tracing::error;
@@ -29,6 +31,10 @@ pub struct Cli {
     /// Set the number of requests per minute for the Posthog API Client.
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
+
+    /// Load PostHog credentials from this dotenv-style file when not present in the process environment.
+    #[arg(long, value_name = "PATH")]
+    env_file: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Commands,
@@ -174,6 +180,7 @@ impl Cli {
                 self.host.clone(),
                 self.skip_ssl_verification,
                 self.rate_limit,
+                self.env_file.clone(),
             )?;
         }
 

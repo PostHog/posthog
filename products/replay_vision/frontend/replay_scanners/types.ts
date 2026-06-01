@@ -3,7 +3,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
+export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -131,11 +131,6 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Generates semantic embeddings of the session for free-text search.',
-    },
 ]
 
 export type EditorTab = 'observations' | 'configuration'
@@ -149,6 +144,7 @@ export interface MonitorScannerConfig {
 export interface SummarizerScannerConfig {
     prompt: string
     length: 'short' | 'medium' | 'long'
+    emits_embeddings: boolean
 }
 
 export interface ClassifierScannerConfig {
@@ -163,16 +159,11 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
-export interface IndexerScannerConfig {
-    prompt: string
-}
-
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
-    | IndexerScannerConfig
 
 export interface BaseReplayScanner {
     id: string
@@ -212,27 +203,9 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export interface IndexerScanner extends BaseReplayScanner {
-    scanner_type: 'indexer'
-    scanner_config: IndexerScannerConfig
-}
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
-
-export interface VisionUsagePoint {
-    date: string
-    count: number
-}
-
-export interface VisionQuota {
-    used: number
-    limit: number
-    policy: 'block' | 'usage_based'
-    period_start: string
-    period_end: string
-    /** Daily observation counts across the current period. Optional until the backend exposes it. */
-    usage_history?: VisionUsagePoint[]
-}
+export type { VisionQuotaApi as VisionQuota } from '../generated/api.schemas'
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

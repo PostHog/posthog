@@ -465,7 +465,24 @@ services:
                         exit 1
                     fi
                 done
-                for topic in document_embeddings_input; do
+                # The combined analytics ingestion consumer checks topic existence at
+                # startup for every output it produces to (see analytics/outputs/registry.ts).
+                # Auto-create only fires on producer-first writes, so pre-create them here.
+                TOPICS="document_embeddings_input \
+                    clickhouse_events_json \
+                    clickhouse_ai_events_json \
+                    clickhouse_heatmap_events \
+                    clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_dlq \
+                    events_plugin_ingestion_overflow \
+                    events_plugin_ingestion_async \
+                    clickhouse_groups \
+                    clickhouse_person \
+                    clickhouse_person_distinct_id \
+                    clickhouse_app_metrics2 \
+                    log_entries \
+                    clickhouse_tophog"
+                for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
                     elif rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
@@ -567,7 +584,7 @@ services:
                 condition: service_healthy
         restart: 'no'
         volumes:
-            - ./products/llm_analytics/opensearch:/work:ro
+            - ./products/ai_observability/opensearch:/work:ro
         entrypoint: ['sh', '/work/init.sh']
         profiles: [opensearch]
 

@@ -785,6 +785,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+            (
+                "external_data_schemas_incremental_fields",
+                "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
+                {},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
