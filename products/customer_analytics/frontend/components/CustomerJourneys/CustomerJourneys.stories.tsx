@@ -18,7 +18,7 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
             },
         }),
     ],
@@ -30,7 +30,7 @@ type Story = StoryObj<{}>
 export const EmptyState: Story = {
     render: () => {
         useStorybookMocks({
-            get: { 'api/projects/:team_id/customer_journeys/': emptyJourneysList },
+            get: { 'api/environments/:team_id/customer_journeys/': emptyJourneysList },
         })
         return <App />
     },

@@ -101,7 +101,7 @@ const meta: Meta<Empty> = {
                 '/api/projects/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
             },
             post: {
-                '/api/projects/:team_id/user_interviews/search/': MOCK_SEARCH_RESULTS,
+                '/api/environments/:team_id/user_interviews/search/': MOCK_SEARCH_RESULTS,
             },
         }),
     ],
@@ -130,7 +130,7 @@ export const SearchNoResults: Story = {
                 '/api/projects/:team_id/user_interview_topics/': toPaginatedResponse(MOCK_TOPICS),
             },
             post: {
-                '/api/projects/:team_id/user_interviews/search/': [] as UserInterviewSearchResultApi[],
+                '/api/environments/:team_id/user_interviews/search/': [] as UserInterviewSearchResultApi[],
             },
         }),
     ],

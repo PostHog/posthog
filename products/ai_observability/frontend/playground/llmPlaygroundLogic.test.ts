@@ -1566,7 +1566,7 @@ describe('llmPlaygroundLogic', () => {
         it('should reflect source after setupPlaygroundFromEvent with sourcePromptName', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1614,7 +1614,7 @@ describe('llmPlaygroundLogic', () => {
         it('should clear linked source', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-123',
                         name: 'my-prompt',
                         prompt: 'You are helpful.',
@@ -1641,7 +1641,7 @@ describe('llmPlaygroundLogic', () => {
         it('should set system prompt from fetched prompt', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-1',
                         name: 'test-prompt',
                         prompt: 'Be concise.',
@@ -1686,7 +1686,7 @@ describe('llmPlaygroundLogic', () => {
         it('should show error toast when prompt fetch fails', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
+                    '/api/environments/:team_id/llm_prompts/name/:name/': () => [404, { detail: 'Not found' }],
                 },
             })
 
@@ -1781,7 +1781,7 @@ describe('llmPlaygroundLogic', () => {
             let createCalled = false
             useMocks({
                 post: {
-                    '/api/projects/:team_id/llm_prompts/': () => {
+                    '/api/environments/:team_id/llm_prompts/': () => {
                         createCalled = true
                         return [201, { id: 'new-1', name: 'saved-prompt', prompt: 'test' }]
                     },
@@ -1829,7 +1829,7 @@ describe('llmPlaygroundLogic', () => {
             let updatedPrompt: string | undefined
             useMocks({
                 get: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': {
                         id: 'prompt-linked',
                         name: 'linked',
                         prompt: 'Old prompt.',
@@ -1837,7 +1837,7 @@ describe('llmPlaygroundLogic', () => {
                     },
                 },
                 patch: {
-                    '/api/projects/:team_id/llm_prompts/name/:name/': (req: any) => {
+                    '/api/environments/:team_id/llm_prompts/name/:name/': (req: any) => {
                         updatedPrompt = req.body.prompt
                         return [200, { id: 'prompt-linked', name: 'linked', prompt: req.body.prompt }]
                     },

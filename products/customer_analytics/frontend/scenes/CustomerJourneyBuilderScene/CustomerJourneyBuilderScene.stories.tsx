@@ -18,8 +18,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/customer_profile_configs/': { count: 0, results: [] },
-                'api/projects/:team_id/customer_journeys/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_profile_configs/': { count: 0, results: [] },
+                'api/environments/:team_id/customer_journeys/': { count: 0, results: [] },
             },
         }),
     ],
