@@ -11,9 +11,10 @@ from django.utils import timezone
 
 import pydantic
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
@@ -52,6 +53,8 @@ from posthog.temporal.ai.research_agent import (
 
 from products.posthog_ai.backend.context_wrapper import ALLOWED_TYPES as ALLOWED_ATTACHED_CONTEXT_TYPES
 from products.posthog_ai.backend.message_routing import handle_sandbox_cancel, handle_sandbox_message
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.services.agent_command import send_permission_response
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
@@ -84,6 +87,33 @@ class MessageMinimalSerializer(serializers.Serializer):
     """Serializer for appending a message to an existing conversation without triggering AI processing."""
 
     content = serializers.CharField(required=True, max_length=10000)
+
+
+class PermissionResponseSerializer(serializers.Serializer):
+    """Approval reply for a sandbox-runtime `permission_request` (02_CORE.md § 5.5)."""
+
+    requestId = serializers.CharField(
+        required=True,
+        max_length=200,
+        help_text="The ACP permission request id the user is responding to.",
+    )
+    optionId = serializers.CharField(
+        required=True,
+        max_length=100,
+        help_text="The selected option id (e.g. 'allow_once', 'reject', 'reject_with_feedback').",
+    )
+    customInput = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=10000,
+        help_text="Optional feedback text sent with a 'reject_with_feedback' decision.",
+    )
+
+
+class PermissionResponseResultSerializer(serializers.Serializer):
+    """Result of forwarding a permission response to the sandbox agent."""
+
+    status = serializers.CharField(help_text="'ok' once the response was forwarded to the sandbox.")
 
 
 def _strip_large_spend_history(billing_context: MaxBillingContext, threshold: int = 20) -> MaxBillingContext:
@@ -663,6 +693,69 @@ class ConversationViewSet(
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=PermissionResponseSerializer,
+        responses={
+            200: PermissionResponseResultSerializer,
+            400: OpenApiResponse(description="No sandbox run for this conversation, or invalid request"),
+            502: OpenApiResponse(description="Sandbox agent unreachable or rejected the response"),
+        },
+        description="Forward a sandbox-runtime approval reply to the backing products/tasks run.",
+    )
+    @action(detail=True, methods=["POST"], url_path="permission")
+    def permission(self, request: Request, *args, **kwargs):
+        """Sandbox-runtime approval reply (02_CORE.md § 5.5).
+
+        Resolves the conversation's backing TaskRun and delegates in-process to the products/tasks
+        `permission_response` command path. Thin routing wrapper — not a relay.
+        """
+        conversation: Conversation = self.get_object()
+
+        serializer = PermissionResponseSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        run_id = conversation.sandbox_run_id
+        if not run_id:
+            return Response({"error": "Conversation has no active sandbox run"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            task_run = TaskRun.objects.get(id=run_id, team=self.team)
+        except TaskRun.DoesNotExist:
+            return Response({"error": "Sandbox run no longer exists"}, status=status.HTTP_400_BAD_REQUEST)
+
+        request_id = serializer.validated_data["requestId"]
+        option_id = serializer.validated_data["optionId"]
+        custom_input = serializer.validated_data.get("customInput")
+
+        result = send_permission_response(
+            task_run,
+            request_id=request_id,
+            option_id=option_id,
+            custom_input=custom_input,
+        )
+
+        # PERMISSION_RESPONDED telemetry (02_CORE.md § 10).
+        user = cast(User, request.user)
+        if user.distinct_id:
+            posthoganalytics.capture(
+                distinct_id=user.distinct_id,
+                event="permission_responded",
+                properties={
+                    "conversation_id": str(conversation.id),
+                    "request_id": request_id,
+                    "option_id": option_id,
+                    "execution_type": "sandbox",
+                },
+            )
+
+        if not result.success:
+            return Response(
+                {"error": result.error or "Failed to forward permission response"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(PermissionResponseResultSerializer({"status": "ok"}).data)
 
     @extend_schema(
         description="Delete a conversation.",
