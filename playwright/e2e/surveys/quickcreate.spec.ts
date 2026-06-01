@@ -3,7 +3,7 @@ import { Page } from '@playwright/test'
 import { urls } from 'scenes/urls'
 
 import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 const saveFeatureFlag = async (page: Page): Promise<void> => {
     const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
@@ -86,13 +86,20 @@ const launchSurvey = async (page: Page, name: string): Promise<void> => {
     await expect(page.locator('[data-attr="stop-survey"]')).toBeVisible()
 }
 
-// CI is too slow, these all fail when run in parallel, will try to find a better solution soon
+// Run serially to keep per-test workspace setup off the critical path and avoid hammering
+// the setup endpoint with concurrent organization_with_team calls.
 test.describe.configure({ mode: 'serial' })
 
 test.describe('Quick create survey from feature flag', () => {
     let name: string
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page }) => {
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Dedicated empty workspace per test — no shared demo team, so the feature-flag
+        // list only contains the flag this test creates (see playwright-test-base deprecation).
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        await playwrightSetup.login(page, workspace)
+
         name = randomString('ff')
         await page.goto(urls.featureFlags())
         await expect(page.locator('h1')).toContainText('Feature flags')

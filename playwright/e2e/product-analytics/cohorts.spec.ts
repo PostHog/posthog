@@ -1,9 +1,16 @@
 import { CohortPage } from '../../page-models/cohortPage'
 import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Cohorts', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Dedicated empty workspace per test — no shared demo team, so the cohorts list
+        // only ever contains what this test creates (see playwright-test-base deprecation).
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        await playwrightSetup.login(page, workspace)
+
         await page.goToMenuItem('people')
         await page.goToMenuItem('cohorts')
 
