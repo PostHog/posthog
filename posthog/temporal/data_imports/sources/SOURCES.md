@@ -74,6 +74,7 @@ the row lists both.
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend        | HTTP                        | requests                                                        | ✅                          |
+| revenuecat    | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
@@ -113,7 +114,7 @@ fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, green
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, revenuecat, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
+recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
 square, surveymonkey, temporalio, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 
