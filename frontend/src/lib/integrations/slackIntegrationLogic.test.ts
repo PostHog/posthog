@@ -7,10 +7,11 @@ import { initKeaTests } from '~/test/init'
 import { SlackChannelType } from '~/types'
 
 import {
+    getRecentSlackChannelIds,
     RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT,
-    SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS,
-    slackIntegrationLogic,
-} from './slackIntegrationLogic'
+    recordRecentSlackChannel,
+} from './slackChannel'
+import { SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS, slackIntegrationLogic } from './slackIntegrationLogic'
 
 const FIXED_NOW = new Date('2026-01-01T12:00:00Z')
 
@@ -179,7 +180,53 @@ const fixtureChannel = (id: string, name: string, extra: Partial<SlackChannelTyp
     ...extra,
 })
 
-describe('slackIntegrationLogic — recently subscribed channels', () => {
+describe('recentSlackChannels store', () => {
+    beforeEach(() => {
+        window.localStorage.clear()
+    })
+
+    afterEach(() => {
+        window.localStorage.clear()
+    })
+
+    it('prepends, deduplicates, and moves an already-recorded channel back to the top', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(1, 'C2')
+        recordRecentSlackChannel(1, 'C1')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1', 'C2'])
+    })
+
+    it('persists to localStorage so the recency survives a fresh read', () => {
+        recordRecentSlackChannel(1, 'C7')
+        // A brand new read (no in-memory state) must see the persisted value.
+        expect(getRecentSlackChannelIds(1)).toEqual(['C7'])
+    })
+
+    it('scopes recency per integration id', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(2, 'C2')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1'])
+        expect(getRecentSlackChannelIds(2)).toEqual(['C2'])
+    })
+
+    it('caps the recency list at the configured limit and drops the oldest entries', () => {
+        for (let i = 0; i < RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 5; i++) {
+            recordRecentSlackChannel(1, `C${i}`)
+        }
+        const ids = getRecentSlackChannelIds(1)
+        expect(ids).toHaveLength(RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT)
+        expect(ids[0]).toBe(`C${RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 4}`)
+        expect(ids).not.toContain('C0')
+    })
+
+    it('ignores empty channel ids', () => {
+        recordRecentSlackChannel(1, 'C1')
+        recordRecentSlackChannel(1, '')
+        expect(getRecentSlackChannelIds(1)).toEqual(['C1'])
+    })
+})
+
+describe('slackIntegrationLogic — slackChannelsForPicker', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
     const allChannels = [
         fixtureChannel('C3', 'announcements'),
@@ -188,7 +235,6 @@ describe('slackIntegrationLogic — recently subscribed channels', () => {
     ]
 
     beforeEach(() => {
-        // kea-localstorage hydrates from localStorage on mount; clear so each test starts fresh.
         window.localStorage.clear()
         useMocks({
             get: {
@@ -208,63 +254,36 @@ describe('slackIntegrationLogic — recently subscribed channels', () => {
         window.localStorage.clear()
     })
 
-    it('sorts channels alphabetically by name when no recency is recorded', async () => {
+    it('leaves slackChannels in fetch order, sorting only the picker view', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                slackChannels: [
-                    expect.objectContaining({ id: 'C1', name: 'alerts' }),
-                    expect.objectContaining({ id: 'C3', name: 'announcements' }),
-                    expect.objectContaining({ id: 'C2', name: 'general' }),
-                ],
-            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C3', 'C1', 'C2'])
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C1', 'C3', 'C2'])
     })
 
     it('puts recently subscribed channels first (most recent first), then alphabetical', async () => {
+        recordRecentSlackChannel(1, 'C2')
+        recordRecentSlackChannel(1, 'C3')
+
         await expectLogic(logic, () => {
             logic.actions.loadAllSlackChannels()
-            logic.actions.recordSubscribedChannel('C2')
-            logic.actions.recordSubscribedChannel('C3')
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                slackChannels: [
-                    expect.objectContaining({ id: 'C3', name: 'announcements' }),
-                    expect.objectContaining({ id: 'C2', name: 'general' }),
-                    expect.objectContaining({ id: 'C1', name: 'alerts' }),
-                ],
-            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C3', 'C2', 'C1'])
     })
 
-    it('deduplicates and moves an already-recorded channel back to the top', async () => {
+    it('refreshes recency from the store each time channels load', async () => {
         await expectLogic(logic, () => {
-            logic.actions.recordSubscribedChannel('C1')
-            logic.actions.recordSubscribedChannel('C2')
-            logic.actions.recordSubscribedChannel('C1')
-        }).toMatchValues({
-            recentlySubscribedChannelIds: ['C1', 'C2'],
-        })
-    })
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C1', 'C3', 'C2'])
 
-    it('caps the recency list at the configured limit and drops the oldest entries', async () => {
+        recordRecentSlackChannel(1, 'C2')
         await expectLogic(logic, () => {
-            for (let i = 0; i < RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 5; i++) {
-                logic.actions.recordSubscribedChannel(`C${i}`)
-            }
-        }).toFinishListeners()
-        expect(logic.values.recentlySubscribedChannelIds).toHaveLength(RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT)
-        expect(logic.values.recentlySubscribedChannelIds[0]).toBe(`C${RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT + 4}`)
-        expect(logic.values.recentlySubscribedChannelIds).not.toContain('C0')
-    })
-
-    it('ignores empty channel ids', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.recordSubscribedChannel('C1')
-            logic.actions.recordSubscribedChannel('')
-        }).toMatchValues({
-            recentlySubscribedChannelIds: ['C1'],
-        })
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannelsForPicker.map((c) => c.id)).toEqual(['C2', 'C1', 'C3'])
     })
 })

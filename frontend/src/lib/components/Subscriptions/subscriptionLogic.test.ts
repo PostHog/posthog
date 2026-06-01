@@ -2,7 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
+import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
@@ -146,9 +146,6 @@ describe('subscriptionLogic', () => {
     })
 
     it('records the channel as recently subscribed when a slack subscription is saved', async () => {
-        const slackLogic = slackIntegrationLogic({ id: 7 })
-        slackLogic.mount()
-
         await expectLogic(newLogic, () => {
             newLogic.actions.submitSubscriptionSuccess({
                 target_type: 'slack',
@@ -157,14 +154,10 @@ describe('subscriptionLogic', () => {
             } as SubscriptionType)
         }).toFinishListeners()
 
-        expect(slackLogic.values.recentlySubscribedChannelIds).toEqual(['C123'])
-        slackLogic.unmount()
+        expect(getRecentSlackChannelIds(7)).toEqual(['C123'])
     })
 
     it('does not record anything for non-slack target types', async () => {
-        const slackLogic = slackIntegrationLogic({ id: 7 })
-        slackLogic.mount()
-
         await expectLogic(newLogic, () => {
             newLogic.actions.submitSubscriptionSuccess({
                 target_type: 'email',
@@ -173,7 +166,6 @@ describe('subscriptionLogic', () => {
             } as SubscriptionType)
         }).toFinishListeners()
 
-        expect(slackLogic.values.recentlySubscribedChannelIds).toEqual([])
-        slackLogic.unmount()
+        expect(getRecentSlackChannelIds(7)).toEqual([])
     })
 })

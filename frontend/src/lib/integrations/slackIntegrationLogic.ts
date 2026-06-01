@@ -1,8 +1,9 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { getRecentSlackChannelIds, slackChannelId } from 'lib/integrations/slackChannel'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SlackChannelType } from '~/types'
@@ -10,10 +11,6 @@ import { SlackChannelType } from '~/types'
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
 
 export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS = 30
-export const RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT = 20
-
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
 
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
@@ -25,7 +22,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
-        recordSubscribedChannel: (channelId: string) => ({ channelId }),
+        setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
     }),
 
     loaders(({ props }) => ({
@@ -52,7 +49,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         _fetchedSlackChannels: [
             [] as SlackChannelType[],
             {
@@ -66,30 +63,35 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             },
         ],
         recentlySubscribedChannelIds: [
-            [] as string[],
-            persistConfig,
+            getRecentSlackChannelIds(props.id),
             {
-                recordSubscribedChannel: (state, { channelId }) => {
-                    if (!channelId) {
-                        return state
-                    }
-                    const next = [channelId, ...state.filter((id) => id !== channelId)]
-                    return next.slice(0, RECENTLY_SUBSCRIBED_SLACK_CHANNELS_LIMIT)
-                },
+                setRecentlySubscribedChannelIds: (_, { channelIds }) => channelIds,
             },
         ],
-    }),
+    })),
+
+    listeners(({ props, actions }) => ({
+        loadAllSlackChannelsSuccess: () => {
+            actions.setRecentlySubscribedChannelIds(getRecentSlackChannelIds(props.id))
+        },
+    })),
 
     selectors({
         slackChannels: [
-            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById, s.recentlySubscribedChannelIds],
-            (_fetchedSlackChannels, _fetchedSlackChannelById, recentlySubscribedChannelIds): SlackChannelType[] => {
+            (s) => [s._fetchedSlackChannels, s._fetchedSlackChannelById],
+            (_fetchedSlackChannels, _fetchedSlackChannelById): SlackChannelType[] => {
                 const channels = [..._fetchedSlackChannels]
                 if (_fetchedSlackChannelById && !channels.find((x) => x.id === _fetchedSlackChannelById.id)) {
                     channels.push(_fetchedSlackChannelById)
                 }
+                return channels
+            },
+        ],
+        slackChannelsForPicker: [
+            (s) => [s.slackChannels, s.recentlySubscribedChannelIds],
+            (slackChannels, recentlySubscribedChannelIds): SlackChannelType[] => {
                 const recencyIndex = new Map(recentlySubscribedChannelIds.map((id, idx) => [id, idx]))
-                return channels.sort((a, b) => {
+                return [...slackChannels].sort((a, b) => {
                     const aRecency = recencyIndex.get(a.id) ?? Number.POSITIVE_INFINITY
                     const bRecency = recencyIndex.get(b.id) ?? Number.POSITIVE_INFINITY
                     if (aRecency !== bRecency) {
@@ -102,19 +104,15 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         isMemberOfSlackChannel: [
             (s) => [s.slackChannels],
             (slackChannels: SlackChannelType[]) => {
-                return (channel: string) => {
-                    const [channelId] = channel.split('|')
-                    return slackChannels.find((x) => x.id === channelId)?.is_member ?? false
-                }
+                return (channel: string) =>
+                    slackChannels.find((x) => x.id === slackChannelId(channel))?.is_member ?? false
             },
         ],
         isPrivateChannelWithoutAccess: [
             (s) => [s.slackChannels],
             (slackChannels: SlackChannelType[]) => {
-                return (channel: string) => {
-                    const [channelId] = channel.split('|')
-                    return slackChannels.find((x) => x.id === channelId)?.is_private_without_access ?? false
-                }
+                return (channel: string) =>
+                    slackChannels.find((x) => x.id === slackChannelId(channel))?.is_private_without_access ?? false
             },
         ],
         getChannelRefreshButtonDisabledReason: [
