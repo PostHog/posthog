@@ -1983,8 +1983,7 @@ def approve_run(
     # snapshots are always marked approved below, so they never hold the run open.
     snapshots = run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all()
     fully_resolved = not any(
-        _is_unresolved(s) and s.identifier not in approvals and s.result != SnapshotResult.REMOVED
-        for s in snapshots
+        _is_unresolved(s) and s.identifier not in approvals and s.result != SnapshotResult.REMOVED for s in snapshots
     )
 
     # Commit to GitHub first (only when finalizing) — before DB writes so we fail cleanly.
