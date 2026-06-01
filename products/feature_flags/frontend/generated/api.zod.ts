@@ -1053,7 +1053,7 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
  * Get feature flag keys by IDs.
 Accepts a list of feature flag IDs and returns a mapping of ID to key.
  */
-export const FeatureFlagsBulkKeysCreateBody = /* @__PURE__ */ zod.object({
+export const FeatureFlagsBulkKeysRetrieveBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.unknown())
         .optional()
