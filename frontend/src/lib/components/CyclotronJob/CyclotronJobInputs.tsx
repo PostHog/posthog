@@ -53,6 +53,11 @@ const INPUT_TYPE_LIST = [
     'non_failure_status_codes',
 ] as const
 
+const INPUT_TYPE_LABELS: Partial<Record<(typeof INPUT_TYPE_LIST)[number], string>> = {
+    native_email: 'Native email',
+    non_failure_status_codes: 'Non-failure codes',
+}
+
 const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
 
 function isValidNonFailureStatusCode(entry: string): boolean {
@@ -693,11 +698,11 @@ function CyclotronJobInputSchemaControls({
                 <LemonSelect
                     size="small"
                     options={INPUT_TYPE_LIST.map((type) => ({
-                        label: capitalizeFirstLetter(type),
+                        label: INPUT_TYPE_LABELS[type] ?? capitalizeFirstLetter(type),
                         value: type,
                     }))}
                     value={value.type}
-                    className="w-30"
+                    className="min-w-40"
                     onChange={(type) => _onChange({ type })}
                 />
                 <LemonCheckbox
