@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { getAuthorizationServerUrl, getBaseUrlForRegion, isCloudApi, isLocalApi, toCloudRegion } from '@/lib/constants'
+import {
+    getAuthorizationServerUrl,
+    getBaseUrlForRegion,
+    getPublicAppBaseUrl,
+    isCloudApi,
+    isLocalApi,
+    toCloudRegion,
+} from '@/lib/constants'
+import type { CloudRegion } from '@/tools/types'
 
 describe('OAuth Region Routing', () => {
     const originalEnv = { ...process.env }
@@ -81,6 +89,69 @@ describe('OAuth Region Routing', () => {
 
         it('returns US URL for us region', () => {
             expect(getBaseUrlForRegion('us')).toBe('https://us.posthog.com')
+        })
+    })
+
+    describe('getPublicAppBaseUrl', () => {
+        const INTERNAL = 'http://posthog-web-django.posthog.svc.cluster.local:8000'
+
+        it('prefers SITE_URL when set, even over an internal API base', () => {
+            process.env.POSTHOG_API_BASE_URL = INTERNAL
+            process.env.SITE_URL = 'https://eu.posthog.com'
+            expect(getPublicAppBaseUrl('us')).toBe('https://eu.posthog.com')
+        })
+
+        it.each<{ name: string; apiBaseUrl: string | undefined; region: CloudRegion | undefined; expected: string }>([
+            {
+                name: 'internal cluster API base, eu region -> public EU',
+                apiBaseUrl: INTERNAL,
+                region: 'eu',
+                expected: 'https://eu.posthog.com',
+            },
+            {
+                name: 'internal cluster API base, us region -> public US',
+                apiBaseUrl: INTERNAL,
+                region: 'us',
+                expected: 'https://us.posthog.com',
+            },
+            {
+                name: 'internal cluster API base, unknown region -> defaults to public US',
+                apiBaseUrl: INTERNAL,
+                region: undefined,
+                expected: 'https://us.posthog.com',
+            },
+            {
+                name: 'public cloud API base is already user-reachable -> used as-is',
+                apiBaseUrl: 'https://eu.posthog.com',
+                region: undefined,
+                expected: 'https://eu.posthog.com',
+            },
+            {
+                name: 'self-hosted API base is the public URL -> used as-is',
+                apiBaseUrl: 'https://posthog.example.com',
+                region: undefined,
+                expected: 'https://posthog.example.com',
+            },
+            {
+                name: 'local dev API base -> used as-is',
+                apiBaseUrl: 'http://localhost:8010',
+                region: undefined,
+                expected: 'http://localhost:8010',
+            },
+            {
+                name: 'unset API base, eu region -> public EU',
+                apiBaseUrl: undefined,
+                region: 'eu',
+                expected: 'https://eu.posthog.com',
+            },
+        ])('$name', ({ apiBaseUrl, region, expected }) => {
+            delete process.env.SITE_URL
+            if (apiBaseUrl === undefined) {
+                delete process.env.POSTHOG_API_BASE_URL
+            } else {
+                process.env.POSTHOG_API_BASE_URL = apiBaseUrl
+            }
+            expect(getPublicAppBaseUrl(region)).toBe(expected)
         })
     })
 

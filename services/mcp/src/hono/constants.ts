@@ -9,6 +9,7 @@ export {
     toCloudRegion,
     getBaseUrlForRegion,
     getCustomApiBaseUrl,
+    getPublicAppBaseUrl,
     getAuthorizationServerUrl,
     MCP_DOCS_URL,
     OAUTH_PROXY_URL,
@@ -22,6 +23,7 @@ export function getEnv(): Env {
     }
     return {
         POSTHOG_API_BASE_URL: process.env.POSTHOG_API_BASE_URL || undefined,
+        SITE_URL: process.env.SITE_URL || undefined,
         MCP_APPS_BASE_URL: process.env.MCP_APPS_BASE_URL || undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || undefined,
         POSTHOG_UI_APPS_TOKEN: process.env.POSTHOG_UI_APPS_TOKEN || undefined,

@@ -79,6 +79,36 @@ export const isCloudApi = (): boolean => {
 
 export const isLocalApi = (): boolean => !!getCustomApiBaseUrl()?.includes('localhost')
 
+// In-cluster Service addresses are reachable for server-to-server API calls but must never
+// appear in user-facing links (e.g. http://posthog-web-django.posthog.svc.cluster.local:8000).
+const isInternalClusterUrl = (url: string): boolean => {
+    try {
+        return new URL(url).hostname.endsWith('.svc.cluster.local')
+    } catch {
+        return false
+    }
+}
+
+// Public, user-facing base URL for links we surface to people (insight/dashboard/flag URLs).
+// Deliberately separate from the API base URL: on Cloud the server reaches the PostHog API over
+// an in-cluster address that must not leak into links. Resolution order:
+//   1. SITE_URL — the public app URL, same convention as the rest of PostHog (set per deployment)
+//   2. the API base URL — when it's already user-reachable (public cloud, self-hosted, local dev)
+//   3. the region's public URL — when the API base is an in-cluster address (or unset)
+export const getPublicAppBaseUrl = (region?: CloudRegion): string => {
+    const siteUrl = env.SITE_URL
+    if (siteUrl) {
+        return siteUrl
+    }
+
+    const apiBaseUrl = getCustomApiBaseUrl()
+    if (apiBaseUrl && !isInternalClusterUrl(apiBaseUrl)) {
+        return apiBaseUrl
+    }
+
+    return getBaseUrlForRegion(region ?? 'us')
+}
+
 export const resolveAuthorizationServerUrl = (): string => {
     if (isCloudApi()) {
         return OAUTH_PROXY_URL

@@ -24,6 +24,28 @@ describe('ApiClient', () => {
         expect(baseUrl).toBe(customUrl)
     })
 
+    describe('getProjectBaseUrl', () => {
+        it('uses appBaseUrl for user-facing project links, not the API baseUrl', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'http://posthog-web-django.posthog.svc.cluster.local:8000',
+                appBaseUrl: 'https://us.posthog.com',
+            })
+
+            expect(client.getProjectBaseUrl('123')).toBe('https://us.posthog.com/project/123')
+            expect(client.getProjectBaseUrl('@current')).toBe('https://us.posthog.com')
+        })
+
+        it('falls back to baseUrl when appBaseUrl is not provided', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'https://us.posthog.com',
+            })
+
+            expect(client.getProjectBaseUrl('123')).toBe('https://us.posthog.com/project/123')
+        })
+    })
+
     it('should send correct headers on fetch', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)

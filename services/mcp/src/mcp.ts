@@ -11,6 +11,7 @@ import { DurableObjectCache } from '@/lib/cache/DurableObjectCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import {
     getCustomApiBaseUrl,
+    getPublicAppBaseUrl,
     MCP_SERVER_NAME,
     MCP_SERVER_VERSION,
     POSTHOG_EU_BASE_URL,
@@ -218,25 +219,27 @@ export class MCP extends McpAgent<Env> {
         return undefined
     }
 
-    async getBaseUrl(): Promise<string> {
+    async getBaseUrl(): Promise<{ baseUrl: string; region: CloudRegion | undefined }> {
+        // Region from request props first (passed via URL param); it also refines the public
+        // app URL used for user-facing links even when the API base is a custom/in-cluster address.
+        const propsRegion = this.requestProperties.region
+        const region: CloudRegion | undefined = propsRegion ? toCloudRegion(propsRegion) : undefined
+
         const customBaseUrl = getCustomApiBaseUrl()
         if (customBaseUrl) {
-            return customBaseUrl
+            return { baseUrl: customBaseUrl, region }
         }
 
-        // Check region from request props first (passed via URL param), then cache, then detect
-        const propsRegion = this.requestProperties.region
-        if (propsRegion) {
-            const region = toCloudRegion(propsRegion)
+        if (region) {
             // Cache it for future requests
             await this.cache.set('region', region)
-            return getBaseUrlForRegion(region)
+            return { baseUrl: getBaseUrlForRegion(region), region }
         }
 
         const cachedRegion = await this.cache.get('region')
-        const region = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
+        const resolved = cachedRegion ? toCloudRegion(cachedRegion) : await this.detectRegion()
 
-        return getBaseUrlForRegion(region || 'us')
+        return { baseUrl: getBaseUrlForRegion(resolved || 'us'), region: resolved ?? undefined }
     }
 
     async api(): Promise<ApiClient> {
@@ -245,11 +248,13 @@ export class MCP extends McpAgent<Env> {
         // during init() — e.g. the `context.api` passed to every tool handler
         // in getContext() — seeing the latest token on subsequent fetches.
         if (!this._api) {
-            const baseUrl = await this.getBaseUrl()
+            const { baseUrl, region } = await this.getBaseUrl()
             await this.resolveClientInfo()
             this._api = new ApiClient({
                 apiToken: this.requestProperties.apiToken,
                 baseUrl,
+                // User-facing links must use the public app URL, never the in-cluster API base.
+                appBaseUrl: getPublicAppBaseUrl(region),
                 clientUserAgent: this.requestProperties.clientUserAgent,
                 mcpClientName: this.mcpClientName,
                 mcpClientVersion: this.mcpClientVersion,

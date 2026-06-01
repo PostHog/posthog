@@ -89,6 +89,12 @@ export interface QueryEndpointResponse {
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    /**
+     * Public, user-facing base URL for links surfaced to people (insights, dashboards, flags).
+     * Separate from `baseUrl`, which is the server-to-server API host and may be an in-cluster
+     * address on Cloud. Defaults to `baseUrl` when not provided.
+     */
+    appBaseUrl?: string | undefined
     clientUserAgent?: string | undefined
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
@@ -104,18 +110,20 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
+    public appBaseUrl: string
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
+        this.appBaseUrl = config.appBaseUrl ?? config.baseUrl
     }
 
     getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
-            return this.baseUrl
+            return this.appBaseUrl
         }
 
-        return `${this.baseUrl}/project/${projectId}`
+        return `${this.appBaseUrl}/project/${projectId}`
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {

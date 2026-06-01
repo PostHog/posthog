@@ -15,7 +15,7 @@ import { hash } from '@/lib/utils'
 import type { Context, Env, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
-import { getCustomApiBaseUrl } from './constants'
+import { getCustomApiBaseUrl, getPublicAppBaseUrl, toCloudRegion } from './constants'
 import {
     buildMCPRequestContext,
     buildMCPSessionAnalyticsProperties,
@@ -92,9 +92,11 @@ export class RequestContext {
             } else {
                 baseUrl = 'http://localhost:8010'
             }
+            const region = this.props.region ? toCloudRegion(this.props.region) : undefined
             this.apiInstance = new ApiClient({
                 apiToken: this.props.apiToken,
                 baseUrl,
+                appBaseUrl: getPublicAppBaseUrl(region),
                 clientUserAgent: this.props.clientUserAgent,
                 mcpClientName: this.props.mcpClientName,
                 mcpClientVersion: this.props.mcpClientVersion,

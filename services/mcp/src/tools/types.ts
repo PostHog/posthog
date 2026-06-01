@@ -51,6 +51,17 @@ export type Env = {
      */
     POSTHOG_API_BASE_URL: string | undefined
     /**
+     * Public, user-facing PostHog app URL for links we surface to people
+     * (insight/dashboard/flag URLs, etc). Same meaning as Django's SITE_URL — set it to the
+     * public app URL for this deployment.
+     *
+     * Set this when POSTHOG_API_BASE_URL points at an in-cluster address that must not
+     * leak into links — e.g. on Cloud, set it per region to https://us.posthog.com or
+     * https://eu.posthog.com. When unset, links fall back to the API base URL (correct
+     * for public-cloud, self-hosted, and local deployments).
+     */
+    SITE_URL?: string | undefined
+    /**
      * Base URL for serving MCP UI app static assets.
      * When using Workers Static Assets, this is the Worker's own public URL.
      * Example: https://mcp.posthog.com

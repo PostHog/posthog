@@ -64,7 +64,7 @@ function buildMcp(initialToken: string): MCP {
             },
         },
     }
-    ;(mcp as any).getBaseUrl = async () => 'https://us.posthog.com'
+    ;(mcp as any).getBaseUrl = async () => ({ baseUrl: 'https://us.posthog.com', region: 'us' })
     ;(mcp as any).resolveClientInfo = async () => {}
     return mcp
 }
