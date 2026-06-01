@@ -1,8 +1,5 @@
 import React from 'react'
 
-import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
-import { isObject } from 'lib/utils'
-
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -10,6 +7,7 @@ import {
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessage, normalizeMessages } from '../utils'
 import { AIDataLoading } from './AIDataLoading'
+import { JSONValueDisplay } from './JSONValueDisplay'
 
 interface EventContentGenerationProps {
     eventId: string
@@ -113,11 +111,7 @@ export function EventContentDisplayAsync({
             <div>
                 <h3 className="font-semibold mb-2">Input</h3>
                 <div className="p-2 bg-surface-secondary rounded text-xs overflow-auto">
-                    {isObject(input) ? (
-                        <HighlightedJSONViewer src={input} name={null} collapsed={5} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={input} />
                 </div>
             </div>
             <div>
@@ -127,11 +121,7 @@ export function EventContentDisplayAsync({
                         raisedError ? 'bg-danger-highlight' : 'bg-surface-secondary'
                     }`}
                 >
-                    {isObject(output) ? (
-                        <HighlightedJSONViewer src={output} name={null} collapsed={5} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={output} />
                 </div>
             </div>
         </div>

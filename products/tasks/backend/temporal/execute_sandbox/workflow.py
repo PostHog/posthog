@@ -96,6 +96,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
+from products.tasks.backend.temporal.process_task.credential_refresh import run_credential_refresh_loop
 from products.tasks.backend.temporal.utils import log_on_fail
 
 # Names of signals this workflow sends back to the TaskManagement parent. Kept
@@ -361,6 +362,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         self._parent_workflow_id = input.parent_workflow_id
         self._slack_thread_context = input.slack_thread_context
         self._sandbox_id_for_cleanup = None
+        credential_refresh_task: asyncio.Task[None] | None = None
 
         try:
             # Reap any orphaned sandbox left by a prior execution under this
@@ -407,6 +409,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             )
 
             relay_task = asyncio.ensure_future(self._relay_sandbox_events(agent_server_output, sandbox_id=sandbox_id))
+
+            if self.context.has_github_credentials:
+                credential_refresh_task = asyncio.ensure_future(run_credential_refresh_loop(self.context, sandbox_id))
 
             if self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
@@ -534,6 +539,9 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # point on are rejected so the orchestrator's retry path can
             # route them to a fresh sandbox instead of waiting on us.
             self._shutting_down = True
+
+            if credential_refresh_task is not None:
+                await self._cancel_relay(credential_refresh_task)
 
             cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
             if cleanup_sandbox_id:

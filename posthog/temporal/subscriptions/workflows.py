@@ -179,6 +179,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         # even on early returns (no-assets SKIPPED) or exceptions before the summary
         # activity runs.
         change_summary: str | None = None
+        summary_skipped_over_budget = False
 
         try:
             # Create delivery history record — uuid4() is deterministic across
@@ -302,6 +303,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                         retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                     )
                     change_summary = snapshot_result.summary_text
+                    summary_skipped_over_budget = snapshot_result.summary_skipped_over_budget
                 except Exception:
                     temporalio.workflow.logger.warning(
                         "process_subscription.snapshot_failed",
@@ -325,6 +327,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     previous_value=inputs.previous_value,
                     invite_message=inputs.invite_message,
                     change_summary=change_summary,
+                    summary_skipped_over_budget=summary_skipped_over_budget,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=5),
                 retry_policy=temporalio.common.RetryPolicy(
