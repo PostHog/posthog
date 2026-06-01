@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1191_delete_relationless_subscriptions")]
+    dependencies = [("posthog", "1192_id_jag_organization_domain_fields")]
 
     operations = [
         migrations.AddField(
