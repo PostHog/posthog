@@ -1,7 +1,7 @@
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { TeamManager } from '../../../utils/team-manager'
-import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
 
@@ -35,7 +35,7 @@ export class PersonsManagerService {
 
     constructor(
         private teamManager: TeamManager,
-        private personRepository: PersonRepository,
+        private personRepository: PersonReadRepository,
         private siteUrl: string
     ) {
         this.lazyLoaderByPersonId = new LazyLoader({

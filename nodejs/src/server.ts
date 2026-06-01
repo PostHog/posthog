@@ -30,7 +30,8 @@ import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
+import { buildGroupRepository, createPersonHogClient } from './ingestion/personhog'
+import { PersonHogReadRepository } from './ingestion/personhog/personhog-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -42,8 +43,7 @@ import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
-import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
-import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
+import { PersonReadRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -362,7 +362,7 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PersonRepository
+        personRepository: PersonReadRepository
         groupRepository: GroupRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
@@ -374,16 +374,13 @@ export class PluginServer implements NodeServer {
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 
-        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
-            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-        })
-        const personRepository = buildPersonRepository(
-            personhogClient,
-            postgresPersonRepository,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
+        if (!personhogClient) {
+            throw new Error('PersonHog client is required for CDP — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR')
+        }
+
+        const personRepository = new PersonHogReadRepository(personhogClient, clientLabel)
+
+        // Groups still use the old rollout-based repository for now
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
         const groupRepository = buildGroupRepository(
             personhogClient,
