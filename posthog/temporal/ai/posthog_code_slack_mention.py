@@ -28,10 +28,6 @@ from products.tasks.backend.services.agent_command import send_user_message
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
-# Imports from `products.slack_app.backend.api` stay inline: that module imports
-# `PostHogCodeSlackMentionWorkflow*` from this one, so a top-level import would
-# create a circular dependency.
-
 logger = structlog.get_logger(__name__)
 
 
@@ -520,6 +516,11 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             )
 
 
+# `api.py` imports the workflow classes above, so keep this module-level import
+# after their definitions to avoid a circular import during module initialization.
+from products.slack_app.backend.api import resolve_slack_user  # noqa: E402
+
+
 async def _gate_on_personal_github(
     inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
@@ -576,8 +577,6 @@ def resolve_posthog_code_slack_user_activity(
     thread_ts: str,
     slack_user_id: str,
 ) -> int | None:
-    from products.slack_app.backend.api import resolve_slack_user
-
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
         kind="slack-posthog-code",
@@ -1330,8 +1329,6 @@ def forward_posthog_code_followup_activity(
 
     followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
-        from products.slack_app.backend.api import resolve_slack_user
-
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
         # — if so, let them participate; the message is still relayed in the original
