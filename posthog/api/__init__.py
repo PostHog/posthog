@@ -20,18 +20,18 @@ import products.tasks.backend.api as tasks
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
-import products.early_access_features.backend.api as early_access_feature
-import products.customer_analytics.backend.api.views as customer_analytics
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
 from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.conversations.backend.routes import register_routes as register_conversations_routes
+from products.customer_analytics.backend.routes import register_routes as register_customer_analytics_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.routes import register_routes as register_data_modeling_routes
 from products.data_warehouse.backend.routes import register_routes as register_data_warehouse_routes
 from products.deployments.backend.routes import register_routes as register_deployments_routes
 from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
+from products.early_access_features.backend.routes import register_routes as register_early_access_features_routes
 from products.endpoints.backend.routes import register_routes as register_endpoints_routes
 from products.error_tracking.backend.routes import register_routes as register_error_tracking_routes
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
@@ -47,27 +47,13 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.routes import register_routes as register_notifications_routes
 from products.posthog_ai.backend.routes import register_routes as register_posthog_ai_routes
 from products.product_tours.backend.routes import register_routes as register_product_tours_routes
-from products.replay_vision.backend.api import (
-    ReplayObservationViewSet,
-    ReplayScannerViewSet,
-    SessionReplayObservationViewSet,
-    VisionQuotaViewSet,
-)
+from products.replay_vision.backend.routes import register_routes as register_replay_vision_routes
 from products.revenue_analytics.backend.routes import register_routes as register_revenue_analytics_routes
 from products.signals.backend.views import SignalViewSet
 from products.surveys.backend.routes import register_routes as register_survey_routes
 from products.tracing.backend.routes import register_routes as register_tracing_routes
-from products.user_interviews.backend.presentation.views import (
-    IntervieweeContextViewSet,
-    UserInterviewTopicViewSet,
-    UserInterviewViewSet,
-)
-from products.visual_review.backend.presentation.views import (
-    RepoRunsViewSet as VisualReviewRepoRunsViewSet,
-    RepoViewSet as VisualReviewRepoViewSet,
-    RunViewSet as VisualReviewRunViewSet,
-    SnapshotViewSet as VisualReviewSnapshotViewSet,
-)
+from products.user_interviews.backend.routes import register_routes as register_user_interviews_routes
+from products.visual_review.backend.routes import register_routes as register_visual_review_routes
 from products.web_analytics.backend.routes import register_routes as register_web_analytics_routes
 from products.wizard.backend.routes import register_routes as register_wizard_routes
 from products.workflows.backend.routes import register_routes as register_workflows_routes
@@ -162,6 +148,12 @@ projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "proj
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+register_visual_review_routes(routers)
+register_user_interviews_routes(routers)
+register_replay_vision_routes(routers)
+project_notebooks_router = projects_router.register(r"notebooks", NotebookViewSet, "project_notebooks", ["project_id"])
+register_early_access_features_routes(routers)
+register_customer_analytics_routes(routers)
 register_data_warehouse_routes(routers)
 register_ai_observability_routes(routers)
 # mcp_store registers a root-level route plus dual project/environment routes, so it
@@ -275,12 +267,6 @@ project_feature_flags_router = projects_router.register(
     "project_feature_flags",
     ["project_id"],
 )
-project_features_router = projects_router.register(
-    r"early_access_feature",
-    early_access_feature.EarlyAccessFeatureViewSet,
-    "project_early_access_feature",
-    ["project_id"],
-)
 register_wizard_routes(routers)
 register_deployments_routes(routers)
 
@@ -365,39 +351,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"customer_profile_configs",
-    customer_analytics.CustomerProfileConfigViewSet,
-    "project_customer_profile_configs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"customer_journeys",
-    customer_analytics.CustomerJourneyViewSet,
-    "project_customer_journeys",
-    ["team_id"],
-)
-
-project_accounts_router, environment_accounts_router = register_legacy_dual_route_team_nested_viewset(
-    r"accounts",
-    customer_analytics.AccountViewSet,
-    "project_accounts",
-    ["team_id"],
-)
-
-environment_accounts_router.register(
-    r"notebooks",
-    customer_analytics.AccountNotebookViewSet,
-    "environment_account_notebooks",
-    ["team_id", "account_id"],
-)
-project_accounts_router.register(
-    r"notebooks",
-    customer_analytics.AccountNotebookViewSet,
-    "project_account_notebooks",
-    ["team_id", "account_id"],
-)
 
 projects_router.register(
     r"data_management",
@@ -832,12 +785,6 @@ legacy_project_session_recordings_router.register(
     ["team_id", "recording_id"],
 )
 
-project_notebooks_router = projects_router.register(
-    r"notebooks",
-    NotebookViewSet,
-    "project_notebooks",
-    ["project_id"],
-)
 
 project_notebooks_router.register(
     r"sharing",
@@ -1034,56 +981,6 @@ register_metrics_routes(routers)
 
 register_endpoints_routes(routers)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"user_interviews",
-    UserInterviewViewSet,
-    "project_user_interviews",
-    ["team_id"],
-)
-
-project_user_interview_topics_router, user_interview_topics_router = register_legacy_dual_route_team_nested_viewset(
-    r"user_interview_topics",
-    UserInterviewTopicViewSet,
-    "project_user_interview_topics",
-    ["team_id"],
-)
-user_interview_topics_router.register(
-    r"interviewees",
-    IntervieweeContextViewSet,
-    "environment_user_interview_topic_interviewees",
-    ["team_id", "topic_id"],
-)
-project_user_interview_topics_router.register(
-    r"interviewees",
-    IntervieweeContextViewSet,
-    "project_user_interview_topic_interviewees",
-    ["team_id", "topic_id"],
-)
-
-visual_review_repos_router = projects_router.register(
-    r"visual_review/repos",
-    VisualReviewRepoViewSet,
-    "project_visual_review_repos",
-    ["project_id"],
-)
-visual_review_repos_router.register(
-    r"snapshots",
-    VisualReviewSnapshotViewSet,
-    "project_visual_review_snapshots",
-    ["project_id", "repo_id"],
-)
-visual_review_repos_router.register(
-    r"runs",
-    VisualReviewRepoRunsViewSet,
-    "project_visual_review_repo_runs",
-    ["project_id", "repo_id"],
-)
-projects_router.register(
-    r"visual_review/runs",
-    VisualReviewRunViewSet,
-    "project_visual_review_runs",
-    ["project_id"],
-)
 
 register_tracing_routes(routers)
 
@@ -1109,37 +1006,6 @@ projects_router.register(
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
-
-project_vision_scanners_router, environment_vision_scanners_router = register_legacy_dual_route_team_nested_viewset(
-    r"vision/scanners",
-    ReplayScannerViewSet,
-    "project_vision_scanners",
-    ["team_id"],
-)
-environment_vision_scanners_router.register(
-    r"observations",
-    ReplayObservationViewSet,
-    "environment_vision_scanner_observations",
-    ["team_id", "scanner_id"],
-)
-project_vision_scanners_router.register(
-    r"observations",
-    ReplayObservationViewSet,
-    "project_vision_scanner_observations",
-    ["team_id", "scanner_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"vision/observations",
-    SessionReplayObservationViewSet,
-    "project_vision_observations",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"vision/quota",
-    VisionQuotaViewSet,
-    "project_vision_quota",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"change_requests",
