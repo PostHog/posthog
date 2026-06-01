@@ -89,12 +89,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Install sccache
-              uses: ./.github/actions/setup-sccache
-
             - name: Build affected-services tool
-              working-directory: rust
-              run: cargo build -p affected-services --release --locked
+              uses: ./.github/actions/rust-build-affected-services
 
             - name: Compute affected crates
               id: affected
@@ -285,8 +281,8 @@ jobs:
                   else
                       echo "Building affected crates: $crates"
                       cargo build $crates --locked --release
+                      find target/release/ -maxdepth 1 -executable -type f | xargs strip
                   fi
-                  find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
         name: Test Rust (${{ matrix.packages }})

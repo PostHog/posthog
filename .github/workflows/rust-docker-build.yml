@@ -53,6 +53,7 @@ jobs:
                       proto/
                       .github/rust-images.yml
                       .github/actions/setup-protoc/
+                      .github/actions/rust-build-affected-services/
                   sparse-checkout-cone-mode: false
                   clean: false
 
@@ -65,8 +66,7 @@ jobs:
               uses: ./.github/actions/setup-protoc
 
             - name: Build affected-services tool
-              working-directory: rust
-              run: cargo build -p affected-services --release --locked
+              uses: ./.github/actions/rust-build-affected-services
 
             - name: Compute affected images
               id: compute

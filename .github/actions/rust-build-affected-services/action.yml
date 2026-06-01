@@ -1,0 +1,28 @@
+name: Build affected-services
+description: |
+    Builds the affected-services binary with caching. The compiled binary
+    is cached keyed on its source files + Cargo.lock, so it's only
+    recompiled when the tool itself changes (rare).
+
+runs:
+    using: composite
+    steps:
+        - name: Restore cached binary
+          id: cache
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}
+
+        - name: Build on cache miss
+          if: steps.cache.outputs.cache-hit != 'true'
+          shell: bash
+          working-directory: rust
+          run: cargo build -p affected-services --release --locked
+
+        - name: Save binary to cache
+          if: steps.cache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}

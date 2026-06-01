@@ -1,25 +1,19 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use cargo_metadata::{DependencyKind, Metadata, MetadataCommand};
 use clap::{Parser, ValueEnum};
+use determinator::Determinator;
+use determinator::rules::DeterminatorRules;
+use guppy::graph::{DependencyDirection, PackageGraph};
+use guppy::MetadataCommand;
 use serde::Serialize;
 
-const REBUILD_ALL_FILES: &[&str] = &[
-    "rust/Cargo.toml",
-    "rust/Cargo.lock",
-    "rust/Dockerfile",
-    "rust/Dockerfile.sqlx-migrate",
-    ".github/rust-images.yml",
-];
+const RULES_TOML: &str = include_str!("../determinator-rules.toml");
 
-const REBUILD_ALL_PREFIXES: &[&str] = &["rust/.cargo/", "rust/.sqlx/"];
-
-const EXTERNAL_CRATE_TRIGGERS: &[(&str, &[&str])] =
-    &[("proto/", &["personhog-proto", "kafka-assigner-proto"])];
+const WORKSPACE_PREFIX: &str = "rust/";
 
 const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
     "sqlx-migrate",
@@ -110,11 +104,85 @@ fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-fn get_cargo_metadata(workspace_dir: &Path) -> Result<Metadata> {
-    MetadataCommand::new()
-        .current_dir(workspace_dir)
-        .exec()
-        .context("failed to run cargo metadata")
+fn build_package_graph(workspace_dir: &Path) -> Result<PackageGraph> {
+    let mut cmd = MetadataCommand::new();
+    cmd.current_dir(workspace_dir);
+    cmd.build_graph()
+        .context("failed to build package graph from cargo metadata")
+}
+
+// ── Old graph from base revision ──────────────────────────────────
+
+struct TempWorktree {
+    path: PathBuf,
+}
+
+impl TempWorktree {
+    fn create(base_ref: &str) -> Result<Self> {
+        let path =
+            std::env::temp_dir().join(format!("affected-services-{}", std::process::id()));
+        let out = Command::new("git")
+            .args([
+                "worktree",
+                "add",
+                "--detach",
+                &path.to_string_lossy(),
+                base_ref,
+            ])
+            .output()
+            .context("failed to create git worktree")?;
+        anyhow::ensure!(
+            out.status.success(),
+            "git worktree add failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempWorktree {
+    fn drop(&mut self) {
+        let _ = Command::new("git")
+            .args([
+                "worktree",
+                "remove",
+                "--force",
+                &self.path.to_string_lossy(),
+            ])
+            .status();
+    }
+}
+
+fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<PackageGraph> {
+    let worktree = match TempWorktree::create(base_ref) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("warning: could not create worktree at {base_ref}: {e}");
+            return None;
+        }
+    };
+
+    let old_workspace = worktree.path().join(workspace_subdir);
+    if !old_workspace.join("Cargo.toml").exists() {
+        eprintln!("warning: {base_ref} has no {workspace_subdir}/Cargo.toml");
+        return None;
+    }
+
+    let mut cmd = MetadataCommand::new();
+    cmd.current_dir(&old_workspace);
+    // --frozen: use Cargo.lock exactly, no network access
+    cmd.other_options(["--frozen"]);
+    match cmd.build_graph() {
+        Ok(graph) => Some(graph),
+        Err(e) => {
+            eprintln!("warning: could not build old package graph: {e}");
+            None
+        }
+    }
 }
 
 fn parse_images_yaml(path: &Path) -> Result<Vec<ImageConfig>> {
@@ -158,152 +226,32 @@ fn apply_field(config: &mut ImageConfig, line: &str) {
     }
 }
 
-// ── Graph construction ─────────────────────────────────────────────
+// ── Path transformation ───────────────────────────────────────────
 
-fn build_directory_to_crate_map(metadata: &Metadata, repo_root: &Path) -> HashMap<String, String> {
-    let members: HashSet<_> = metadata.workspace_members.iter().collect();
-    let repo_root_str = repo_root.to_string_lossy();
-
-    let mut map = HashMap::new();
-    for pkg in &metadata.packages {
-        if !members.contains(&pkg.id) {
-            continue;
-        }
-        let crate_dir = pkg.manifest_path.parent().unwrap();
-        let crate_dir_str = crate_dir.as_str();
-        if let Some(rel) = crate_dir_str.strip_prefix(repo_root_str.as_ref()) {
-            let rel = rel.trim_start_matches('/');
-            map.insert(rel.to_string(), pkg.name.clone());
-        }
+/// Convert repo-root-relative paths to workspace-relative paths.
+///
+/// `rust/capture/src/main.rs` → `capture/src/main.rs`
+/// `proto/personhog.proto`    → `../proto/personhog.proto`
+fn to_workspace_relative(repo_path: &str) -> String {
+    if let Some(rest) = repo_path.strip_prefix(WORKSPACE_PREFIX) {
+        rest.to_string()
+    } else {
+        format!("../{repo_path}")
     }
-    map
 }
 
-fn build_reverse_dep_graph(metadata: &Metadata) -> HashMap<String, HashSet<String>> {
-    let members: HashSet<_> = metadata.workspace_members.iter().collect();
-    let id_to_name: HashMap<_, _> = metadata
-        .packages
-        .iter()
-        .filter(|p| members.contains(&p.id))
-        .map(|p| (&p.id, p.name.as_str()))
-        .collect();
+// ── Image mapping ─────────────────────────────────────────────────
 
-    let mut reverse: HashMap<String, HashSet<String>> = id_to_name
-        .values()
-        .map(|name| (name.to_string(), HashSet::new()))
-        .collect();
-
-    if let Some(resolve) = &metadata.resolve {
-        for node in &resolve.nodes {
-            let Some(depender) = id_to_name.get(&node.id) else {
-                continue;
-            };
-            for dep in &node.deps {
-                let Some(dep_name) = id_to_name.get(&dep.pkg) else {
-                    continue;
-                };
-                let is_dev_only = !dep.dep_kinds.is_empty()
-                    && dep
-                        .dep_kinds
-                        .iter()
-                        .all(|dk| dk.kind == DependencyKind::Development);
-                if !is_dev_only {
-                    if let Some(set) = reverse.get_mut(*dep_name) {
-                        set.insert(depender.to_string());
-                    }
-                }
-            }
-        }
-    }
-    reverse
-}
-
-fn build_binary_to_crate_map(metadata: &Metadata) -> HashMap<String, String> {
-    let members: HashSet<_> = metadata.workspace_members.iter().collect();
+fn build_binary_to_crate_map(graph: &PackageGraph) -> HashMap<String, String> {
     let mut map = HashMap::new();
-    for pkg in &metadata.packages {
-        if !members.contains(&pkg.id) {
-            continue;
-        }
-        for target in &pkg.targets {
-            if target.is_bin() {
-                map.insert(target.name.clone(), pkg.name.clone());
+    for member in graph.workspace().iter() {
+        for target in member.build_targets() {
+            if let guppy::graph::BuildTargetId::Binary(name) = target.id() {
+                map.insert(name.to_string(), member.name().to_string());
             }
         }
     }
     map
-}
-
-// ── Core logic ─────────────────────────────────────────────────────
-
-fn classify_changed_files(
-    files: &[String],
-    dir_to_crate: &HashMap<String, String>,
-) -> (HashSet<String>, bool) {
-    if files.is_empty() {
-        return (HashSet::new(), false);
-    }
-
-    let mut changed = HashSet::new();
-
-    for f in files {
-        if REBUILD_ALL_FILES.iter().any(|&r| r == f) {
-            return (HashSet::new(), true);
-        }
-        if REBUILD_ALL_PREFIXES.iter().any(|p| f.starts_with(p)) {
-            return (HashSet::new(), true);
-        }
-        for &(prefix, crates) in EXTERNAL_CRATE_TRIGGERS {
-            if f.starts_with(prefix) {
-                changed.extend(crates.iter().map(|s| s.to_string()));
-            }
-        }
-        let mut best_len = 0;
-        let mut best_crate = None;
-        for (dir, crate_name) in dir_to_crate {
-            let prefix = format!("{dir}/");
-            if f.starts_with(&prefix) && dir.len() > best_len {
-                best_len = dir.len();
-                best_crate = Some(crate_name.clone());
-            }
-        }
-        if let Some(c) = best_crate {
-            changed.insert(c);
-        }
-    }
-    (changed, false)
-}
-
-fn walk_reverse_deps(
-    seeds: &HashSet<String>,
-    reverse: &HashMap<String, HashSet<String>>,
-) -> HashSet<String> {
-    let mut visited = seeds.clone();
-    let mut queue: VecDeque<String> = seeds.iter().cloned().collect();
-
-    while let Some(crate_name) = queue.pop_front() {
-        if let Some(dependents) = reverse.get(&crate_name) {
-            for dep in dependents {
-                if visited.insert(dep.clone()) {
-                    queue.push_back(dep.clone());
-                }
-            }
-        }
-    }
-    visited
-}
-
-fn non_crate_images_affected(files: &[String]) -> Vec<String> {
-    let mut result = Vec::new();
-    for &(image, prefixes) in NON_CRATE_IMAGE_TRIGGERS {
-        if files
-            .iter()
-            .any(|f| prefixes.iter().any(|p| f.starts_with(p)))
-        {
-            result.push(image.to_string());
-        }
-    }
-    result
 }
 
 fn map_crates_to_images(
@@ -323,34 +271,74 @@ fn map_crates_to_images(
     result
 }
 
+fn non_crate_images_affected(files: &[String]) -> Vec<String> {
+    let mut result = Vec::new();
+    for &(image, prefixes) in NON_CRATE_IMAGE_TRIGGERS {
+        if files
+            .iter()
+            .any(|f| prefixes.iter().any(|p| f.starts_with(p)))
+        {
+            result.push(image.to_string());
+        }
+    }
+    result
+}
+
+// ── Core logic ────────────────────────────────────────────────────
+
 fn compute_affected(
     changed_files: &[String],
-    metadata: &Metadata,
+    old_graph: Option<&PackageGraph>,
+    new_graph: &PackageGraph,
     images: &[ImageConfig],
-    repo_root: &Path,
-) -> AffectedResult {
-    let dir_to_crate = build_directory_to_crate_map(metadata, repo_root);
-    let reverse_graph = build_reverse_dep_graph(metadata);
-    let bin_to_crate = build_binary_to_crate_map(metadata);
+) -> Result<AffectedResult> {
+    let rules = DeterminatorRules::parse(RULES_TOML)
+        .context("failed to parse determinator rules")?;
 
-    let (directly_changed, rebuild_all) = classify_changed_files(changed_files, &dir_to_crate);
+    let workspace_paths: Vec<String> = changed_files
+        .iter()
+        .map(|f| to_workspace_relative(f))
+        .collect();
+
+    let old = old_graph.unwrap_or(new_graph);
+    let mut det = Determinator::new(old, new_graph);
+    det.set_rules(&rules)
+        .context("failed to set determinator rules")?;
+    det.add_changed_paths(workspace_paths.iter().map(|s| s.as_str()));
+    let result = det.compute();
+
+    let workspace_size = new_graph.workspace().iter().count();
+    let affected_count = result.affected_set.len();
+    let rebuild_all = affected_count == workspace_size;
+
+    let bin_to_crate = build_binary_to_crate_map(new_graph);
+
+    let affected_names: HashSet<String> = result
+        .affected_set
+        .packages(DependencyDirection::Forward)
+        .map(|p| p.name().to_string())
+        .collect();
+
+    let directly_changed_names: HashSet<String> = result
+        .path_changed_set
+        .packages(DependencyDirection::Forward)
+        .map(|p| p.name().to_string())
+        .collect();
 
     if rebuild_all {
         let mut all_images: Vec<String> = images.iter().map(|i| i.image.clone()).collect();
         all_images.sort();
-        let mut all_crates: Vec<String> = reverse_graph.keys().cloned().collect();
+        let mut all_crates: Vec<String> = affected_names.into_iter().collect();
         all_crates.sort();
-        return AffectedResult {
+        return Ok(AffectedResult {
             rebuild_all: true,
             images: all_images,
             crates: all_crates,
             directly_changed: Vec::new(),
-        };
+        });
     }
 
-    let all_affected = walk_reverse_deps(&directly_changed, &reverse_graph);
-    let mut affected_images = map_crates_to_images(&all_affected, &bin_to_crate, images);
-
+    let mut affected_images = map_crates_to_images(&affected_names, &bin_to_crate, images);
     for img in non_crate_images_affected(changed_files) {
         if !affected_images.contains(&img) {
             affected_images.push(img);
@@ -358,24 +346,23 @@ fn compute_affected(
     }
     affected_images.sort();
 
-    let mut crates: Vec<String> = all_affected.into_iter().collect();
+    let mut crates: Vec<String> = affected_names.into_iter().collect();
     crates.sort();
-    let mut directly: Vec<String> = directly_changed.into_iter().collect();
+    let mut directly: Vec<String> = directly_changed_names.into_iter().collect();
     directly.sort();
 
-    AffectedResult {
+    Ok(AffectedResult {
         rebuild_all: false,
         images: affected_images,
         crates,
         directly_changed: directly,
-    }
+    })
 }
 
-// ── Dump mode ──────────────────────────────────────────────────────
+// ── Dump mode ─────────────────────────────────────────────────────
 
-fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
-    let reverse = build_reverse_dep_graph(metadata);
-    let bin_to_crate = build_binary_to_crate_map(metadata);
+fn dump_graph(graph: &PackageGraph, images: &[ImageConfig]) {
+    let bin_to_crate = build_binary_to_crate_map(graph);
 
     let mut crate_to_bins: HashMap<&str, Vec<&str>> = HashMap::new();
     for (bin_name, crate_name) in &bin_to_crate {
@@ -397,18 +384,32 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
     println!("(crate → workspace crates that depend on it)");
     println!("{}", "=".repeat(70));
 
-    let mut crate_names: Vec<&String> = reverse.keys().collect();
-    crate_names.sort();
+    let mut members: Vec<_> = graph.workspace().iter().collect();
+    members.sort_by_key(|m| m.name().to_string());
 
-    for crate_name in &crate_names {
-        let dependents = reverse.get(*crate_name).unwrap();
+    for member in &members {
+        let name = member.name();
+
+        let mut dependents: Vec<String> = Vec::new();
+        for link in member.reverse_direct_links() {
+            let from = link.from();
+            if !graph.workspace().contains_name(from.name()) {
+                continue;
+            }
+            let is_dev_only = !link.normal().is_present() && !link.build().is_present();
+            if !is_dev_only {
+                dependents.push(from.name().to_string());
+            }
+        }
+        dependents.sort();
+
         let mut tags = Vec::new();
-        if let Some(bins) = crate_to_bins.get(crate_name.as_str()) {
+        if let Some(bins) = crate_to_bins.get(name) {
             let mut bins = bins.clone();
             bins.sort();
             tags.push(format!("bins: {}", bins.join(", ")));
         }
-        if deployable_crates.contains(crate_name.as_str()) {
+        if deployable_crates.contains(name) {
             tags.push("deployable".to_string());
         }
         let tag_str = if tags.is_empty() {
@@ -420,15 +421,10 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
         let dep_str = if dependents.is_empty() {
             "(leaf)".to_string()
         } else {
-            let mut deps: Vec<&String> = dependents.iter().collect();
-            deps.sort();
-            deps.iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
+            dependents.join(", ")
         };
 
-        println!("  {crate_name}{tag_str}");
+        println!("  {name}{tag_str}");
         println!("    depended on by: {dep_str}");
     }
 
@@ -436,14 +432,26 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
     println!("TRANSITIVE IMPACT (crates affecting >2 others)");
     println!("{}", "=".repeat(70));
 
+    let rules = DeterminatorRules::parse(RULES_TOML).expect("rules should parse");
+
     let mut impacts: Vec<(&str, usize, Vec<String>)> = Vec::new();
-    for crate_name in &crate_names {
-        let seeds = HashSet::from([crate_name.to_string()]);
-        let affected = walk_reverse_deps(&seeds, &reverse);
+    for member in &members {
+        let name = member.name();
+        let workspace_path = format!("{}/src/lib.rs", member.source().workspace_path().unwrap());
+        let mut det = Determinator::new(graph, graph);
+        det.set_rules(&rules).unwrap();
+        det.add_changed_paths(std::iter::once(workspace_path.as_str()));
+        let result = det.compute();
+
+        let affected: HashSet<String> = result
+            .affected_set
+            .packages(DependencyDirection::Forward)
+            .map(|p| p.name().to_string())
+            .collect();
         let affected_images = map_crates_to_images(&affected, &bin_to_crate, images);
-        let dep_count = affected.len() - 1;
+        let dep_count = affected.len().saturating_sub(1);
         if dep_count > 2 {
-            impacts.push((crate_name.as_str(), dep_count, affected_images));
+            impacts.push((name, dep_count, affected_images));
         }
     }
     impacts.sort_by(|a, b| b.1.cmp(&a.1));
@@ -462,9 +470,6 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
     let mut sorted_images: Vec<&ImageConfig> = images.iter().collect();
     sorted_images.sort_by_key(|i| &i.image);
 
-    let dir_to_crate = build_directory_to_crate_map(metadata, repo_root);
-    let _ = dir_to_crate; // used only in other modes
-
     for img in sorted_images {
         let bin_name = img.bin.as_deref().unwrap_or(&img.image);
         let owning = bin_to_crate
@@ -482,7 +487,7 @@ fn dump_graph(metadata: &Metadata, images: &[ImageConfig], repo_root: &Path) {
     }
 }
 
-// ── Main ───────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -493,30 +498,38 @@ fn main() -> Result<()> {
         .images_file
         .unwrap_or_else(|| repo_root.join(".github/rust-images.yml"));
 
-    let metadata = get_cargo_metadata(&workspace_dir)?;
+    let new_graph = build_package_graph(&workspace_dir)?;
     let images = parse_images_yaml(&images_file)?;
 
     if cli.dump_graph {
-        dump_graph(&metadata, &images, &repo_root);
+        dump_graph(&new_graph, &images);
         return Ok(());
     }
 
-    let changed_files = if let Some(files) = cli.files {
-        files
+    let (changed_files, old_graph) = if let Some(files) = cli.files {
+        (files, None)
     } else if cli.stdin {
-        std::io::stdin()
+        let files = std::io::stdin()
             .lock()
             .lines()
             .map_while(Result::ok)
             .filter(|l| !l.is_empty())
-            .collect()
+            .collect();
+        (files, None)
     } else if let Some(base_ref) = &cli.base_ref {
-        get_changed_files(base_ref)?
+        let files = get_changed_files(base_ref)?;
+        let workspace_subdir = workspace_dir
+            .strip_prefix(&repo_root)
+            .unwrap_or(Path::new("rust"))
+            .to_string_lossy()
+            .to_string();
+        let old = build_old_package_graph(base_ref, &workspace_subdir);
+        (files, old)
     } else {
         anyhow::bail!("one of --base-ref, --files, --stdin, or --dump-graph is required");
     };
 
-    let result = compute_affected(&changed_files, &metadata, &images, &repo_root);
+    let result = compute_affected(&changed_files, old_graph.as_ref(), &new_graph, &images)?;
 
     match cli.output {
         OutputFormat::Json => println!("{}", serde_json::to_string_pretty(&result)?),
@@ -530,85 +543,28 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
-    fn dir_map() -> HashMap<String, String> {
-        HashMap::from([
-            ("rust/capture".into(), "capture".into()),
-            ("rust/capture-logs".into(), "capture-logs".into()),
-            ("rust/common/kafka".into(), "common-kafka".into()),
-            ("rust/feature-flags".into(), "feature-flags".into()),
-        ])
-    }
-
     #[test]
-    fn rebuild_all_on_cargo_lock() {
-        let (_, rebuild) = classify_changed_files(&["rust/Cargo.lock".into()], &dir_map());
-        assert!(rebuild);
-    }
-
-    #[test]
-    fn rebuild_all_on_cargo_config() {
-        let (_, rebuild) = classify_changed_files(&["rust/.cargo/config.toml".into()], &dir_map());
-        assert!(rebuild);
-    }
-
-    #[test]
-    fn maps_file_to_owning_crate() {
-        let (changed, rebuild) =
-            classify_changed_files(&["rust/capture/src/main.rs".into()], &dir_map());
-        assert!(!rebuild);
-        assert_eq!(changed, HashSet::from(["capture".into()]));
-    }
-
-    #[test]
-    fn longest_prefix_wins() {
-        let mut map = dir_map();
-        map.insert("rust/common".into(), "common-parent".into());
-        let (changed, _) = classify_changed_files(&["rust/common/kafka/src/lib.rs".into()], &map);
-        assert_eq!(changed, HashSet::from(["common-kafka".into()]));
-    }
-
-    #[test]
-    fn external_trigger_maps_proto_to_crates() {
-        let (changed, rebuild) =
-            classify_changed_files(&["proto/personhog.proto".into()], &dir_map());
-        assert!(!rebuild);
-        assert!(changed.contains("personhog-proto"));
-        assert!(changed.contains("kafka-assigner-proto"));
-    }
-
-    #[test]
-    fn transitive_walk() {
-        let reverse = HashMap::from([
-            (
-                "common-kafka".into(),
-                HashSet::from(["capture".into(), "cymbal".into()]),
-            ),
-            ("capture".into(), HashSet::from(["capture-logs".into()])),
-            ("cymbal".into(), HashSet::new()),
-            ("capture-logs".into(), HashSet::new()),
-        ]);
-
-        let affected = walk_reverse_deps(&HashSet::from(["common-kafka".into()]), &reverse);
-
+    fn workspace_relative_strips_rust_prefix() {
         assert_eq!(
-            affected,
-            HashSet::from([
-                "common-kafka".into(),
-                "capture".into(),
-                "capture-logs".into(),
-                "cymbal".into(),
-            ])
+            to_workspace_relative("rust/capture/src/main.rs"),
+            "capture/src/main.rs"
         );
     }
 
     #[test]
-    fn walk_handles_cycles() {
-        let reverse = HashMap::from([
-            ("a".into(), HashSet::from(["b".into()])),
-            ("b".into(), HashSet::from(["a".into()])),
-        ]);
-        let affected = walk_reverse_deps(&HashSet::from(["a".into()]), &reverse);
-        assert_eq!(affected, HashSet::from(["a".into(), "b".into()]));
+    fn workspace_relative_adds_parent_for_external() {
+        assert_eq!(
+            to_workspace_relative("proto/personhog.proto"),
+            "../proto/personhog.proto"
+        );
+    }
+
+    #[test]
+    fn workspace_relative_github_files() {
+        assert_eq!(
+            to_workspace_relative(".github/rust-images.yml"),
+            "../.github/rust-images.yml"
+        );
     }
 
     #[test]
@@ -651,9 +607,198 @@ mod tests {
     }
 
     #[test]
-    fn empty_files_returns_nothing() {
-        let (changed, rebuild) = classify_changed_files(&[], &dir_map());
-        assert!(!rebuild);
-        assert!(changed.is_empty());
+    fn rules_parse_successfully() {
+        DeterminatorRules::parse(RULES_TOML).expect("rules TOML should parse");
+    }
+
+    // ── Integration tests against real workspace ──────────────────
+    //
+    // Two kinds of integration tests:
+    //
+    // 1. Structural — assert pipeline invariants that hold regardless of
+    //    which services exist (subset relationships, union property, etc.)
+    //
+    // 2. Concrete — assert against the actual rust-images.yml and workspace.
+    //    These intentionally break when a service is added/renamed/removed
+    //    so the author verifies the wiring is correct.
+
+    fn load_test_fixtures() -> (PackageGraph, Vec<ImageConfig>) {
+        let repo_root = find_repo_root().expect("must be in a git repo");
+        let graph = build_package_graph(&repo_root.join("rust")).expect("cargo metadata");
+        let images = parse_images_yaml(&repo_root.join(".github/rust-images.yml"))
+            .expect("images YAML");
+        (graph, images)
+    }
+
+    // ── Structural tests ─────────────────────────────────────────
+
+    #[test]
+    fn e2e_file_in_workspace_crate_affects_that_crate() {
+        let (graph, images) = load_test_fixtures();
+        let member = graph.workspace().iter().next().unwrap();
+        let fake_path = format!("rust/{}/src/lib.rs", member.source().workspace_path().unwrap());
+        let result =
+            compute_affected(&[fake_path], None, &graph, &images).unwrap();
+        assert!(!result.rebuild_all);
+        assert!(
+            result.crates.contains(&member.name().to_string()),
+            "changing a file in {} should mark it affected",
+            member.name()
+        );
+    }
+
+    #[test]
+    fn e2e_directly_changed_is_subset_of_crates() {
+        let (graph, images) = load_test_fixtures();
+        let member = graph.workspace().iter().next().unwrap();
+        let fake_path = format!("rust/{}/src/lib.rs", member.source().workspace_path().unwrap());
+        let result =
+            compute_affected(&[fake_path], None, &graph, &images).unwrap();
+        let crates: HashSet<&str> = result.crates.iter().map(|s| s.as_str()).collect();
+        for dc in &result.directly_changed {
+            assert!(
+                crates.contains(dc.as_str()),
+                "directly_changed entry {dc} must appear in crates"
+            );
+        }
+    }
+
+    #[test]
+    fn e2e_rebuild_all_marks_every_workspace_crate() {
+        let (graph, images) = load_test_fixtures();
+        let result =
+            compute_affected(&["rust/Cargo.lock".into()], None, &graph, &images).unwrap();
+        assert!(result.rebuild_all);
+        let workspace_count = graph.workspace().iter().count();
+        assert_eq!(
+            result.crates.len(),
+            workspace_count,
+            "rebuild_all should include all {} workspace crates",
+            workspace_count
+        );
+    }
+
+    #[test]
+    fn e2e_file_outside_workspace_produces_no_crates() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["README.md".into()],
+            None,
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert!(result.crates.is_empty());
+        assert!(result.images.is_empty());
+    }
+
+    #[test]
+    fn e2e_multi_file_is_union() {
+        let (graph, images) = load_test_fixtures();
+        let members: Vec<_> = graph.workspace().iter().collect();
+        let (a, b) = (&members[0], &members[1]);
+        let path_a = format!("rust/{}/src/lib.rs", a.source().workspace_path().unwrap());
+        let path_b = format!("rust/{}/src/lib.rs", b.source().workspace_path().unwrap());
+
+        let result_a = compute_affected(&[path_a.clone()], None, &graph, &images).unwrap();
+        let result_b = compute_affected(&[path_b.clone()], None, &graph, &images).unwrap();
+        let result_both =
+            compute_affected(&[path_a, path_b], None, &graph, &images).unwrap();
+
+        let union: HashSet<&str> = result_a
+            .crates
+            .iter()
+            .chain(&result_b.crates)
+            .map(|s| s.as_str())
+            .collect();
+        let combined: HashSet<&str> =
+            result_both.crates.iter().map(|s| s.as_str()).collect();
+        assert_eq!(union, combined, "multi-file result should be the union of individual results");
+    }
+
+    // ── Concrete tests ───────────────────────────────────────────
+    //
+    // Update these when adding/removing/renaming services.
+
+    /// Every image in rust-images.yml must resolve to a binary target in
+    /// the workspace (except sqlx-migrate which is a non-crate image).
+    #[test]
+    fn every_image_resolves_to_a_workspace_binary() {
+        let (graph, images) = load_test_fixtures();
+        let bin_to_crate = build_binary_to_crate_map(&graph);
+        for img in &images {
+            let bin_name = img.bin.as_deref().unwrap_or(&img.image);
+            if NON_CRATE_IMAGE_TRIGGERS.iter().any(|&(name, _)| name == img.image) {
+                continue;
+            }
+            assert!(
+                bin_to_crate.contains_key(bin_name),
+                "image '{}' references binary '{}' which doesn't exist in the workspace",
+                img.image,
+                bin_name,
+            );
+        }
+    }
+
+    #[test]
+    fn e2e_leaf_service_only_affects_itself_and_dependents() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["rust/capture/src/main.rs".into()],
+            None,
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert_eq!(result.directly_changed, vec!["capture"]);
+        assert_eq!(result.images, vec!["capture", "capture-logs"]);
+    }
+
+    #[test]
+    fn e2e_proto_change_maps_to_proto_crates() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["proto/personhog.proto".into()],
+            None,
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert!(result.directly_changed.contains(&"personhog-proto".into()));
+        assert!(result.directly_changed.contains(&"kafka-assigner-proto".into()));
+        assert!(result.images.len() > 2, "proto change should propagate to multiple images");
+    }
+
+    #[test]
+    fn e2e_migration_only_triggers_sqlx_migrate() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["rust/persons_migrations/new.sql".into()],
+            None,
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert_eq!(result.images, vec!["sqlx-migrate"]);
+        assert!(result.crates.is_empty());
+    }
+
+    #[test]
+    fn e2e_multi_binary_crate_produces_all_images() {
+        let (graph, images) = load_test_fixtures();
+        let result = compute_affected(
+            &["rust/feature-flags/src/lib.rs".into()],
+            None,
+            &graph,
+            &images,
+        )
+        .unwrap();
+        assert!(!result.rebuild_all);
+        assert!(result.images.contains(&"feature-flags".into()));
+        assert!(result.images.contains(&"flags-cache-warmer".into()));
     }
 }

@@ -1,0 +1,45 @@
+# Rules for the determinator crate.
+#
+# Custom rules are processed before default rules. Default rules already handle:
+#   - .cargo/config, .cargo/config.toml → mark-changed = "all"
+#   - Cargo.toml (workspace root) → mark-changed = "all"
+#   - Cargo.lock → mark-changed = [] (ignored — we override below)
+#   - README, LICENSE, .gitignore, etc. → mark-changed = []
+#
+# Paths are workspace-relative (strip the `rust/` repo prefix before passing).
+
+use-default-rules = true
+
+# Override default: Cargo.lock changes affect dependency resolution for everyone.
+[[path-rule]]
+globs = ["Cargo.lock"]
+mark-changed = "all"
+
+# Dockerfiles and CI image config — cross-cutting build changes.
+[[path-rule]]
+globs = ["Dockerfile", "Dockerfile.sqlx-migrate", "../.github/rust-images.yml"]
+mark-changed = "all"
+
+# sqlx offline query metadata — affects all sqlx-using crates.
+[[path-rule]]
+globs = [".sqlx/**"]
+mark-changed = "all"
+
+# Proto files trigger the two build-script crates that read them.
+[[path-rule]]
+globs = ["../proto/**"]
+mark-changed = ["personhog-proto", "kafka-assigner-proto"]
+
+# Migration directories are not cargo crates. Tell the determinator to
+# ignore them (don't try ancestor-walk package matching). The sqlx-migrate
+# image trigger is handled in custom code outside the determinator.
+[[path-rule]]
+globs = [
+    "persons_migrations/**",
+    "behavioral_cohorts_migrations/**",
+    "cyclotron-core/migrations/**",
+    "cyclotron-node-migrations/**",
+    "flags_read_store_migrations/**",
+    "bin/migrate-*",
+]
+mark-changed = []
