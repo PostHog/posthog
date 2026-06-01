@@ -20,7 +20,7 @@ The new spec drops this on the grounds that "system data injection already happe
 
 At least one of:
 
-1. **A billing MCP tool.** New tool on the `posthog-data` (or new `posthog-billing`) MCP server exposing what `maxBillingContextLogic` resolves today: `get_billing_context(team_id)` returning subscription level, trial status, current period usage, limits, addons. The agent calls it when billing-relevant questions come up.
+1. **A billing inner tool.** A new billing inner tool (e.g. `read-billing-context`) enabled per-yaml on the single-exec `posthog` MCP server, exposing what `maxBillingContextLogic` resolves today: subscription level, trial status, current period usage, limits, addons. The agent calls it when billing-relevant questions come up.
 2. **A `billing` attachment type.** Auto-attached when the user is on a billing-adjacent scene (settings → billing, usage page). Renders in `<posthog_context>` as `Billing: pro plan, 12d into a 30d trial, 78% of monthly events quota used`. Trivial to implement once the wrapper template lands, but loses the "fetch only if relevant" benefit.
 3. **Hybrid.** Auto-attach a one-line summary when the user is on a billing scene; expose the full picture as a tool the agent can call from anywhere.
 
@@ -55,13 +55,13 @@ That's the minimum viable cut. The richer story — agent-initiated awareness ("
 
 For each command, decide MCP tool + SDK slash command, **frontend-only**, or skipped:
 
-| Command            | MCP tool                                                                       | SDK slash command (`.claude/commands/posthog/*.md` baked into sandbox image)                                                                                 | Notes                                                                                                                                                                                                                                                                                                                      |
-| ------------------ | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/init`            | none                                                                           | **Yes** — body expands to "Use the data tools to give me an overview of this project — top events, person properties, dashboards, group types, conventions." | Pure prompt expansion; uses existing `posthog-data` reads. No state writes since core memory is dropped.                                                                                                                                                                                                                   |
-| `/remember [text]` | **Blocked** on the core-memory backfill story                                  | **Blocked**                                                                                                                                                  | Today: hidden from autocomplete for sandbox runtime. Returns when memory does.                                                                                                                                                                                                                                             |
-| `/usage`           | `posthog-billing.read_usage()` (intersects the billing-context backfill above) | **Yes** — body: "What's my PostHog AI credit usage this period?"                                                                                             | The MCP tool also unlocks agent-initiated awareness. Doubles as part of the billing TODO.                                                                                                                                                                                                                                  |
-| `/feedback [text]` | **Skip — frontend-only flow.**                                                 | **No SDK command**                                                                                                                                           | Existing `FeedbackPrompt.tsx` modal collects text + rating. `slash-commands.tsx` keeps intercepting the command client-side, opens the modal, never reaches the agent. No agent involvement required; no MCP tool needed for parity with today. Revisit if a "submit my complaint about X in chat" UX becomes interesting. |
-| `/ticket`          | **Skip — frontend-only flow.**                                                 | **No SDK command**                                                                                                                                           | Same as `/feedback` — `TicketPrompt.tsx` runs entirely in React. Today's gates (paid plan + idle conversation) stay in the frontend.                                                                                                                                                                                       |
+| Command            | MCP tool                                                                  | SDK slash command (`.claude/commands/posthog/*.md` baked into sandbox image)                                                                                 | Notes                                                                                                                                                                                                                                                                                                                      |
+| ------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/init`            | none                                                                      | **Yes** — body expands to "Use the data tools to give me an overview of this project — top events, person properties, dashboards, group types, conventions." | Pure prompt expansion; uses existing data inner tools (`read-data-schema`, `execute-sql`, ...). No state writes since core memory is dropped.                                                                                                                                                                              |
+| `/remember [text]` | **Blocked** on the core-memory backfill story                             | **Blocked**                                                                                                                                                  | Today: hidden from autocomplete for sandbox runtime. Returns when memory does.                                                                                                                                                                                                                                             |
+| `/usage`           | a `read-usage` inner tool (intersects the billing-context backfill above) | **Yes** — body: "What's my PostHog AI credit usage this period?"                                                                                             | The MCP tool also unlocks agent-initiated awareness. Doubles as part of the billing TODO.                                                                                                                                                                                                                                  |
+| `/feedback [text]` | **Skip — frontend-only flow.**                                            | **No SDK command**                                                                                                                                           | Existing `FeedbackPrompt.tsx` modal collects text + rating. `slash-commands.tsx` keeps intercepting the command client-side, opens the modal, never reaches the agent. No agent involvement required; no MCP tool needed for parity with today. Revisit if a "submit my complaint about X in chat" UX becomes interesting. |
+| `/ticket`          | **Skip — frontend-only flow.**                                            | **No SDK command**                                                                                                                                           | Same as `/feedback` — `TicketPrompt.tsx` runs entirely in React. Today's gates (paid plan + idle conversation) stay in the frontend.                                                                                                                                                                                       |
 
 ### Mechanism reminder
 
@@ -81,7 +81,7 @@ For each command, decide MCP tool + SDK slash command, **frontend-only**, or ski
 
 - `02_CORE.md` § 8 (today's disposition matrix; revise once the SDK commands land)
 - `01_CONTEXT.md` (commands are sent as normal user messages, wrapped in `<posthog_context>` like anything else)
-- Billing-context TODO above (shared `posthog-billing.read_usage()` tool)
+- Billing-context TODO above (shared `read-usage` inner tool)
 
 ---
 
@@ -102,7 +102,7 @@ At Run-create, the `POST /sandbox/` handler inspects the LLM gateway routing for
 1. **Bedrock route** — explicitly disable `web_search` on the Claude Code SDK invocation (the SDK accepts a tools allowlist/denylist; pass the denial for `WebSearch`).
 2. **Anthropic route** — leave `web_search` enabled (the default).
 
-The decision lives in the same code path that builds the system prompt and `--mcpServers` list (`build_posthog_ai_system_prompt` callsite / Task-create body construction). It needs read access to whichever signal `toolkit.py:147-151` reads today — confirm the gateway-routing accessor is callable from `ee/hogai/sandbox/`.
+The decision lives in the same code path that builds the system prompt and `--mcpServers` list (`build_posthog_ai_system_prompt` callsite in `products/posthog_ai/backend/system_prompt.py` / Task-create body construction). It needs read access to whichever signal `toolkit.py:147-151` reads today — confirm the gateway-routing accessor is callable from `products/posthog_ai/backend/`.
 
 ### Acceptance criteria
 
@@ -120,7 +120,7 @@ The decision lives in the same code path that builds the system prompt and `--mc
 
 ## MultiQuestionForm answer channel
 
-**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#4) and § 4 (`posthog-data.create_form` row).
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#4) and § 4 (`create_form` row).
 **Status:** open.
 **Owner:** _unassigned_.
 
@@ -142,14 +142,14 @@ Investigate whether the Claude Code SDK ships a built-in structured-question / f
 
 ### Cross-references
 
-- `03_RICH_UI.md` § 4 (`posthog-data.create_form` row) — table entry marked deferred.
+- `03_RICH_UI.md` § 4 (`create_form` row) — table entry marked deferred.
 - `03_RICH_UI.md` § 10 (#4) — original open question.
 
 ---
 
 ## Notebook block streaming
 
-**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#5) and § 4 (`posthog-notebook.create_notebook` row).
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#5) and § 4 (`create_notebook` row).
 **Status:** open.
 **Owner:** _unassigned_.
 
@@ -159,7 +159,7 @@ Investigate whether the Claude Code SDK ships a built-in structured-question / f
 
 ### What needs to land
 
-Pick a streaming channel and wire it into `posthog-notebook.create_notebook`:
+Pick a streaming channel and wire it into the `create_notebook` inner tool:
 
 1. **Preferred:** stream `DocumentBlock[]` partials as `tool_call_update.content` frames — standard ACP channel, no custom notification. `sandboxStreamLogic` accumulates frames as today; `NotebookArtifactAnswer` re-renders on each update.
 2. **Alternative:** custom `_posthog/notebook_block` notification. Adds wire surface; only justified if the standard channel doesn't fit.
@@ -171,14 +171,14 @@ Pick a streaming channel and wire it into `posthog-notebook.create_notebook`:
 
 ### Cross-references
 
-- `03_RICH_UI.md` § 4 (`posthog-notebook.create_notebook` row).
+- `03_RICH_UI.md` § 4 (`create_notebook` row).
 - `03_RICH_UI.md` § 10 (#5).
 
 ---
 
 ## Insight editor → Max "fix this query" trigger
 
-**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#7) and § 4 (`posthog-data.fix_hogql_query` row, dropped).
+**Dropped/deferred in:** `03_RICH_UI.md` § 10 (#7) and § 4 (`fix_hogql_query` row, dropped).
 **Status:** open.
 **Owner:** _unassigned_.
 
@@ -206,7 +206,7 @@ The pre-fill flow already has a precedent in the existing Max integration; reuse
 
 ### Cross-references
 
-- `03_RICH_UI.md` § 4 (`posthog-data.fix_hogql_query` row — marked dropped).
+- `03_RICH_UI.md` § 4 (`fix_hogql_query` row — marked dropped).
 - `03_RICH_UI.md` § 10 (#7).
 
 ---
@@ -245,7 +245,7 @@ Each gets:
 
 1. A YAML entry in `services/mcp/definitions/` with `enabled: true` and the matching `operation:` ID against the OpenAPI schema.
 2. A serializer + viewset on the Django side if one doesn't exist (`products/tasks/backend/`).
-3. A `posthog-ai-sandbox-tool-tasks-{slug}` flag for per-tool rollout (mirrors the per-tool flag pattern in `00_OVERVIEW.md` § 9).
+3. A `phai-sandbox-tool-tasks-{slug}` flag for per-tool rollout (mirrors the per-tool flag pattern in `00_OVERVIEW.md` § 9).
 
 ### Renderers
 
@@ -262,7 +262,7 @@ The fallback card handles all seven shapes — every operation either returns a 
 - `04_PROMPTS.md` § 5.1 (the `TaskTool` family rows now point here).
 - `03_RICH_UI.md` § 4.3 (notes that PostHog Code integration is not a separate server; routes here).
 - `MCP_TOOLS.md` "PostHog AI → PostHog Code integration" (shape table for the future inner tools).
-- `00_OVERVIEW.md` § 9 MCP-B (rollout slot reserved for this work).
+- `00_OVERVIEW.md` § 10 (MCP inner tools are bundled into their consuming PRs per the parallel-streams note).
 
 ---
 

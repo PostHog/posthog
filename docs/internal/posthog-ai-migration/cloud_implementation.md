@@ -6,6 +6,40 @@ All file references are absolute paths in this repo, with line numbers, so claim
 
 ---
 
+## 0. In-monorepo mapping (read this first)
+
+This document reverse-engineers the Twig desktop consumer (`../code/`),
+but the REST/SSE/command CONTRACT it documents is IMPLEMENTED IN THIS MONOREPO at `products/tasks/backend/`.
+The Twig Electron app is one consumer of that contract;
+PostHog Code (the in-app cloud-agents UI) and PostHog AI (Max on the sandboxed runtime) are the others.
+
+Endpoint → in-monorepo implementation:
+
+| Contract endpoint (as documented below) | In-monorepo implementation                                                                                                                                                                                                      |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /tasks/{id}/run/`                 | `products/tasks/backend/api.py:888` (`TaskViewSet.run`)                                                                                                                                                                         |
+| `POST /runs/{id}/command/`              | `products/tasks/backend/api.py:2249` — `user_message` signals the Temporal workflow via `signal_task_followup_message` (`products/tasks/backend/temporal/client.py:314`); `cancel` / `permission_response` proxy to the sandbox |
+| `GET /runs/{id}/stream/`                | `products/tasks/backend/api.py:2659` — SSE from Redis via `TaskRunRedisStream` (`products/tasks/backend/stream/redis_stream.py`)                                                                                                |
+| `GET /runs/{id}/logs/`                  | `products/tasks/backend/api.py:2173` — resume-chain concat from S3                                                                                                                                                              |
+| `GET /runs/{id}/session_logs/`          | `products/tasks/backend/api.py:2445` — paginated + filtered                                                                                                                                                                     |
+| `Task` / `TaskRun` models               | `products/tasks/backend/models.py` (`Task.create_and_run`:279, `task.create_run`:230)                                                                                                                                           |
+
+PostHog AI REUSES this backend IN-PROCESS — direct Python calls
+(`Task.create_and_run` / `signal_task_followup_message` / `task.create_run`).
+It does NOT issue HTTP requests to `/api/projects/.../tasks/` from Django.
+The frontend consumes the existing `products/tasks` SSE endpoint directly
+(`GET /api/projects/{tid}/tasks/{taskId}/runs/{runId}/stream/`) — there is no Django relay and no new SSE endpoint.
+
+The in-sandbox agent-server (`../code` Twig `packages/agent`) is launched by `products/tasks`
+`start_agent_server` (`products/tasks/backend/temporal/process_task/activities/start_agent_server.py`)
+and is shared by PostHog Code and PostHog AI;
+it is not in this monorepo.
+
+Everything below this section describes the Twig consumer faithfully and is unchanged —
+read the endpoints as the contract that `products/tasks/backend/` already implements.
+
+---
+
 ## 1. Architecture in one breath
 
 The cloud-agent system spans three layers:
@@ -296,6 +330,8 @@ The agent-server uses `Authorization: Bearer <POSTHOG_PERSONAL_API_KEY>` with `U
 
 ## 4. REST API surface
 
+In-monorepo: this surface is implemented at `products/tasks/backend/api.py` (`TaskViewSet`); PostHog AI calls the underlying models/services in-process rather than over HTTP — see § 0.
+
 Every endpoint lives under `/api/projects/{teamId}/tasks/...`.
 
 ### 4.1 Task-level
@@ -365,6 +401,8 @@ Built by `buildCloudRunRequestBody` (`posthogClient.ts:187-254`). Every field op
 
 ## 5. SSE stream protocol
 
+In-monorepo: the SSE stream is served by `products/tasks/backend/api.py:2659` (Redis `TaskRunRedisStream`, `products/tasks/backend/stream/redis_stream.py`); the PostHog AI frontend opens this endpoint directly — see § 0.
+
 ### 5.1 Connect
 
 ```http
@@ -418,6 +456,8 @@ Five distinct error shapes (`cloud-task/service.ts:33-204`) constructed by `crea
 ---
 
 ## 6. Command channel — `POST /command/`
+
+In-monorepo: handled by `products/tasks/backend/api.py:2249`; `user_message` signals the Temporal workflow via `signal_task_followup_message` (`products/tasks/backend/temporal/client.py:314`), while `cancel` / `permission_response` proxy to the sandbox. PostHog AI invokes these in-process — see § 0.
 
 `POST /api/projects/{teamId}/tasks/{taskId}/runs/{runId}/command/`. Body is JSON-RPC 2.0:
 
