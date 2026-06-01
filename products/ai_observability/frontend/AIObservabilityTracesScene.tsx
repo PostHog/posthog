@@ -21,6 +21,7 @@ import { isTracesQuery } from '~/queries/utils'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { normalizeMessages } from './messageNormalization'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -31,7 +32,6 @@ import {
     formatLLMUsage,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
-    normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
