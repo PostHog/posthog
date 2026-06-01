@@ -4,6 +4,9 @@ DASHBOARD_GRID_COLUMN_COUNT = 12
 # Cap per-query row count so run-widgets responses stay bounded.
 MAX_WIDGET_RESULT_LIMIT = 25
 
+# Default row count for error_tracking_list when config omits limit (matches catalog + OpenAPI).
+DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT = 10
+
 # Cap widgets per batch create / run-widgets request.
 MAX_WIDGETS_BATCH_SIZE = 10
 

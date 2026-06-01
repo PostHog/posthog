@@ -1053,7 +1053,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
 
         if use_template:
             try:
-                create_dashboard_from_template(use_template, dashboard)
+                create_dashboard_from_template(
+                    use_template,
+                    dashboard,
+                    cast(User, request.user),
+                    user_access_control=UserAccessControl(user=cast(User, request.user), team=team),
+                )
             except AttributeError as error:
                 logger.error(
                     "dashboard_create.create_from_template_failed",

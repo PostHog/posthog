@@ -10,7 +10,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
-from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT, MAX_WIDGETS_BATCH_SIZE
+from products.dashboards.backend.constants import DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
 from products.dashboards.backend.widgets.error_tracking_list import validate_error_tracking_list_config
 
@@ -31,7 +31,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
-        assert validated["limit"] == MAX_WIDGET_RESULT_LIMIT
+        assert validated["limit"] == DEFAULT_ERROR_TRACKING_LIST_WIDGET_LIMIT
         assert validated["orderBy"] == "occurrences"
         assert "filterTestAccounts" not in validated
 

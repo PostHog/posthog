@@ -671,7 +671,13 @@ def _create_tile_for_insight(
     )
 
 
-def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> None:
+def create_dashboard_from_template(
+    template_key: str,
+    dashboard: Dashboard,
+    user=None,
+    *,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
     if template_key in DASHBOARD_TEMPLATES:
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
@@ -686,7 +692,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    create_from_template(dashboard, template)
+    create_from_template(dashboard, template, user, user_access_control=user_access_control)
 
 
 FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"

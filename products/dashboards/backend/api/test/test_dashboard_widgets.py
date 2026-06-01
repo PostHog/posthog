@@ -15,6 +15,8 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 from posthog.scopes import APIScopeObject
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
 
 class TestDashboardWidgets(APIBaseTest):
@@ -399,6 +401,43 @@ class TestDashboardWidgets(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "You do not have access to error tracking."
         assert Dashboard.objects.filter(team_id=self.team.id, deleted=False).count() == 0
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_create_dashboard_use_template_widget_denies_without_product_access(self) -> None:
+        template_name = "widget-et-use-template"
+        DashboardTemplate.objects.create(
+            team=self.team,
+            template_name=template_name,
+            dashboard_description="Errors",
+            dashboard_filters={},
+            tiles=[self._widget_template_payload()["tiles"][0]],
+        )
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "ET from template", "use_template": template_name},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
+        assert not DashboardWidget.all_teams.filter(team_id=self.team.id).exists()
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_create_from_template_json_widget_rejects_when_flag_disabled(self) -> None:
