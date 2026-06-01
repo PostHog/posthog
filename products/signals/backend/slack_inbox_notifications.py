@@ -397,7 +397,9 @@ def dispatch_inbox_item_notifications(
 
         try:
             slack = SlackIntegration(integration)
-            recipients = [_recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs]
+            recipients = [
+                _recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs
+            ]
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
