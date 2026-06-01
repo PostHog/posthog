@@ -274,6 +274,12 @@ describe('useragent-plugin', () => {
             '17.4',
         ],
         [
+            'DuckDuckGo on Android',
+            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile DuckDuckGo/5 Safari/537.36',
+            'DuckDuckGo',
+            '5',
+        ],
+        [
             'Brave on iOS',
             'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Brave/1.64 Safari/604.1',
             'Brave',
