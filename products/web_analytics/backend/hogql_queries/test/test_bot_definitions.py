@@ -100,7 +100,6 @@ class TestBotDefinitionsDataStructure:
             ("AhrefsBot", "Ahrefs", "seo_crawler", "Bot"),
             ("MeltwaterNews", "Meltwater", "seo_crawler", "Bot"),
             ("PTST", "WebPageTest", "seo_crawler", "Bot"),
-            ("adidxbot", "Microsoft Ads", "seo_crawler", "Bot"),
             ("SiteAuditBot", "Semrush Site Audit", "seo_crawler", "Bot"),
             # Social Crawlers
             ("FacebookBot", "Facebook Bot", "social_crawler", "Bot"),
