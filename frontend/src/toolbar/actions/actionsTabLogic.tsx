@@ -247,10 +247,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                                     ? {
                                           label: 'Edit it here',
                                           action: () =>
-                                              window.open(
-                                                  joinWithUiHost(values.uiHost, urls.action(dupeId)),
-                                                  '_blank'
-                                              ),
+                                              window.open(joinWithUiHost(values.uiHost, urls.action(dupeId)), '_blank'),
                                       }
                                     : undefined,
                             })
