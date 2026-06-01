@@ -275,7 +275,9 @@ def _build_message_blocks(
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    recipient_label = recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    recipient_label = recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace(
+        "<", "&lt;"
+    ).replace(">", "&gt;")
     metadata_parts = [f"Matched to {recipient_label} per code"]
     if priority:
         metadata_parts.insert(0, _slack_priority_label(priority))
