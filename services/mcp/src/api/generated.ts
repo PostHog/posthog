@@ -4502,6 +4502,12 @@ export namespace Schemas {
       id: string;
       path: string;
     } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
       kind: 'client';
       /** @minLength 1 */
       id: string;
@@ -4532,6 +4538,10 @@ export namespace Schemas {
       id: string;
       path: string;
       description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
     };
 
     export type AgentRevisionSpecLimits = {
@@ -27773,6 +27783,12 @@ export namespace Schemas {
       id: string;
       path: string;
     } | {
+      kind: 'custom_template';
+      from_template: string;
+      alias: string;
+      /** @minimum 0 */
+      version?: number;
+    } | {
       kind: 'client';
       /** @minLength 1 */
       id: string;
@@ -27803,6 +27819,10 @@ export namespace Schemas {
       id: string;
       path: string;
       description?: string;
+      from_template?: string;
+      alias?: string;
+      /** @minimum 0 */
+      version?: number;
     };
 
     export type PatchedAgentRevisionSpecLimits = {

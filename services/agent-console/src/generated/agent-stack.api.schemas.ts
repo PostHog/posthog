@@ -207,6 +207,13 @@ export type AgentRevisionApiSpecToolsItem =
           path: string
       }
     | {
+          kind: 'custom_template'
+          from_template: string
+          alias: string
+          /** @minimum 0 */
+          version?: number
+      }
+    | {
           kind: 'client'
           /** @minLength 1 */
           id: string
@@ -239,6 +246,10 @@ export type AgentRevisionApiSpecSkillsItem = {
     id: string
     path: string
     description?: string
+    from_template?: string
+    alias?: string
+    /** @minimum 0 */
+    version?: number
 }
 
 export type AgentRevisionApiSpecLimits = {
@@ -375,6 +386,13 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           path: string
       }
     | {
+          kind: 'custom_template'
+          from_template: string
+          alias: string
+          /** @minimum 0 */
+          version?: number
+      }
+    | {
           kind: 'client'
           /** @minLength 1 */
           id: string
@@ -407,6 +425,10 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     id: string
     path: string
     description?: string
+    from_template?: string
+    alias?: string
+    /** @minimum 0 */
+    version?: number
 }
 
 export type PatchedAgentRevisionApiSpecLimits = {

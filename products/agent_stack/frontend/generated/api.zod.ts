@@ -103,14 +103,17 @@ export const agentApplicationsRevisionsCreateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsCreateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSecretsDefault = []
@@ -207,20 +210,29 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeArgsSchemaDefault),
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -251,6 +263,12 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
@@ -323,14 +341,17 @@ export const agentApplicationsRevisionsUpdateBodySpecTriggersItemThreeConfigTime
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecSecretsDefault = []
@@ -427,20 +448,29 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeArgsSchemaDefault),
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -471,6 +501,12 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
@@ -566,14 +602,17 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemThreeCon
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFourConfigRequireAuthDefault = true
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemFiveConfigDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault = {}
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault = false
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault = 5000
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax = 60000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
+export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax = 60000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
+export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
+
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSecretsDefault = []
@@ -670,22 +709,29 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             path: zod.string(),
                         }),
                         zod.object({
+                            kind: zod.literal('custom_template'),
+                            from_template: zod.string(),
+                            alias: zod.string(),
+                            version: zod
+                                .number()
+                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
+                                .optional(),
+                        }),
+                        zod.object({
                             kind: zod.literal('client'),
                             id: zod.string().min(1),
                             description: zod.string().min(1),
                             args_schema: zod
                                 .looseObject({})
-                                .default(
-                                    agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeArgsSchemaDefault
-                                ),
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault),
                             required: zod
                                 .boolean()
-                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeRequiredDefault),
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault),
                             timeout_ms: zod
                                 .number()
                                 .min(1)
-                                .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsMax)
-                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeTimeoutMsDefault),
+                                .max(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsMax)
+                                .default(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault),
                         }),
                     ])
                 )
@@ -716,6 +762,12 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         id: zod.string(),
                         path: zod.string(),
                         description: zod.string().optional(),
+                        from_template: zod.string().optional(),
+                        alias: zod.string().optional(),
+                        version: zod
+                            .number()
+                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
+                            .optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
