@@ -38,7 +38,6 @@ export const SurveysCreateParams = /* @__PURE__ */ zod.object({
 
 export const surveysCreateBodyNameMax = 400
 
-export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
 export const surveysCreateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
 export const surveysCreateBodyQuestionsItemThreeBranchingOneFourResponseValuesOneMin = 0
@@ -384,12 +383,6 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe(
                         'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
-                    ),
-                early_exit: zod
-                    .boolean()
-                    .default(surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault)
-                    .describe(
-                        'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                     ),
             }),
             zod.null(),
@@ -834,7 +827,6 @@ export const SurveysPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const surveysPartialUpdateBodyNameMax = 400
 
-export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
 export const surveysPartialUpdateBodyQuestionsItemThreeBranchingOneThreeIndexMin = 0
 
 export const surveysPartialUpdateBodyQuestionsItemThreeBranchingOneFourResponseValuesOneMin = 0
@@ -1181,12 +1173,6 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .nullish()
                     .describe(
                         'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
-                    ),
-                early_exit: zod
-                    .boolean()
-                    .default(surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault)
-                    .describe(
-                        'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                     ),
             }),
             zod.null(),

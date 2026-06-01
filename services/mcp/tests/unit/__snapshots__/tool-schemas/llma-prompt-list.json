@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "default": "none",
+            "description": "Controls how much prompt content is included in list results. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely.",
+            "enum": ["full", "preview", "none"],
+            "type": "string"
+        },
+        "search": {
+            "description": "Optional substring filter applied to prompt names and prompt content.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

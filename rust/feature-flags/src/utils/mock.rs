@@ -343,7 +343,6 @@ mod tests {
                 payloads: None,
                 feature_enrollment: None,
                 holdout: None,
-                early_exit: None,
                 extra: Default::default(),
             },
             ensure_experience_continuity: Some(false),
