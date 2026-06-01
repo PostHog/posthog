@@ -16,6 +16,42 @@ export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
     children?: React.ReactNode
 }
 
+function WidgetCardBodyContent({
+    locked,
+    lockedMessage,
+    error,
+    onRefresh,
+    refreshing,
+    children,
+}: Pick<
+    WidgetCardBodyProps,
+    'locked' | 'lockedMessage' | 'error' | 'onRefresh' | 'refreshing' | 'children'
+>): JSX.Element {
+    if (locked) {
+        return (
+            <WidgetCardBodySlot>
+                <WidgetCardContent>
+                    <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
+                </WidgetCardContent>
+            </WidgetCardBodySlot>
+        )
+    }
+
+    if (error) {
+        return (
+            <WidgetCardBodySlot>
+                <WidgetCardContent>
+                    <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
+                        {error}
+                    </WidgetCardBodyMessage>
+                </WidgetCardContent>
+            </WidgetCardBodySlot>
+        )
+    }
+
+    return <WidgetCardBodySlot>{children}</WidgetCardBodySlot>
+}
+
 export function WidgetCardBody({
     locked,
     lockedMessage = 'You do not have access to view this widget.',
@@ -35,23 +71,15 @@ export function WidgetCardBody({
             )}
             {...divProps}
         >
-            {locked ? (
-                <WidgetCardBodySlot>
-                    <WidgetCardContent>
-                        <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
-                    </WidgetCardContent>
-                </WidgetCardBodySlot>
-            ) : error ? (
-                <WidgetCardBodySlot>
-                    <WidgetCardContent>
-                        <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
-                            {error}
-                        </WidgetCardBodyMessage>
-                    </WidgetCardContent>
-                </WidgetCardBodySlot>
-            ) : (
-                <WidgetCardBodySlot>{children}</WidgetCardBodySlot>
-            )}
+            <WidgetCardBodyContent
+                locked={locked}
+                lockedMessage={lockedMessage}
+                error={error}
+                onRefresh={onRefresh}
+                refreshing={refreshing}
+            >
+                {children}
+            </WidgetCardBodyContent>
         </div>
     )
 }

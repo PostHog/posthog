@@ -303,8 +303,6 @@ function userHasWidgetProductAccess(productAccess: DashboardWidgetProductAccess 
         // New gated widget types: add a case here — CONTRIBUTING.md
         case 'error_tracking':
             return userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Viewer)
-        case 'session_recording':
-            return userHasAccess(AccessControlResourceType.SessionRecording, AccessControlLevel.Viewer)
         default: {
             const _exhaustive: never = productAccess
             return _exhaustive

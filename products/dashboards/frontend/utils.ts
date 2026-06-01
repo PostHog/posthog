@@ -1,7 +1,22 @@
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
-import { WidgetConfigValidationError, type WidgetFieldErrors } from './widget_types/widgetConfigValidation'
+
+export type WidgetFieldErrors = Record<string, string | undefined>
+
+export class WidgetConfigValidationError extends Error {
+    fieldErrors: WidgetFieldErrors
+
+    constructor(fieldErrors: WidgetFieldErrors) {
+        super('Widget config validation failed')
+        this.name = 'WidgetConfigValidationError'
+        this.fieldErrors = fieldErrors
+    }
+}
+
+export function isWidgetConfigValidationError(error: unknown): error is WidgetConfigValidationError {
+    return error instanceof WidgetConfigValidationError
+}
 
 function parseWidgetConfigApiError(_widgetType: string, _error: unknown): WidgetFieldErrors | null {
     return null
@@ -36,42 +51,18 @@ async function patchDashboardWidgetTile({
     return updatedTile as DashboardTile<QueryBasedInsightModel>
 }
 
-export async function updateDashboardWidgetTileConfig({
+export async function updateDashboardWidgetTile({
     teamId,
     dashboardId,
     tile,
     config,
-}: {
-    teamId: number
-    dashboardId: number
-    tile: DashboardTile<QueryBasedInsightModel>
-    config: Record<string, unknown>
-}): Promise<DashboardTile<QueryBasedInsightModel>> {
-    if (!tile.widget) {
-        throw new Error('Tile has no widget')
-    }
-
-    try {
-        return await patchDashboardWidgetTile({ teamId, dashboardId, tile, widgetPatch: { config } })
-    } catch (error) {
-        const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error)
-        if (fieldErrors && Object.keys(fieldErrors).length > 0) {
-            throw new WidgetConfigValidationError(fieldErrors)
-        }
-        throw error
-    }
-}
-
-export async function updateDashboardWidgetTileMetadata({
-    teamId,
-    dashboardId,
-    tile,
     name,
     description,
 }: {
     teamId: number
     dashboardId: number
     tile: DashboardTile<QueryBasedInsightModel>
+    config?: Record<string, unknown>
     name?: string | null
     description?: string
 }): Promise<DashboardTile<QueryBasedInsightModel>> {
@@ -79,13 +70,26 @@ export async function updateDashboardWidgetTileMetadata({
         throw new Error('Tile has no widget')
     }
 
-    const payload: { name?: string | null; description?: string } = {}
+    const widgetPatch: Record<string, unknown> = {}
+    if (config !== undefined) {
+        widgetPatch.config = config
+    }
     if (name !== undefined) {
-        payload.name = name || null
+        widgetPatch.name = name || null
     }
     if (description !== undefined) {
-        payload.description = description
+        widgetPatch.description = description
     }
 
-    return patchDashboardWidgetTile({ teamId, dashboardId, tile, widgetPatch: payload })
+    try {
+        return await patchDashboardWidgetTile({ teamId, dashboardId, tile, widgetPatch })
+    } catch (error) {
+        if (config !== undefined) {
+            const fieldErrors = parseWidgetConfigApiError(tile.widget.widget_type, error)
+            if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+                throw new WidgetConfigValidationError(fieldErrors)
+            }
+        }
+        throw error
+    }
 }

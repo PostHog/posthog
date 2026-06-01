@@ -4,115 +4,29 @@ import { Fragment } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { isReadOnly } from 'lib/readOnlyGuard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import {
-    DASHBOARD_WIDGET_CATALOG,
+    DASHBOARD_WIDGET_CATALOG_GROUPS,
+    DASHBOARD_WIDGET_PREVIEWS,
     type DashboardWidgetCatalogEntry,
     type DashboardWidgetCatalogKey,
 } from '../widget_types/catalog'
-import { ADD_WIDGET_MODAL_WIDTH } from './constants'
-import { DASHBOARD_WIDGET_PREVIEWS } from './previews/widgetPreviews'
+import {
+    type AddWidgetPayload,
+    getAddButtonLabel,
+    getAddWidgetDisabledReason,
+    submitAddWidgetPayloads,
+} from './addWidgetModalUtils'
 import { WidgetTypePickerCard } from './WidgetTypePickerCard'
 
-export type AddWidgetPayload = {
-    widgetType: string
-    config: Record<string, unknown>
-}
+export type { AddWidgetPayload }
 
 type AddWidgetModalProps = {
     isOpen: boolean
     onClose: () => void
     loading?: boolean
     onAdd: (payloads: AddWidgetPayload[]) => Promise<void>
-}
-
-type DashboardWidgetCatalogGroup = {
-    groupId: string
-    groupLabel: string
-    widgets: Array<{
-        widgetType: DashboardWidgetCatalogKey
-        entry: DashboardWidgetCatalogEntry
-    }>
-}
-
-function getAddButtonLabel(selectedCount: number): string {
-    if (selectedCount <= 1) {
-        return 'Add widget'
-    }
-    return `Add ${selectedCount} widgets`
-}
-
-function getAddWidgetDisabledReason(loading: boolean | undefined, selectedCount: number): string | undefined {
-    if (loading) {
-        return 'Adding widgets…'
-    }
-    if (isReadOnly()) {
-        return 'Read-only mode is on — allow writes temporarily to add widgets'
-    }
-    if (selectedCount === 0) {
-        return 'Select at least one widget type'
-    }
-    return undefined
-}
-
-function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
-    const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
-    const groupOrder: string[] = []
-
-    for (const widgetType of Object.keys(DASHBOARD_WIDGET_CATALOG) as DashboardWidgetCatalogKey[]) {
-        const entry = DASHBOARD_WIDGET_CATALOG[widgetType]
-        let group = groupsById.get(entry.groupId)
-
-        if (!group) {
-            group = { groupId: entry.groupId, groupLabel: entry.groupLabel, widgets: [] }
-            groupsById.set(entry.groupId, group)
-            groupOrder.push(entry.groupId)
-        }
-
-        group.widgets.push({ widgetType, entry })
-    }
-
-    return groupOrder.map((groupId) => groupsById.get(groupId)!)
-}
-
-const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()
-
-function buildAddWidgetPayloads(selectedTypes: Iterable<string>): AddWidgetPayload[] {
-    const payloads: AddWidgetPayload[] = []
-
-    for (const widgetType of selectedTypes) {
-        const catalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
-        if (!catalogEntry) {
-            continue
-        }
-        payloads.push({ widgetType, config: catalogEntry.defaultConfig })
-    }
-
-    return payloads
-}
-
-async function submitAddWidgetPayloads(
-    selectedTypes: Set<string>,
-    onAdd: (payloads: AddWidgetPayload[]) => Promise<void>,
-    onClose: () => void
-): Promise<void> {
-    if (selectedTypes.size === 0) {
-        return
-    }
-
-    const payloads = buildAddWidgetPayloads(selectedTypes)
-    if (payloads.length === 0) {
-        return
-    }
-
-    try {
-        await onAdd(payloads)
-        onClose()
-    } catch {
-        // caller handles toast
-    }
 }
 
 type AddWidgetCatalogPickerProps = {
@@ -166,7 +80,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
             onClose={onClose}
             title="Add widget"
             description="Bring context from your different PostHog products into one dashboard."
-            width={ADD_WIDGET_MODAL_WIDTH}
+            width={960}
             footer={
                 <>
                     <div className="flex-1" />

@@ -1,9 +1,3 @@
-/** Default LemonModal width for dashboard widget edit modals (LemonModal caps at 90vw). */
-export const DASHBOARD_WIDGET_MODAL_WIDTH = 680
-
-/** Wider default for the add-widget picker so previews fit a two-column layout. */
-export const ADD_WIDGET_MODAL_WIDTH = 960
-
 /** Shown on the widget tile when run_widgets fails or returns a per-tile error. */
 export const DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE = 'Failed to load widget data.'
 

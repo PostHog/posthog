@@ -16,6 +16,7 @@ export type DashboardWidgetRegistryLookupContext = {
 
 const reportedMissingRegistryEntries = new Set<string>()
 
+/** Test-only: clears dedupe state so missing-registry capture can be asserted per test. */
 export function resetDashboardWidgetRegistryReportingForTests(): void {
     reportedMissingRegistryEntries.clear()
 }

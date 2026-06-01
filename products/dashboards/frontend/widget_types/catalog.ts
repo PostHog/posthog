@@ -41,6 +41,9 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 /** New widget_type aliases: add here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_TYPE_ALIASES: Partial<Record<string, DashboardWidgetCatalogKey>> = {}
 
+/** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
+export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {}
+
 export function resolveDashboardWidgetCatalogKey(widgetType: string): DashboardWidgetCatalogKey | undefined {
     if (widgetType in DASHBOARD_WIDGET_CATALOG) {
         return widgetType as DashboardWidgetCatalogKey
@@ -52,3 +55,34 @@ export function getDashboardWidgetCatalogEntry(widgetType: string): DashboardWid
     const key = resolveDashboardWidgetCatalogKey(widgetType)
     return key ? DASHBOARD_WIDGET_CATALOG[key] : undefined
 }
+
+export type DashboardWidgetCatalogGroup = {
+    groupId: string
+    groupLabel: string
+    widgets: Array<{
+        widgetType: DashboardWidgetCatalogKey
+        entry: DashboardWidgetCatalogEntry
+    }>
+}
+
+export function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
+    const groupsById = new Map<string, DashboardWidgetCatalogGroup>()
+    const groupOrder: string[] = []
+
+    for (const widgetType of Object.keys(DASHBOARD_WIDGET_CATALOG) as DashboardWidgetCatalogKey[]) {
+        const entry = DASHBOARD_WIDGET_CATALOG[widgetType]
+        let group = groupsById.get(entry.groupId)
+
+        if (!group) {
+            group = { groupId: entry.groupId, groupLabel: entry.groupLabel, widgets: [] }
+            groupsById.set(entry.groupId, group)
+            groupOrder.push(entry.groupId)
+        }
+
+        group.widgets.push({ widgetType, entry })
+    }
+
+    return groupOrder.map((groupId) => groupsById.get(groupId)!)
+}
+
+export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()

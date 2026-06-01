@@ -21,11 +21,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
-import {
-    updateDashboardWidgetTileConfig,
-    updateDashboardWidgetTileMetadata,
-} from '@posthog/products-dashboards/frontend/utils'
-import { isWidgetConfigValidationError } from '@posthog/products-dashboards/frontend/widget_types/widgetConfigValidation'
+import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
@@ -2526,7 +2522,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             try {
-                const updatedTile = await updateDashboardWidgetTileConfig({
+                const updatedTile = await updateDashboardWidgetTile({
                     teamId: teamLogic.values.currentTeamId!,
                     dashboardId: values.dashboard.id,
                     tile,
@@ -2555,7 +2551,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
             try {
-                const updatedTile = await updateDashboardWidgetTileMetadata({
+                const updatedTile = await updateDashboardWidgetTile({
                     teamId: teamLogic.values.currentTeamId!,
                     dashboardId: values.dashboard.id,
                     tile,

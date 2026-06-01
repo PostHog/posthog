@@ -1,11 +1,32 @@
 import { useValues } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import type { TeamType } from '~/types'
 
 /** New catalog-driven setup requirements: add here — CONTRIBUTING.md */
-export type WidgetAvailabilityRequirementId = 'exception_autocapture' | 'session_replay_enabled'
+export type WidgetAvailabilityRequirementId = 'exception_autocapture'
+
+export type WidgetAvailabilityPresentation = {
+    productName: string
+    productKey: ProductKey
+    thingName: string
+    settingsUrl: string
+}
+
+/** Presentation for setup prompts keyed by requirement id (single source of truth with catalog). */
+export const WIDGET_AVAILABILITY_PRESENTATION: Record<WidgetAvailabilityRequirementId, WidgetAvailabilityPresentation> =
+    {
+        // New requirements: add here — CONTRIBUTING.md
+        exception_autocapture: {
+            productName: 'Error tracking',
+            productKey: ProductKey.ERROR_TRACKING,
+            thingName: 'exception',
+            settingsUrl: urls.settings('environment-error-tracking', 'error-tracking-exception-autocapture'),
+        },
+    }
 
 export type WidgetAvailabilityConfig = {
     /** Stable id evaluated by `widgetAvailability` helpers. */
@@ -33,8 +54,6 @@ export function isWidgetAvailabilityRequirementMet(
         // New requirements: add a case here — CONTRIBUTING.md
         case 'exception_autocapture':
             return !!team?.autocapture_exceptions_opt_in
-        case 'session_replay_enabled':
-            return !!team?.session_recording_opt_in
         default: {
             const _exhaustive: never = requirement
             return _exhaustive
