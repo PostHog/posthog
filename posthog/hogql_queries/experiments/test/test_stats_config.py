@@ -411,87 +411,55 @@ class TestSequentialStatsConfig(APIBaseTest):
     def _variant(self, key: str, sum_val: float, sum_squares: float, samples: int) -> ExperimentStatsBase:
         return ExperimentStatsBase(key=key, sum=sum_val, sum_squares=sum_squares, number_of_samples=samples)
 
-    def test_sequential_enabled_produces_wider_ci_than_default(self) -> None:
-        metric = self._metric()
-        control = self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000)
-        test = self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)
-
-        fixed_result = get_frequentist_experiment_result(metric=metric, control_variant=control, test_variants=[test])
-        seq_result = get_frequentist_experiment_result(
-            metric=metric,
-            control_variant=control,
-            test_variants=[test],
-            stats_config={"frequentist": {"sequential_testing_enabled": True}},
-        )
-
-        assert fixed_result.variant_results is not None and seq_result.variant_results is not None
-        fixed_variant = cast(ExperimentVariantResultFrequentist, fixed_result.variant_results[0])
-        seq_variant = cast(ExperimentVariantResultFrequentist, seq_result.variant_results[0])
-        assert fixed_variant.confidence_interval is not None and seq_variant.confidence_interval is not None
-        fixed_width = fixed_variant.confidence_interval[1] - fixed_variant.confidence_interval[0]
-        seq_width = seq_variant.confidence_interval[1] - seq_variant.confidence_interval[0]
-        self.assertGreater(seq_width, fixed_width)
-
-    def test_team_default_enables_sequential_when_experiment_unset(self) -> None:
-        metric = self._metric()
-        control = self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000)
-        test = self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)
-
-        baseline = get_frequentist_experiment_result(metric=metric, control_variant=control, test_variants=[test])
-        with_team_default = get_frequentist_experiment_result(
-            metric=metric,
-            control_variant=control,
-            test_variants=[test],
-            team_default_sequential_testing_enabled=True,
-        )
-
-        assert baseline.variant_results is not None and with_team_default.variant_results is not None
-        baseline_v = cast(ExperimentVariantResultFrequentist, baseline.variant_results[0])
-        team_v = cast(ExperimentVariantResultFrequentist, with_team_default.variant_results[0])
-        assert baseline_v.confidence_interval is not None and team_v.confidence_interval is not None
-        baseline_w = baseline_v.confidence_interval[1] - baseline_v.confidence_interval[0]
-        team_w = team_v.confidence_interval[1] - team_v.confidence_interval[0]
-        self.assertGreater(team_w, baseline_w)
-
-    def test_experiment_false_overrides_team_default_true(self) -> None:
-        # Explicit opt-out on the experiment must beat a team default of "on".
-        metric = self._metric()
-        control = self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000)
-        test = self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)
-
-        baseline = get_frequentist_experiment_result(metric=metric, control_variant=control, test_variants=[test])
-        overridden = get_frequentist_experiment_result(
-            metric=metric,
-            control_variant=control,
-            test_variants=[test],
-            stats_config={"frequentist": {"sequential_testing_enabled": False}},
-            team_default_sequential_testing_enabled=True,
-        )
-
-        assert baseline.variant_results is not None and overridden.variant_results is not None
-        baseline_v = cast(ExperimentVariantResultFrequentist, baseline.variant_results[0])
-        overridden_v = cast(ExperimentVariantResultFrequentist, overridden.variant_results[0])
-        assert baseline_v.confidence_interval is not None and overridden_v.confidence_interval is not None
-        self.assertEqual(baseline_v.confidence_interval, overridden_v.confidence_interval)
-
-    def test_invalid_tuning_parameter_falls_back_to_default(self) -> None:
-        # Garbage input should not raise; it should fall back to the hardcoded default.
-        metric = self._metric()
-        control = self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000)
-        test = self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)
-
+    def _frequentist_ci(
+        self,
+        *,
+        stats_config: dict | None = None,
+        team_default_sequential_testing_enabled: bool = False,
+    ) -> list[float]:
         result = get_frequentist_experiment_result(
-            metric=metric,
-            control_variant=control,
-            test_variants=[test],
-            stats_config={
-                "frequentist": {
-                    "sequential_testing_enabled": True,
-                    "sequential_tuning_parameter": "not-a-number",
-                }
-            },
+            metric=self._metric(),
+            control_variant=self._variant("control", sum_val=1000.0, sum_squares=105000.0, samples=1000),
+            test_variants=[self._variant("test", sum_val=1200.0, sum_squares=145000.0, samples=1000)],
+            stats_config=stats_config,
+            team_default_sequential_testing_enabled=team_default_sequential_testing_enabled,
         )
         assert result.variant_results is not None
         variant = cast(ExperimentVariantResultFrequentist, result.variant_results[0])
         assert variant.confidence_interval is not None
-        self.assertEqual(len(variant.confidence_interval), 2)
+        return variant.confidence_interval
+
+    @parameterized.expand(
+        [
+            # (name, stats_config, team_default_enabled, expect_sequential)
+            ("experiment_enables", {"frequentist": {"sequential_testing_enabled": True}}, False, True),
+            ("team_default_enables_when_unset", None, True, True),
+            (
+                "experiment_false_overrides_team_default",
+                {"frequentist": {"sequential_testing_enabled": False}},
+                True,
+                False,
+            ),
+        ]
+    )
+    def test_sequential_resolution(self, _name, stats_config, team_default_enabled, expect_sequential) -> None:
+        default_ci = self._frequentist_ci()
+        resolved_ci = self._frequentist_ci(
+            stats_config=stats_config,
+            team_default_sequential_testing_enabled=team_default_enabled,
+        )
+        if expect_sequential:
+            # Always-valid intervals are wider than the fixed-horizon CI.
+            self.assertGreater(resolved_ci[1] - resolved_ci[0], default_ci[1] - default_ci[0])
+        else:
+            # Sequential not applied → identical to the default fixed-horizon CI.
+            self.assertEqual(resolved_ci, default_ci)
+
+    def test_invalid_tuning_parameter_falls_back_to_default(self) -> None:
+        # Garbage input should not raise; it should fall back to the hardcoded default.
+        ci = self._frequentist_ci(
+            stats_config={
+                "frequentist": {"sequential_testing_enabled": True, "sequential_tuning_parameter": "not-a-number"}
+            }
+        )
+        self.assertEqual(len(ci), 2)
