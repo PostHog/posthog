@@ -407,6 +407,47 @@ class TestGitHubCommitOnApprove:
         )
         assert "chore(visual): update storybook baselines" in log_result.stdout
 
+    def test_partial_approval_defers_commit(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """A partial approval must not push a commit. Doing so would advance the PR head
+        and make the follow-up approval fail _commit_baseline_to_github's SHA check."""
+        run = run_with_changes
+        run.commit_sha = _get_head_sha(local_git_repo)
+        run.save(update_fields=["commit_sha"])
+        head_before = _get_head_sha(local_git_repo)
+
+        # Approve only one of the two changed snapshots
+        result = logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
+            commit_to_github=True,
+        )
+
+        # No commit pushed; run left open for the remaining snapshot
+        assert _get_head_sha(local_git_repo) == head_before
+        assert result.approved is False
+
+        # Approving the remaining snapshot finalizes the run and commits the baseline
+        result = logic.approve_run(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[
+                {"identifier": "button--primary", "new_hash": "abc123hash"},
+                {"identifier": "card--default", "new_hash": "def456hash"},
+            ],
+            commit_to_github=True,
+        )
+        assert result.approved is True
+        assert _get_head_sha(local_git_repo) != head_before
+
     def test_approve_merges_with_existing_baselines(
         self,
         local_git_repo,
@@ -435,8 +476,11 @@ class TestGitHubCommitOnApprove:
         run.commit_sha = _get_head_sha(local_git_repo)
         run.save()
 
-        # Approve only button--primary
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
+        # Approve the full set so the run finalizes and the baseline is committed.
+        approved = [
+            {"identifier": "button--primary", "new_hash": "abc123hash"},
+            {"identifier": "card--default", "new_hash": "def456hash"},
+        ]
 
         logic.approve_run(
             run_id=run.id,
@@ -471,8 +515,12 @@ class TestGitHubCommitOnApprove:
         subprocess.run(["git", "add", "."], cwd=local_git_repo, check=True)
         subprocess.run(["git", "commit", "-m", "new commit"], cwd=local_git_repo, check=True)
 
-        # Now the run's commit_sha doesn't match HEAD
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
+        # Now the run's commit_sha doesn't match HEAD. Approve the full set so the
+        # finalize path attempts the commit and surfaces the SHA mismatch.
+        approved = [
+            {"identifier": "button--primary", "new_hash": "abc123hash"},
+            {"identifier": "card--default", "new_hash": "def456hash"},
+        ]
 
         with pytest.raises(logic.PRSHAMismatchError) as exc_info:
             logic.approve_run(
@@ -520,7 +568,10 @@ class TestGitHubCommitOnApprove:
         logic.approve_run(
             run_id=run_with_changes.id,
             user_id=user.id,
-            approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
+            approved_snapshots=[
+                {"identifier": "button--primary", "new_hash": "abc123hash"},
+                {"identifier": "card--default", "new_hash": "def456hash"},
+            ],
             commit_to_github=True,
         )
 

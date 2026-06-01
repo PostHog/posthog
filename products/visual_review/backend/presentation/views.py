@@ -546,7 +546,12 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         try:
             if body.approve_all:
-                result = api.approve_all(run_id=run_id, user_id=user_id, team_id=self.team_id)
+                result = api.approve_all(
+                    run_id=run_id,
+                    user_id=user_id,
+                    team_id=self.team_id,
+                    commit_to_github=body.commit_to_github,
+                )
                 return Response(AutoApproveResultSerializer(instance=result).data)
 
             input_dto = ApproveRunInput(

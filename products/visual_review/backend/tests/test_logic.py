@@ -625,6 +625,28 @@ class TestApproveRun:
         assert updated.approved is True
         assert updated.approved_at is not None
 
+    def test_approve_rejects_incomplete_run(self, repo):
+        # The commit/finalize path must not run before the run has been classified.
+        logic.get_or_create_artifact(repo_id=repo.id, content_hash="h1", storage_path="p/h1")
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="main",
+            pr_number=None,
+            snapshots=[{"identifier": "btn", "content_hash": "h1"}],
+            baseline_hashes={"btn": "old"},
+        )
+        assert run.status != RunStatus.COMPLETED
+
+        with pytest.raises(ValueError, match="completed"):
+            logic.approve_run(
+                run_id=run.id,
+                user_id=1,
+                approved_snapshots=[{"identifier": "btn", "new_hash": "h1"}],
+            )
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveSnapshots:

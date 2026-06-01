@@ -1040,7 +1040,7 @@ def _is_unresolved(s: RunSnapshot) -> bool:
     return True
 
 
-def _update_counts_and_post_status(run: Run) -> int:
+def _update_counts_and_post_status(run: Run, stamp: bool = True) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
     Counts on the run (changed_count, new_count, removed_count) reflect the raw
@@ -1048,9 +1048,13 @@ def _update_counts_and_post_status(run: Run) -> int:
     computed separately for the commit status and CI gate — it further excludes
     tolerated and approved snapshots.
 
+    Pass stamp=False when the caller already re-stamped quarantine in the same
+    transaction, to avoid a redundant round-trip.
+
     Returns the unresolved count.
     """
-    _stamp_quarantine(run)
+    if stamp:
+        _stamp_quarantine(run)
 
     snapshots = list(run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all())
 
@@ -1942,15 +1946,19 @@ def approve_run(
 ) -> Run:
     """Approve snapshots and commit the updated baseline to GitHub.
 
-    This is the full approval path: validate, commit the approved baselines to
-    GitHub, and mark the snapshots approved. The run is finalized (marked
-    approved + success commit status) only once every actionable snapshot is
-    resolved — a partial approval persists those baselines but leaves the run
-    open and the CI gate red so the remaining changes still get reviewed.
+    This is the full approval path: validate, mark the snapshots approved, and —
+    only when this approval resolves every actionable snapshot — commit the
+    baseline to GitHub and finalize the run (mark approved + success status).
+
+    A partial approval (a subset of the changed/new snapshots) records the
+    approvals in the DB but does NOT commit and does NOT finalize: the run stays
+    open and the CI gate stays red until the rest is reviewed. Committing on a
+    partial approval would advance the PR head via the baseline commit while the
+    run is still unresolved, so the next approval for the remaining snapshots
+    would fail _commit_baseline_to_github's head-SHA check.
 
     Set commit_to_github=False to mark the snapshots approved without committing
-    (CLI auto-approve writes the baseline locally; the per-snapshot UI action
-    records the approval in the DB).
+    (CLI auto-approve writes the baseline locally).
     """
     run = _get_run_for_update(run_id, team_id=team_id)
     repo = run.repo
@@ -1958,14 +1966,29 @@ def approve_run(
     if run.purpose == RunPurpose.OBSERVE:
         raise ValueError("Observational runs cannot be approved")
 
+    if run.status != RunStatus.COMPLETED:
+        raise ValueError(f"Run must be completed before approval (current status: {run.status})")
+
     if is_run_stale(run):
         raise StaleRunError("This run has been superseded by a newer run. Approve the latest run instead.")
 
     approvals = {s["identifier"]: s["new_hash"] for s in approved_snapshots}
     _validate_approval(run, approvals)
 
-    # Commit to GitHub first — do this before DB changes so we can fail cleanly
-    if commit_to_github and run.pr_number and repo.repo_full_name:
+    # Re-evaluate quarantine so resolution accounting reflects the current config
+    # (e.g. an identifier unquarantined since the run completed).
+    _stamp_quarantine(run)
+
+    # Decide whether this approval resolves the whole run BEFORE committing. Removed
+    # snapshots are always marked approved below, so they never hold the run open.
+    snapshots = run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all()
+    fully_resolved = not any(
+        _is_unresolved(s) and s.identifier not in approvals and s.result != SnapshotResult.REMOVED
+        for s in snapshots
+    )
+
+    # Commit to GitHub first (only when finalizing) — before DB writes so we fail cleanly.
+    if fully_resolved and commit_to_github and run.pr_number and repo.repo_full_name:
         _commit_baseline_to_github(run, repo, approved_snapshots, approver_user_id=user_id)
 
     # Mark approved snapshots
@@ -1985,19 +2008,11 @@ def approve_run(
         reviewed_by_id=user_id,
     )
 
-    # Re-evaluate quarantine at approval time
-    _stamp_quarantine(run)
-
-    # Only finalize once every actionable snapshot is resolved. A partial approval
-    # (a subset of the changed/new snapshots) persists the approved baselines to
-    # GitHub but leaves the run open so the CI gate stays red until the rest is
-    # reviewed — finalizing here would green the gate over unreviewed changes.
-    fully_resolved = not any(
-        _is_unresolved(s) for s in run.snapshots.using(WRITER_DB).select_related("tolerated_hash_match").all()
-    )
     if not fully_resolved:
+        # Partial approval: approvals recorded in the DB, run stays open. Quarantine
+        # was already stamped above, so skip the redundant re-stamp.
         if commit_to_github:
-            _update_counts_and_post_status(run)
+            _update_counts_and_post_status(run, stamp=False)
         return run
 
     # Finalize run

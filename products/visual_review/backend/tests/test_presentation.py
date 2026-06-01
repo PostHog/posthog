@@ -180,6 +180,16 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             ),
             team_id=self.team.id,
         )
+        # Approval requires a completed run; classification happens at complete_run time.
+        with (
+            patch(
+                "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+                return_value=({"Button": "old_hash"}, 0),
+            ),
+            patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay"),
+        ):
+            logic.complete_run(create_result.run_id)
+        logic.finish_processing(create_result.run_id)
         return create_result.run_id
 
     def test_approve_run_db_only_when_commit_disabled(self):
@@ -212,6 +222,24 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Default commit_to_github=true finalizes the run once all snapshots are approved
         self.assertTrue(response.json()["run"]["approved"])
+
+    def test_approve_all_forwards_commit_to_github(self):
+        run_id = self._create_run_with_changed_snapshot()
+
+        with patch(
+            "products.visual_review.backend.facade.api.approve_all",
+            wraps=api.approve_all,
+        ) as spy:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/approve/",
+                {"approve_all": True, "commit_to_github": False},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        spy.assert_called_once()
+        # The view must forward the flag — otherwise approve_all silently commits.
+        self.assertFalse(spy.call_args.kwargs["commit_to_github"])
 
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         logic.get_or_create_artifact(
