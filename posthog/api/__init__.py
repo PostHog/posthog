@@ -17,15 +17,12 @@ from posthog.batch_exports.api import file_download
 from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
-import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
-import products.deployments.backend.api as deployments
 import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
-import products.live_debugger.backend.api as live_debugger
 import products.web_analytics.backend.api as web_analytics_api
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.business_knowledge.backend.api as business_knowledge
@@ -37,6 +34,7 @@ import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
 import products.legal_documents.backend.presentation.views as legal_documents
+from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
@@ -82,6 +80,7 @@ from products.data_warehouse.backend.api import (
     view_link,
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.deployments.backend.routes import register_routes as register_deployments_routes
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
@@ -101,6 +100,8 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
+from products.links.backend.routes import register_routes as register_links_routes
+from products.live_debugger.backend.routes import register_routes as register_live_debugger_routes
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
@@ -364,21 +365,7 @@ projects_router.register(
     "project_wizard_sessions",
     ["project_id"],
 )
-# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
-# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
-# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
-project_deployment_projects_router = projects_router.register(
-    r"deployment_projects",
-    deployments.DeploymentProjectViewSet,
-    "project_deployment_projects",
-    ["project_id"],
-)
-project_deployment_projects_router.register(
-    r"deployments",
-    deployments.DeploymentViewSet,
-    "project_deployment_projects_deployments",
-    ["project_id", "deployment_project_id"],
-)
+register_deployments_routes(routers)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
@@ -881,7 +868,6 @@ from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.person import LegacyPersonViewSet, PersonViewSet  # noqa: E402
 from posthog.api.web_experiment import WebExperimentViewSet  # noqa: E402
 
-from products.actions.backend.api.action import ActionViewSet  # noqa: E402
 from products.product_analytics.backend.api.insight import InsightViewSet  # noqa: E402
 from products.product_analytics.backend.api.insight_variable import InsightVariableViewSet  # noqa: E402
 
@@ -893,7 +879,7 @@ router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
 register_legacy_dual_route_team_nested_viewset(r"events", EventViewSet, "environment_events", ["team_id"])
-projects_router.register(r"actions", ActionViewSet, "project_actions", ["project_id"])
+register_actions_routes(routers)
 projects_router.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["project_id"])
 
@@ -1271,12 +1257,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
-    r"live_debugger_breakpoints",
-    live_debugger.LiveDebuggerBreakpointViewSet,
-    "project_live_debugger_breakpoints",
-    ["project_id"],
-)
+register_live_debugger_routes(routers)
 
 projects_router.register(
     r"comments",
@@ -1306,7 +1287,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(r"links", link.LinkViewSet, "environment_links", ["team_id"])
+register_links_routes(routers)
 
 projects_router.register(
     r"business_knowledge/sources",
