@@ -1261,12 +1261,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
         user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
-            tile_type, created, widget_type = self._update_tiles(instance, tile_data, user)
+            tile, created = self._update_tiles(instance, tile_data, user)
             # Text and button tiles are always added via PATCH (never during initial dashboard
             # creation), so this update() method is the right place to fire the "tile added"
             # event. The `created` flag from update_or_create ensures we only fire on first
             # insertion, not on subsequent edits to an existing tile.
-            if created and tile_type and "request" in self.context:
+            if created and tile is not None and "request" in self.context:
+                tile_type, widget_type = DashboardSerializer._tile_added_analytics_fields(tile)
                 _report_dashboard_tile_added(
                     user=user,
                     dashboard=instance,
@@ -1402,8 +1403,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
         existing.save(update_fields=list(tile_defaults.keys()))
 
     @staticmethod
-    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[str | None, bool, str | None]:
-        """Returns (tile_type, created, widget_type) for new tile creation, or (None, False, None) for updates."""
+    def _tile_added_analytics_fields(tile: DashboardTile) -> tuple[str, str | None]:
+        if tile.text_id is not None:
+            return "text", None
+        if tile.button_tile_id is not None:
+            return "button", None
+        if tile.widget_id is not None:
+            widget_type = tile.widget.widget_type if tile.widget is not None else None
+            return "widget", widget_type
+        if tile.insight_id is not None:
+            return "insight", None
+        raise ValueError("Dashboard tile has no related content for analytics")
+
+    @staticmethod
+    def _update_tiles(instance: Dashboard, tile_data: dict, user: User) -> tuple[DashboardTile | None, bool]:
+        """Returns the upserted tile and whether it was newly created, or (None, False) for display-only updates."""
         tile_data.pop("is_cached", None)  # read only field
         tile_data.pop("order", None)  # read only field
 
@@ -1446,8 +1460,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"text": "Text tile not found in this team."})
             else:
                 text = Text.objects.create(**validated_data)
-            _, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
-            return "text", created, None
+            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, text=text)
+            return tile, created
         elif tile_data.get("button_tile", None):
             button_tile_json: dict = tile_data.get("button_tile", {})
             created_by_json = button_tile_json.get("created_by", None)
@@ -1487,8 +1501,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     raise serializers.ValidationError({"button_tile": "Button tile not found in this team."})
             else:
                 button_tile = ButtonTile.objects.create(**validated_data)
-            _, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
-            return "button", created, None
+            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, button_tile=button_tile)
+            return tile, created
         elif tile_data.get("widget", None):
             widget_json: dict = tile_data.get("widget", {})
             widget_data = DashboardSerializer._validated_patch_widget_payload(widget_json)
@@ -1534,8 +1548,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     created_by=user,
                     last_modified_by=user,
                 )
-            _, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
-            return "widget", created, widget.widget_type
+            tile, created = DashboardSerializer._upsert_tile(instance, tile_data, widget=widget)
+            return tile, created
         elif (
             "deleted" in tile_data
             or "color" in tile_data
@@ -1547,7 +1561,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
             DashboardSerializer._update_existing_tile_display_fields(instance, tile_data)
 
-        return None, False, None
+        return None, False
 
     @staticmethod
     def _delete_related_tiles(instance: Dashboard, delete_related_insights: bool) -> None:
