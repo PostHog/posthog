@@ -3940,7 +3940,6 @@
         "summary": "Get the team's promoted product.",
         "title": "Get the team's promoted product.",
         "required_scopes": ["project:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
