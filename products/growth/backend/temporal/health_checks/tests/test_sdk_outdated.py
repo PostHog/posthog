@@ -157,6 +157,9 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert 1 in results
         assert 2 not in results
         assert 3 in results
+        # One result per outdated SDK assessment — guards against regressing to one-per-release.
+        assert len(results[1]) == 1
+        assert len(results[3]) == 1
         assert results[1][0].payload["sdk_name"] == "web"
         assert results[3][0].payload["sdk_name"] == "web"
 
