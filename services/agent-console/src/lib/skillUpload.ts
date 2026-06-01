@@ -7,10 +7,13 @@
  * directory is the skill root, its frontmatter populates the structured
  * fields, and every sibling file under the root rides along as a companion.
  *
- * Zero-dependency on purpose — folder reads use the browser filesystem API
- * and zip entries are inflated with the built-in `DecompressionStream`, so
- * the console ships no archive/YAML libraries.
+ * Folder reads use the browser filesystem API (`webkitGetAsEntry`); zip
+ * extraction uses `fflate` and frontmatter parsing uses `js-yaml` — both
+ * battle-tested, so we don't hand-roll an archive reader or a YAML parser.
  */
+
+import { unzipSync } from 'fflate'
+import { load as loadYaml } from 'js-yaml'
 
 import type { SkillTemplateCreateApi } from '@/generated/agent-stack.api.schemas'
 
@@ -211,7 +214,7 @@ function dirName(path: string): string {
     return i === -1 ? '' : path.slice(0, i)
 }
 
-/* ── Frontmatter parsing (minimal YAML subset) ──────────────────────────── */
+/* ── Frontmatter parsing ────────────────────────────────────────────────── */
 
 interface Frontmatter {
     meta: Record<string, unknown>
@@ -221,10 +224,9 @@ interface Frontmatter {
 const FRONTMATTER_RE = /^﻿?---\r?\n([\s\S]*?)\r?\n---\r?\n?/
 
 /**
- * Parse a leading `---` frontmatter block. Handles the flat scalar fields
- * and a single-level nested `metadata:` map — the shape `assemble_skill_md`
- * emits. Anything fancier (multi-line scalars, deep nesting) is out of
- * scope; the server re-validates regardless.
+ * Split a leading `---` YAML frontmatter block off the body and parse it
+ * with `js-yaml`. Malformed frontmatter parses to empty metadata — the
+ * server re-validates the structured fields regardless.
  */
 export function parseFrontmatter(text: string): Frontmatter {
     const match = FRONTMATTER_RE.exec(text)
@@ -232,44 +234,16 @@ export function parseFrontmatter(text: string): Frontmatter {
         return { meta: {}, body: text.replace(/^﻿/, '') }
     }
     const body = text.slice(match[0].length).replace(/^\n+/, '')
-    const meta: Record<string, unknown> = {}
-    const lines = match[1].split(/\r?\n/)
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i]
-        if (!line.trim() || /^\s*#/.test(line) || /^\s/.test(line)) {
-            continue // blank, comment, or an indented child consumed below
+    let meta: Record<string, unknown> = {}
+    try {
+        const parsed = loadYaml(match[1])
+        if (parsed && typeof parsed === 'object') {
+            meta = parsed as Record<string, unknown>
         }
-        const colon = line.indexOf(':')
-        if (colon === -1) {
-            continue
-        }
-        const key = line.slice(0, colon).trim()
-        const rawValue = line.slice(colon + 1).trim()
-        if (rawValue === '') {
-            // A nested map — consume following indented `  k: v` lines.
-            const nested: Record<string, string> = {}
-            while (i + 1 < lines.length && /^\s+\S/.test(lines[i + 1])) {
-                const childLine = lines[++i]
-                const childColon = childLine.indexOf(':')
-                if (childColon === -1) {
-                    continue
-                }
-                nested[childLine.slice(0, childColon).trim()] = unquote(childLine.slice(childColon + 1).trim())
-            }
-            meta[key] = nested
-        } else {
-            meta[key] = unquote(rawValue)
-        }
+    } catch {
+        // Invalid YAML — fall back to no metadata.
     }
     return { meta, body }
-}
-
-function unquote(value: string): string {
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        return value.slice(1, -1)
-    }
-    return value
 }
 
 function stringField(value: unknown): string {
@@ -297,126 +271,32 @@ function toolList(value: unknown): string[] {
     return []
 }
 
-/* ── Zip reading (central directory + DecompressionStream) ──────────────── */
-
-const EOCD_SIG = 0x06054b50
-const CDH_SIG = 0x02014b50
+/* ── Zip reading (fflate) ────────────────────────────────────────────────── */
 
 /**
- * Inflate a `.zip` into a flat file list. Supports stored + DEFLATE entries.
- *
- * Every offset and size out of the (untrusted) central directory is
- * bounds-checked against the buffer, and each extracted entry is metered
- * through `budget` — so a malformed or zip-bomb archive fails fast instead
- * of reading out of range or inflating without limit.
+ * Inflate a `.zip` into a flat file list via `fflate`. The compressed input
+ * is bounded up front, the per-file `filter` skips directory entries and any
+ * entry whose declared uncompressed size already blows the per-file cap, and
+ * each extracted entry's real size is metered through `budget`.
  */
 export async function unzip(file: File, budget: ByteBudget = new ByteBudget()): Promise<UploadFile[]> {
-    const buf = new Uint8Array(await file.arrayBuffer())
-    const view = new DataView(buf.buffer)
-    const eocd = findEocd(view, buf.length)
-    if (eocd === -1) {
+    if (file.size > MAX_TOTAL_BYTES) {
+        throw new UploadLimitError(`${file.name} exceeds the ${MAX_TOTAL_BYTES.toLocaleString()}-byte archive limit.`)
+    }
+    const data = new Uint8Array(await file.arrayBuffer())
+    let entries: Record<string, Uint8Array>
+    try {
+        entries = unzipSync(data, {
+            filter: (f) => !f.name.endsWith('/') && f.originalSize <= MAX_FILE_BYTES,
+        })
+    } catch {
         throw new Error(`${file.name} is not a readable zip archive.`)
     }
-
-    const count = view.getUint16(eocd + 10, true)
-    let ptr = view.getUint32(eocd + 16, true)
     const decoder = new TextDecoder()
     const out: UploadFile[] = []
-    const malformed = (): never => {
-        throw new Error(`${file.name} is malformed (zip directory points outside the archive).`)
-    }
-
-    for (let i = 0; i < count; i++) {
-        if (ptr + 46 > buf.length || view.getUint32(ptr, true) !== CDH_SIG) {
-            break
-        }
-        const method = view.getUint16(ptr + 10, true)
-        const compSize = view.getUint32(ptr + 20, true)
-        const uncompSize = view.getUint32(ptr + 24, true)
-        const nameLen = view.getUint16(ptr + 28, true)
-        const extraLen = view.getUint16(ptr + 30, true)
-        const commentLen = view.getUint16(ptr + 32, true)
-        const localOffset = view.getUint32(ptr + 42, true)
-        if (ptr + 46 + nameLen > buf.length) {
-            malformed()
-        }
-        const name = decoder.decode(buf.subarray(ptr + 46, ptr + 46 + nameLen))
-        ptr += 46 + nameLen + extraLen + commentLen
-
-        if (name.endsWith('/')) {
-            continue // directory entry
-        }
-        // Cheap pre-check on the *declared* size (catches an honestly-huge
-        // entry without inflating). The declared size is attacker-controlled,
-        // so it is NOT trusted as the real guard — `inflateRaw` enforces the
-        // cap on the *actual* output below, and the budget is charged the
-        // real byte count.
-        if (uncompSize > MAX_FILE_BYTES) {
-            throw new UploadLimitError(`${name} exceeds the ${MAX_FILE_BYTES.toLocaleString()}-byte per-file limit.`)
-        }
-
-        if (localOffset + 30 > buf.length) {
-            malformed()
-        }
-        // Local header: data starts after its own (possibly different) name + extra lengths.
-        const localNameLen = view.getUint16(localOffset + 26, true)
-        const localExtraLen = view.getUint16(localOffset + 28, true)
-        const dataStart = localOffset + 30 + localNameLen + localExtraLen
-        if (dataStart + compSize > buf.length) {
-            malformed()
-        }
-        const raw = buf.subarray(dataStart, dataStart + compSize)
-        const bytes = method === 0 ? raw : await inflateRaw(raw, MAX_FILE_BYTES, name)
+    for (const [name, bytes] of Object.entries(entries)) {
         budget.add(bytes.byteLength, name)
         out.push({ path: name, content: decoder.decode(bytes) })
-    }
-    return out
-}
-
-function findEocd(view: DataView, length: number): number {
-    // EOCD is near the end; scan back across the max comment window (64KiB).
-    const min = Math.max(0, length - 0xffff - 22)
-    for (let i = length - 22; i >= min; i--) {
-        if (view.getUint32(i, true) === EOCD_SIG) {
-            return i
-        }
-    }
-    return -1
-}
-
-/**
- * Inflate a raw DEFLATE stream, aborting once the *actual* output passes
- * `maxBytes`. The zip's declared uncompressed size is attacker-controlled
- * (a 1-byte declaration can hide a multi-GB stream), so we meter the real
- * decompressed output chunk-by-chunk and cancel the stream the moment it
- * exceeds the cap — memory never grows past ~`maxBytes` + one chunk.
- */
-async function inflateRaw(bytes: Uint8Array, maxBytes: number, label: string): Promise<Uint8Array> {
-    const reader = new Blob([bytes as BlobPart])
-        .stream()
-        .pipeThrough(new DecompressionStream('deflate-raw'))
-        .getReader()
-    const chunks: Uint8Array[] = []
-    let total = 0
-    for (;;) {
-        const { done, value } = await reader.read()
-        if (done) {
-            break
-        }
-        total += value.byteLength
-        if (total > maxBytes) {
-            await reader.cancel()
-            throw new UploadLimitError(
-                `${label} inflates past the ${maxBytes.toLocaleString()}-byte per-file limit (possible zip bomb).`
-            )
-        }
-        chunks.push(value)
-    }
-    const out = new Uint8Array(total)
-    let offset = 0
-    for (const chunk of chunks) {
-        out.set(chunk, offset)
-        offset += chunk.byteLength
     }
     return out
 }
