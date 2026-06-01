@@ -22,7 +22,6 @@ import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
 from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
@@ -30,20 +29,7 @@ from products.cdp.backend.api import hog_function, hog_function_template, plugin
 from products.conversations.backend.routes import register_routes as register_conversations_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
 from products.data_modeling.backend.routes import register_routes as register_data_modeling_routes
-from products.data_warehouse.backend.api import (
-    data_modeling_job,
-    data_warehouse,
-    external_data_schema,
-    external_data_source,
-    managed_viewset,
-    modeling,
-    query_tab_state,
-    saved_query,
-    saved_query_draft,
-    table,
-    view_link,
-)
-from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.data_warehouse.backend.routes import register_routes as register_data_warehouse_routes
 from products.deployments.backend.routes import register_routes as register_deployments_routes
 from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
 from products.endpoints.backend.routes import register_routes as register_endpoints_routes
@@ -176,6 +162,7 @@ projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "proj
 environments_router = routers.add(
     "environments", router.register(r"environments", team.RootTeamViewSet, "environments")
 )
+register_data_warehouse_routes(routers)
 register_ai_observability_routes(routers)
 # mcp_store registers a root-level route plus dual project/environment routes, so it
 # runs here once the projects + environments parents exist.
@@ -489,30 +476,6 @@ legacy_project_batch_exports_router.register(
     ["team_id", "batch_export_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_tables", table.TableViewSet, "environment_warehouse_tables", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_query_folders",
-    saved_query.DataWarehouseSavedQueryFolderViewSet,
-    "environment_warehouse_saved_query_folders",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_queries",
-    saved_query.DataWarehouseSavedQueryViewSet,
-    "environment_warehouse_saved_queries",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_view_links",
-    view_link.ViewLinkViewSet,
-    "environment_warehouse_view_links",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_view_link", view_link.ViewLinkViewSet, "environment_warehouse_view_link", ["team_id"]
-)
 
 projects_router.register(
     r"event_definitions",
@@ -552,61 +515,7 @@ projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags",
 register_legacy_dual_route_team_nested_viewset(r"query", query.QueryViewSet, "environment_query", ["team_id"])
 
 # External data resources
-register_legacy_dual_route_team_nested_viewset(
-    r"external_data_sources",
-    external_data_source.ExternalDataSourceViewSet,
-    "environment_external_data_sources",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"data_warehouse",
-    data_warehouse.DataWarehouseViewSet,
-    "environment_data_warehouse",
-    ["team_id"],
-)
-projects_router.register(
-    r"warehouse_dag",
-    modeling.DataWarehouseModelDagViewSet,
-    "project_warehouse_dag",
-    ["team_id"],
-)
-projects_router.register(
-    r"warehouse_model_paths",
-    modeling.DataWarehouseModelPathViewSet,
-    "project_warehouse_model_paths",
-    ["team_id"],
-)
-projects_router.register(
-    r"query_tab_state",
-    query_tab_state.QueryTabStateViewSet,
-    "project_query_tab_state",
-    ["project_id"],
-)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"external_data_schemas",
-    external_data_schema.ExternalDataSchemaViewset,
-    "environment_external_data_schemas",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"fix_hogql",
-    fix_hogql.FixHogQLViewSet,
-    "project_fix_hogql",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"warehouse_saved_query_drafts",
-    saved_query_draft.DataWarehouseSavedQueryDraftViewSet,
-    "project_warehouse_saved_query_drafts",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"managed_viewsets",
-    managed_viewset.DataWarehouseManagedViewSetViewSet,
-    "project_managed_viewsets",
-    ["team_id"],
-)
 register_data_modeling_routes(routers)
 
 register_notifications_routes(routers)
@@ -1114,19 +1023,6 @@ register_legacy_dual_route_team_nested_viewset(
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
-register_legacy_dual_route_team_nested_viewset(
-    r"data_modeling_jobs",
-    data_modeling_job.DataModelingJobViewSet,
-    "environment_data_modeling_jobs",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"lineage",
-    LineageViewSet,
-    "project_lineage",
-    ["team_id"],
-)
 
 register_messaging_routes(routers)
 
