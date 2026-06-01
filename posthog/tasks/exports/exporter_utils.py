@@ -6,7 +6,15 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.utils import absolute_uri
+
 logger = structlog.get_logger(__name__)
+
+
+def exporter_absolute_uri(url: str) -> str:
+    """The exporters fetch the web app over HTTP, so they load pages from `SITE_URL` (which may be a
+    cluster-internal address) rather than the public user-facing URL used for links."""
+    return absolute_uri(url, base_url=settings.SITE_URL)
 
 
 _site_reachable: Optional[bool] = None

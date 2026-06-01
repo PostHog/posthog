@@ -30,8 +30,7 @@ from posthog.models.exported_asset import ExportedAsset, get_render_access_token
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
-from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
-from posthog.utils import absolute_uri
+from posthog.tasks.exports.exporter_utils import exporter_absolute_uri, log_error_if_site_url_not_reachable
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
@@ -163,7 +162,7 @@ def _export_to_png(
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
+            url_to_render = exporter_absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             query = exported_asset.insight.query or {}
             source = query.get("source", query)  # This to handle the InsightVizNode wrapper
@@ -179,12 +178,12 @@ def _export_to_png(
             screenshot_width = 4000 if is_left_to_right_funnel else 800
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
+            url_to_render = exporter_absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
-            url_to_render = absolute_uri(
+            url_to_render = exporter_absolute_uri(
                 f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".replayer-wrapper")
@@ -210,7 +209,7 @@ def _export_to_png(
             # the `/exporter` query string.
             encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
-            url_to_render = absolute_uri(
+            url_to_render = exporter_absolute_uri(
                 f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")

@@ -202,6 +202,40 @@ class TestImageExporter(APIBaseTest):
         assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
 
     @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
+    def test_export_renders_from_site_url_not_public_url(
+        self,
+        mock_calculate: Any,
+        mock_remove: Any,
+        mock_open: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        """On Cloud the headless browser must load from the reachable SITE_URL, not the public region URL."""
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "SELECT 1 as value"}},
+        )
+        exported_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=insight,
+        )
+
+        mock_calculate.return_value = make_insight_result("test_cache_key")
+
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=False,
+            CLOUD_DEPLOYMENT="US",
+            SITE_URL="http://posthog-web-django.posthog.svc.cluster.local:8000",
+        ):
+            image_exporter.export_image(exported_asset)
+
+        url_to_render = mock_screenshot_asset.call_args[0][1]
+        assert url_to_render.startswith("http://posthog-web-django.posthog.svc.cluster.local:8000/exporter"), (
+            f"URL should be rendered from SITE_URL, not the public region URL: {url_to_render}"
+        )
+
+    @patch("posthog.tasks.exports.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
         mock_calculate: Any,

@@ -111,31 +111,52 @@ class PotentialSecurityProblemException(Exception):
     pass
 
 
-def absolute_uri(url: Optional[str] = None) -> str:
+def get_public_site_url() -> str:
+    """Public, user-facing base URL for links in emails, subscriptions, digests, and integrations.
+
+    On Cloud the image and CSV exporters need HTTP access to the web app, so operators may set
+    `SITE_URL` to a cluster-internal Service address. User-facing links must not leak that address,
+    so on Cloud we resolve the public domain from `CLOUD_DEPLOYMENT` instead. Everywhere else
+    `SITE_URL` is already the public URL.
     """
-    Returns an absolutely-formatted URL based on the `SITE_URL` config.
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    if region == "US":
+        return "https://us.posthog.com"
+    if region == "EU":
+        return "https://eu.posthog.com"
+    return settings.SITE_URL
+
+
+def absolute_uri(url: Optional[str] = None, *, base_url: Optional[str] = None) -> str:
+    """
+    Returns an absolutely-formatted URL based on the public site URL.
+
+    The default base is the public, user-facing URL (`get_public_site_url()`), so links resolve
+    correctly even when `SITE_URL` is a cluster-internal address. Pass `base_url` to render against
+    a specific base instead -- the exporters use this to load pages over the reachable `SITE_URL`.
 
     If the provided URL is already absolutely formatted
-    it does not allow anything except the hostname of the SITE_URL config
+    it does not allow anything except the hostname of the base URL.
     """
+    base = base_url or get_public_site_url()
+
     if not url:
-        return settings.SITE_URL
+        return base
 
     if has_authority_bypass_chars(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
-        site_url = urlparse(settings.SITE_URL)
-        provided_url = provided_url
+        parsed_base = urlparse(base)
         if (
-            site_url.hostname != provided_url.hostname
-            or site_url.port != provided_url.port
-            or site_url.scheme != provided_url.scheme
+            parsed_base.hostname != provided_url.hostname
+            or parsed_base.port != provided_url.port
+            or parsed_base.scheme != provided_url.scheme
         ):
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
-    return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+    return urljoin(base.rstrip("/") + "/", url.lstrip("/"))
 
 
 def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:

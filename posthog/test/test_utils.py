@@ -34,6 +34,7 @@ from posthog.utils import (
     get_default_event_name,
     get_ip_address,
     get_js_url,
+    get_public_site_url,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
@@ -133,6 +134,35 @@ class TestAbsoluteUrls(TestCase):
         with self.settings(SITE_URL="https://app.posthog.com"):
             with pytest.raises(PotentialSecurityProblemException):
                 absolute_uri(url)
+
+    @parameterized.expand(
+        [
+            ("us_cloud", "US", "http://internal.svc.cluster.local:8000", "https://us.posthog.com"),
+            ("eu_cloud", "EU", "http://internal.svc.cluster.local:8000", "https://eu.posthog.com"),
+            ("lowercase_region", "us", "http://internal.svc.cluster.local:8000", "https://us.posthog.com"),
+            ("dev_cloud_uses_site_url", "DEV", "https://dev.posthog.com", "https://dev.posthog.com"),
+            ("self_hosted_uses_site_url", None, "https://posthog.example.com", "https://posthog.example.com"),
+        ]
+    )
+    def test_get_public_site_url(self, _name: str, cloud_deployment: str | None, site_url: str, expected: str) -> None:
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment, SITE_URL=site_url):
+            self.assertEqual(expected, get_public_site_url())
+
+    def test_absolute_uri_uses_public_site_url_on_cloud(self) -> None:
+        with self.settings(CLOUD_DEPLOYMENT="US", SITE_URL="http://internal.svc.cluster.local:8000"):
+            self.assertEqual("https://us.posthog.com/insights/abc", absolute_uri("/insights/abc"))
+
+    def test_absolute_uri_uses_base_url_override(self) -> None:
+        with self.settings(CLOUD_DEPLOYMENT="US", SITE_URL="http://internal.svc.cluster.local:8000"):
+            self.assertEqual(
+                "http://internal.svc.cluster.local:8000/exporter?token=abc",
+                absolute_uri("/exporter?token=abc", base_url="http://internal.svc.cluster.local:8000"),
+            )
+
+    def test_absolute_uri_base_url_override_enforces_host_check_against_base(self) -> None:
+        with self.settings(CLOUD_DEPLOYMENT="US", SITE_URL="http://internal.svc.cluster.local:8000"):
+            with pytest.raises(PotentialSecurityProblemException):
+                absolute_uri("https://us.posthog.com/path", base_url="http://internal.svc.cluster.local:8000")
 
 
 class TestFormatUrls(TestCase):
