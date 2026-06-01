@@ -1439,7 +1439,6 @@
         "summary": "Get all endpoints",
         "title": "Get all endpoints",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -1454,7 +1453,6 @@
         "summary": "Get endpoints last execution times",
         "title": "Get endpoints last execution times",
         "required_scopes": ["endpoint:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

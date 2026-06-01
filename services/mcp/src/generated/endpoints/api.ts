@@ -1370,7 +1370,7 @@ export const EndpointsVersionsListQueryParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Get the last execution time per endpoint, or per endpoint version when include_versions is true. Timestamps are recorded by the run path with 30-minute granularity.
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
 export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -1380,14 +1380,6 @@ export const EndpointsLastExecutionTimesCreateParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const endpointsLastExecutionTimesCreateBodyIncludeVersionsDefault = null
-
 export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
-    include_versions: zod
-        .union([zod.boolean(), zod.null()])
-        .default(endpointsLastExecutionTimesCreateBodyIncludeVersionsDefault)
-        .describe(
-            'When true, response rows are `[name, version, last_executed_at]` covering every version that has been executed. When false (default), rows are `[name, last_executed_at]` at endpoint granularity.'
-        ),
     names: zod.array(zod.string()),
 })

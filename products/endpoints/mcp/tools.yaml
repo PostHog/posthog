@@ -180,8 +180,8 @@ tools:
         description: >
             Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array
             of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the
-            response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history,
-            query the query_log table with execute-sql.
+            response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or
+            history, query the query_log table with execute-sql.
         include_params:
             - names
     endpoints-materialization-preview:
