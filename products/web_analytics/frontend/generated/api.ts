@@ -40,156 +40,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/web_analytics/weekly_digest/?${stringifiedParams}`
-        : `/api/environments/${projectId}/web_analytics/weekly_digest/`
-}
-
-/**
- * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
- * @summary Summarize web analytics
- */
-export const webAnalyticsWeeklyDigest = async (
-    projectId: string,
-    params?: WebAnalyticsWeeklyDigestParams,
-    options?: RequestInit
-): Promise<WeeklyDigestResponseApi> => {
-    return apiMutator<WeeklyDigestResponseApi>(getWebAnalyticsWeeklyDigestUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getWebAnalyticsFilterPresetsListUrl = (
-    projectId: string,
-    params?: WebAnalyticsFilterPresetsListParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/web_analytics_filter_presets/?${stringifiedParams}`
-        : `/api/environments/${projectId}/web_analytics_filter_presets/`
-}
-
-export const webAnalyticsFilterPresetsList = async (
-    projectId: string,
-    params?: WebAnalyticsFilterPresetsListParams,
-    options?: RequestInit
-): Promise<PaginatedWebAnalyticsFilterPresetListApi> => {
-    return apiMutator<PaginatedWebAnalyticsFilterPresetListApi>(
-        getWebAnalyticsFilterPresetsListUrl(projectId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getWebAnalyticsFilterPresetsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/`
-}
-
-export const webAnalyticsFilterPresetsCreate = async (
-    projectId: string,
-    webAnalyticsFilterPresetApi: NonReadonly<WebAnalyticsFilterPresetApi>,
-    options?: RequestInit
-): Promise<WebAnalyticsFilterPresetApi> => {
-    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(webAnalyticsFilterPresetApi),
-    })
-}
-
-export const getWebAnalyticsFilterPresetsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
-}
-
-export const webAnalyticsFilterPresetsRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<WebAnalyticsFilterPresetApi> => {
-    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getWebAnalyticsFilterPresetsUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
-}
-
-export const webAnalyticsFilterPresetsUpdate = async (
-    projectId: string,
-    shortId: string,
-    webAnalyticsFilterPresetApi: NonReadonly<WebAnalyticsFilterPresetApi>,
-    options?: RequestInit
-): Promise<WebAnalyticsFilterPresetApi> => {
-    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(webAnalyticsFilterPresetApi),
-    })
-}
-
-export const getWebAnalyticsFilterPresetsPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
-}
-
-export const webAnalyticsFilterPresetsPartialUpdate = async (
-    projectId: string,
-    shortId: string,
-    patchedWebAnalyticsFilterPresetApi?: NonReadonly<PatchedWebAnalyticsFilterPresetApi>,
-    options?: RequestInit
-): Promise<WebAnalyticsFilterPresetApi> => {
-    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsPartialUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedWebAnalyticsFilterPresetApi),
-    })
-}
-
-export const getWebAnalyticsFilterPresetsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/web_analytics_filter_presets/${shortId}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const webAnalyticsFilterPresetsDestroy = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<unknown> => {
-    return apiMutator<unknown>(getWebAnalyticsFilterPresetsDestroyUrl(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getHeatmapsListUrl = (projectId: string, params?: HeatmapsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -334,5 +184,155 @@ export const savedRegenerateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(heatmapScreenshotResponseApi),
+    })
+}
+
+export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics/weekly_digest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics/weekly_digest/`
+}
+
+/**
+ * Summarizes a project's web analytics over a lookback window (default 7 days): unique visitors, pageviews, sessions, bounce rate, and average session duration with period-over-period comparisons, plus the top 5 pages, top 5 traffic sources, and goal conversions.
+ * @summary Summarize web analytics
+ */
+export const webAnalyticsWeeklyDigest = async (
+    projectId: string,
+    params?: WebAnalyticsWeeklyDigestParams,
+    options?: RequestInit
+): Promise<WeeklyDigestResponseApi> => {
+    return apiMutator<WeeklyDigestResponseApi>(getWebAnalyticsWeeklyDigestUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsFilterPresetsListUrl = (
+    projectId: string,
+    params?: WebAnalyticsFilterPresetsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics_filter_presets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics_filter_presets/`
+}
+
+export const webAnalyticsFilterPresetsList = async (
+    projectId: string,
+    params?: WebAnalyticsFilterPresetsListParams,
+    options?: RequestInit
+): Promise<PaginatedWebAnalyticsFilterPresetListApi> => {
+    return apiMutator<PaginatedWebAnalyticsFilterPresetListApi>(
+        getWebAnalyticsFilterPresetsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getWebAnalyticsFilterPresetsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics_filter_presets/`
+}
+
+export const webAnalyticsFilterPresetsCreate = async (
+    projectId: string,
+    webAnalyticsFilterPresetApi: NonReadonly<WebAnalyticsFilterPresetApi>,
+    options?: RequestInit
+): Promise<WebAnalyticsFilterPresetApi> => {
+    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsFilterPresetApi),
+    })
+}
+
+export const getWebAnalyticsFilterPresetsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
+}
+
+export const webAnalyticsFilterPresetsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<WebAnalyticsFilterPresetApi> => {
+    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWebAnalyticsFilterPresetsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
+}
+
+export const webAnalyticsFilterPresetsUpdate = async (
+    projectId: string,
+    shortId: string,
+    webAnalyticsFilterPresetApi: NonReadonly<WebAnalyticsFilterPresetApi>,
+    options?: RequestInit
+): Promise<WebAnalyticsFilterPresetApi> => {
+    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(webAnalyticsFilterPresetApi),
+    })
+}
+
+export const getWebAnalyticsFilterPresetsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
+}
+
+export const webAnalyticsFilterPresetsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedWebAnalyticsFilterPresetApi?: NonReadonly<PatchedWebAnalyticsFilterPresetApi>,
+    options?: RequestInit
+): Promise<WebAnalyticsFilterPresetApi> => {
+    return apiMutator<WebAnalyticsFilterPresetApi>(getWebAnalyticsFilterPresetsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedWebAnalyticsFilterPresetApi),
+    })
+}
+
+export const getWebAnalyticsFilterPresetsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/web_analytics_filter_presets/${shortId}/`
+}
+
+/**
+ * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ */
+export const webAnalyticsFilterPresetsDestroy = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getWebAnalyticsFilterPresetsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }

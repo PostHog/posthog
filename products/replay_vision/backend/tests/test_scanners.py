@@ -583,6 +583,7 @@ class TestToEventProperties:
         assert props == {
             "scanner_output_verdict": True,
             "scanner_output_reasoning": "found it",
+            "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
         }
 

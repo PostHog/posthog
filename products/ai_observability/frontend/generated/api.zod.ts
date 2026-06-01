@@ -9,6 +9,78 @@
  */
 import * as zod from 'zod'
 
+export const datasetItemsCreateBodyRefTraceIdMax = 255
+
+export const datasetItemsCreateBodyRefSourceIdMax = 255
+
+export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetItemsUpdateBodyRefTraceIdMax = 255
+
+export const datasetItemsUpdateBodyRefSourceIdMax = 255
+
+export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetItemsPartialUpdateBodyRefTraceIdMax = 255
+
+export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
+
+export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    dataset: zod.uuid().optional(),
+    input: zod.unknown().optional(),
+    output: zod.unknown().optional(),
+    metadata: zod.unknown().optional(),
+    ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
+    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
+    ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsCreateBodyNameMax = 400
+
+export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsCreateBodyNameMax),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsUpdateBodyNameMax = 400
+
+export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsUpdateBodyNameMax),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
+export const datasetsPartialUpdateBodyNameMax = 400
+
+export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
+    description: zod.string().nullish(),
+    metadata: zod.unknown().optional(),
+    deleted: zod.boolean().nullish(),
+})
+
 /**
  * Create a new evaluation run.
 
@@ -1881,76 +1953,4 @@ export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
-})
-
-export const datasetItemsCreateBodyRefTraceIdMax = 255
-
-export const datasetItemsCreateBodyRefSourceIdMax = 255
-
-export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetItemsUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsUpdateBodyRefSourceIdMax = 255
-
-export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetItemsPartialUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
-
-export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid().optional(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsCreateBodyNameMax = 400
-
-export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsCreateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsUpdateBodyNameMax = 400
-
-export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsUpdateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetsPartialUpdateBodyNameMax = 400
-
-export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
 })

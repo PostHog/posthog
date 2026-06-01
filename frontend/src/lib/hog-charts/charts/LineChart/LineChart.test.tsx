@@ -1,6 +1,6 @@
-import type { ChartTheme, Series } from '../core/types'
-import { ReferenceLine } from '../overlays/ReferenceLine'
-import { renderHogChart } from '../testing'
+import type { ChartTheme, Series } from '../../core/types'
+import { ReferenceLine } from '../../overlays/ReferenceLine'
+import { renderHogChart } from '../../testing'
 import { LineChart } from './LineChart'
 
 const THEME: ChartTheme = {

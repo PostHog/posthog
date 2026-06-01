@@ -44,6 +44,6 @@ jobs:
               env:
                   PRIVATE_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/posthog/posthog-private.git"
+                  git remote add private "https://x-access-token:${PRIVATE_TOKEN}@github.com/PostHog/posthog-private.git"
                   git push private "HEAD:refs/heads/master" --force
                   git push private "refs/tags/*:refs/tags/*" --force

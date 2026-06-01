@@ -9,45 +9,6 @@
  */
 import * as zod from 'zod'
 
-export const warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax = 255
-
-export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod.unknown().optional().describe('HogQL query draft'),
-    saved_query_id: zod.uuid().nullish(),
-    name: zod.string().nullish(),
-    edited_history_id: zod
-        .string()
-        .max(warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax)
-        .nullish()
-        .describe('view history id that the draft branched from'),
-})
-
-export const warehouseSavedQueryDraftsUpdateBodyEditedHistoryIdMax = 255
-
-export const WarehouseSavedQueryDraftsUpdateBody = /* @__PURE__ */ zod.object({
-    query: zod.unknown().optional().describe('HogQL query draft'),
-    saved_query_id: zod.uuid().nullish(),
-    name: zod.string().nullish(),
-    edited_history_id: zod
-        .string()
-        .max(warehouseSavedQueryDraftsUpdateBodyEditedHistoryIdMax)
-        .nullish()
-        .describe('view history id that the draft branched from'),
-})
-
-export const warehouseSavedQueryDraftsPartialUpdateBodyEditedHistoryIdMax = 255
-
-export const WarehouseSavedQueryDraftsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    query: zod.unknown().optional().describe('HogQL query draft'),
-    saved_query_id: zod.uuid().nullish(),
-    name: zod.string().nullish(),
-    edited_history_id: zod
-        .string()
-        .max(warehouseSavedQueryDraftsPartialUpdateBodyEditedHistoryIdMax)
-        .nullish()
-        .describe('view history id that the draft branched from'),
-})
-
 /**
  * Start provisioning a managed warehouse for this team.
  */
@@ -1755,6 +1716,45 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = /* @__PURE__ */ zo
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
     )
+
+export const warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax = 255
+
+export const WarehouseSavedQueryDraftsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod.unknown().optional().describe('HogQL query draft'),
+    saved_query_id: zod.uuid().nullish(),
+    name: zod.string().nullish(),
+    edited_history_id: zod
+        .string()
+        .max(warehouseSavedQueryDraftsCreateBodyEditedHistoryIdMax)
+        .nullish()
+        .describe('view history id that the draft branched from'),
+})
+
+export const warehouseSavedQueryDraftsUpdateBodyEditedHistoryIdMax = 255
+
+export const WarehouseSavedQueryDraftsUpdateBody = /* @__PURE__ */ zod.object({
+    query: zod.unknown().optional().describe('HogQL query draft'),
+    saved_query_id: zod.uuid().nullish(),
+    name: zod.string().nullish(),
+    edited_history_id: zod
+        .string()
+        .max(warehouseSavedQueryDraftsUpdateBodyEditedHistoryIdMax)
+        .nullish()
+        .describe('view history id that the draft branched from'),
+})
+
+export const warehouseSavedQueryDraftsPartialUpdateBodyEditedHistoryIdMax = 255
+
+export const WarehouseSavedQueryDraftsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    query: zod.unknown().optional().describe('HogQL query draft'),
+    saved_query_id: zod.uuid().nullish(),
+    name: zod.string().nullish(),
+    edited_history_id: zod
+        .string()
+        .max(warehouseSavedQueryDraftsPartialUpdateBodyEditedHistoryIdMax)
+        .nullish()
+        .describe('view history id that the draft branched from'),
+})
 
 export const warehouseSavedQueryFoldersCreateBodyNameMax = 128
 
