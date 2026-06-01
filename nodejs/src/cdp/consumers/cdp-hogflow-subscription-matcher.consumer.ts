@@ -60,8 +60,10 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
-    // Name of the event that matched, so the executor's resume log can surface it.
+    // Name and UUID of the event that matched, so the executor's resume log can surface the
+    // name and the logs view can link to the exact event.
     eventName?: string
+    eventUuid?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
@@ -169,6 +171,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
             let stepMatchedEventName: string | undefined
+            let stepMatchedEventUuid: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
@@ -176,6 +179,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     if (await this.evaluateWaitUntilCondition(action, filterGlobals)) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
+                        stepMatchedEventUuid = globals.event.uuid
                     }
                 }
                 if (!conversionMatched) {
@@ -192,6 +196,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     stepMatched,
                     conversionMatched,
                     eventName: stepMatchedEventName,
+                    eventUuid: stepMatchedEventUuid,
                 })
             }
         }
@@ -546,6 +551,7 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
                     ...updatedState.currentAction,
                     eventMatched: true,
                     eventMatchedEvent: req.eventName,
+                    eventMatchedEventUuid: req.eventUuid,
                 }
                 applied = true
             } else {

@@ -307,6 +307,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(update!.params[0]).toEqual(['job-1'])
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.currentAction.eventMatched).toBe(true)
+            // The matching event's name and UUID are persisted so the executor log and the
+            // logs view can pinpoint exactly which event woke the step.
+            expect(newState.state.currentAction.eventMatchedEvent).toBe('wuc_subscribed')
+            expect(newState.state.currentAction.eventMatchedEventUuid).toBe('event-uuid')
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 
