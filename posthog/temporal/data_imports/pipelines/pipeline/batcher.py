@@ -1,4 +1,5 @@
 import sys
+from collections import deque
 from typing import Any, Optional
 
 import pyarrow as pa
@@ -63,7 +64,7 @@ def _split_to_offset_limit(table: pa.Table, limit: int) -> list[pa.Table]:
 class Batcher:
     _buffer: list[Any]
     _buffer_size_bytes: int
-    _ready: list[pa.Table]
+    _ready: deque[pa.Table]
     _logger: FilteringBoundLogger
     _chunk_size: int
     _chunk_size_bytes: int
@@ -84,11 +85,11 @@ class Batcher:
 
         self._buffer = []
         self._buffer_size_bytes = 0
-        self._ready = []
+        self._ready = deque()
 
     def _set_ready(self, table: pa.Table) -> None:
         """Split `table` so no yielded chunk can overflow a 32-bit offset column."""
-        self._ready = _split_to_offset_limit(table, self._max_column_offset_bytes)
+        self._ready = deque(_split_to_offset_limit(table, self._max_column_offset_bytes))
 
     def _estimate_size(self, obj: Any) -> int:
         if isinstance(obj, dict):
@@ -129,12 +130,19 @@ class Batcher:
             self._logger.debug(f"Processing buffer (dict). Length of buffer = {len(self._buffer)}")
             self._set_ready(table_from_py_list(self._buffer))
         elif isinstance(item, pa.Table):
+            # A pa.Table is self-contained and bypasses the buffer. Clearing the buffer
+            # below would silently drop any rows accumulated from earlier list/dict
+            # items, so treat a non-empty buffer here as a programming error rather than
+            # losing data. (In practice sources emit only one item type, never a mix.)
+            if self._buffer:
+                raise Exception("Cannot batch a pa.Table while list/dict rows are buffered; call get_table() first")
             self._set_ready(item)
         else:
             raise Exception(f"Unhandled item type: {item.__class__.__name__}")
 
-        # `_set_ready` clears the buffer's contribution; reset the byte counter so the
-        # next batching cycle starts fresh.
+        # The list/dict branches above materialized the buffer into `_ready`, and the
+        # pa.Table branch is guaranteed empty by the guard — so the buffer is now spent.
+        # Reset it (and its byte counter) so the next batching cycle starts fresh.
         self._buffer = []
         self._buffer_size_bytes = 0
 
@@ -152,6 +160,6 @@ class Batcher:
             self._buffer_size_bytes = 0
 
         if self._ready:
-            return self._ready.pop(0)
+            return self._ready.popleft()
 
         raise Exception("No chunks available to yield")
