@@ -364,6 +364,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                         return
                     }
+                    // The vast majority of events belong to teams with no wait_until_condition
+                    // step and no event conversion goal. Bail on those via the in-memory hogflow
+                    // cache before paying for getTeam + full globals conversion.
+                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id)
+                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
+                        return
+                    }
                     const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
                     if (!team) {
                         counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()

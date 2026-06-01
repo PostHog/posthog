@@ -133,6 +133,7 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
+            getHogFlowsForTeam: jest.fn().mockResolvedValue([]),
         }
     }
 
@@ -143,6 +144,9 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             byTeam[flow.team_id].push(flow)
         }
         ;(this as any).hogFlowManager.getHogFlowsForTeams.mockResolvedValue(byTeam)
+        ;(this as any).hogFlowManager.getHogFlowsForTeam.mockImplementation((teamId: number) =>
+            Promise.resolve(byTeam[teamId] ?? [])
+        )
     }
 
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
@@ -690,6 +694,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             }
             ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            // Team 1 has an actionable (wait_until_condition) flow so events reach conversion.
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
         it('keeps events with a distinct_id but no person_id, drops events with neither', async () => {
@@ -709,6 +715,22 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 (g: HogFunctionInvocationGlobals) => g.event.distinct_id === 'only-distinct'
             )!
             expect(distinctOnly.person).toBeUndefined()
+        })
+
+        it('skips events whose team has no actionable flow before paying for getTeam + conversion', async () => {
+            // Team 2 has no wait_until_condition step and no event conversion goal, so its events
+            // must be dropped via the in-memory cache without ever calling getTeam or converting.
+            const getTeam = (matcher as any).deps.teamManager.getTeam
+
+            const result = await (matcher as any)._parseKafkaBatch([
+                rawMessage({ team_id: 2, distinct_id: 'user-2' }),
+                rawMessage({ team_id: 1, distinct_id: 'user-1' }),
+            ])
+
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.project.id)).toEqual([1])
+            // getTeam is only reached for the actionable team, never for team 2.
+            expect(getTeam).toHaveBeenCalledTimes(1)
+            expect(getTeam).toHaveBeenCalledWith(1)
         })
     })
 })
