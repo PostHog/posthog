@@ -151,9 +151,51 @@ export type SessionTrigger =
  * implementation that runs in the browser when the model invokes one.
  * ──────────────────────────────────────────────────────────────────────── */
 
-export interface ClientToolHandler<Args = Record<string, unknown>, Result = Record<string, unknown>> {
+/**
+ * Two delivery shapes share `ClientToolHandler`:
+ *
+ *   - **Synchronous handler** (`handle`) — the 99% case. The runner calls
+ *     `handle(args)` the moment a `client_tool_call` event lands, awaits
+ *     the promise, and POSTs the result back over ingress. `focus` /
+ *     `toast` / `get_context` all use this shape today.
+ *
+ *   - **Inline renderer** (`render`) — for tools whose "answer" is a
+ *     small interactive UI. The runner does NOT auto-invoke; instead the
+ *     chat transcript renders the supplied node next to the matching
+ *     `tool_call` part. The renderer calls `resolve(result)` (or
+ *     `reject(reason)`) when the user submits, and the host posts the
+ *     result back through the same ingress path the sync flow uses.
+ *
+ * A given tool id registers exactly one shape — pick `handle` or
+ * `render`, not both. Hosts mix both kinds freely in `handlers[]`.
+ */
+export interface ClientToolRenderCallbacks<Result = Record<string, unknown>> {
+    /** Resolve the call with a successful result. Idempotent — subsequent calls are dropped. */
+    resolve: (result: Result) => void
+    /** Resolve the call with a failure reason. The host POSTs it back as `{ error }`. */
+    reject: (reason: string) => void
+    /** The session id the tool call belongs to — useful for the inline UI's API calls. */
+    sessionId: string
+    /** The runner-issued call id — uniquely identifies this invocation. */
+    callId: string
+}
+
+export interface ClientToolSyncHandler<Args = Record<string, unknown>, Result = Record<string, unknown>> {
     id: string
     handle: (args: Args) => Promise<Result> | Result
+}
+
+export interface ClientToolRenderHandler<Args = Record<string, unknown>, Result = Record<string, unknown>> {
+    id: string
+    render: (args: Args, callbacks: ClientToolRenderCallbacks<Result>) => React.ReactNode
+}
+
+export type ClientToolHandler<Args = Record<string, unknown>, Result = Record<string, unknown>> =
+    | ClientToolSyncHandler<Args, Result>
+    | ClientToolRenderHandler<Args, Result>
+
+export function isRenderHandler<A, R>(h: ClientToolHandler<A, R>): h is ClientToolRenderHandler<A, R> {
+    return 'render' in h
 }
 
 /* ──────────────────────────────────────────────────────────────────────────

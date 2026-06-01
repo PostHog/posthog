@@ -211,13 +211,19 @@ async function playScript({
 
             if (step.fulfillment === 'client') {
                 const handler = handlersRef.current?.find((h) => h.id === step.toolId)
-                if (handler) {
+                if (handler && 'handle' in handler) {
                     try {
                         const body = await handler.handle(step.args)
                         result = { ok: true, body }
                     } catch (err) {
                         result = { ok: false, error: err instanceof Error ? err.message : String(err) }
                     }
+                } else if (handler) {
+                    // Render-style handler — the fake runner can't drive
+                    // a user-facing UI from a script, so we synthesize
+                    // an explanatory result instead. Scripts that need a
+                    // specific outcome should provide `step.result`.
+                    result = step.result ?? { ok: true, body: { note: 'render-style handler skipped in fake-runner' } }
                 } else {
                     result = { ok: false, error: `no client handler registered for ${step.toolId}` }
                 }

@@ -21,7 +21,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentApplicationRef, ChatSession, ClientToolHandler, SessionPrincipal } from '@posthog/agent-chat'
+import type {
+    AgentApplicationRef,
+    ChatSession,
+    ClientToolHandler,
+    ClientToolOutcome,
+    SessionPrincipal,
+} from '@posthog/agent-chat'
+import { isRenderHandler } from '@posthog/agent-chat'
 
 import {
     cancelSession,
@@ -35,6 +42,7 @@ import {
 } from '@/lib/agentIngressClient'
 import { ApiError, getPreviewToken, getSession } from '@/lib/apiClient'
 import { applyEvent } from '@/lib/runnerReducer'
+import { describeSecretCallback, SECRET_SET_EVENT, type SecretSetEventDetail } from '@/lib/secretLinks'
 
 export interface UseRealRunnerOpts {
     /** Slug of the agent this runner talks to. */
@@ -99,6 +107,13 @@ export interface RealRunnerControls {
      * `error` instead).
      */
     reconnectAttempt: number
+    /**
+     * Resolve a still-pending client tool call. Used by render-style
+     * client tools whose inline UI submits an outcome; the runner
+     * forwards via `postClientToolResult` so the runner-side awaiter
+     * unblocks. Same wire path as the sync handler flow.
+     */
+    resolveClientTool: (callId: string, outcome: ClientToolOutcome) => void
 }
 
 function emptySession(agentRef: AgentApplicationRef, principal: SessionPrincipal): ChatSession {
@@ -283,6 +298,14 @@ export function useRealRunner({
                 }).catch(() => undefined)
                 return
             }
+            // Render-style handlers are resolved by the chat surface
+            // when the user submits the inline UI — see
+            // `resolveClientTool` below. We leave the call pending and
+            // do nothing here; the runner-side awaiter is already
+            // waiting on a /client_tool_result event.
+            if (isRenderHandler(handler)) {
+                return
+            }
             try {
                 const result = await handler.handle(data.args ?? {})
                 await postClientToolResult(agentSlug, sessionId, data.call_id, { result })
@@ -290,6 +313,18 @@ export function useRealRunner({
                 const msg = err instanceof Error ? err.message : String(err)
                 await postClientToolResult(agentSlug, sessionId, data.call_id, { error: msg }).catch(() => undefined)
             }
+        },
+        [agentSlug]
+    )
+
+    const resolveClientTool = useCallback(
+        (callId: string, outcome: ClientToolOutcome): void => {
+            const sessionId = sessionIdRef.current
+            if (!sessionId) {
+                return
+            }
+            const payload = outcome.ok ? { result: outcome.body } : { error: outcome.error }
+            void postClientToolResult(agentSlug, sessionId, callId, payload).catch(() => undefined)
         },
         [agentSlug]
     )
@@ -461,5 +496,39 @@ export function useRealRunner({
 
     const clearError = useCallback(() => setError(null), [])
 
-    return { session, send, reset, stop, playing, error, clearError, reconnectAttempt }
+    // Concierge callback: when the user finishes setting a secret in a
+    // page surface (e.g. `<SecretEditDialog>`), the surface dispatches
+    // `SECRET_SET_EVENT` carrying `{ sessionId, secret, action }`. If
+    // that sessionId matches the runner's active session, we post a
+    // synthetic system-style message so the agent receives a turn it
+    // can react to ("user set the key — try again now"). Without this
+    // the agent would be stuck waiting for the user to manually type.
+    //
+    // We keep `send` in a ref so re-mounts of the effect don't have to
+    // wait for the next render to see the latest closure — important
+    // for the case where the session id changes mid-effect.
+    const sendRef = useRef(send)
+    useEffect(() => {
+        sendRef.current = send
+    }, [send])
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        const onSecretSet = (e: Event): void => {
+            const detail = (e as CustomEvent<SecretSetEventDetail>).detail
+            if (!detail || !detail.sessionId) {
+                return
+            }
+            const activeId = sessionIdRef.current
+            if (!activeId || activeId !== detail.sessionId) {
+                return
+            }
+            void sendRef.current(describeSecretCallback(detail))
+        }
+        window.addEventListener(SECRET_SET_EVENT, onSecretSet)
+        return () => window.removeEventListener(SECRET_SET_EVENT, onSecretSet)
+    }, [])
+
+    return { session, send, reset, stop, playing, error, clearError, reconnectAttempt, resolveClientTool }
 }
