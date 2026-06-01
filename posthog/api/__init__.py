@@ -18,20 +18,15 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, EE_AVAILABLE, TEST
 
 import products.logs.backend.api as logs
 import products.tasks.backend.api as tasks
-import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
 import products.web_analytics.backend.api as web_analytics_api
 import products.revenue_analytics.backend.api as revenue_analytics
-import products.business_knowledge.backend.api as business_knowledge
-import products.marketing_analytics.backend.api as marketing_analytics
-import products.metrics.backend.presentation.api as metrics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 import products.mcp_store.backend.presentation.views as mcp_store
-import products.legal_documents.backend.presentation.views as legal_documents
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
@@ -61,6 +56,7 @@ from products.ai_observability.backend.api import (
     TraceReviewViewSet,
 )
 from products.ai_observability.backend.api.skills import LLMSkillViewSet
+from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
 from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
 from products.conversations.backend.routes import register_routes as register_conversations_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
@@ -80,7 +76,8 @@ from products.data_warehouse.backend.api import (
 )
 from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.deployments.backend.routes import register_routes as register_deployments_routes
-from products.desktop_recordings.backend.api import DesktopRecordingViewSet
+from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
+from products.endpoints.backend.routes import register_routes as register_endpoints_routes
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -99,14 +96,17 @@ from products.error_tracking.backend.api import (
     GitProviderFileLinksViewSet,
 )
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
+from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
 from products.links.backend.routes import register_routes as register_links_routes
 from products.live_debugger.backend.routes import register_routes as register_live_debugger_routes
+from products.marketing_analytics.backend.routes import register_routes as register_marketing_analytics_routes
 from products.messaging.backend.api.message_categories import MessageCategoryViewSet
 from products.messaging.backend.api.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.api.message_templates import MessageTemplatesViewSet
+from products.metrics.backend.routes import register_routes as register_metrics_routes
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.notifications.backend.presentation.views import NotificationsViewSet
-from products.posthog_ai.backend.api import MCPToolsViewSet
+from products.posthog_ai.backend.routes import register_routes as register_posthog_ai_routes
 from products.product_tours.backend.routes import register_routes as register_product_tours_routes
 from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
@@ -116,7 +116,7 @@ from products.replay_vision.backend.api import (
 )
 from products.signals.backend.views import SignalViewSet
 from products.surveys.backend.routes import register_routes as register_survey_routes
-from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
+from products.tracing.backend.routes import register_routes as register_tracing_routes
 from products.user_interviews.backend.presentation.views import (
     IntervieweeContextViewSet,
     UserInterviewTopicViewSet,
@@ -765,12 +765,7 @@ organizations_router.register(
     "organization_cimd_verification_tokens",
     ["organization_id"],
 )
-organizations_router.register(
-    r"legal_documents",
-    legal_documents.LegalDocumentViewSet,
-    "organization_legal_documents",
-    ["organization_id"],
-)
+register_legal_documents_routes(routers)
 organizations_router.register(
     r"proxy_records",
     proxy_record.ProxyRecordViewset,
@@ -1274,12 +1269,7 @@ register_legacy_dual_route_team_nested_viewset(
 
 register_links_routes(routers)
 
-projects_router.register(
-    r"business_knowledge/sources",
-    business_knowledge.KnowledgeSourceViewSet,
-    "environment_business_knowledge_sources",
-    ["team_id"],
-)
+register_business_knowledge_routes(routers)
 
 register_conversations_routes(routers)
 
@@ -1410,7 +1400,7 @@ register_legacy_dual_route_team_nested_viewset(
 )
 
 # Metrics endpoints
-register_legacy_dual_route_team_nested_viewset(r"metrics", metrics.MetricsViewSet, "environment_metrics", ["team_id"])
+register_metrics_routes(routers)
 
 register_legacy_dual_route_team_nested_viewset(
     r"logs/explainLogWithAI",
@@ -1419,9 +1409,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"endpoints", endpoints.EndpointViewSet, "environment_endpoints", ["team_id"]
-)
+register_endpoints_routes(routers)
 
 register_legacy_dual_route_team_nested_viewset(
     r"user_interviews",
@@ -1474,19 +1462,9 @@ projects_router.register(
     ["project_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"tracing/spans",
-    TracingSpansViewSet,
-    "project_tracing_spans",
-    ["team_id"],
-)
+register_tracing_routes(routers)
 
-register_legacy_dual_route_team_nested_viewset(
-    r"desktop_recordings",
-    DesktopRecordingViewSet,
-    "project_desktop_recordings",
-    ["team_id"],
-)
+register_desktop_recordings_routes(routers)
 
 register_legacy_dual_route_team_nested_viewset(
     r"csp-reporting",
@@ -1495,12 +1473,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"marketing_analytics",
-    marketing_analytics.MarketingAnalyticsViewSet,
-    "project_marketing_analytics",
-    ["team_id"],
-)
+register_marketing_analytics_routes(routers)
 
 register_legacy_dual_route_team_nested_viewset(
     r"revenue_analytics/taxonomy",
@@ -1738,12 +1711,7 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"mcp_tools",
-    MCPToolsViewSet,
-    "project_mcp_tools",
-    ["team_id"],
-)
+register_posthog_ai_routes(routers)
 
 register_legacy_dual_route_team_nested_viewset(
     r"mcp_servers",
