@@ -18,9 +18,6 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
-from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
-from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -87,6 +84,12 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+    # Deferred: the temporal package imports the facade back (reingestion -> emit_signal), so
+    # importing these workflows at module scope forms a circular import and drags the whole
+    # temporal stack onto the Django startup path. Resolved lazily at call time instead.
+    from products.signals.backend.temporal.buffer import BufferSignalsWorkflow  # noqa: PLC0415
+    from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow  # noqa: PLC0415
+    from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs  # noqa: PLC0415
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:

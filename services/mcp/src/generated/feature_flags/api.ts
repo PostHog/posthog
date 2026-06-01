@@ -90,6 +90,8 @@ export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const featureFlagsCreateBodyFiltersOneEarlyExitDefault = false
+
 export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
@@ -367,6 +369,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
                 ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsCreateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
+                ),
         })
         .optional()
         .describe('Feature flag targeting configuration.'),
@@ -405,6 +413,8 @@ export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault = false
 
 export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
@@ -682,6 +692,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe(
                     'Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.'
+                ),
+            early_exit: zod
+                .boolean()
+                .default(featureFlagsPartialUpdateBodyFiltersOneEarlyExitDefault)
+                .describe(
+                    'When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups.'
                 ),
         })
         .optional()
