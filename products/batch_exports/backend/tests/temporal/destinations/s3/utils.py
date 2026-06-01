@@ -85,7 +85,11 @@ async def check_valid_credentials() -> bool:
     async with session.client("sts") as sts:
         try:
             await sts.get_caller_identity()
-        except botocore.exceptions.ClientError:
+        except (
+            botocore.exceptions.NoCredentialsError,
+            botocore.exceptions.PartialCredentialsError,
+            botocore.exceptions.ClientError,
+        ):
             return False
         else:
             return True

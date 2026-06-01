@@ -19,6 +19,7 @@ export const ExperimentSavedMetricsListParams = /* @__PURE__ */ zod.object({
 export const ExperimentSavedMetricsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('A search term.'),
 })
 
 export const ExperimentSavedMetricsCreateParams = /* @__PURE__ */ zod.object({
@@ -159,6 +160,7 @@ export const experimentsCreateBodyNameMax = 400
 
 export const experimentsCreateBodyDescriptionMax = 3000
 
+export const experimentsCreateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -415,6 +417,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsCreateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -468,7 +476,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -2846,6 +2854,7 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
+export const experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsPartialUpdateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -3104,6 +3113,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsPartialUpdateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -3157,7 +3172,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5616,6 +5631,7 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
+export const experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemNameDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemRolloutPercentageDefault = null
 export const experimentsDuplicateCreateBodyParametersOneFeatureFlagVariantsOneItemSplitPercentDefault = null
@@ -5876,6 +5892,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
+                    excluded_variants: zod
+                        .union([zod.array(zod.string()), zod.null()])
+                        .default(experimentsDuplicateCreateBodyParametersOneExcludedVariantsDefault)
+                        .describe(
+                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
+                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -5929,7 +5951,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "Variant definitions and rollout configuration. Set feature_flag_variants to customize the split (default: 50/50 control/test). Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded).'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod

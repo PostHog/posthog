@@ -1,4 +1,5 @@
 from pathlib import Path
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 
@@ -7,6 +8,7 @@ from parameterized import parameterized
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.logic import create_text_source
+from products.business_knowledge.backend.models import SourceStatus
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -52,9 +54,42 @@ class TestRetrievalEval(BaseTest):
         assert logic.search_knowledge(self.team.id, "") == []
         assert logic.search_knowledge(self.team.id, "   ") == []
 
-    def test_limit_respected(self) -> None:
+    def test_limit_caps_anchors_with_neighbour_expansion(self) -> None:
+        # `limit` caps the number of matched anchor chunks; each anchor expands to
+        # its ordinal neighbours (n-1, n, n+1), so the returned set is at most 3x.
         results = logic.search_knowledge(self.team.id, "refund", limit=1)
-        assert len(results) <= 1
+        assert len(results) <= 3
+
+    def test_neighbours_are_contiguous_per_document(self) -> None:
+        # Adjacency expansion must keep ordinals contiguous within each document.
+        results = logic.search_knowledge(self.team.id, "refund", limit=1)
+        by_doc: dict[UUID, list[int]] = {}
+        for r in results:
+            by_doc.setdefault(r.document_id, []).append(r.ordinal)
+        for ordinals in by_doc.values():
+            assert ordinals == sorted(ordinals)
+            assert ordinals == list(range(ordinals[0], ordinals[0] + len(ordinals)))
+
+    def test_multiple_anchors_per_document_expand_to_disjoint_windows(self) -> None:
+        # Two non-adjacent matching chunks in one document: each anchor expands to
+        # its own {n-1, n, n+1} window, and the windows stay disjoint (the gap is
+        # preserved) instead of collapsing into one contiguous range.
+        para = ("alpha " * 120).strip()  # ~720 chars > CHUNK_TARGET_CHARS, so one paragraph == one chunk
+        match = f"zebrafish {para}"
+        text = "\n\n".join([match, para, para, para, match])  # "zebrafish" lands in ordinals 0 and 4
+        source = create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Zebra Doc",
+            text=text,
+        )
+        assert source.status == SourceStatus.READY
+
+        results = logic.search_knowledge(self.team.id, "zebrafish", limit=2)
+        assert len({r.document_id for r in results}) == 1
+        # anchors at 0 and 4 → windows {0,1} and {3,4} (ordinal 5 doesn't exist);
+        # ordinal 2 is excluded, proving multi-anchor windowing without collapse.
+        assert sorted(r.ordinal for r in results) == [0, 1, 3, 4]
 
     def test_results_have_source_metadata(self) -> None:
         results = logic.search_knowledge(self.team.id, "refund")

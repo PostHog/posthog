@@ -1,6 +1,11 @@
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
-import { buildMCPAnalyticsGroups, buildMCPContextProperties, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
+import {
+    buildMCPAnalyticsGroups,
+    buildMCPContextProperties,
+    MCP_ANALYTICS_VERSION,
+    type MCPAnalyticsContext,
+} from '@/lib/posthog/analytics'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -20,7 +25,7 @@ function buildBaseProperties(
         $mcp_source: MCP_ANALYTICS_SOURCE,
         $mcp_server_name: MCP_SERVER_NAME,
         $mcp_server_version: MCP_SERVER_VERSION,
-        $mcp_version: state.version,
+        $mcp_version: MCP_ANALYTICS_VERSION,
         $mcp_client_name: requestContext.mcpClientName,
         $mcp_client_version: requestContext.mcpClientVersion,
         $mcp_client_user_agent: requestContext.clientUserAgent,

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional, TypeVar, Union, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.db.models.query import Prefetch, QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
@@ -50,7 +51,7 @@ from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
 
-PERSONHOG_BATCH_SIZE = 250
+PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:

@@ -267,7 +267,12 @@ def _workspace_status_color(status: str) -> str:
 
 
 def _sync_workspace_parameters(name: str) -> None:
-    """Push local config (git identity, dotfiles) to workspace parameters before start."""
+    """Push local config (git identity, dotfiles) to workspace parameters before start.
+
+    `workspace_region` is intentionally not forwarded: it is immutable, so Coder
+    carries it forward on its own and rejects any explicit value on `coder
+    update` (see the comment on `WORKSPACE_REGION_PARAMETER`).
+    """
     config = load_config()
     params: dict[str, str] = {}
 

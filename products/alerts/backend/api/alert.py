@@ -691,7 +691,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
-    queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
+    queryset = (
+        AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
+        .prefetch_related("subscribed_users")
+        .order_by("-created_at")
+    )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -961,7 +965,7 @@ def handle_alert_subscription_change(
 
 @receiver(pre_delete, sender=AlertConfiguration)
 def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
     for hog_function in HogFunction.objects.filter(
         team_id=instance.team_id,
