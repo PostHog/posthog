@@ -8,21 +8,17 @@ from django.core.cache import caches
 
 import structlog
 from django_redis.pool import ConnectionFactory
-from prometheus_client import Counter, Histogram
+from prometheus_client import Histogram
 from redis.cluster import RedisCluster
 
 logger = structlog.get_logger(__name__)
 
 QUERY_CACHE_ALIAS = "query_cache"
 
-REDIS_CLUSTER_DISCOVERY_COUNTER = Counter(
-    "posthog_redis_cluster_discovery_total",
-    "Number of times a RedisCluster client was constructed, each triggering COMMAND + CLUSTER SLOTS topology discovery.",
-)
-
 REDIS_CLUSTER_DISCOVERY_DURATION = Histogram(
     "posthog_redis_cluster_discovery_duration_seconds",
-    "Wall-clock time spent constructing a RedisCluster client, including COMMAND + CLUSTER SLOTS topology discovery.",
+    "Wall-clock time spent constructing a RedisCluster client, including COMMAND + CLUSTER SLOTS topology discovery. "
+    "Its _count series is the number of constructions, each of which triggers a discovery.",
     buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
 )
 
@@ -32,7 +28,6 @@ P = ParamSpec("P")
 def instrument_cluster_discovery(fn: Callable[P, RedisCluster]) -> Callable[P, RedisCluster]:
     @wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> RedisCluster:
-        REDIS_CLUSTER_DISCOVERY_COUNTER.inc()
         with REDIS_CLUSTER_DISCOVERY_DURATION.time():
             return fn(*args, **kwargs)
 
@@ -70,11 +65,12 @@ class RedisClusterConnectionFactory(ConnectionFactory):
 
 
 def prewarm_query_cache_cluster() -> None:
-    """Force RedisCluster topology discovery during worker startup.
+    """Force RedisCluster topology discovery during worker warmup.
 
     Discovery (COMMAND + CLUSTER SLOTS) otherwise happens lazily on the worker's
     first cacheable query, putting it on a user's query critical path. Issuing a
-    trivial read here moves it into warmup instead. Safe to call when the
+    trivial read here moves it earlier: to module import under WSGI, and to the
+    first request (via the post-fork init hook) under ASGI. Safe to call when the
     query_cache alias is not configured — it is a no-op then.
     """
     if QUERY_CACHE_ALIAS not in settings.CACHES:

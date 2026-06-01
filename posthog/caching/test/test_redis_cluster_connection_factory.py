@@ -12,7 +12,7 @@ from posthog.caching.redis_cluster_connection_factory import (
 
 
 def _discovery_count() -> float:
-    return REGISTRY.get_sample_value("posthog_redis_cluster_discovery_total") or 0.0
+    return REGISTRY.get_sample_value("posthog_redis_cluster_discovery_duration_seconds_count") or 0.0
 
 
 class TestRedisClusterConnectionFactory(TestCase):
@@ -44,7 +44,7 @@ class TestRedisClusterConnectionFactory(TestCase):
         assert from_url.call_count == 2
 
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
-    def test_discovery_counter_increments_only_on_construction(self, from_url: MagicMock) -> None:
+    def test_discovery_metric_records_only_on_construction(self, from_url: MagicMock) -> None:
         factory = self._factory()
         from_url.return_value = MagicMock()
 
