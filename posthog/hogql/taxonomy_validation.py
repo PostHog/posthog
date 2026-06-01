@@ -1,12 +1,23 @@
 from dataclasses import dataclass
 from difflib import get_close_matches
 
+from django.db.models import QuerySet
+
 from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+
+# Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
+# never appear in PropertyDefinition and must not be flagged as unknown.
+DYNAMIC_PROPERTY_PREFIXES = (
+    "$feature/",
+    "$feature_enrollment/",
+    "$survey_responded/",
+    "$survey_dismissed/",
+)
 
 
 @dataclass(frozen=True)
@@ -73,16 +84,22 @@ def validate_taxonomy_references(
     warnings: list[HogQLNotice] = []
 
     if visitor.event_literals:
-        event_names = set(EventDefinition.objects.filter(team=team).values_list("name", flat=True))
-        warnings.extend(_warnings_for_unknown_references("Event", visitor.event_literals, event_names))
+        warnings.extend(
+            _warnings_for_unknown_references("Event", visitor.event_literals, EventDefinition.objects.filter(team=team))
+        )
 
     if visitor.property_names:
-        property_names = set(
-            PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT).values_list(
-                "name", flat=True
+        property_references = [
+            reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+        ]
+        if property_references:
+            warnings.extend(
+                _warnings_for_unknown_references(
+                    "Property",
+                    property_references,
+                    PropertyDefinition.objects.filter(team=team, type=PropertyDefinition.Type.EVENT),
+                )
             )
-        )
-        warnings.extend(_warnings_for_unknown_references("Property", visitor.property_names, property_names))
 
     return warnings
 
@@ -93,6 +110,10 @@ def _is_event_field(node: ast.Expr) -> bool:
 
 def _is_properties_field(node: ast.Expr) -> bool:
     return isinstance(node, ast.Field) and len(node.chain) == 1 and node.chain[0] == "properties"
+
+
+def _is_dynamic_property(name: str) -> bool:
+    return any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
 
 
 def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> TaxonomyReference | None:
@@ -115,40 +136,51 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
 
 
 def _warnings_for_unknown_references(
-    kind: str, references: list[TaxonomyReference], known_names: set[str]
+    kind: str, references: list[TaxonomyReference], taxonomy: QuerySet
 ) -> list[HogQLNotice]:
-    if not known_names:
+    if not references:
         return []
 
-    warnings: list[HogQLNotice] = []
-    seen: set[str] = set()
-
+    references_by_name: dict[str, TaxonomyReference] = {}
     for reference in references:
-        if reference.name in known_names or reference.name in seen:
-            continue
-        seen.add(reference.name)
+        references_by_name.setdefault(reference.name, reference)
+    referenced_names = list(references_by_name.keys())
 
-        suggestion = _suggest_name(reference.name, known_names)
-        message = f"{kind} '{reference.name}' was not found in this project taxonomy."
+    # Hot path: an indexed `name__in` existence check over only the referenced names (usually 1–5),
+    # not a materialization of the whole team taxonomy. When every name is valid we never load more.
+    found_names = set(taxonomy.filter(name__in=referenced_names).values_list("name", flat=True))
+    unknown_names = [name for name in referenced_names if name not in found_names]
+    if not unknown_names:
+        return []
+
+    # Rare path (a name is unknown): load the full name set for fuzzy suggestions. This also doubles as
+    # the empty-taxonomy guard — a project with no definitions yet should not warn on anything.
+    known_names = _known_names(taxonomy)
+    if not known_names:
+        return []
+    sorted_known_names = sorted(known_names)
+
+    warnings: list[HogQLNotice] = []
+    for name in unknown_names:
+        reference = references_by_name[name]
+        suggestion = _suggest_name(name, known_names, sorted_known_names)
+        message = f"{kind} '{name}' was not found in this project taxonomy."
         if suggestion:
             message += f" Did you mean '{suggestion}'?"
 
-        warnings.append(
-            HogQLNotice(
-                message=message,
-                start=reference.start,
-                end=reference.end,
-                fix=suggestion,
-            )
-        )
+        warnings.append(HogQLNotice(message=message, start=reference.start, end=reference.end, fix=suggestion))
 
     return warnings
 
 
-def _suggest_name(name: str, known_names: set[str]) -> str | None:
+def _known_names(taxonomy: QuerySet) -> set[str]:
+    return set(taxonomy.values_list("name", flat=True))
+
+
+def _suggest_name(name: str, known_names: set[str], sorted_known_names: list[str]) -> str | None:
     dollar_prefixed = f"${name}"
     if not name.startswith("$") and dollar_prefixed in known_names:
         return dollar_prefixed
 
-    matches = get_close_matches(name, sorted(known_names), n=1, cutoff=0.6)
+    matches = get_close_matches(name, sorted_known_names, n=1, cutoff=0.6)
     return matches[0] if matches else None

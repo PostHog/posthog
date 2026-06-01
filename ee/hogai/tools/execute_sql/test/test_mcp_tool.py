@@ -3,6 +3,8 @@ from unittest.mock import Mock, patch
 
 from asgiref.sync import sync_to_async
 
+from posthog.models import EventDefinition
+
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -60,3 +62,39 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("Revenue Trends", content)
+
+    async def test_taxonomy_warning_for_unknown_event(self):
+        await sync_to_async(EventDefinition.objects.create)(team=self.team, name="paid_bill")
+
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT count() FROM events WHERE event = 'purchase'"),
+        )
+
+        self.assertIn("taxonomy_warnings", content)
+        self.assertIn("purchase", content)
+
+    async def test_taxonomy_warning_suggests_close_match(self):
+        await sync_to_async(EventDefinition.objects.create)(team=self.team, name="signed_up")
+
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT count() FROM events WHERE event = 'signup'"),
+        )
+
+        self.assertIn("taxonomy_warnings", content)
+        self.assertIn("signed_up", content)
+
+    async def test_no_taxonomy_warning_for_known_event(self):
+        await sync_to_async(EventDefinition.objects.create)(team=self.team, name="paid_bill")
+
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT count() FROM events WHERE event = 'paid_bill'"),
+        )
+
+        self.assertNotIn("taxonomy_warnings", content)
+
+    async def test_no_taxonomy_warning_when_taxonomy_empty(self):
+        content = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(query="SELECT count() FROM events WHERE event = 'purchase'"),
+        )
+
+        self.assertNotIn("taxonomy_warnings", content)

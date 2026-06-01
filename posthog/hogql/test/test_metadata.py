@@ -268,6 +268,23 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
 
+    def test_metadata_does_not_warn_for_allowlisted_dynamic_property(self):
+        PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
+
+        metadata = self._select("SELECT properties['$feature/my-flag'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    def test_metadata_skips_full_taxonomy_fetch_for_known_event(self):
+        EventDefinition.objects.create(team=self.team, name="paid_bill")
+
+        with patch("posthog.hogql.taxonomy_validation._known_names") as known_names:
+            metadata = self._select("SELECT count() FROM events WHERE event = 'paid_bill'")
+
+        self.assertTrue(metadata.isValid)
+        known_names.assert_not_called()
+
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
         with (
             patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
