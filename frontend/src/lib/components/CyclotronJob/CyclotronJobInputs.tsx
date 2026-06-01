@@ -58,14 +58,19 @@ const INPUT_TYPE_LABELS: Partial<Record<(typeof INPUT_TYPE_LIST)[number], string
     non_failure_status_codes: 'Non-failure codes',
 }
 
+const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<(typeof INPUT_TYPE_LIST)[number], string>> = {
+    non_failure_status_codes:
+        'HTTP response codes that should NOT mark the invocation as failed. Accepts specific codes (e.g. 409, 422) or the wildcards 4xx and 5xx. Useful when an API returns 4xx for expected non-error states.',
+}
+
 const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
 
 function isValidNonFailureStatusCode(entry: string): boolean {
-    if (/^[1-5]xx$/i.test(entry)) {
+    if (/^[4-5]xx$/i.test(entry)) {
         return true
     }
     const n = Number(entry)
-    return Number.isInteger(n) && n >= 100 && n <= 599
+    return Number.isInteger(n) && n >= 400 && n <= 599
 }
 
 export type CyclotronJobInputsProps = {
@@ -521,8 +526,8 @@ function NonFailureStatusCodesField({
             />
             {invalid.length > 0 && (
                 <div className="text-xs text-danger">
-                    Invalid {invalid.length === 1 ? 'entry' : 'entries'}: {invalid.join(', ')}. Use a number between 100
-                    and 599 or a wildcard like <code>4xx</code>.
+                    Invalid {invalid.length === 1 ? 'entry' : 'entries'}: {invalid.join(', ')}. Use a number between 400
+                    and 599, <code>4xx</code>, or <code>5xx</code>.
                 </div>
             )}
         </div>
@@ -703,7 +708,15 @@ function CyclotronJobInputSchemaControls({
                     }))}
                     value={value.type}
                     className="min-w-40"
-                    onChange={(type) => _onChange({ type })}
+                    onChange={(type) => {
+                        const defaultDescription = INPUT_TYPE_DEFAULT_DESCRIPTIONS[type]
+                        // Seed the description from the type's default if the author hasn't written one
+                        if (defaultDescription && !value.description) {
+                            _onChange({ type, description: defaultDescription })
+                        } else {
+                            _onChange({ type })
+                        }
+                    }}
                 />
                 <LemonCheckbox
                     size="small"

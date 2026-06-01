@@ -320,16 +320,14 @@ class InputsItemSerializer(serializers.Serializer):
             for entry in value:
                 if isinstance(entry, bool) or not isinstance(entry, int | str):
                     raise serializers.ValidationError(
-                        {"input": "Entries must be integers between 100 and 599 or wildcards like '4xx'."}
+                        {"input": "Entries must be integers between 400 and 599 or wildcards '4xx' or '5xx'."}
                     )
                 if isinstance(entry, int):
-                    if not (100 <= entry <= 599):
-                        raise serializers.ValidationError({"input": "Status code numbers must be between 100 and 599."})
+                    if not (400 <= entry <= 599):
+                        raise serializers.ValidationError({"input": "Status code numbers must be between 400 and 599."})
                 else:
-                    if not re.fullmatch(r"[1-5]xx", entry, re.IGNORECASE):
-                        raise serializers.ValidationError(
-                            {"input": "Wildcards must match the pattern Nxx where N is 1-5."}
-                        )
+                    if not re.fullmatch(r"[4-5]xx", entry, re.IGNORECASE):
+                        raise serializers.ValidationError({"input": "Wildcards must be '4xx' or '5xx'."})
 
         try:
             if value and schema.get("templating", True):

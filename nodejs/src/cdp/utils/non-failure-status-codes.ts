@@ -1,4 +1,4 @@
-const WILDCARD_PATTERN = /^([1-5])xx$/i
+const WILDCARD_PATTERN = /^([4-5])xx$/i
 
 export function isNonFailureStatus(
     status: number | undefined,

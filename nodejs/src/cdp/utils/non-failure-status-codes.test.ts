@@ -24,9 +24,10 @@ describe('isNonFailureStatus', () => {
             [500, ['5xx'], true],
             [599, ['5xx'], true],
             [400, ['5xx'], false],
-            [100, ['1xx'], true],
-            [200, ['2xx'], true],
-            [301, ['3xx'], true],
+            // Only 4xx and 5xx wildcards are supported — non-failure config is irrelevant outside the error range.
+            [100, ['1xx'], false],
+            [200, ['2xx'], false],
+            [301, ['3xx'], false],
         ])('status %p in %p => %p', (status, config, expected) => {
             expect(isNonFailureStatus(status, config)).toBe(expected)
         })
