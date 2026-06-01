@@ -524,7 +524,11 @@ type BytecodeContext = { hogFlowId: string; actionId?: string }
 // every events[].filters at save time, so missing/empty bytecode means a malformed row:
 // we fail closed (return false) rather than falling back to event-name-only matching, which
 // would silently bypass property filters.
-async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, context: BytecodeContext): Promise<boolean> {
+async function runBytecode(
+    bytecode: unknown,
+    filterGlobals: FilterGlobals,
+    context: BytecodeContext
+): Promise<boolean> {
     if (!Array.isArray(bytecode) || bytecode.length === 0) {
         return false
     }
