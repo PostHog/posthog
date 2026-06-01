@@ -60,7 +60,7 @@ class InsightVariablePagination(pagination.PageNumberPagination):
     page_size = 500
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
+@extend_schema(extensions={"x-product": ProductKey.DATA_WAREHOUSE})
 class InsightVariableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "insight_variable"
     queryset = InsightVariable.objects.all()

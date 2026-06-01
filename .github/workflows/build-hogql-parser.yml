@@ -27,13 +27,15 @@ jobs:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
 
-            - name: Check if common/hogql_parser/ has changed
+            - name: Check if common/hogql_parser/ or the workflow has changed
               id: changed-files
               uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
+                      workflow:
+                      - .github/workflows/build-hogql-parser.yml
 
             - name: Check if version was bumped
               shell: bash
@@ -41,16 +43,18 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
-                    published=$(curl -fSsl https://pypi.org/pypi/hogql-parser/json | jq -r '.info.version')
                     local=$(cd common/hogql_parser && python setup.py --version)
-                    if [[ "$published" != "$local" ]]; then
+                    # 200 = version already on PyPI, 404 = needs release.
+                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
+                    if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
-                    else
+                    elif [[ "$http_code" == '200' ]]; then
                       message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
                       message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
                       if [[ "$IS_FORK" == 'true' ]]; then
@@ -63,7 +67,14 @@ jobs:
                       else
                         gh pr comment "$PR_NUMBER" --body "$message_body"
                       fi
+                    else
+                      echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."
+                      parser_release_needed='true'
                     fi
+                  fi
+                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
+                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
+                    parser_release_needed='true'
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
@@ -159,6 +170,8 @@ jobs:
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+              with:
+                  skip-existing: true
 
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token

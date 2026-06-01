@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { TimeSeriesBarChart } from 'lib/hog-charts'
+import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from 'lib/hog-charts'
 import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from 'lib/hog-charts'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -60,6 +60,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         hasPersonsModal,
         querySource,
         showValuesOnSeries,
+        showLegend,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
@@ -76,6 +77,8 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         })
         return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
     }, [indexedResults, currentPeriodResult?.labels])
+
+    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
 
     const valueLabelFormatter = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
@@ -191,18 +194,22 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <TimeSeriesBarChart<TrendsSeriesMeta>
-            series={series}
-            labels={labels}
-            config={timeSeriesConfig}
-            theme={theme}
-            tooltip={renderTooltip}
-            onPointClick={canHandleClick ? onPointClick : undefined}
-            className="BarGraph"
-            dataAttr="trend-lifecycle-graph"
-            onError={handleChartError}
-        >
-            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
-        </TimeSeriesBarChart>
+        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
+            <TimeSeriesBarChart<TrendsSeriesMeta>
+                series={series}
+                labels={labels}
+                config={timeSeriesConfig}
+                theme={theme}
+                tooltip={renderTooltip}
+                onPointClick={canHandleClick ? onPointClick : undefined}
+                className="BarGraph"
+                dataAttr="trend-lifecycle-graph"
+                onError={handleChartError}
+            >
+                {showAnnotations && (
+                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
+                )}
+            </TimeSeriesBarChart>
+        </ChartLegend>
     )
 }

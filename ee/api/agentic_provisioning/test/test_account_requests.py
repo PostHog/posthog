@@ -262,6 +262,24 @@ class TestAccountRequests(ProvisioningTestBase):
         assert res.json()["type"] == "oauth"
         assert "code" in res.json()["oauth"]
 
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_new_user_capture_includes_team_id(self, mock_capture_event):
+        payload = self._account_request_payload(email="capture@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+
+        user = User.objects.get(email="capture@example.com")
+        team = user.team
+        assert team is not None
+
+        new_user_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("account_request", "new_user")
+        ]
+        assert len(new_user_calls) == 1
+        kwargs = new_user_calls[0].kwargs
+        assert kwargs["team_id"] == team.id
+        assert "partner_id" in kwargs
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):

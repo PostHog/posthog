@@ -43,7 +43,6 @@ class _ConflictError(exceptions.APIException):
     default_code = "conflict"
 
 
-@extend_schema(tags=["business_knowledge"])
 class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeSource.objects.unscoped()

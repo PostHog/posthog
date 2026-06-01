@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -223,6 +223,30 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
 })
 
+/**
+ * Soft-delete a single tile from a dashboard.
+
+Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
+object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
+use the dashboard delete endpoint instead.
+ */
+export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
+})
+
 export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
@@ -236,11 +260,20 @@ export const DashboardsReorderTilesCreateQueryParams = /* @__PURE__ */ zod.objec
     format: zod.enum(['json', 'txt']).optional(),
 })
 
+export const dashboardsReorderTilesCreateBodyLayoutDefault = `preserve`
+
 export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
         .describe('Array of tile IDs in the desired display order (top to bottom, left to right).'),
+    layout: zod
+        .enum(['preserve', 'two_column', 'full_width'])
+        .describe('* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width')
+        .default(dashboardsReorderTilesCreateBodyLayoutDefault)
+        .describe(
+            "How to size tiles when reordering. 'preserve' (default) keeps each tile's existing width and height and only repacks positions in the new order. 'two_column' forces a 6-wide × 5-tall grid (two tiles per row). 'full_width' forces each tile to span the full 12-column row at height 5.\n\n* `preserve` - preserve\n* `two_column` - two_column\n* `full_width` - full_width"
+        ),
 })
 
 /**

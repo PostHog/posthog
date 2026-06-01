@@ -98,7 +98,6 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         return {"count": [(team_b_id, 100)], "read_bytes": [(team_b_id, 5_000_000)]}
     if query_name == "sdk_logs_records":
         return {
-            "web": [(team_a_id, 9)],
             "ios": [(team_a_id, 4)],
             "react_native": [(team_b_id, 6)],
             "android": [],

@@ -146,6 +146,49 @@ class TestBuildQuery:
         assert params[2] is not None
 
 
+class TestBuildQueryEnabledColumns:
+    def test_full_refresh_none_uses_select_star(self):
+        sql, _ = _build_query("DB", "PUBLIC", "t", False, None, None, None, enabled_columns=None, primary_keys=["id"])
+        assert sql.startswith("SELECT * FROM IDENTIFIER(%s)")
+
+    def test_full_refresh_subset_projects_pk_retained(self):
+        sql, _ = _build_query(
+            "DB", "PUBLIC", "t", False, None, None, None, enabled_columns=["EMAIL"], primary_keys=["ID"]
+        )
+        assert sql.startswith('SELECT "EMAIL", "ID" FROM IDENTIFIER(%s)')
+
+    def test_full_refresh_subset_keeps_incremental_field(self):
+        sql, _ = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            False,
+            None,
+            None,
+            None,
+            enabled_columns=["EMAIL"],
+            primary_keys=["ID"],
+        )
+        assert '"EMAIL"' in sql
+        assert '"ID"' in sql
+
+    def test_incremental_subset_retains_incremental_field(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "CREATED_AT",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            enabled_columns=["EMAIL"],
+            primary_keys=["ID"],
+        )
+        assert sql.startswith('SELECT "EMAIL", "ID", "CREATED_AT" FROM IDENTIFIER(%s)')
+        assert "WHERE IDENTIFIER(%s)" in sql
+        assert params == ("DB.PUBLIC.t", "CREATED_AT", "2025-01-01", "CREATED_AT")
+
+
 # ---------------------------------------------------------------------------
 # Implementation fixtures
 # ---------------------------------------------------------------------------
