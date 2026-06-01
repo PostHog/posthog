@@ -1,0 +1,20 @@
+/* @@MARKER@@ */ SELECT
+    ai_events.trace_id AS id,
+    any(ai_events.session_id) AS ai_session_id,
+    min(toTimeZone(ai_events.timestamp, 'US/Pacific')) AS first_timestamp,
+    max(toTimeZone(ai_events.timestamp, 'US/Pacific')) AS last_timestamp,
+    ifNull(nullIf(argMinIf(ai_events.distinct_id, toTimeZone(ai_events.timestamp, 'US/Pacific'), equals(ai_events.event, '$ai_trace')), ''), argMin(ai_events.distinct_id, toTimeZone(ai_events.timestamp, 'US/Pacific'))) AS first_distinct_id,
+    round(if(and(ifNull(equals(countIf(and(ifNull(greater(ai_events.latency, 0), 0), notEquals(ai_events.event, '$ai_generation'))), 0), 0), ifNull(greater(countIf(and(ifNull(greater(ai_events.latency, 0), 0), equals(ai_events.event, '$ai_generation'))), 0), 0)), sumIf(ai_events.latency, and(equals(ai_events.event, '$ai_generation'), ifNull(greater(ai_events.latency, 0), 0))), sumIf(ai_events.latency, or(isNull(ai_events.parent_id), ifNull(equals(ai_events.parent_id, ai_events.trace_id), isNull(ai_events.parent_id) and isNull(ai_events.trace_id))))), 2) AS total_latency,
+    nullIf(sumIf(ai_events.input_tokens, in(ai_events.event, tuple('$ai_generation', '$ai_embedding'))), 0) AS input_tokens,
+    nullIf(sumIf(ai_events.output_tokens, in(ai_events.event, tuple('$ai_generation', '$ai_embedding'))), 0) AS output_tokens,
+    nullIf(round(sumIf(ai_events.input_cost_usd, in(ai_events.event, tuple('$ai_generation', '$ai_embedding'))), 10), 0) AS input_cost,
+    nullIf(round(sumIf(ai_events.output_cost_usd, in(ai_events.event, tuple('$ai_generation', '$ai_embedding'))), 10), 0) AS output_cost,
+    nullIf(round(sumIf(ai_events.total_cost_usd, in(ai_events.event, tuple('$ai_generation', '$ai_embedding'))), 10), 0) AS total_cost,
+    arrayDistinct(arraySort(x -> x.3, groupArrayIf(tuple(ai_events.uuid, ai_events.event, toTimeZone(ai_events.timestamp, 'US/Pacific'), ai_events.properties, ai_events.input, ai_events.output, ai_events.output_choices, ai_events.input_state, ai_events.output_state, ai_events.tools), notEquals(ai_events.event, '$ai_trace')))) AS events,
+    argMinIf(ai_events.input_state, toTimeZone(ai_events.timestamp, 'US/Pacific'), equals(ai_events.event, '$ai_trace')) AS input_state,
+    argMinIf(ai_events.output_state, toTimeZone(ai_events.timestamp, 'US/Pacific'), equals(ai_events.event, '$ai_trace')) AS output_state,
+    ifNull(argMinIf(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'US/Pacific'), equals(ai_events.event, '$ai_trace')), argMin(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'US/Pacific'))) AS trace_name
+FROM ai_events
+WHERE and(equals(ai_events.team_id, @@TEAM@@), in(ai_events.event, tuple('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')), and(greaterOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('@@DFROM@@', 'UTC'))), lessOrEquals(ai_events.timestamp, assumeNotNull(toDateTime('@@DTO@@', 'UTC'))), equals(ai_events.trace_id, '@@TRACE@@')))
+GROUP BY ai_events.trace_id
+LIMIT 1 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0

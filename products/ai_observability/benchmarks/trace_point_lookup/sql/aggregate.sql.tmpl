@@ -1,0 +1,31 @@
+-- Pull authoritative per-run stats from query_log for this benchmark invocation
+-- (matched by the unique marker prefix in each query's leading comment), by table variant.
+WITH runs AS (
+    SELECT
+        extract(query, '_t[0-9][0-9]_(NEW|OLD)') AS variant,
+        query_duration_ms AS dur,
+        read_rows,
+        read_bytes,
+        memory_usage AS mem,
+        row_number() OVER (PARTITION BY query ORDER BY event_time) AS run_no
+    FROM clusterAllReplicas('all', system, query_log)
+    WHERE event_time > now() - INTERVAL @@WINDOW_MIN@@ MINUTE
+        AND type = 'QueryFinish'
+        AND is_initial_query
+        AND query LIKE '%@@PREFIX@@%'
+        AND query NOT LIKE '%query_log%'
+)
+SELECT
+    variant,
+    count() AS samples,
+    round(median(dur)) AS med_dur_ms,
+    round(avg(dur)) AS avg_dur_ms,
+    round(quantile(0.95)(dur)) AS p95_dur_ms,
+    round(median(read_rows)) AS med_read_rows,
+    formatReadableSize(median(read_bytes)) AS med_read_bytes,
+    formatReadableSize(median(mem)) AS med_peak_mem,
+    round(medianIf(dur, run_no = 1)) AS cold_med_dur_ms,
+    round(medianIf(dur, run_no > 1)) AS warm_med_dur_ms
+FROM runs
+GROUP BY variant
+ORDER BY variant

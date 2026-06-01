@@ -1,0 +1,13 @@
+-- Random distinct traces in a scope (@@TEAM_FILTER@@) over a window, capturing each trace's
+-- team_id and first timestamp. Ordered by cityHash64(trace_id) => a uniform, reproducible
+-- random subset of distinct traces (not weighted by trace size).
+SELECT team_id, trace_id, toString(min(timestamp)) AS first_ts
+FROM posthog.ai_events
+WHERE @@TEAM_FILTER@@
+    AND event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+    AND timestamp >= '@@DFROM@@' AND timestamp < '@@DTO@@'
+    AND trace_id != ''
+GROUP BY team_id, trace_id
+ORDER BY cityHash64(trace_id)
+LIMIT @@N@@
+SETTINGS max_execution_time = 110, max_bytes_before_external_group_by = 20000000000
