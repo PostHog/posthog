@@ -33,10 +33,35 @@ const fullCtx: InstructionsContext = {
 }
 
 describe('InstructionsFormatter', () => {
-    describe('buildToolsInstructions', () => {
+    describe('buildV1Instructions', () => {
+        it('returns the legacy section content when no metadata is supplied', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildV1Instructions()
+            expect(result).toContain('helpful assistant that can query PostHog API')
+            expect(result).toContain("'docs-search' tool")
+        })
+
+        it('appends metadata to the legacy section when provided', () => {
+            const formatter = new InstructionsFormatter()
+            const metadata = 'You are currently in project "Test".'
+            const result = formatter.buildV1Instructions(metadata)
+            expect(result).toContain('helpful assistant that can query PostHog API')
+            expect(result).toContain('You are currently in project "Test".')
+            const legacyIdx = result.indexOf('helpful assistant')
+            const metaIdx = result.indexOf('You are currently')
+            expect(legacyIdx).toBeLessThan(metaIdx)
+        })
+
+        it('treats an empty metadata string as no metadata', () => {
+            const formatter = new InstructionsFormatter()
+            expect(formatter.buildV1Instructions('')).toBe(formatter.buildV1Instructions())
+        })
+    })
+
+    describe('buildV2Instructions', () => {
         it('resolves every placeholder when fully populated', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildToolsInstructions(fullCtx)
+            const result = formatter.buildV2Instructions(fullCtx)
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).toContain('Project timezone: America/New_York.')
@@ -52,7 +77,7 @@ describe('InstructionsFormatter', () => {
 
         it('renders the basic functionality, retrieving data, and examples sections', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildToolsInstructions(fullCtx)
+            const result = formatter.buildV2Instructions(fullCtx)
             expect(result).toContain('### Basic functionality')
             expect(result).toContain('### Retrieving data')
             expect(result).toContain('### Examples')
@@ -60,7 +85,7 @@ describe('InstructionsFormatter', () => {
 
         it('does not leak any CLI-only sections (tools mode is not exec mode)', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildToolsInstructions(fullCtx)
+            const result = formatter.buildV2Instructions(fullCtx)
             expect(result).not.toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).not.toContain('Using the `posthog` tool')
             expect(result).not.toContain('CLI-style command string')
@@ -68,7 +93,7 @@ describe('InstructionsFormatter', () => {
 
         it('omits placeholders cleanly when context fields are undefined', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildToolsInstructions({ guidelines: 'rules' })
+            const result = formatter.buildV2Instructions({ guidelines: 'rules' })
             expect(result).not.toContain('{guidelines}')
             expect(result).not.toContain('{defined_groups}')
             expect(result).not.toContain('{tool_domains}')
@@ -78,11 +103,11 @@ describe('InstructionsFormatter', () => {
 
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
-            const withFeedback = formatter.buildToolsInstructions(fullCtx)
+            const withFeedback = formatter.buildV2Instructions(fullCtx)
             expect(withFeedback).toContain('### Sharing feedback on this MCP server')
 
             for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
-                const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
+                const result = formatter.buildV2Instructions({ ...fullCtx, featureFlags })
                 expect(result).not.toContain('### Sharing feedback on this MCP server')
             }
         })

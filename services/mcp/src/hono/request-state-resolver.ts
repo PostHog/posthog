@@ -21,6 +21,7 @@ import type { ToolCatalog } from './tool-catalog'
 export interface ResolvedState {
     reqCtx: RequestContext
     context: Context
+    version: number
     useSingleExec: boolean
     toolFeatureFlags: EvaluatedFlags | undefined
     apiKeyScopes: string[]
@@ -33,22 +34,26 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
-    mode: McpMode
-    useSingleExec: boolean
-} {
-    const { mode, clientProfile } = args
+export function resolveModeAndVersion(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    flagVersion: number | undefined
+    clientVersion: number | undefined
+}): { mode: McpMode; useSingleExec: boolean; version: number } {
+    const { mode, clientProfile, flagVersion, clientVersion } = args
     const useSingleExec =
         mode === 'cli' ||
         (mode !== 'tools' &&
             (clientProfile.isCodingAgent() ||
                 clientProfile.isPostHogCodeConsumer() ||
                 clientProfile.isVibeCodingClient()))
-    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec }
+    const version = useSingleExec ? 2 : (flagVersion ?? clientVersion ?? 1)
+    return { mode: mode ?? (useSingleExec ? 'cli' : 'tools'), useSingleExec, version }
 }
 
 // ─── Resolver ───
 
+const SYSTEM_FLAGS = ['mcp-version-2'] as const
 const SESSION_CONTEXT_KEYS = [
     'mcpClientName',
     'mcpClientVersion',
@@ -78,7 +83,7 @@ export class RequestStateResolver {
 
         const context = await reqCtx.getContext()
 
-        const { features, tools, organizationId, projectId, readOnly } = props
+        const { features, tools, version: clientVersion, organizationId, projectId, readOnly } = props
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -91,8 +96,8 @@ export class RequestStateResolver {
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const toolFlagKeys = getRequiredFeatureFlags()
-        const allFlagKeys = toolFlagKeys
+        const toolFlagKeys = getRequiredFeatureFlags(clientVersion)
+        const allFlagKeys = [...SYSTEM_FLAGS, ...toolFlagKeys]
 
         const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
@@ -103,6 +108,7 @@ export class RequestStateResolver {
             reqCtx.getDistinctId(),
         ])
 
+        const flagVersion = allFlags['mcp-version-2'] === true ? 2 : undefined
         // Preserve variant strings (and `undefined` for unevaluated flags) — the
         // tool filter needs raw values to support `feature_flag_variant` matching.
         const toolFeatureFlags =
@@ -118,9 +124,15 @@ export class RequestStateResolver {
             vendorClient: clientContext.mcpVendorClient,
         })
 
-        const { mode: resolvedMode, useSingleExec } = resolveMode({
+        const {
+            mode: resolvedMode,
+            useSingleExec,
+            version,
+        } = resolveModeAndVersion({
             mode: requestContext.mode,
             clientProfile,
+            flagVersion,
+            clientVersion,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
@@ -140,6 +152,7 @@ export class RequestStateResolver {
         const allTools = this.catalog.getFilteredTools({
             features,
             tools,
+            version,
             excludeTools,
             readOnly,
             featureFlags: toolFeatureFlags,
@@ -151,6 +164,7 @@ export class RequestStateResolver {
         return {
             reqCtx,
             context,
+            version,
             useSingleExec,
             toolFeatureFlags,
             apiKeyScopes,

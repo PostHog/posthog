@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 10 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -221,30 +221,6 @@ export const DashboardsCreateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardsCreateTextTileCreateBodyColorMax)
         .nullish()
         .describe("Optional accent color name (e.g. 'blue', 'green', 'purple', 'black')."),
-})
-
-/**
- * Soft-delete a single tile from a dashboard.
-
-Works for text, insight, and button tiles. The underlying Insight, Text, or ButtonTile
-object is preserved — only the dashboard tile is hidden. To delete the entire dashboard,
-use the dashboard delete endpoint instead.
- */
-export const DashboardsDeleteTileParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this dashboard.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const DashboardsDeleteTileQueryParams = /* @__PURE__ */ zod.object({
-    format: zod.enum(['json', 'txt']).optional(),
-})
-
-export const DashboardsDeleteTileBody = /* @__PURE__ */ zod.object({
-    tile_id: zod.number().describe('ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs.'),
 })
 
 export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({

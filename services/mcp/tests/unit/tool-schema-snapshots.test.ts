@@ -47,14 +47,37 @@ function deepSortKeys(value: unknown): unknown {
     return value
 }
 
+type SnapshotBucket = 'common' | 'v1' | 'v2'
+
+type SnapshotEntry = {
+    toolName: string
+    bucket: SnapshotBucket
+    schema: unknown
+}
+
 async function listSnapshotFiles(root: string): Promise<string[]> {
-    try {
-        const files = await readdir(root)
-        return files.filter((file) => file.endsWith('.json')).map((file) => path.join(root, file))
-    } catch {
-        // Directory might not exist yet.
-        return []
+    const buckets: SnapshotBucket[] = ['common', 'v1', 'v2']
+    const all: string[] = []
+
+    for (const bucket of buckets) {
+        const dir = path.join(root, bucket)
+        try {
+            const files = await readdir(dir)
+            for (const file of files) {
+                if (file.endsWith('.json')) {
+                    all.push(path.join(dir, file))
+                }
+            }
+        } catch {
+            // Directory might not exist yet.
+        }
     }
+
+    return all
+}
+
+function stableStringify(value: unknown): string {
+    return JSON.stringify(value)
 }
 
 function isSnapshotUpdateAll(): boolean {
@@ -80,27 +103,65 @@ describe('Tool schema snapshots', () => {
     const __filename = fileURLToPath(import.meta.url)
     const __dirname = path.dirname(__filename)
     const context = createMockContext()
-    it('snapshots runtime tool schemas', async () => {
+    it('snapshots runtime tool schemas as common + version deltas', async () => {
         const shouldUpdateSnapshots = isSnapshotUpdateAll()
         const root = path.resolve(__dirname, '__snapshots__', 'tool-schemas')
-        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans), tasks. Other
+        // Enable flag-gated tools we snapshot here: agent-feedback, tracing (APM spans). Other
         // flag-gated tools (logs-alerts, visual-review, etc.) stay off to keep the surface stable.
-        const featureFlags = { 'mcp-feedback-tool': true, tracing: true, tasks: true }
-        const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
+        const featureFlags = { 'mcp-feedback-tool': true, tracing: true }
+        const v1Tools = [...(await getToolsFromContext(context, { version: 1, featureFlags }))].sort((a, b) =>
+            a.name.localeCompare(b.name)
+        )
+        const v2Tools = [...(await getToolsFromContext(context, { version: 2, featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)
         )
 
-        expect(tools.length).toBeGreaterThan(0)
+        const v1Schemas = new Map<string, unknown>()
+        const v2Schemas = new Map<string, unknown>()
 
-        await mkdir(root, { recursive: true })
+        for (const tool of v1Tools) {
+            const jsonSchema = z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' })
+            v1Schemas.set(tool.name, deepSortKeys(jsonSchema))
+        }
+        for (const tool of v2Tools) {
+            const jsonSchema = z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' })
+            v2Schemas.set(tool.name, deepSortKeys(jsonSchema))
+        }
+
+        const allNames = [...new Set([...v1Schemas.keys(), ...v2Schemas.keys()])].sort()
+        const entries: SnapshotEntry[] = []
+
+        for (const toolName of allNames) {
+            const v1 = v1Schemas.get(toolName)
+            const v2 = v2Schemas.get(toolName)
+
+            if (v1 && v2) {
+                if (stableStringify(v1) === stableStringify(v2)) {
+                    entries.push({ toolName, bucket: 'common', schema: v1 })
+                } else {
+                    entries.push({ toolName, bucket: 'v1', schema: v1 })
+                    entries.push({ toolName, bucket: 'v2', schema: v2 })
+                }
+            } else if (v1) {
+                entries.push({ toolName, bucket: 'v1', schema: v1 })
+            } else if (v2) {
+                entries.push({ toolName, bucket: 'v2', schema: v2 })
+            }
+        }
+
+        const commonCount = entries.filter((entry) => entry.bucket === 'common').length
+        expect(commonCount).toBeGreaterThan(0)
+
+        for (const bucket of ['common', 'v1', 'v2'] as const) {
+            await mkdir(path.join(root, bucket), { recursive: true })
+        }
 
         const expectedPaths = new Set<string>()
 
-        for (const tool of tools) {
-            const jsonSchema = deepSortKeys(z.toJSONSchema(tool.schema, { io: 'input', reused: 'inline' }))
-            const snapshotPath = path.join(root, `${tool.name}.json`)
+        for (const entry of entries) {
+            const snapshotPath = path.join(root, entry.bucket, `${entry.toolName}.json`)
             expectedPaths.add(snapshotPath)
-            const content = await formatSnapshotJson(snapshotPath, jsonSchema)
+            const content = await formatSnapshotJson(snapshotPath, entry.schema)
             await expect(content).toMatchFileSnapshot(snapshotPath)
         }
 

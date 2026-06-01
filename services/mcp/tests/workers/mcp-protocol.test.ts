@@ -56,42 +56,6 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
             expect(response.status).toBe(401)
             expect(await response.text()).toContain('Invalid token')
         })
-
-        it('returns 401 for JWTs without typ: at+jwt (not an ID-JAG token)', async () => {
-            const headerB64 = btoa('{"typ":"JWT","alg":"HS256"}')
-                .replace(/=+$/, '')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${headerB64}.eyJzdWIiOiJ4In0.sig` },
-            })
-
-            expect(response.status).toBe(401)
-            expect(await response.text()).toContain('Invalid token')
-        })
-
-        it('passes the gate for ID-JAG access tokens (typ: at+jwt)', async () => {
-            // The MCP gate only checks the header. Signature verification happens
-            // downstream against the PostHog API (`IDJagAccessTokenAuthentication`).
-            // Here we assert the response is NOT the gate's "Invalid token" 401 —
-            // anything else (init failure against a missing PostHog API, etc.) is
-            // acceptable since this test exercises only the gate.
-            const headerB64 = btoa('{"typ":"at+jwt","alg":"RS256"}')
-                .replace(/=+$/, '')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-            const payloadB64 = btoa('{"sub":"example.com:user@example.com"}')
-                .replace(/=+$/, '')
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${headerB64}.${payloadB64}.sig` },
-            })
-
-            expect(await response.text()).not.toContain('Invalid token')
-        })
     })
 
     describe('Authorization server redirects', () => {

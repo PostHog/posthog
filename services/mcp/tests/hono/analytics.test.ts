@@ -22,6 +22,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         context: {
             stateManager: {},
         } as any,
+        version: 2,
         useSingleExec: true,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],

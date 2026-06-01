@@ -21,6 +21,7 @@ import COMPACT_INSTRUCTIONS from '@/templates/sections/compact-instructions.md'
 import ENV_CONTEXT from '@/templates/sections/env-context.md'
 import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import LEGACY from '@/templates/sections/legacy.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
@@ -38,14 +39,24 @@ export interface InstructionsContext {
 }
 
 /**
- * Composes MCP instruction prompts for the two client modes (tools-mode and
- * single-exec). Each mode declares an ordered list of subprompts under
- * `services/mcp/src/templates/sections/`; subprompts that appear in multiple
- * modes live in a single file, so prose can't drift.
+ * Composes MCP instruction prompts for the three client modes (legacy v1,
+ * tools-mode v2, single-exec). Each mode declares an ordered list of
+ * subprompts under `services/mcp/src/templates/sections/`; subprompts that
+ * appear in multiple modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    /** Build the legacy v1 instructions string. Appends `metadata` to the legacy
+     *  section if provided. */
+    buildV1Instructions(metadata?: string): string {
+        const legacy = LEGACY.trim()
+        if (!metadata) {
+            return legacy
+        }
+        return `${legacy}\n\n${metadata}`
+    }
+
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
-    buildToolsInstructions(ctx: InstructionsContext): string {
+    buildV2Instructions(ctx: InstructionsContext): string {
         return this.compose(
             [
                 BASIC_FUNCTIONALITY,

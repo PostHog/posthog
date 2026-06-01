@@ -12,11 +12,6 @@ export enum AnalyticsEvent {
     MCP_FEEDBACK_SUBMITTED = 'mcp feedback submitted',
 }
 
-// Emitted as `$mcp_version` / `mcp_version` on analytics events. The MCP server
-// no longer branches on a request version (v2 fully rolled out); this constant
-// keeps the property stable for dashboards that already filter on it.
-export const MCP_ANALYTICS_VERSION = 2
-
 export type MCPAnalyticsContext = {
     organizationId?: string
     projectId?: string
@@ -68,6 +63,7 @@ export type IdentityProvider = {
     getRegion: () => Promise<string | undefined>
     getAnalyticsContext: () => Promise<MCPAnalyticsContext | undefined>
     getClientUserAgent: () => Promise<string | undefined>
+    getMcpVersion: () => Promise<number | undefined>
     getOAuthClientName: () => Promise<string | undefined>
     getReadOnly: () => Promise<boolean | undefined>
     getTransport: () => Promise<string | undefined>
@@ -148,6 +144,7 @@ async function buildEventTags(identity: IdentityProvider): Promise<Record<string
 
 export async function buildEventProperties(identity: IdentityProvider): Promise<Record<string, unknown>> {
     const [
+        mcpVersion,
         clientUserAgent,
         mcpClientName,
         mcpClientVersion,
@@ -163,6 +160,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
         mcpSessionId,
         mcpConversationId,
     ] = await Promise.all([
+        identity.getMcpVersion(),
         identity.getClientUserAgent(),
         identity.getMcpClientName(),
         identity.getMcpClientVersion(),
@@ -186,7 +184,7 @@ export async function buildEventProperties(identity: IdentityProvider): Promise<
 
     return {
         $ai_product: 'mcp',
-        $mcp_version: MCP_ANALYTICS_VERSION,
+        $mcp_version: mcpVersion,
         $mcp_client_user_agent: clientUserAgent,
         $mcp_client_name: mcpClientName,
         $mcp_client_version: mcpClientVersion,

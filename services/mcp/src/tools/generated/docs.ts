@@ -18,7 +18,7 @@ const docsSearch = (): ToolBase<typeof DocsSearchSchema, Schemas.DocsSearchRespo
         }
         const result = await context.api.request<Schemas.DocsSearchResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_tools/docs_search/`,
+            path: `/api/environments/${encodeURIComponent(String(projectId))}/mcp_tools/docs_search/`,
             body,
         })
         return result

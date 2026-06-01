@@ -5,11 +5,9 @@ import {
     findPostHogPermissionError,
     formatPermissionErrorMessage,
 } from '@/lib/errors'
-import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { getPostHogClient } from '@/lib/posthog'
-import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
@@ -136,7 +134,7 @@ const onCatchErrorHandler = async (
             team: 'posthog_ai',
             source: 'mcp_request_handler',
             mcp_transport: ctx.props?.transport,
-            mcp_version: MCP_ANALYTICS_VERSION,
+            mcp_version: ctx.props?.version,
             has_organization_id: !!ctx.props?.organizationId,
             has_project_id: !!ctx.props?.projectId,
         })
@@ -300,7 +298,7 @@ const handleRequest = async (
         )
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
+    if (!token.startsWith('phx_') && !token.startsWith('pha_')) {
         log.extend({ authError: 'invalid_token_format' })
         return new Response(
             `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
