@@ -842,3 +842,66 @@ class TestDuckLakeAddDataFilesPartitioning:
                 f"CALL ducklake_add_data_files('test_lake', 'events', '{path}',"
                 f" schema => 'posthog', hive_partitioning => false)"
             )
+
+
+class TestIcebergInsertByNameHivePartitioning:
+    """Regression tests for the Iceberg dual-write INSERT ... BY NAME.
+
+    read_parquet() auto-detects the Hive year=/month=/day= keys in the S3 path
+    and synthesizes year/month/day columns. INSERT ... BY NAME then tries to map
+    those into the events table, which has no such columns, producing a binder
+    error. Disabling hive_partitioning keeps read_parquet to the real data
+    columns. These reuse TestDuckLakeAddDataFilesPartitioning's catalog fixture.
+    """
+
+    ducklake_env = TestDuckLakeAddDataFilesPartitioning.ducklake_env
+
+    def _hive_partitioned_parquet(self, parquet_dir):
+        dest = os.path.join(parquet_dir, "2", "year=2026", "month=03", "day=30")
+        os.makedirs(dest, exist_ok=True)
+        path = os.path.join(dest, "run.parquet")
+        os.link(os.path.join(parquet_dir, "events.parquet"), path)
+        return path
+
+    def test_insert_by_name_default_hive_partitioning_fails(self, ducklake_env):
+        # Reproduces the production error: BY NAME can't map the inferred day column.
+        conn, parquet_dir = ducklake_env
+        path = self._hive_partitioned_parquet(parquet_dir)
+        with pytest.raises(duckdb.BinderException, match='column with name "day"'):
+            conn.execute(f"INSERT INTO test_lake.posthog.events BY NAME SELECT * FROM read_parquet('{path}')")
+
+    def test_insert_by_name_hive_partitioning_false_succeeds(self, ducklake_env):
+        conn, parquet_dir = ducklake_env
+        path = self._hive_partitioned_parquet(parquet_dir)
+        conn.execute(
+            f"INSERT INTO test_lake.posthog.events BY NAME "
+            f"SELECT * FROM read_parquet('{path}', hive_partitioning=false)"
+        )
+        result = conn.execute("SELECT count(*) FROM test_lake.posthog.events").fetchone()
+        assert result[0] == 1
+
+    def test_write_partition_emits_hive_partitioning_false(self):
+        # Guards the production code path itself (the tests above only exercise
+        # hand-written SQL): write_partition_to_iceberg must emit a read_parquet
+        # that disables Hive inference, or BY NAME breaks on the path's
+        # year/month/day keys again.
+        executed: list[str] = []
+        conn = MagicMock()
+        conn.execute.side_effect = lambda stmt, *a, **k: executed.append(
+            stmt.as_string(None) if hasattr(stmt, "as_string") else str(stmt)
+        )
+
+        result = write_partition_to_iceberg(
+            MagicMock(),
+            conn,
+            "events",
+            "s3://bucket/backfill/events/2/year=2026/month=05/day=31/run.parquet",
+            2,
+            "timestamp",
+            datetime(2026, 5, 31),
+        )
+
+        assert result is True
+        insert_sql = next(s for s in executed if "read_parquet" in s)
+        assert "BY NAME" in insert_sql
+        assert "hive_partitioning=false" in insert_sql

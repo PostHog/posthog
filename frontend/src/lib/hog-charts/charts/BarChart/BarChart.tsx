@@ -29,6 +29,7 @@ import {
 } from '../../core/scales'
 import type {
     BarChartConfig,
+    BarsConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartScales,
@@ -91,7 +92,7 @@ const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
 // Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
 const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
 
-function resolveBarShadow(barShadow: BarChartConfig['barShadow']): BarShadow | undefined {
+function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
     if (barShadow === true) {
         return DEFAULT_BAR_SHADOW
     }
@@ -124,16 +125,19 @@ function BarChartInner<Meta = unknown>({
         yScaleType = 'linear',
         showGrid = false,
         barLayout = 'stacked',
-        barCornerRadius = 0,
-        barTrack = false,
         axisOrientation = 'vertical',
         xTickFormatter,
+    } = config ?? {}
+    const {
+        cornerRadius: barCornerRadius = 0,
+        track: barTrack = false,
+        shadow: barShadow,
         divergingStack = false,
         maxBandRange,
         bandPadding,
-        barShadow,
         minBandSize,
-    } = config ?? {}
+        valueDomain,
+    } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
@@ -218,6 +222,7 @@ function BarChartInner<Meta = unknown>({
                 stackedSeries,
                 maxBandRange,
                 bandPadding,
+                valueDomain,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
@@ -267,7 +272,17 @@ function BarChartInner<Meta = unknown>({
                 _private: barChartPrivate,
             }
         },
-        [yScaleType, barLayout, axisOrientation, stackedData, isHorizontal, divergingStack, maxBandRange, bandPadding]
+        [
+            yScaleType,
+            barLayout,
+            axisOrientation,
+            stackedData,
+            isHorizontal,
+            divergingStack,
+            maxBandRange,
+            bandPadding,
+            valueDomain,
+        ]
     )
 
     const drawStatic = useCallback(
@@ -493,8 +508,8 @@ function BarChartInner<Meta = unknown>({
     const seriesRef = useLatest(series)
     const labelsRef = useLatest(labels)
 
-    // Stacked/percent segments share a band slot — rewrite the click payload to the
-    // segment under the cursor so drop-off fillers and per-breakdown segments route correctly.
+    // Bars sharing a band slot — rewrite the click payload to the series actually under the
+    // cursor so drop-off fillers and per-breakdown segments route correctly.
     const wrapClickData = useCallback(
         (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
@@ -502,7 +517,7 @@ function BarChartInner<Meta = unknown>({
                 return clickData
             }
             return (
-                resolveClickedStackedSegment({
+                resolveClickedBarSeries({
                     clickData,
                     d3Scales,
                     barLayout,
@@ -556,11 +571,15 @@ function BarChartInner<Meta = unknown>({
     )
 }
 
-/** Pure helper extracted so the click-rewrite is unit-testable and the component-level
- *  callback has no logic of its own — it just plumbs in scales + refs. Returns `null`
- *  when nothing in the layout/cursor configuration warrants rewriting, signalling the
- *  caller to pass the original `clickData` through unchanged. */
-export function resolveClickedStackedSegment<Meta>({
+/** Rewrites the click payload to the bar series actually under the cursor. The base payload
+ *  always points at the first series in the band; this picks the right one per layout:
+ *   - grouped: the series whose sub-band column the cursor is over — band axis only, so a
+ *     click above a short bar (or on its track) still resolves to that column.
+ *   - stacked/percent: the segment whose rect contains the cursor on the value axis, walking
+ *     every dataIndex in the band so sparse-overlap segments route correctly, and re-reading
+ *     the value at that segment's own dataIndex.
+ *  Pure so the routing is unit-testable; returns `null` to pass `clickData` through unchanged. */
+export function resolveClickedBarSeries<Meta>({
     clickData,
     d3Scales,
     barLayout,
@@ -579,15 +598,37 @@ export function resolveClickedStackedSegment<Meta>({
     series: Series<Meta>[]
     labels: readonly string[]
 }): PointClickData<Meta> | null {
-    if (!isStackedLayout(barLayout)) {
-        return null
-    }
-    const { cursor, label, crossSeriesData } = clickData
+    const { cursor, label, dataIndex, crossSeriesData } = clickData
     if (!cursor) {
         return null
     }
-    // Walk every dataIndex that maps to the clicked band — for sparse-stacked overlap the
-    // visible segment lives at a different dataIndex than `clickData.dataIndex` (the band).
+    const rewrite = (hitSeries: Series<Meta>, value: number, hitDataIndex: number): PointClickData<Meta> => ({
+        ...clickData,
+        dataIndex: hitDataIndex,
+        series: hitSeries,
+        value,
+        seriesIndex: series.findIndex((s) => s.key === hitSeries.key),
+    })
+
+    if (barLayout === 'grouped') {
+        for (const { series: s, bar } of iterBarsAtCursor({
+            series: crossSeriesData.map((d) => d.series),
+            label,
+            dataIndex,
+            scales: d3Scales,
+            layout: barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+        })) {
+            if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
+                continue
+            }
+            const hit = crossSeriesData.find((d) => d.series.key === s.key)
+            return hit ? rewrite(hit.series, hit.value, dataIndex) : null
+        }
+        return null
+    }
+
     const visible = findVisibleStackedSegment({
         series: crossSeriesData.map((d) => d.series),
         labels,
@@ -610,11 +651,5 @@ export function resolveClickedStackedSegment<Meta>({
     // band's dataIndex, which is a sparse-zero cell for the visible series.
     const raw = hit.series.data[visible.dataIndex]
     const resolvedValue = typeof raw === 'number' && Number.isFinite(raw) ? raw : hit.value
-    return {
-        ...clickData,
-        dataIndex: visible.dataIndex,
-        series: hit.series,
-        value: resolvedValue,
-        seriesIndex: series.findIndex((s) => s.key === hit.series.key),
-    }
+    return rewrite(hit.series, resolvedValue, visible.dataIndex)
 }

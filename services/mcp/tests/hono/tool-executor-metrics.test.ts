@@ -59,7 +59,6 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 1,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
@@ -165,7 +164,7 @@ describe('ToolExecutor metrics', () => {
         function execState(): ResolvedState {
             return makeState(
                 catalog.getPreBuiltEntries().map((e) => ({ name: e.name })),
-                { useSingleExec: true, version: 2 }
+                { useSingleExec: true }
             )
         }
 

@@ -11,7 +11,7 @@ requires-python = "==3.12.12" # Pin full version to control Python upgrades expl
 #
 dependencies = [
     "aioboto3==15.4.0",
-    "aiohttp==3.13.4",
+    "aiohttp==3.13.5",
     "aiokafka~=0.12.0",
     "anthropic==0.80.0",
     "antlr4-python3-runtime==4.13.1",
@@ -68,7 +68,7 @@ dependencies = [
     "grpcio~=1.71.0",
     "gspread==6.2.1",
     "hogql-parser==1.3.69",
-    "hogql-parser-rs==1.3.81",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser-rs==1.3.82",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -93,7 +93,7 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.5",
-    "orjson==3.11.6",
+    "orjson==3.11.9",
     "pandas~=2.2.2",
     "paramiko~=3.5.0",
     "pillow==12.2.0",
@@ -121,11 +121,11 @@ dependencies = [
     "requests~=2.33.0",
     "retry==0.9.2",
     "s3fs==2025.9.0",
-    "scikit-learn~=1.5.0",
+    "scikit-learn~=1.7.0",
     "selenium==4.28.1",
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
-    "slack-sdk==3.39.0",
+    "slack-sdk==3.42.0",
     "snowflake-connector-python==4.3.0",
     "social-auth-app-django~=5.8.0",
     "social-auth-core~=4.8.7",
@@ -134,9 +134,9 @@ dependencies = [
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
     "stripe==12.2.0",
-    "structlog==25.4.0",
+    "structlog==25.5.0",
     "temporalio==1.24.0",
-    "tenacity==9.1.2",
+    "tenacity==9.1.4",
     "tiktoken==0.9.*",
     "tldextract~=5.1",
     "trafilatura==2.0.0",
@@ -150,7 +150,7 @@ dependencies = [
     "xmlsec==1.3.17",
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
-    "pyyaml==6.0.1",
+    "pyyaml~=6.0.2",
     "chdb==3.3.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit~=3.2.0",
@@ -172,7 +172,7 @@ dependencies = [
     "django-admin-inline-paginator===0.4.0",
     "fastavro~=1.12.0",
     "pydantic-avro~=0.9.0",
-    "playwright~=1.54.0",
+    "playwright~=1.60.0",
     "linkedin-api-client~=0.3.0",
     "glom~=24.11.0",
     "modal~=1.4.1",
@@ -227,7 +227,7 @@ dev = [
     "ty==0.0.29",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.11.6",
+    "orjson==3.11.9",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -238,6 +238,7 @@ dev = [
     "pytest-aiohttp~=1.1.0",
     "pytest-cov~=7.0.0",
     "pytest-django~=4.11.1",
+    "pytest-durations~=1.6.2",
     "pytest-env~=1.2.0",
     "pytest-icdiff~=0.9",
     "pytest-mock~=3.15.1",
@@ -341,6 +342,7 @@ select = [
     "RUF019",
     "T100",
     "T2",
+    "TID253",
     "TRY201",
     "TRY400",
     "UP",
@@ -369,6 +371,13 @@ select = [
 "scripts/**" = ["PLC0415"]
 "services/stripe-mock/**" = ["PLC0415"]
 "tools/**" = ["PLC0415"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+# Heavy SDKs that noticeably slow startup. They must be imported lazily (inside the
+# function that uses them), not at module top, so they stay off the Django app-load path.
+# Only modules with a single, already-lazy call site are listed — vendor source/destination
+# leaf modules legitimately import their own SDK at module level and are loaded on demand.
+banned-module-level-imports = ["elevenlabs", "matplotlib", "trafilatura"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 10

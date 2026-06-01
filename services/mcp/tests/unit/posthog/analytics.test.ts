@@ -85,7 +85,6 @@ describe('initMcpAnalytics', () => {
                 projectName: 'Project 101',
             }),
             getClientUserAgent: vi.fn().mockResolvedValue('test-agent/1.0'),
-            getMcpVersion: vi.fn().mockResolvedValue(2),
             getOAuthClientName: vi.fn().mockResolvedValue('PostHog Code'),
             getReadOnly: vi.fn().mockResolvedValue(true),
             getTransport: vi.fn().mockResolvedValue('streamable-http'),

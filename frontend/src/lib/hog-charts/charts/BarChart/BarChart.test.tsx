@@ -455,6 +455,40 @@ describe('BarChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key)).toEqual(['b'])
         })
 
+        // Regression: grouped clicks always resolved to the first series, so a breakdown
+        // funnel opened the persons modal for breakdown 0 regardless of the bar clicked.
+        // The cursor is in the track *above* every bar (y near the plot top), so only the
+        // band-axis (column) hit-test can route it — full-rect containment would miss and
+        // fall back to the first series. This mirrors clicking the track over a short bar.
+        it.each<[string, number, string, number]>([
+            ['left sub-bar (a)', 1.3, 'a', 20],
+            ['right sub-bar (b)', 1.65, 'b', 15],
+        ])(
+            'grouped onPointClick routes to the sub-bar column under the cursor, even above the bar — %s',
+            async (_name, stepMultiplier, key, value) => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        config={{ barLayout: 'grouped' }}
+                        onPointClick={onPointClick}
+                    />
+                )
+                const step = dimensions.plotWidth / LABELS.length
+                fireEvent.mouseMove(chart.element, {
+                    clientX: dimensions.plotLeft + step * stepMultiplier,
+                    clientY: dimensions.plotTop + 2,
+                })
+                fireEvent.click(chart.element)
+                const click: PointClickData = onPointClick.mock.calls[0][0]
+                expect(click.dataIndex).toBe(1)
+                expect(click.series.key).toBe(key)
+                expect(click.value).toBe(value)
+            }
+        )
+
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ tooltip: { pinnable: true } }} />
