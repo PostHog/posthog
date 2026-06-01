@@ -18,6 +18,7 @@ import { useMemo, useState } from 'react'
 import { JsonView } from '@posthog/agent-chat'
 import type { BundleFile, BundleFileLanguage } from '@posthog/agent-chat/fixtures'
 
+import { EditWithAIButton } from './EditWithAIButton'
 import { FileExplorer, type FileTreeNode } from './FileExplorer'
 
 export interface BundleTreeProps {
@@ -29,9 +30,15 @@ export interface BundleTreeProps {
      */
     selectedPath?: string | null
     onSelectPath?: (path: string) => void
+    /**
+     * Slug of the agent this bundle belongs to. When provided the file
+     * viewer header gets an "Edit with AI" pill that seeds the
+     * concierge with a file-targeted prompt.
+     */
+    agentSlug?: string
 }
 
-export function BundleTree({ files, selectedPath, onSelectPath }: BundleTreeProps): React.ReactElement {
+export function BundleTree({ files, selectedPath, onSelectPath, agentSlug }: BundleTreeProps): React.ReactElement {
     // Fallback for uncontrolled use: agent.md first if it exists.
     const defaultPath = files.some((f) => f.path === 'agent.md') ? 'agent.md' : (files[0]?.path ?? '')
     const [internalSelected, setInternalSelected] = useState<string>(defaultPath)
@@ -53,7 +60,7 @@ export function BundleTree({ files, selectedPath, onSelectPath }: BundleTreeProp
             onSelectPath={handleSelect}
             emptyMessage="This revision has no bundle files yet."
         >
-            {selectedFile ? <FileViewer file={selectedFile} /> : <EmptyViewer />}
+            {selectedFile ? <FileViewer file={selectedFile} agentSlug={agentSlug} /> : <EmptyViewer />}
         </FileExplorer>
     )
 }
@@ -144,15 +151,25 @@ function FileIconFor({ language }: { language: BundleFileLanguage }): React.Reac
 
 /* ── Right pane: file viewer ─────────────────────────────────────── */
 
-function FileViewer({ file }: { file: BundleFile }): React.ReactElement {
+function FileViewer({ file, agentSlug }: { file: BundleFile; agentSlug?: string }): React.ReactElement {
     return (
         <div className="flex h-full flex-col">
             <div className="flex items-center gap-2 border-b border-border bg-muted/10 px-3 py-1.5">
                 <FileIconFor language={file.language} />
                 <code className="text-[0.6875rem] text-muted-foreground">{file.path}</code>
-                <span className="ml-auto text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">
+                <span className="text-[0.625rem] uppercase tracking-wide text-muted-foreground/70">
                     {file.language}
                 </span>
+                {agentSlug ? (
+                    <div className="ml-auto">
+                        <EditWithAIButton
+                            prompt={`Help me edit \`${file.path}\` in \`${agentSlug}\`.`}
+                            agentSlug={agentSlug}
+                            label="Edit"
+                            compact
+                        />
+                    </div>
+                ) : null}
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3">
                 <FileBody file={file} />

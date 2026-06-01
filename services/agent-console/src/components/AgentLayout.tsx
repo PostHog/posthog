@@ -23,6 +23,7 @@ import { Tabs, TabsList, TabsTrigger, Tooltip, TooltipContent, TooltipTrigger } 
 import { useAgent, useRevisions } from '@/components/agent-context'
 import { AgentDescription } from '@/components/AgentDescription'
 import { useDockStore } from '@/components/dock-context'
+import { EditWithAIButton } from '@/components/EditWithAIButton'
 
 const TABS = ['overview', 'configuration', 'connections', 'sessions', 'memory'] as const
 type TabKey = (typeof TABS)[number]
@@ -85,11 +86,14 @@ export function AgentLayout({ children }: { children: React.ReactNode }): React.
                         <h1 className="text-xl font-medium tracking-tight">{agent.name}</h1>
                         <AgentDescription description={agent.description} />
                     </div>
-                    <TryInPlaygroundButton
-                        enabled={canPlayground}
-                        disabledReason={playgroundDisabledReason}
-                        onClick={() => enterPlayground(agentRef)}
-                    />
+                    <div className="flex shrink-0 items-center gap-2">
+                        <EditWithAIButton prompt={`Help me edit the \`${agent.slug}\` agent.`} agentSlug={agent.slug} />
+                        <TryInPlaygroundButton
+                            enabled={canPlayground}
+                            disabledReason={playgroundDisabledReason}
+                            onClick={() => enterPlayground(agentRef)}
+                        />
+                    </div>
                 </header>
 
                 {!liveRevision ? (

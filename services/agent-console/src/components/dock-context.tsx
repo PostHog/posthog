@@ -36,14 +36,53 @@ export interface DockConciergeAgent {
     slug: string
 }
 
+/**
+ * Pending "open concierge with this prompt" handoff. Set by the
+ * `<EditWithAIButton>`, consumed by the concierge dock's runner.
+ *
+ * Two stages cover the lifecycle:
+ *   - `pending`     — fresh request from the button. The dock decides
+ *                     whether to auto-execute (no active session) or
+ *                     ask the user via the confirm dialog (turns exist).
+ *   - `confirmed`   — user has agreed to start fresh (or no confirm
+ *                     needed). The dock resets the runner and dispatches.
+ *
+ * `seq` increments per invocation so the runner's consumer effect
+ * fires even when the prompt repeats — same key clicked twice should
+ * still seed the chat both times.
+ */
+export interface ConciergeSeed {
+    seq: number
+    prompt: string
+    /** Optional slug of the agent the prompt is about; used for the
+     *  context envelope when one isn't already set by the route. */
+    agentSlug?: string
+    stage: 'pending' | 'confirmed'
+}
+
 interface DockStore {
     context: ChatContext
     /** Concierge agent the active route has declared, or null. */
     conciergeAgent: DockConciergeAgent | null
+    /** Pending prompt + lifecycle stage — see `ConciergeSeed`. */
+    conciergeSeed: ConciergeSeed | null
     setPage: (page: ConciergePageContext) => void
     setConciergeAgent: (agent: DockConciergeAgent | null) => void
     enterPlayground: (agent: AgentApplicationRef, opts?: PlaygroundOpts) => void
     exitPlayground: () => void
+    /**
+     * Open the concierge with a pre-filled prompt. If the user is in
+     * playground mode, exits it first. The seed lands in `pending`
+     * stage; the dock decides between auto-execute and a confirm
+     * dialog based on whether the current concierge session has turns.
+     */
+    startConcierge: (opts: { prompt: string; agentSlug?: string }) => void
+    /** Promote the seed past the confirm step — dock will dispatch. */
+    confirmConciergeSeed: () => void
+    /** Drop a pending seed (user cancelled the confirm). */
+    cancelConciergeSeed: () => void
+    /** Mark the active seed as delivered to the runner. */
+    consumeConciergeSeed: (seq: number) => void
 }
 
 const DEFAULT_CONTEXT: ChatContext = { mode: 'concierge', page: { kind: 'unknown' } }
@@ -110,6 +149,7 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
     const [currentPage, setCurrentPage] = useState<ConciergePageContext>({ kind: 'unknown' })
     const [conciergeAgent, setConciergeAgentState] = useState<DockConciergeAgent | null>(null)
     const [playgroundState, setPlaygroundState] = useState<PlaygroundState | null>(null)
+    const [conciergeSeed, setConciergeSeed] = useState<ConciergeSeed | null>(null)
 
     // Restore the playground overlay on mount so a reload doesn't drop
     // the user back into concierge (which would also bypass the
@@ -149,9 +189,62 @@ export function DockContextProvider({ children }: { children: React.ReactNode })
         writeStoredPlayground(null)
     }, [])
 
+    const startConcierge = useCallback((opts: { prompt: string; agentSlug?: string }): void => {
+        // Playground is sticky; an explicit "Edit with AI" should always
+        // land in concierge mode. The runner consumer will decide
+        // whether to reset the session or just send the prompt.
+        setPlaygroundState(null)
+        writeStoredPlayground(null)
+        setConciergeSeed({
+            seq: Date.now(),
+            prompt: opts.prompt,
+            agentSlug: opts.agentSlug,
+            stage: 'pending',
+        })
+    }, [])
+
+    const confirmConciergeSeed = useCallback((): void => {
+        setConciergeSeed((prev) => (prev ? { ...prev, stage: 'confirmed' } : prev))
+    }, [])
+
+    const cancelConciergeSeed = useCallback((): void => {
+        setConciergeSeed(null)
+    }, [])
+
+    const consumeConciergeSeed = useCallback((seq: number): void => {
+        // Guard against stale acks — only clear if the seq matches the
+        // current seed, otherwise a fast double-click would drop the
+        // newer seed when the older runner finally caught up.
+        setConciergeSeed((prev) => (prev && prev.seq === seq ? null : prev))
+    }, [])
+
     const value: DockStore = useMemo(
-        () => ({ context, conciergeAgent, setPage, setConciergeAgent, enterPlayground, exitPlayground }),
-        [context, conciergeAgent, setPage, setConciergeAgent, enterPlayground, exitPlayground]
+        () => ({
+            context,
+            conciergeAgent,
+            conciergeSeed,
+            setPage,
+            setConciergeAgent,
+            enterPlayground,
+            exitPlayground,
+            startConcierge,
+            confirmConciergeSeed,
+            cancelConciergeSeed,
+            consumeConciergeSeed,
+        }),
+        [
+            context,
+            conciergeAgent,
+            conciergeSeed,
+            setPage,
+            setConciergeAgent,
+            enterPlayground,
+            exitPlayground,
+            startConcierge,
+            confirmConciergeSeed,
+            cancelConciergeSeed,
+            consumeConciergeSeed,
+        ]
     )
 
     return <DockCtx.Provider value={value}>{children}</DockCtx.Provider>
@@ -165,10 +258,15 @@ export function useDockStore(): DockStore {
         return {
             context: DEFAULT_CONTEXT,
             conciergeAgent: null,
+            conciergeSeed: null,
             setPage: () => {},
             setConciergeAgent: () => {},
             enterPlayground: () => {},
             exitPlayground: () => {},
+            startConcierge: () => {},
+            confirmConciergeSeed: () => {},
+            cancelConciergeSeed: () => {},
+            consumeConciergeSeed: () => {},
         }
     }
     return store

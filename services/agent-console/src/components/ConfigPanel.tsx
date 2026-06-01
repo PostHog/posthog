@@ -38,6 +38,8 @@ import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, Dia
 
 import type { NativeToolCatalogEntry } from '@/lib/apiClient'
 
+import { EditWithAIButton } from './EditWithAIButton'
+
 export interface ConfigPanelProps {
     spec: Record<string, unknown>
     /**
@@ -57,6 +59,13 @@ export interface ConfigPanelProps {
      * spec.skills).
      */
     onSelectBundleFile?: (path: string) => void
+    /**
+     * When provided, each editable section gets a small "Edit with AI"
+     * pill that seeds the concierge with a section-targeted prompt.
+     * The slug is threaded into the seed so the agent has it on hand
+     * via the context envelope.
+     */
+    agentSlug?: string
 }
 
 interface NativeToolRef {
@@ -118,7 +127,25 @@ export function ConfigPanel({
     highlightedSection,
     nativeToolCatalog,
     onSelectBundleFile,
+    agentSlug,
 }: ConfigPanelProps): React.ReactElement {
+    // Builds the per-section "Edit with AI" pill, or returns undefined
+    // (Row falls back to no action). Keeping this here so each Row can
+    // ask for the same one-line construction without repeating the
+    // slug guard.
+    const editAction = (section: string): React.ReactElement | undefined => {
+        if (!agentSlug) {
+            return undefined
+        }
+        return (
+            <EditWithAIButton
+                prompt={`Help me edit the \`${section}\` for \`${agentSlug}\`.`}
+                agentSlug={agentSlug}
+                label="Edit"
+                compact
+            />
+        )
+    }
     const model = typeof spec.model === 'string' ? spec.model : undefined
     const triggers = Array.isArray(spec.triggers) ? (spec.triggers as Trigger[]) : []
     const tools = Array.isArray(spec.tools) ? (spec.tools as ToolRef[]) : []
@@ -135,7 +162,7 @@ export function ConfigPanel({
 
     return (
         <div className="space-y-3">
-            <Row label="Model" icon={<SparklesIcon className="h-3 w-3" />}>
+            <Row label="Model" icon={<SparklesIcon className="h-3 w-3" />} action={editAction('model')}>
                 {model ? <Chip>{model}</Chip> : <Empty />}
             </Row>
 
@@ -143,6 +170,7 @@ export function ConfigPanel({
                 label="Triggers"
                 icon={<ZapIcon className="h-3 w-3" />}
                 highlighted={highlightedSection === 'triggers'}
+                action={editAction('triggers')}
             >
                 {triggers.length === 0 ? (
                     <Empty />
@@ -155,7 +183,12 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="Tools" icon={<WrenchIcon className="h-3 w-3" />} highlighted={highlightedSection === 'tools'}>
+            <Row
+                label="Tools"
+                icon={<WrenchIcon className="h-3 w-3" />}
+                highlighted={highlightedSection === 'tools'}
+                action={editAction('tools')}
+            >
                 {tools.length === 0 ? (
                     <Empty label="No tools" />
                 ) : (
@@ -173,7 +206,7 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="MCPs" icon={<ServerIcon className="h-3 w-3" />}>
+            <Row label="MCPs" icon={<ServerIcon className="h-3 w-3" />} action={editAction('mcps')}>
                 {mcps.length === 0 ? (
                     <Empty label="None connected" />
                 ) : (
@@ -185,7 +218,12 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="Skills" icon={<PuzzleIcon className="h-3 w-3" />} highlighted={highlightedSection === 'skills'}>
+            <Row
+                label="Skills"
+                icon={<PuzzleIcon className="h-3 w-3" />}
+                highlighted={highlightedSection === 'skills'}
+                action={editAction('skills')}
+            >
                 {skills.length === 0 ? (
                     <Empty label="None loaded" />
                 ) : (
@@ -197,7 +235,7 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="Integrations" icon={<LinkIcon className="h-3 w-3" />}>
+            <Row label="Integrations" icon={<LinkIcon className="h-3 w-3" />} action={editAction('integrations')}>
                 {integrations.length === 0 ? (
                     <Empty label="None required" />
                 ) : (
@@ -211,7 +249,12 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="Secrets" icon={<KeyIcon className="h-3 w-3" />} highlighted={highlightedSection === 'secrets'}>
+            <Row
+                label="Secrets"
+                icon={<KeyIcon className="h-3 w-3" />}
+                highlighted={highlightedSection === 'secrets'}
+                action={editAction('secrets')}
+            >
                 {secrets.length === 0 ? (
                     <Empty label="None required" />
                 ) : (
@@ -225,7 +268,12 @@ export function ConfigPanel({
                 )}
             </Row>
 
-            <Row label="Limits" icon={<TimerIcon className="h-3 w-3" />} highlighted={highlightedSection === 'limits'}>
+            <Row
+                label="Limits"
+                icon={<TimerIcon className="h-3 w-3" />}
+                highlighted={highlightedSection === 'limits'}
+                action={editAction('limits')}
+            >
                 {Object.keys(limits).length === 0 ? (
                     <Empty />
                 ) : (
@@ -280,11 +328,14 @@ function Row({
     icon,
     children,
     highlighted,
+    action,
 }: {
     label: string
     icon: ReactNode
     children: ReactNode
     highlighted?: boolean
+    /** Optional right-aligned action — e.g. an "Edit with AI" pill. */
+    action?: ReactNode
 }): React.ReactElement {
     return (
         <div
@@ -292,12 +343,13 @@ function Row({
                 'rounded-md border bg-card' + (highlighted ? ' border-info ring-1 ring-info/30' : ' border-border')
             }
         >
-            <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 px-3 py-2.5">
+            <div className="grid grid-cols-[120px_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5">
                 <div className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
                     {icon}
                     <span>{label}</span>
                 </div>
                 <div className="min-w-0">{children}</div>
+                {action ? <div className="shrink-0 self-start">{action}</div> : <div aria-hidden />}
             </div>
         </div>
     )

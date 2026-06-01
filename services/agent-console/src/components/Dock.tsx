@@ -42,6 +42,7 @@ import { ApiError, getAgent, setEnvKey } from '@/lib/apiClient'
 import { bumpReload } from '@/lib/reloadSignal'
 import { DOCK_TOGGLE_KEY_HINT, DOCK_TOGGLE_KEY_HINT_PC, useDockLayout } from '@/lib/useDockLayout'
 
+import { ConciergeSeedDialog } from './ConciergeSeedDialog'
 import { useDockStore } from './dock-context'
 import { DockHeader } from './DockHeader'
 import { useFocusStore } from './focus-context'
@@ -608,7 +609,7 @@ function RealConciergeDock({
     agentRef: AgentApplicationRef
     teamId: number
 }): React.ReactElement {
-    const { context } = useDockStore()
+    const { context, conciergeSeed, confirmConciergeSeed, consumeConciergeSeed } = useDockStore()
     const focus = useFocusStore()
     const { info } = useSession()
     const handlers = useDockHandlers(context)
@@ -648,43 +649,104 @@ function RealConciergeDock({
         [context, runner]
     )
 
+    // Seed handling — `<EditWithAIButton>` writes to `conciergeSeed`.
+    // Two stages:
+    //   - `pending`   → if the runner has no turns, auto-confirm (no
+    //     need to ask the user; the seed is the first message either
+    //     way). Otherwise the `<ConciergeSeedDialog>` shows and the
+    //     user chooses.
+    //   - `confirmed` → dispatch. We tear the existing session down
+    //     first; "confirmed" only fires when the user explicitly chose
+    //     "start fresh", or when there was no session to begin with.
+    const hasActiveTurns = runner.session.turns.length > 0
+    useEffect(() => {
+        if (!conciergeSeed) {
+            return
+        }
+        if (conciergeSeed.stage === 'pending' && !hasActiveTurns) {
+            confirmConciergeSeed()
+            return
+        }
+        if (conciergeSeed.stage === 'confirmed') {
+            const seq = conciergeSeed.seq
+            const prompt = conciergeSeed.prompt
+            // Reset first so the prompt lands as the first user turn
+            // of a brand-new session — picks up the context envelope
+            // and avoids appending to a stale conversation.
+            void (async () => {
+                if (hasActiveTurns) {
+                    await runner.reset()
+                }
+                send(prompt)
+                consumeConciergeSeed(seq)
+            })()
+        }
+        // `send`/`runner` change every render but we want this effect
+        // keyed to the seed lifecycle. The `runner.reset` + `send`
+        // closures captured here are safe because they're stable
+        // identities; if behaviour drifts we'll need refs.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conciergeSeed, hasActiveTurns])
+
     const sending = runner.session.state === 'streaming' || runner.session.state === 'awaiting_client_tool'
     const { layout, setMode, setVisible } = useDockLayout()
     const renderToolSummary = useToolSummaryRenderer()
 
+    // Dialog handlers — "start fresh" promotes the seed to confirmed
+    // (the effect above picks it up); "continue" appends without
+    // resetting, then consumes the seed directly.
+    const onStartFresh = useCallback(() => {
+        confirmConciergeSeed()
+    }, [confirmConciergeSeed])
+    const onContinueWithSeed = useCallback(() => {
+        if (!conciergeSeed) {
+            return
+        }
+        const seq = conciergeSeed.seq
+        send(conciergeSeed.prompt)
+        consumeConciergeSeed(seq)
+    }, [conciergeSeed, consumeConciergeSeed, send])
+
     return (
-        <AgentChat
-            context={context}
-            session={runner.session}
-            handlers={handlers}
-            onClientToolResolve={runner.resolveClientTool}
-            renderToolSummary={renderToolSummary}
-            headerSlot={
-                <DockHeader
-                    context={context}
-                    followingEnabled={focus.enabled}
-                    onFollowingChange={focus.setEnabled}
-                    onNewSession={() => void runner.reset()}
-                    onOpenSession={(sessionId) =>
-                        router.push(`/agents/${agentRef.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
-                    }
-                    busy={sending}
-                    reconnectAttempt={runner.reconnectAttempt}
-                    renderMarkdown={renderMarkdown}
-                    onRenderMarkdownChange={setRenderMarkdown}
-                    sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
-                    dockMode={layout.mode}
-                    onChangeDockMode={setMode}
-                    onHideDock={() => setVisible(false)}
-                    hideShortcutHint={DOCK_HIDE_HINT}
-                />
-            }
-            onSend={send}
-            onStop={runner.stop}
-            transportError={transportError}
-            onDismissTransportError={runner.clearError}
-            renderMarkdown={renderMarkdown}
-        />
+        <>
+            <AgentChat
+                context={context}
+                session={runner.session}
+                handlers={handlers}
+                onClientToolResolve={runner.resolveClientTool}
+                renderToolSummary={renderToolSummary}
+                headerSlot={
+                    <DockHeader
+                        context={context}
+                        followingEnabled={focus.enabled}
+                        onFollowingChange={focus.setEnabled}
+                        onNewSession={() => void runner.reset()}
+                        onOpenSession={(sessionId) =>
+                            router.push(`/agents/${agentRef.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
+                        }
+                        busy={sending}
+                        reconnectAttempt={runner.reconnectAttempt}
+                        renderMarkdown={renderMarkdown}
+                        onRenderMarkdownChange={setRenderMarkdown}
+                        sessionId={runner.session.id !== 'pending' ? runner.session.id : undefined}
+                        dockMode={layout.mode}
+                        onChangeDockMode={setMode}
+                        onHideDock={() => setVisible(false)}
+                        hideShortcutHint={DOCK_HIDE_HINT}
+                    />
+                }
+                onSend={send}
+                onStop={runner.stop}
+                transportError={transportError}
+                onDismissTransportError={runner.clearError}
+                renderMarkdown={renderMarkdown}
+            />
+            <ConciergeSeedDialog
+                hasActiveTurns={hasActiveTurns}
+                onStartFresh={onStartFresh}
+                onContinue={onContinueWithSeed}
+            />
+        </>
     )
 }
 

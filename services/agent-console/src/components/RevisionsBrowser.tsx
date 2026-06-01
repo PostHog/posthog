@@ -316,6 +316,7 @@ export function RevisionsBrowser({
                                     files={bundle}
                                     selectedPath={focusedBundlePath ?? null}
                                     onSelectPath={onSelectBundleFile}
+                                    agentSlug={agent.slug}
                                 />
                             )}
                         </Section>
@@ -552,6 +553,7 @@ function ConfigPanelCard({
                             highlightedSection={highlightedSection}
                             nativeToolCatalog={nativeToolCatalog}
                             onSelectBundleFile={onSelectBundleFile}
+                            agentSlug={agent.slug}
                         />
                         <UnstructuredFields
                             spec={selected.spec as Record<string, unknown>}

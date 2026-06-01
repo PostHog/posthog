@@ -85,10 +85,6 @@ export function AgentsListClient(): React.ReactElement {
                     router.push(`/agents/${session.application.slug}/sessions?session=${encodeURIComponent(sessionId)}`)
                 }
             }}
-            onCreateAgent={() => {
-                // eslint-disable-next-line no-console
-                console.info('[stub] Create-agent flow lives in the concierge chat dock (v0.2).')
-            }}
             onViewAllSessions={() => {
                 // eslint-disable-next-line no-console
                 console.info('[stub] /sessions cross-agent page lands in v1.')

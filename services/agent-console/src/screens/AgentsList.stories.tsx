@@ -22,7 +22,6 @@ export default meta
 type Story = StoryObj<typeof AgentsList>
 
 const onOpenAgent = (slug: string): void => console.info('[mock] openAgent', slug)
-const onCreateAgent = (): void => console.info('[mock] createAgent')
 const onOpenSession = (id: string): void => console.info('[mock] openSession', id)
 const onViewAllSessions = (): void => console.info('[mock] viewAllSessions')
 
@@ -33,7 +32,6 @@ export const Default: Story = {
         liveSessions: fleetLiveSessions,
         liveCountByAgent: liveSessionCountsByAgent,
         onOpenAgent,
-        onCreateAgent,
         onOpenSession,
         onViewAllSessions,
     },
@@ -46,7 +44,6 @@ export const WithArchived: Story = {
         liveSessions: fleetLiveSessions,
         liveCountByAgent: liveSessionCountsByAgent,
         onOpenAgent,
-        onCreateAgent,
         onOpenSession,
         onViewAllSessions,
     },
@@ -59,7 +56,6 @@ export const Quiet: Story = {
         liveSessions: [],
         liveCountByAgent: {},
         onOpenAgent,
-        onCreateAgent,
         onOpenSession,
         onViewAllSessions,
     },
@@ -72,7 +68,6 @@ export const Empty: Story = {
         liveSessions: [],
         liveCountByAgent: {},
         onOpenAgent,
-        onCreateAgent,
         onOpenSession,
         onViewAllSessions,
     },
@@ -85,7 +80,6 @@ export const SingleAgent: Story = {
         liveSessions: fleetLiveSessions.slice(0, 1),
         liveCountByAgent: { [agents[0].id]: 1 },
         onOpenAgent,
-        onCreateAgent,
         onOpenSession,
         onViewAllSessions,
     },

@@ -4,7 +4,7 @@
  * Layout (wide screens):
  *
  *   ┌────────────────────────────────────────────────────┐
- *   │ Header                          [ New agent ]       │
+ *   │ Header                  [ ✨ New agent with AI ]    │
  *   │ StatStrip ── 4 fleet KPIs across the top            │
  *   │ ┌──────────────────────────┐ ┌──────────────────┐  │
  *   │ │ FilterChips              │ │ Live now panel    │  │
@@ -21,12 +21,13 @@
  * cheap real-time signal without a separate "fleet health" view.
  */
 
-import { ChevronRightIcon, PlusIcon } from 'lucide-react'
+import { ChevronRightIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
 import type { AgentApplicationFixture, FleetStats } from '@posthog/agent-chat/fixtures'
 
+import { EditWithAIButton } from '@/components/EditWithAIButton'
 import { FilterChips } from '@/components/FilterChips'
 import { LiveNowPanel } from '@/components/LiveNowPanel'
 import { StatStrip, type StatTile } from '@/components/StatStrip'
@@ -44,7 +45,6 @@ export interface AgentsListProps {
     liveCountByAgent?: Record<string, number>
     onOpenAgent?: (slug: string) => void
     onOpenSession?: (sessionId: string) => void
-    onCreateAgent?: () => void
     /** Hooked once the cross-agent /sessions page exists. */
     onViewAllSessions?: () => void
 }
@@ -56,7 +56,6 @@ export function AgentsList({
     liveCountByAgent = {},
     onOpenAgent,
     onOpenSession,
-    onCreateAgent,
     onViewAllSessions,
 }: AgentsListProps): React.ReactElement {
     const [filter, setFilter] = useState<Filter>('all')
@@ -102,20 +101,13 @@ export function AgentsList({
                         {agents.length === 0 ? 'None yet.' : `${agents.length} in this project.`}
                     </p>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => onCreateAgent?.()}
-                    className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition-colors hover:bg-accent"
-                >
-                    <PlusIcon className="h-3 w-3" />
-                    New
-                </button>
+                <EditWithAIButton prompt="Help me create a new agent." label="New agent with AI" />
             </header>
 
             <StatStrip tiles={tiles} className="mb-4" />
 
             {agents.length === 0 ? (
-                <EmptyState onCreateAgent={onCreateAgent} />
+                <EmptyState />
             ) : (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
                     <div className="min-w-0">
@@ -211,21 +203,16 @@ function AgentRow({
     )
 }
 
-function EmptyState({ onCreateAgent }: { onCreateAgent?: () => void }): React.ReactElement {
+function EmptyState(): React.ReactElement {
     return (
         <div className="rounded-md border border-dashed border-border p-8 text-center">
             <p className="text-sm font-medium">No agents yet</p>
             <p className="mt-1 text-xs text-muted-foreground">
-                Agents run on triggers and act on your data. Talk to the concierge to your right to create one.
+                Agents run on triggers and act on your data. The concierge will walk you through your first one.
             </p>
-            <button
-                type="button"
-                onClick={() => onCreateAgent?.()}
-                className="mt-4 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-card px-3 text-xs font-medium transition-colors hover:bg-accent"
-            >
-                <PlusIcon className="h-3 w-3" />
-                New agent
-            </button>
+            <div className="mt-4 flex justify-center">
+                <EditWithAIButton prompt="Help me create a new agent." label="New agent with AI" />
+            </div>
         </div>
     )
 }
