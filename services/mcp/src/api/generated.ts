@@ -17874,6 +17874,8 @@ export namespace Schemas {
          * @nullable
          */
       feature_enrollment?: boolean | null;
+      /** When true, condition evaluation stops at the first matching condition set rather than continuing to evaluate subsequent groups. */
+      early_exit?: boolean;
     }
 
     export interface FeatureFlagCreateRequestSchema {

@@ -268,6 +268,14 @@ class TestModalSandboxAgentServer:
         with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
 
+    @pytest.fixture(autouse=True)
+    def _bypass_start_guard(self):
+        with (
+            patch.object(ModalSandbox, "_agent_server_is_healthy", return_value=False),
+            patch.object(ModalSandbox, "_free_agent_server_port"),
+        ):
+            yield
+
     def test_get_connect_credentials_success(self, mock_sandbox: Any):
         result = mock_sandbox.get_connect_credentials()
 
@@ -479,6 +487,42 @@ class TestModalSandboxAgentServer:
         assert result is False
         assert mock_sandbox.execute.call_count == 1
 
+    def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock()
+
+        with (
+            patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
+            patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
+        ):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+            )
+
+        mock_free.assert_not_called()
+        mock_sandbox.execute.assert_not_called()
+
+    def test_start_agent_server_frees_port_before_relaunch(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            side_effect=[
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+            ]
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+        )
+
+        mock_sandbox._free_agent_server_port.assert_called_once_with()
+        assert "nohup" in _agent_server_launch_command(mock_sandbox.execute)
+
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
         exec_process = MagicMock()
@@ -639,19 +683,58 @@ class TestModalSandboxCommandEscaping:
         sandbox._sandbox = MagicMock()
         sandbox._sandbox_url = None
 
-        with patch.object(sandbox, "is_running", return_value=True):
-            with patch.object(sandbox, "_setup_agentsh"):
-                with patch.object(sandbox, "execute") as mock_execute:
-                    mock_execute.return_value = MagicMock(exit_code=0)
-                    with patch.object(sandbox, "_wait_for_health_check", return_value=True):
-                        sandbox.start_agent_server(repository, task_id, run_id, mode)
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "_setup_agentsh"),
+            patch.object(sandbox, "_agent_server_is_healthy", return_value=False),
+            patch.object(sandbox, "_free_agent_server_port"),
+            patch.object(sandbox, "execute") as mock_execute,
+            patch.object(sandbox, "_wait_for_health_check", return_value=True),
+        ):
+            mock_execute.return_value = MagicMock(exit_code=0)
+            sandbox.start_agent_server(repository, task_id, run_id, mode)
 
-                command = _agent_server_launch_command(mock_execute)
+            command = _agent_server_launch_command(mock_execute)
 
-                org, repo = repository.lower().split("/")
-                repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+            org, repo = repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-                assert shlex.quote(repo_path) in command
-                assert shlex.quote(task_id) in command
-                assert shlex.quote(run_id) in command
-                assert shlex.quote(mode) in command
+            assert shlex.quote(repo_path) in command
+            assert shlex.quote(task_id) in command
+            assert shlex.quote(run_id) in command
+            assert shlex.quote(mode) in command
+
+
+class TestModalSandboxAgentServerStartupHelpers:
+    def _make_sandbox(self) -> Any:
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-123"
+        sandbox.config = SandboxConfig(name="test")
+        sandbox._sandbox = MagicMock()
+        return sandbox
+
+    @pytest.mark.parametrize(
+        "exit_code,expected",
+        [
+            (0, True),
+            (1, False),
+        ],
+    )
+    def test_agent_server_is_healthy(self, exit_code: int, expected: bool):
+        sandbox = self._make_sandbox()
+        sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=exit_code, error=None)
+        )
+
+        assert sandbox._agent_server_is_healthy() is expected
+        assert sandbox.execute.call_count == 1
+
+    def test_free_agent_server_port_terminates_existing_process(self):
+        sandbox = self._make_sandbox()
+        sandbox.execute = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0, error=None))
+
+        sandbox._free_agent_server_port()
+
+        command = sandbox.execute.call_args_list[0][0][0]
+        assert "pkill -TERM -f agent-server" in command
+        assert "pkill -KILL -f agent-server" in command
