@@ -5,6 +5,7 @@ import * as http from 'http'
 import * as prometheus from 'prom-client'
 import express from 'ultimate-express'
 
+import { validateBootEnvironment } from '../boot-validation'
 import { BrowserPool } from '../capture/browser-pool'
 import { playerHtmlCache } from '../capture/capture-page'
 import { config } from '../config'
@@ -103,6 +104,8 @@ function startMetricsServer(): http.Server {
 }
 
 async function main(): Promise<void> {
+    validateBootEnvironment()
+
     const metricsServer = startMetricsServer() as http.Server & { setReady: () => void }
 
     const address = `${config.temporalHost}:${config.temporalPort}`

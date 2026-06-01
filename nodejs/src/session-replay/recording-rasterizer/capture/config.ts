@@ -6,6 +6,23 @@ import { CaptureConfig, RasterizeRecordingInput } from '../types'
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24
 
+// Upper bounds for numeric input — resource guards on values that reach
+// ffmpeg filter strings and the capture loop.
+const MAX_PLAYBACK_SPEED = 360
+const MAX_RECORDING_FPS = 120
+const MAX_TRIM_SECONDS = 4 * 60 * 60
+const MAX_VIRTUAL_TIME_SECONDS = 4 * 60 * 60
+const MAX_VIEWPORT_DIMENSION = 3840
+
+function assertPositiveAtMost(name: string, value: number, max: number): void {
+    if (value <= 0) {
+        throw new RasterizationError(`${name} must be positive, got: ${value}`, false, 'INVALID_INPUT')
+    }
+    if (value > max) {
+        throw new RasterizationError(`${name} must be at most ${max}, got: ${value}`, false, 'INVALID_INPUT')
+    }
+}
+
 export function validateInput(input: RasterizeRecordingInput): void {
     if (!input.session_id) {
         throw new RasterizationError('session_id is required', false, 'INVALID_INPUT')
@@ -13,29 +30,23 @@ export function validateInput(input: RasterizeRecordingInput): void {
     if (!input.team_id || input.team_id <= 0) {
         throw new RasterizationError('team_id must be a positive integer', false, 'INVALID_INPUT')
     }
-    if (input.playback_speed !== undefined && input.playback_speed <= 0) {
-        throw new RasterizationError(
-            `playback_speed must be positive, got: ${input.playback_speed}`,
-            false,
-            'INVALID_INPUT'
-        )
+    if (input.playback_speed != null) {
+        assertPositiveAtMost('playback_speed', input.playback_speed, MAX_PLAYBACK_SPEED)
     }
-    if (input.max_virtual_time != null && input.max_virtual_time <= 0) {
-        throw new RasterizationError(
-            `max_virtual_time must be positive, got: ${input.max_virtual_time}`,
-            false,
-            'INVALID_INPUT'
-        )
+    if (input.max_virtual_time != null) {
+        assertPositiveAtMost('max_virtual_time', input.max_virtual_time, MAX_VIRTUAL_TIME_SECONDS)
     }
-    if (input.recording_fps !== undefined && input.recording_fps <= 0) {
-        throw new RasterizationError(
-            `recording_fps must be positive, got: ${input.recording_fps}`,
-            false,
-            'INVALID_INPUT'
-        )
+    if (input.recording_fps != null) {
+        assertPositiveAtMost('recording_fps', input.recording_fps, MAX_RECORDING_FPS)
     }
-    if (input.trim != null && input.trim <= 0) {
-        throw new RasterizationError(`trim must be positive, got: ${input.trim}`, false, 'INVALID_INPUT')
+    if (input.trim != null) {
+        assertPositiveAtMost('trim', input.trim, MAX_TRIM_SECONDS)
+    }
+    if (input.viewport_width != null) {
+        assertPositiveAtMost('viewport_width', input.viewport_width, MAX_VIEWPORT_DIMENSION)
+    }
+    if (input.viewport_height != null) {
+        assertPositiveAtMost('viewport_height', input.viewport_height, MAX_VIEWPORT_DIMENSION)
     }
     if (input.screenshot_quality != null && (input.screenshot_quality < 1 || input.screenshot_quality > 100)) {
         throw new RasterizationError(

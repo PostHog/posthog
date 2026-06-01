@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextFunction, Request, Response } from 'ultimate-express'
 
+import { isProdEnv } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
 /**
@@ -25,6 +26,16 @@ export interface InternalApiAuthOptions {
 export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions) {
     const { secret, excludedPathPrefixes = [] } = options
     const allExcludedPrefixes = [...PUBLIC_PATH_PREFIXES, ...excludedPathPrefixes]
+
+    // Empty-secret mode (open) is allowed for local dev and tests only. In
+    // production it would silently bypass authentication on every non-excluded
+    // route, so fail at boot instead.
+    if (!secret && isProdEnv()) {
+        throw new Error(
+            'createInternalApiAuthMiddleware was constructed without a secret in a production environment. ' +
+                'Set INTERNAL_API_SECRET so internal endpoints require authentication.'
+        )
+    }
 
     return (req: Request, res: Response, next: NextFunction): void => {
         // Skip auth if no secret is configured (for backwards compatibility and local dev)

@@ -30,6 +30,7 @@ function mockBrowser(): jest.Mocked<Browser> {
     return {
         newPage: jest.fn(),
         close: jest.fn(),
+        version: jest.fn().mockResolvedValue('HeadlessChrome/149.0.7827.54'),
     } as any
 }
 

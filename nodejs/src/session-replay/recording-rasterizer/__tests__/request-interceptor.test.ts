@@ -5,8 +5,10 @@ import { CapturePage } from '../capture/capture-page'
 import { RequestInterceptor } from '../capture/request-interceptor'
 
 const mockFetch = jest.fn()
+const mockRaiseIfUnsafe = jest.fn()
 jest.mock('../../../utils/request', () => ({
     fetch: (...args: any[]) => mockFetch(...args),
+    raiseIfUserProvidedUrlUnsafe: (...args: any[]) => mockRaiseIfUnsafe(...args),
 }))
 
 type PageEventHandler = (req: HTTPRequest) => void
@@ -99,6 +101,8 @@ function getRequestHandler(page: Page): (req: HTTPRequest) => void {
 describe('RequestInterceptor', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        // Default: SSRF guard allows everything. Individual tests override.
+        mockRaiseIfUnsafe.mockResolvedValue(undefined)
     })
 
     describe('install', () => {
@@ -126,7 +130,7 @@ describe('RequestInterceptor', () => {
             })
         })
 
-        it('forwards block requests to BlockProxy', async () => {
+        it('forwards block requests to BlockProxy when origin matches the player', async () => {
             const bp = mockBlockProxy()
             const { page } = await createInterceptor(undefined, bp)
             const handler = getRequestHandler(page.page)
@@ -137,13 +141,30 @@ describe('RequestInterceptor', () => {
             expect(bp.handleRequest).toHaveBeenCalledWith(req, '/__blocks/0')
         })
 
+        it('does not forward block requests from a cross-origin URL', async () => {
+            const bp = mockBlockProxy()
+            const { page } = await createInterceptor(undefined, bp)
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('xhr', mainFrame, 'http://attacker.example/__blocks/0')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(bp.handleRequest).not.toHaveBeenCalled()
+            // Falls through to the SSRF guard (which allows by default in tests) and request.continue.
+            expect(mockRaiseIfUnsafe).toHaveBeenCalledWith('http://attacker.example/__blocks/0')
+            expect(req.continue).toHaveBeenCalled()
+        })
+
         it('continues main-frame requests without proxying', async () => {
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
             const req = mockRequest('stylesheet', mainFrame, 'https://cdn.example.com/style.css')
 
             handler(req)
+            await new Promise(process.nextTick)
 
+            expect(mockRaiseIfUnsafe).toHaveBeenCalledWith('https://cdn.example.com/style.css')
             expect(req.continue).toHaveBeenCalled()
             expect(req.respond).not.toHaveBeenCalled()
             expect(req.abort).not.toHaveBeenCalled()
@@ -194,6 +215,8 @@ describe('RequestInterceptor', () => {
                 const req = mockRequest(type)
 
                 handler(req)
+                await new Promise(process.nextTick)
+
                 expect(req.continue).toHaveBeenCalled()
                 expect(req.abort).not.toHaveBeenCalled()
                 expect(req.respond).not.toHaveBeenCalled()
@@ -208,11 +231,91 @@ describe('RequestInterceptor', () => {
                 const req = mockRequest('document', mainFrame, url)
 
                 handler(req)
+                await new Promise(process.nextTick)
+
                 expect(req.continue).toHaveBeenCalled()
                 expect(req.respond).not.toHaveBeenCalled()
                 expect(req.abort).not.toHaveBeenCalled()
+                expect(mockRaiseIfUnsafe).not.toHaveBeenCalled()
             }
         )
+    })
+
+    describe('SSRF guard', () => {
+        it('aborts main-frame requests to unsafe destinations', async () => {
+            mockRaiseIfUnsafe.mockRejectedValueOnce(new Error('Hostname is not allowed'))
+
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('image', mainFrame, 'http://169.254.169.254/latest/meta-data/')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(req.abort).toHaveBeenCalledWith('blockedbyclient')
+            expect(req.continue).not.toHaveBeenCalled()
+            expect(mockLog.warn).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    url: 'http://169.254.169.254/latest/meta-data/',
+                    err: 'Hostname is not allowed',
+                }),
+                'blocking unsafe egress'
+            )
+        })
+
+        it('aborts sub-frame image requests to unsafe destinations', async () => {
+            mockRaiseIfUnsafe.mockRejectedValueOnce(new Error('Hostname is not allowed'))
+
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('image', subFrame, 'http://10.0.0.1/internal')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(req.abort).toHaveBeenCalledWith('blockedbyclient')
+            expect(req.continue).not.toHaveBeenCalled()
+        })
+
+        it('does not run the SSRF guard for the player URL', async () => {
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('document', mainFrame, playerUrl)
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(mockRaiseIfUnsafe).not.toHaveBeenCalled()
+            expect(req.respond).toHaveBeenCalled()
+        })
+
+        it('does not run the SSRF guard for block proxy requests', async () => {
+            const bp = mockBlockProxy()
+            const { page } = await createInterceptor(undefined, bp)
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('xhr', mainFrame, 'http://localhost:8000/__blocks/0')
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            expect(mockRaiseIfUnsafe).not.toHaveBeenCalled()
+            expect(bp.handleRequest).toHaveBeenCalled()
+        })
+
+        it('swallows abort failures (page may already be closed)', async () => {
+            mockRaiseIfUnsafe.mockRejectedValueOnce(new Error('Hostname is not allowed'))
+
+            const { page } = await createInterceptor()
+            const handler = getRequestHandler(page.page)
+            const req = mockRequest('image', mainFrame, 'http://10.0.0.1/internal')
+            ;(req.abort as jest.Mock).mockRejectedValueOnce(new Error('Target closed'))
+
+            handler(req)
+            await new Promise(process.nextTick)
+
+            // No unhandled rejection — abort failure is caught.
+            expect(req.continue).not.toHaveBeenCalled()
+        })
     })
 
     describe('stylesheet proxy', () => {

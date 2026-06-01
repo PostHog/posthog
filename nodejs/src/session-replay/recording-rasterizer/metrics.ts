@@ -110,6 +110,21 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances recycled due to usage limit',
     })
 
+    private static readonly browserBuildInfo = new Gauge({
+        name: 'recording_rasterizer_browser_build_info',
+        help: 'Chrome / chrome-headless-shell version reported by the running browser',
+        labelNames: ['version'],
+    })
+
+    // --- Egress ---
+
+    // No hostname label: customer-controlled URLs would balloon label cardinality.
+    // The blocked hostname goes to the log line instead.
+    private static readonly egressBlockedTotal = new Counter({
+        name: 'recording_rasterizer_egress_blocked_total',
+        help: 'Number of in-browser requests blocked because the destination failed the SSRF guard',
+    })
+
     // --- Concurrency ---
 
     private static readonly concurrentActivities = new Gauge({
@@ -169,5 +184,13 @@ export class RasterizationMetrics {
 
     public static activityFinished(): void {
         this.concurrentActivities.dec()
+    }
+
+    public static recordBrowserVersion(version: string): void {
+        this.browserBuildInfo.labels({ version }).set(1)
+    }
+
+    public static egressBlocked(): void {
+        this.egressBlockedTotal.inc()
     }
 }

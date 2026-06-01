@@ -1,8 +1,21 @@
 import { Request, Response } from 'ultimate-express'
 
+import { isProdEnv } from '~/utils/env-utils'
+
 import { createInternalApiAuthMiddleware } from './internal-api-auth'
 
+jest.mock('~/utils/env-utils', () => ({
+    ...jest.requireActual('~/utils/env-utils'),
+    isProdEnv: jest.fn().mockReturnValue(false),
+}))
+
+const mockedIsProdEnv = isProdEnv as jest.MockedFunction<typeof isProdEnv>
+
 describe('createInternalApiAuthMiddleware', () => {
+    afterEach(() => {
+        mockedIsProdEnv.mockReturnValue(false)
+    })
+
     const mockResponse = () => {
         const res = {} as Response
         res.status = jest.fn().mockReturnValue(res)
@@ -17,6 +30,25 @@ describe('createInternalApiAuthMiddleware', () => {
             method: 'GET',
         } as unknown as Request
     }
+
+    describe('production safety', () => {
+        it('throws at construction when secret is empty and NODE_ENV=production', () => {
+            mockedIsProdEnv.mockReturnValue(true)
+            expect(() => createInternalApiAuthMiddleware({ secret: '' })).toThrow(
+                /constructed without a secret in a production environment/
+            )
+        })
+
+        it('does not throw at construction with empty secret in dev', () => {
+            mockedIsProdEnv.mockReturnValue(false)
+            expect(() => createInternalApiAuthMiddleware({ secret: '' })).not.toThrow()
+        })
+
+        it('does not throw at construction with a non-empty secret in prod', () => {
+            mockedIsProdEnv.mockReturnValue(true)
+            expect(() => createInternalApiAuthMiddleware({ secret: 'test-secret' })).not.toThrow()
+        })
+    })
 
     describe('when no secret configured', () => {
         it.each([

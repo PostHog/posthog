@@ -33,6 +33,35 @@ describe('config', () => {
             expect(() => validateInput(baseInput({ [field]: value }))).toThrow(error)
         })
 
+        it.each([
+            { field: 'playback_speed', value: 361, ceiling: 360 },
+            { field: 'recording_fps', value: 121, ceiling: 120 },
+            { field: 'trim', value: 14401, ceiling: 14400 },
+            { field: 'max_virtual_time', value: 14401, ceiling: 14400 },
+            { field: 'viewport_width', value: 3841, ceiling: 3840 },
+            { field: 'viewport_height', value: 3841, ceiling: 3840 },
+        ])('rejects $field above ceiling ($value > $ceiling)', ({ field, value }) => {
+            expect(() => validateInput(baseInput({ [field]: value }))).toThrow(/must be at most/)
+        })
+
+        it.each([
+            { field: 'viewport_width', value: 0 },
+            { field: 'viewport_height', value: 0 },
+        ])('rejects $field below floor ($value)', ({ field, value }) => {
+            expect(() => validateInput(baseInput({ [field]: value }))).toThrow(/must be positive/)
+        })
+
+        it.each([
+            { field: 'playback_speed', value: 360 },
+            { field: 'recording_fps', value: 120 },
+            { field: 'trim', value: 14400 },
+            { field: 'max_virtual_time', value: 14400 },
+            { field: 'viewport_width', value: 3840 },
+            { field: 'viewport_height', value: 3840 },
+        ])('accepts $field at ceiling ($value)', ({ field, value }) => {
+            expect(() => validateInput(baseInput({ [field]: value }))).not.toThrow()
+        })
+
         it('rejects empty session_id', () => {
             expect(() => validateInput(baseInput({ session_id: '' }))).toThrow('session_id is required')
         })

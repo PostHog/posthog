@@ -50,6 +50,11 @@ export class BrowserPool {
         if (this.idle.length === 0) {
             this.idle.push(await this.launchBrowser())
         }
+        // Record the actual chrome-headless-shell build so version drift across
+        // rebuilds is visible without exec'ing into the pod.
+        const version = await this.idle[0].browser.version()
+        log.info({ chrome_version: version }, 'chrome browser launched')
+        RasterizationMetrics.recordBrowserVersion(version)
     }
 
     async getPage(): Promise<Page> {
