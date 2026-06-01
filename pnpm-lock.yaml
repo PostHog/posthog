@@ -3226,8 +3226,6 @@ importers:
 
   products/product_tours: {}
 
-  products/query_performance_ai: {}
-
   products/replay:
     dependencies:
       '@posthog/icons':

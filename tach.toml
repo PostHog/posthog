@@ -468,12 +468,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.query_performance_ai"
-depends_on = ["products.tasks",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.replay"
 depends_on = [
     "ee",

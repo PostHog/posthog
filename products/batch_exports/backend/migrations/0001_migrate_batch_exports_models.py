@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "1193_migrate_annotations_models"),
+        ("posthog", "1194_migrate_annotations_models"),
     ]
 
     operations = [

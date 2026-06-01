@@ -705,9 +705,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'customer-analytics-csp',
                 'notebooks-collaboration',
                 'replay-vision',
+                'tasks',
             ])
         )
-        expect(flags).toHaveLength(9)
+        expect(flags).toHaveLength(10)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

@@ -12966,6 +12966,11 @@ export namespace Schemas {
       Frequentist: 'frequentist',
     } as const;
 
+    export interface DeleteTileRequest {
+      /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+    }
+
     /**
      * * `pending` - Pending
     * `delivered` - Delivered
@@ -25852,12 +25857,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -31910,12 +31931,28 @@ export namespace Schemas {
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
-      /** @maxLength 255 */
+      /**
+         * Short human-readable title. Auto-generated from `description` when omitted.
+         * @maxLength 255
+         */
       title?: string;
       title_manually_set?: boolean;
+      /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
       description?: string;
+      /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+
+      * `error_tracking` - Error Tracking
+      * `eval_clusters` - Eval Clusters
+      * `user_created` - User Created
+      * `automation` - Automation
+      * `slack` - Slack
+      * `support_queue` - Support Queue
+      * `session_summaries` - Session Summaries
+      * `signal_report` - Signal Report
+      * `signals_scout` - Signals Scout */
       origin_product?: OriginProductEnum;
       /**
+         * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
          * @maxLength 255
          * @nullable
          */
@@ -40423,6 +40460,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsDeleteTileParams = {
+    format?: EnvironmentsDashboardsDeleteTileFormat;
+    };
+
+    export type EnvironmentsDashboardsDeleteTileFormat = typeof EnvironmentsDashboardsDeleteTileFormat[keyof typeof EnvironmentsDashboardsDeleteTileFormat];
+
+
+    export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -45485,6 +45534,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat;
+    };
+
+    export type DashboardsDeleteTileFormat = typeof DashboardsDeleteTileFormat[keyof typeof DashboardsDeleteTileFormat];
+
+
+    export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -49497,10 +49558,13 @@ export namespace Schemas {
     internal?: boolean;
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -49565,10 +49629,13 @@ export namespace Schemas {
     export type TasksRunsListParams = {
     /**
      * Number of results to return per page.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
      * The initial index from which to return the results.
+     * @minimum 0
      */
     offset?: number;
     };
