@@ -376,9 +376,6 @@ function ManagedSchemaTable({
                         return (
                             <SourceEditorAction source={source}>
                                 <LemonSwitch
-                                    disabledReason={
-                                        schema.sync_type === null ? 'Set up the sync method first' : undefined
-                                    }
                                     checked={schema.should_sync}
                                     onChange={(active) => {
                                         if (!active && schema.sync_type === 'cdc') {

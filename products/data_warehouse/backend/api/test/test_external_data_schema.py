@@ -29,7 +29,7 @@ from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from products.data_warehouse.backend.api.test.utils import create_external_data_source_ok
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -466,6 +466,90 @@ class TestExternalDataSchema(APIBaseTest):
         assert "primary key" in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.should_sync is False
+
+    def _enable_never_configured_schema(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=None,
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+            )
+
+        return response, schema
+
+    def test_update_schema_enable_without_sync_type_defaults_to_incremental_when_available(self):
+        # When the source reports incremental support with a field, enabling a never-configured
+        # schema should default to incremental using the first detected field (and detected PKs).
+        fake_schema = SourceSchema(
+            name="BalanceTransaction",
+            supports_incremental=True,
+            supports_append=True,
+            incremental_fields=[
+                {
+                    "label": "created_at",
+                    "type": IncrementalFieldType.DateTime,
+                    "field": "created",
+                    "field_type": IncrementalFieldType.Integer,
+                }
+            ],
+            detected_primary_keys=["id"],
+        )
+        with mock.patch.object(StripeSource, "get_schemas", return_value=[fake_schema]):
+            response, schema = self._enable_never_configured_schema()
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("incremental_field") == "created"
+        assert schema.sync_type_config.get("incremental_field_type") == "integer"
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
+
+    def test_update_schema_enable_without_sync_type_defaults_to_full_refresh_when_not_incremental(self):
+        # No incremental support → fall back to full refresh rather than rejecting the enable.
+        fake_schema = SourceSchema(
+            name="BalanceTransaction",
+            supports_incremental=False,
+            supports_append=False,
+            incremental_fields=[],
+        )
+        with mock.patch.object(StripeSource, "get_schemas", return_value=[fake_schema]):
+            response, schema = self._enable_never_configured_schema()
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_enable_without_sync_type_falls_back_to_full_refresh_on_discovery_error(self):
+        # Discovery failures (bad credentials, source down) must not block enabling — degrade to
+        # full refresh so the toggle still works.
+        with mock.patch.object(StripeSource, "get_schemas", side_effect=Exception("source unreachable")):
+            response, schema = self._enable_never_configured_schema()
+
+        assert response.status_code == status.HTTP_200_OK
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     @parameterized.expand(
         [ExternalDataSchema.SyncType.APPEND, ExternalDataSchema.SyncType.INCREMENTAL],
@@ -1064,10 +1148,7 @@ class TestUpdateExternalDataSchema:
         assert schedule_desc.schedule.state.paused is False
 
     def test_update_schema_change_should_sync_on_without_sync_type(self, team, user, client: HttpClient, temporal):
-        """Test that we can turn on a schema that doesn't have a sync type set.
-
-        Not sure in which cases this can happen.
-        """
+        """Enabling a schema with no sync type derives a default sync method instead of rejecting."""
         client.force_login(user)
         source_id = create_external_data_source_ok(client, team.pk)
         schema = ExternalDataSchema.objects.filter(source_id=source_id, should_sync=False).first()
@@ -1092,7 +1173,10 @@ class TestUpdateExternalDataSchema:
             content_type="application/json",
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        assert schema.sync_type is not None
 
     def test_update_schema_exposes_direct_postgres_table_without_sync_type(
         self, team, user, client: HttpClient, temporal

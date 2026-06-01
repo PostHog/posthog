@@ -114,6 +114,47 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
         instance.save(update_fields=["status"])
 
 
+def _resolve_default_sync_config_on_enable(instance: ExternalDataSchema) -> tuple[str, dict[str, Any]]:
+    """Pick a sync method for a schema being enabled without one configured.
+
+    Mirrors the sync-method form's preference: use incremental replication when the source
+    reports it's supported and exposes an incremental field (cheaper than re-syncing the whole
+    table each run), otherwise fall back to full refresh, which is always valid. Webhook and CDC
+    are intentionally excluded — they need extra setup (webhook endpoint, replication publication
+    + primary key) that a bare enable toggle can't provide, so those stay behind the explicit
+    configuration flow. Any discovery failure degrades to full refresh so enabling never breaks.
+
+    Returns the chosen sync_type and any sync_type_config keys to merge in.
+    """
+    full_refresh: tuple[str, dict[str, Any]] = (ExternalDataSchema.SyncType.FULL_REFRESH, {})
+
+    source = instance.source
+    if not source.source_type or not source.job_inputs:
+        return full_refresh
+
+    try:
+        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        config = source_impl.parse_config(source.job_inputs)
+        schemas = source_impl.get_schemas(config, instance.team_id, names=[instance.name])
+    except Exception as e:
+        capture_exception(e)
+        return full_refresh
+
+    schema = next((s for s in schemas if s.name == instance.name), None)
+    if schema is None or not schema.supports_incremental or not schema.incremental_fields:
+        return full_refresh
+
+    field = schema.incremental_fields[0]
+    config_updates: dict[str, Any] = {
+        "incremental_field": field["field"],
+        "incremental_field_type": field["field_type"],
+    }
+    if schema.detected_primary_keys:
+        config_updates["primary_key_columns"] = schema.detected_primary_keys
+
+    return (ExternalDataSchema.SyncType.INCREMENTAL, config_updates)
+
+
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(read_only=True)
     incremental = serializers.SerializerMethodField(read_only=True)
@@ -481,8 +522,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 validated_data["sync_time_of_day"] = None
                 instance.sync_time_of_day = None
 
+        # Enabling a schema that was never configured derives a sensible sync method (incremental
+        # when the source supports it, else full refresh) rather than rejecting the request. Users
+        # can switch to a different method later via the schema configuration page.
         if source.supports_scheduled_sync and should_sync is True and sync_type is None and instance.sync_type is None:
-            raise ValidationError("Sync type must be set up first before enabling schema")
+            sync_type, default_config_updates = _resolve_default_sync_config_on_enable(instance)
+            validated_data["sync_type"] = sync_type
+            if default_config_updates:
+                payload = instance.sync_type_config or {}
+                payload.update(default_config_updates)
+                validated_data["sync_type_config"] = payload
 
         # Catches a CDC schema being flipped on later when sync_type isn't changing — the
         # sync_type branch above doesn't run, so PK presence isn't enforced there.
