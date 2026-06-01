@@ -9,6 +9,8 @@
  * Properties / events / actions render specific extras; everything else
  * falls back to the shared header + description.
  */
+import posthog from 'posthog-js'
+
 import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
@@ -111,7 +113,15 @@ function PreviewHeader({ details, viewUrl, entry }: PreviewHeaderProps): JSX.Ele
                     size="sm"
                     disabled={!details.isPinnable}
                     aria-pressed={details.isPinned}
-                    onClick={details.togglePin}
+                    onClick={() => {
+                        posthog.capture('taxonomic filter menu pin toggled', {
+                            groupType: entry.group.type,
+                            // Intended next state — `isPinned` still reads
+                            // the pre-toggle value here.
+                            pinned: !details.isPinned,
+                        })
+                        details.togglePin()
+                    }}
                 >
                     <IconPin className="size-3.5" />
                     {details.isPinned ? 'Pinned' : 'Pin'}

@@ -12,6 +12,7 @@
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
@@ -395,6 +396,12 @@ export function MenuFilterCombobox({
             const idx = ordered.indexOf(activeChip)
             const dir = e.shiftKey ? -1 : 1
             const next = ordered[(idx + dir + ordered.length) % ordered.length]
+            posthog.capture('taxonomic filter menu category changed', {
+                fromChip: activeChip,
+                toChip: next,
+                via: 'tab',
+                direction: e.shiftKey ? 'backward' : 'forward',
+            })
             setActiveChip(next)
             e.preventDefault()
             e.stopPropagation()
@@ -456,6 +463,11 @@ export function MenuFilterCombobox({
                                         <Select<DrillCategory>
                                             value={activeChip}
                                             onValueChange={(value) => {
+                                                posthog.capture('taxonomic filter menu category changed', {
+                                                    fromChip: activeChip,
+                                                    toChip: value ?? 'all',
+                                                    via: 'dropdown',
+                                                })
                                                 setActiveChip(value ?? 'all')
                                                 inputRef.current?.focus()
                                             }}
