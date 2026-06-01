@@ -462,9 +462,7 @@ describe('ErrorTrackingConsumer', () => {
             consumer = await createConsumer(hub)
 
             await consumer['rateLimiterRedis']!.useClient({ name: 'test-flush' }, async (client) => {
-                const keys = await client.keys(
-                    `@posthog-test/error-tracking-rate-limiter/tokens/${team.id}:exceptions:*`
-                )
+                const keys = await client.keys(`@posthog-test/error-tracking-rate-limiter/tokens/{${team.id}}/*`)
                 if (keys.length > 0) {
                     await client.del(...keys)
                 }
