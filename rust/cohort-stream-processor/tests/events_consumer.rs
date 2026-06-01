@@ -482,6 +482,150 @@ async fn produces_membership_changes_and_commits_offsets() {
     assert_eq!(committed_sum(&verifier, &input_topic), total as i64);
 }
 
+/// Produce `n` distinct-person events **one at a time** with a `gap` between each, so sends straddle
+/// many commit deadlines — the bursty/low-traffic arrival pattern that triggers F1. Each person
+/// produces a single matching `$pageview` (so it enters the behavioral leaf exactly once). Returns
+/// the total produced.
+async fn produce_events_trickle(topic: &str, n: usize, gap: Duration) -> usize {
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("create producer");
+
+    for i in 0..n {
+        let p = person(i as u128 + 1);
+        let key = format!("{TEAM}:{p}");
+        let payload = envelope(p, 0, i as i64);
+        producer
+            .send(
+                FutureRecord::to(topic).key(&key).payload(&payload),
+                Timeout::After(Duration::from_secs(10)),
+            )
+            .await
+            .expect("produce event");
+        tokio::time::sleep(gap).await;
+    }
+    n
+}
+
+/// Count, across every topic partition, how many of persons `1..=n` entered the behavioral leaf.
+fn entered_persons_range(store: &CohortStore, lsk: LeafStateKey, n: usize) -> usize {
+    (1..=n as u128)
+        .filter(|&i| {
+            let p = person(i);
+            (0..NUM_PARTITIONS).any(|partition| {
+                let key = Stage1Key {
+                    partition_id: partition as u16,
+                    team_id: TEAM as u64,
+                    leaf_state_key: lsk,
+                    person_id: p,
+                };
+                matches!(
+                    store
+                        .get_stage1(&key)
+                        .unwrap()
+                        .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state),
+                    Some(Stage1State::BehavioralSingle {
+                        has_match: true,
+                        ..
+                    }),
+                )
+            })
+        })
+        .count()
+}
+
+#[tokio::test]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
+async fn trickled_events_are_never_silently_dropped() {
+    // F1 regression. An earlier consume loop raced `consume_batch` against a periodic commit tick in
+    // one `select!`; when the tick won it cancelled the in-flight `consume_batch`, dropped its
+    // buffered (already `recv()`'d) events, and then committed *past* them on the next batch — ~10%
+    // silent loss under bursty/low-traffic arrival. Producing one event at a time with a gap shorter
+    // than the commit interval makes nearly every send straddle a commit boundary mid-accumulation —
+    // exactly that trigger. The decisive check is committed-past-with-missing-state: every distinct
+    // person must have entered AND every offset must be committed. Fails before the fix, passes after.
+    const N: usize = 60;
+
+    let suffix = Uuid::new_v4();
+    let topic = format!("cohort_stream_events_trickle_{suffix}");
+    let group = format!("cohort-stream-processor-trickle-{suffix}");
+
+    create_topic(&topic).await;
+
+    let dir = TempDir::new().unwrap();
+    let store = CohortStore::open(&StoreConfig {
+        path: dir.path().join("db"),
+        ..StoreConfig::default()
+    })
+    .expect("open store");
+    let catalog = behavioral_catalog();
+    let lsk = behavioral_lsk(&catalog);
+
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+
+    let mut manager = Manager::builder("trickle-itest")
+        .with_trap_signals(false)
+        .build();
+    let handle = manager.register(
+        "consumer",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown_handle = handle.clone();
+    let _monitor = manager.monitor_background();
+
+    // Start the consumer *before* producing so it is live during the sparse arrival (the F1
+    // condition). A short 300ms commit interval against ~120ms inter-event gaps puts many sends
+    // mid-accumulation across a commit boundary.
+    let consumer = build_consumer(
+        &topic,
+        &group,
+        store.clone(),
+        catalog,
+        handle,
+        Arc::new(CaptureSink::new()),
+        Duration::from_millis(300),
+    );
+    let task = tokio::spawn(consumer.process());
+
+    let total = produce_events_trickle(&topic, N, Duration::from_millis(120)).await;
+
+    // Wait until committed offsets cover every produced event.
+    let start = Instant::now();
+    loop {
+        if committed_sum(&verifier, &topic) == total as i64 {
+            break;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(60),
+            "timed out waiting for committed offsets to reach {total}; last sum {}",
+            committed_sum(&verifier, &topic),
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+
+    shutdown_handle.request_shutdown();
+    task.await.expect("consumer task panicked");
+
+    // Decisive: no event was consumed-and-committed but silently dropped before processing.
+    assert_eq!(
+        entered_persons_range(&store, lsk, N),
+        N,
+        "every trickled person must have entered the behavioral leaf (no silent consume-side loss)",
+    );
+    assert_eq!(
+        committed_sum(&verifier, &topic),
+        total as i64,
+        "committed offsets must cover all {total} produced events",
+    );
+}
+
 /// A test [`MembershipSink`] that blocks its **first** flush until released, recording everything it
 /// is given. Used to prove "produce before commit": while the first flush is parked, the worker has
 /// not yet marked its offset, so no commit tick can advance the committed offset past the blocked

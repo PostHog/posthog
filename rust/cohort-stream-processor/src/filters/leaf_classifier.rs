@@ -38,6 +38,11 @@ pub enum LeafDropReason {
     /// that an unsupported variant never reaches the worker
     /// ([`pick_state_variant`](crate::stage1::pick_state::pick_state_variant)).
     UnsupportedStateVariant,
+    /// A leaf whose `type` is neither `person`, `behavioral`, nor `cohort`. Node's filter manager
+    /// (`realtime-supported-filter-manager-cdp.ts:146-159`) logs "Unknown filter type, skipping" and
+    /// drops it; we match that (F5) rather than guessing it is a person leaf. Canonical cohorts always
+    /// carry an explicit `type`, so this only fires on genuinely malformed/unexpected input.
+    UnknownLeafType,
     /// A leaf that matches none of the recognized shapes.
     MalformedLeaf,
 }
@@ -50,6 +55,7 @@ impl LeafDropReason {
             Self::UnsupportedBehavioralValue => "unsupported_behavioral_value",
             Self::BehavioralActionKey => "behavioral_action_key",
             Self::UnsupportedStateVariant => "unsupported_state_variant",
+            Self::UnknownLeafType => "unknown_leaf_type",
             Self::MalformedLeaf => "malformed_leaf",
         }
     }
@@ -68,10 +74,11 @@ pub fn classify_leaf(node: &Value) -> LeafClass {
     match node.get("type").and_then(Value::as_str) {
         Some("behavioral") => classify_behavioral(node),
         Some("cohort") => classify_cohort_ref(node),
-        Some("person") => classify_person(node, LeafDropReason::MissingConditionHash),
-        // Unknown/absent type: keep only if it still carries a conditionHash (some
-        // person-property leaves omit an explicit "person" type); otherwise it is malformed.
-        _ => classify_person(node, LeafDropReason::MalformedLeaf),
+        Some("person") => classify_person(node),
+        // Unknown/absent `type`: drop it (F5), matching Node's filter manager. Previously such a leaf
+        // was treated as a person filter if it carried a `conditionHash`, which diverged from the old
+        // pipeline — Node skips any leaf whose `type ∉ {person, behavioral, cohort}`.
+        _ => LeafClass::Drop(LeafDropReason::UnknownLeafType),
     }
 }
 
@@ -162,9 +169,9 @@ fn cohort_ref_negation(node: &Value) -> bool {
     explicit || not_in
 }
 
-fn classify_person(node: &Value, missing_reason: LeafDropReason) -> LeafClass {
+fn classify_person(node: &Value) -> LeafClass {
     let Some(condition_hash) = condition_hash_bytes(node.get("conditionHash")) else {
-        return LeafClass::Drop(missing_reason);
+        return LeafClass::Drop(LeafDropReason::MissingConditionHash);
     };
     let Some(bytecode) = bytecode_array(node.get("bytecode")) else {
         return LeafClass::Drop(LeafDropReason::MissingBytecode);
@@ -480,7 +487,9 @@ mod tests {
     }
 
     #[test]
-    fn unknown_type_with_condition_hash_is_a_person_leaf() {
+    fn unknown_type_is_dropped_even_with_condition_hash() {
+        // F5: a leaf whose `type` is not person/behavioral/cohort is dropped, matching Node — even
+        // when it carries a conditionHash + bytecode (the old code kept it as a person filter).
         let node = json!({
             "type": "event",
             "key": "$pageview",
@@ -489,16 +498,16 @@ mod tests {
         });
         assert!(matches!(
             classify_leaf(&node),
-            LeafClass::Keep(CohortLeaf::PersonProperty(_))
+            LeafClass::Drop(LeafDropReason::UnknownLeafType)
         ));
     }
 
     #[test]
-    fn unknown_type_without_condition_hash_is_malformed() {
+    fn absent_type_is_dropped_as_unknown() {
         let node = json!({ "foo": "bar" });
         assert!(matches!(
             classify_leaf(&node),
-            LeafClass::Drop(LeafDropReason::MalformedLeaf)
+            LeafClass::Drop(LeafDropReason::UnknownLeafType)
         ));
     }
 }

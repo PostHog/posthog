@@ -9,7 +9,10 @@ use crate::{
     memory::{HeapReference, VmHeap},
     ops::Operation,
     util::{get_json_nested, like, regex_match},
-    values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
+    values::{
+        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
+        Num, NumOp,
+    },
 };
 
 pub const MAX_JSON_SERDE_DEPTH: usize = 64;
@@ -224,22 +227,10 @@ impl<'a> HogVM<'a> {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
                 self.push_stack(a.not_equals(&b, &self.heap)?)?;
             }
-            Operation::Gt => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Gt, &a, &b)?)?;
-            }
-            Operation::GtEq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Gte, &a, &b)?)?;
-            }
-            Operation::Lt => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Lt, &a, &b)?)?;
-            }
-            Operation::LtEq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Lte, &a, &b)?)?;
-            }
+            Operation::Gt => self.compare_op(NumOp::Gt)?,
+            Operation::GtEq => self.compare_op(NumOp::Gte)?,
+            Operation::Lt => self.compare_op(NumOp::Lt)?,
+            Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(like(val, pat, true)?)?;
@@ -723,6 +714,22 @@ impl<'a> HogVM<'a> {
             HogValue::Lit(lit) => lit.try_into(), // Purely an optimisation to skip a clone
             other => other.deref(&self.heap)?.clone().try_into(),
         }
+    }
+
+    /// The shared `Gt`/`GtEq`/`Lt`/`LtEq` arm. Pops both operands raw (so a non-`Number` doesn't
+    /// error before coercion), derefs, and defers to [`compare_values`] for the Hog datetime
+    /// fast-path (F2) and the Python/TS-faithful scalar coercion (F3). Operand order is preserved
+    /// from the original per-arm code: `a` is the top of the stack.
+    fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
+        let a = self.pop_stack()?;
+        let b = self.pop_stack()?;
+        // Scope the immutable heap borrows so the result is owned before the `&mut self` push.
+        let result = {
+            let a_lit = a.deref(&self.heap)?;
+            let b_lit = b.deref(&self.heap)?;
+            compare_values(op, a_lit, b_lit, &self.heap)?
+        };
+        self.push_stack(result)
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,

@@ -18,6 +18,8 @@ RUST_HOGVM_STL = [
     "match",
     "extractRegex",
     "JSONExtract",
+    "toDateTime",
+    "toDate",
     "multiSearchAnyCaseInsensitive",
     "randomFloat",
     "arrayCount",

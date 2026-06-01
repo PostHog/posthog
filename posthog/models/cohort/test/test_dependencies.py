@@ -13,8 +13,10 @@ from posthog.models.cohort.dependencies import (
     COHORT_BACKFILL_DEBOUNCE_SECONDS,
     COHORT_DEPENDENCY_CACHE_COUNTER,
     DEPENDENCY_CACHE_TIMEOUT,
+    _extract_leaf_state_keys,
     _extract_person_property_filters,
     _has_person_property_filters,
+    _leaf_state_keys_changed,
     _person_property_filters_changed,
     _trigger_cohort_backfill,
     extract_cohort_dependencies,
@@ -1243,3 +1245,93 @@ class TestCohortBackfillOnConditionsChanged(BaseTest):
 
         result = _person_property_filters_changed(cohort)
         self.assertFalse(result)
+
+
+class TestLeafStateKeys(BaseTest):
+    """Unit coverage for the clear-on-edit normalizer's LeafStateKey hashing (F8).
+
+    Built on in-memory ``Cohort`` instances (no save) since ``_extract_leaf_state_keys`` reads only
+    ``cohort.filters``.
+    """
+
+    BEHAVIORAL_HASH = "cd0863735b457170"
+
+    def _cohort(self, properties: dict) -> Cohort:
+        return Cohort(team=self.team, filters={"properties": properties}, cohort_type=CohortType.REALTIME)
+
+    def _behavioral(self, **overrides) -> dict:
+        leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event",
+            "time_value": 7,
+            "time_interval": "day",
+            "conditionHash": self.BEHAVIORAL_HASH,
+        }
+        leaf.update(overrides)
+        return {"type": "AND", "values": [leaf]}
+
+    def test_behavioral_window_change_changes_the_hash(self) -> None:
+        # The F8 case: identical bytecode (same conditionHash), different window → different
+        # LeafStateKey input set → different hash, so the edit is detectable.
+        self.assertNotEqual(
+            _extract_leaf_state_keys(self._cohort(self._behavioral(time_value=7))),
+            _extract_leaf_state_keys(self._cohort(self._behavioral(time_value=14))),
+        )
+
+    def test_negation_is_excluded_from_the_behavioral_key(self) -> None:
+        # Negation does not affect the Rust LeafStateKey (negated and positive leaves share state),
+        # so it must not change the hash.
+        self.assertEqual(
+            _extract_leaf_state_keys(self._cohort(self._behavioral(negation=False))),
+            _extract_leaf_state_keys(self._cohort(self._behavioral(negation=True))),
+        )
+
+    def test_person_leaf_is_keyed_by_condition_hash(self) -> None:
+        def person(condition_hash: str) -> dict:
+            return {"type": "AND", "values": [{"type": "person", "key": "email", "conditionHash": condition_hash}]}
+
+        self.assertEqual(
+            _extract_leaf_state_keys(self._cohort(person("aaaaaaaaaaaaaaaa"))),
+            _extract_leaf_state_keys(self._cohort(person("aaaaaaaaaaaaaaaa"))),
+        )
+        self.assertNotEqual(
+            _extract_leaf_state_keys(self._cohort(person("aaaaaaaaaaaaaaaa"))),
+            _extract_leaf_state_keys(self._cohort(person("bbbbbbbbbbbbbbbb"))),
+        )
+
+    def test_cohort_ref_includes_negation(self) -> None:
+        def cohort_ref(negation: bool) -> dict:
+            return {"type": "AND", "values": [{"type": "cohort", "value": 42, "negation": negation}]}
+
+        # Unlike behavioral, a cohort-ref's negation IS part of its key.
+        self.assertNotEqual(
+            _extract_leaf_state_keys(self._cohort(cohort_ref(False))),
+            _extract_leaf_state_keys(self._cohort(cohort_ref(True))),
+        )
+
+    def test_reordering_leaves_is_not_a_change(self) -> None:
+        a = {"type": "person", "key": "email", "conditionHash": "aaaaaaaaaaaaaaaa"}
+        b = {"type": "person", "key": "name", "conditionHash": "bbbbbbbbbbbbbbbb"}
+        self.assertEqual(
+            _extract_leaf_state_keys(self._cohort({"type": "AND", "values": [a, b]})),
+            _extract_leaf_state_keys(self._cohort({"type": "AND", "values": [b, a]})),
+        )
+
+    def test_no_realtime_leaves_hashes_to_empty(self) -> None:
+        self.assertEqual(_extract_leaf_state_keys(Cohort(team=self.team, filters={})), "")
+        self.assertEqual(
+            _extract_leaf_state_keys(self._cohort({"type": "AND", "values": []})),
+            "",
+        )
+
+    def test_leaf_state_keys_changed_detects_a_window_edit(self) -> None:
+        edited = self._cohort(self._behavioral(time_value=14))
+        # Simulate the pre_save snapshot of the previous (7-day) version.
+        edited._previous_leaf_state_keys = _extract_leaf_state_keys(self._cohort(self._behavioral(time_value=7)))
+        self.assertTrue(_leaf_state_keys_changed(edited))
+
+    def test_leaf_state_keys_changed_is_false_without_a_snapshot(self) -> None:
+        # No pre_save snapshot (a new cohort, or a non-filters update) → nothing to clear.
+        cohort = self._cohort(self._behavioral())
+        self.assertFalse(_leaf_state_keys_changed(cohort))

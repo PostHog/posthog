@@ -10,7 +10,11 @@ use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
-/// Leaves dropped during parse, labelled by `reason` (counter).
+/// Leaves dropped during parse, labelled by `reason` (counter). **Rebuild-driven:** the catalog is
+/// rebuilt on every periodic refresh, which re-drops the same unsupported leaves, so this counter
+/// grows by `≈(dropped leaves)` per refresh. Its absolute value is **not** a current dropped-leaf
+/// count — alert/graph on its `rate`, not its level. (`filter_catalog_unique_conditions` /
+/// `filter_catalog_teams` are gauges that *do* reflect the current snapshot.)
 pub const FILTER_CATALOG_SKIPPED_LEAVES: &str = "filter_catalog_skipped_leaves_total";
 /// Cohorts skipped because their filter tree failed to parse (counter).
 pub const FILTER_CATALOG_COHORT_PARSE_ERRORS: &str = "filter_catalog_cohort_parse_errors_total";
@@ -57,7 +61,9 @@ pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 /// Events skipped whole, labelled by `reason`
 /// (`null_person_id`|`unparseable_person_id`|`no_team_filters`|`no_conditions`|
-/// `globals_parse_error`|`bad_timestamp`) (counter).
+/// `globals_parse_error`|`bad_timestamp`|`store_error`) (counter). `store_error` is the worker's
+/// RocksDB-failure skip (the backend error is *also* counted in `store_errors_total`); counting it
+/// here keeps the conservation identity `consumed == processed + Σskipped` exact under store errors.
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations performed, labelled by `kind` (`behavioral`|`person_property`) — one per
 /// unique conditionHash per event, preserving the Node consumer's dedup unit (counter).
@@ -89,9 +95,23 @@ pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_s
 // ── `cohort_stream_events` consumer (PR 1.7) ──────────────────────────────────
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
+/// Events routed to a per-partition worker (one per dispatched message). Sits between
+/// [`COHORT_STREAM_EVENTS_CONSUMED`] and `stage1_events_processed_total` in the conservation chain:
+/// `consumed == dispatched` must hold (any gap is a consume-side loss — the F1 signature), and
+/// `dispatched == processed + Σskipped + route_errors` accounts for every dispatched event (counter).
+pub const COHORT_STREAM_EVENTS_DISPATCHED: &str = "cohort_stream_events_dispatched_total";
+/// A worker tried to mark an offset **past** what the dispatcher routed to it, so the
+/// [`OffsetTracker`](crate::partitions::OffsetTracker) capped it. A non-zero rate is the exact F1
+/// signature (committing past consumed-but-undispatched offsets) and should page (counter).
+pub const COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH: &str =
+    "cohort_stream_offset_ahead_of_dispatch_total";
 /// Messages whose payload was missing or failed to deserialize into a `CohortStreamEvent`; the
 /// message is skipped and its offset still advances (the shuffler never emits these) (counter).
 pub const COHORT_STREAM_DESERIALIZE_ERRORS: &str = "cohort_stream_deserialize_errors_total";
+/// Messages with a `None` (zero-byte) payload, skipped without deserializing. Distinct from
+/// [`COHORT_STREAM_DESERIALIZE_ERRORS`] (which is a present-but-unparseable payload) so neither is a
+/// blind spot in the conservation accounting. The shuffler never emits these (counter).
+pub const COHORT_STREAM_EMPTY_PAYLOAD: &str = "cohort_stream_empty_payload_total";
 /// Kafka transport errors returned by `recv()` while consuming. A sustained non-zero rate
 /// suppresses the liveness heartbeat, so the stall detector eventually restarts the pod (counter).
 pub const COHORT_STREAM_KAFKA_RECV_ERRORS: &str = "cohort_stream_kafka_recv_errors_total";

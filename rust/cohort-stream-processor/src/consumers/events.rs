@@ -27,7 +27,8 @@ use tracing::{debug, info, warn};
 use crate::filters::manager::CatalogHandle;
 use crate::observability::metrics::{
     COHORT_STREAM_CONSUME_BATCH_SIZE, COHORT_STREAM_DESERIALIZE_ERRORS,
-    COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_OFFSET_COMMITS,
+    COHORT_STREAM_EMPTY_PAYLOAD, COHORT_STREAM_EVENTS_CONSUMED, COHORT_STREAM_EVENTS_DISPATCHED,
+    COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_OFFSET_COMMITS,
     COHORT_STREAM_OFFSET_COMMIT_ERRORS, COHORT_STREAM_ROUTE_ERRORS, COHORT_STREAM_WORKERS_SPAWNED,
 };
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -125,16 +126,20 @@ impl EventDispatcher {
     /// rebalance callbacks are deferred to PR 3.5). Then routes every event, carrying its
     /// `cohort_stream_events` offset on the message.
     ///
-    /// Offsets are **not** marked here. PR 1.8 moved the mark into the worker, which records the
-    /// offset only after the event's membership changes are produced and acked (produce before
-    /// commit). A `RouteError` therefore needs no special handling: a message that never reached a
-    /// worker is never marked, so Kafka replays it after the worker returns. The error count is
-    /// surfaced via `cohort_stream_route_errors_total`.
+    /// Processed offsets are **not** marked here — PR 1.8 moved that into the worker, which records
+    /// an offset only after the event's membership changes are produced and acked (produce before
+    /// commit). What *is* recorded here, before routing, is the per-partition **dispatch ceiling**
+    /// ([`OffsetTracker::mark_dispatched`](crate::partitions::OffsetTracker::mark_dispatched)): the
+    /// worker can never later commit past an offset that was not handed to it. A `RouteError` then
+    /// needs no special handling — a message that reached no worker is never *processed*, so its
+    /// offset stays below the committable point (raising the ceiling is a cap, never a floor) and
+    /// Kafka replays it. The error count is surfaced via `cohort_stream_route_errors_total`.
     pub async fn dispatch(&self, batch: Vec<ConsumedEvent>) {
         if batch.is_empty() {
             return;
         }
 
+        let dispatched = batch.len() as u64;
         let mut messages: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
         for ConsumedEvent {
             event,
@@ -143,6 +148,10 @@ impl EventDispatcher {
         } in batch
         {
             self.ensure_worker(partition);
+            // Raise the dispatch ceiling for this offset *before* routing, so a later
+            // `mark_processed` cannot advance the committed position past a consumed-but-undispatched
+            // offset (the F1 defense-in-depth). `+ 1` is the next-offset-to-consume convention.
+            self.tracker.mark_dispatched(partition, offset + 1);
             messages.push((
                 partition,
                 ShuffleMessage::Event {
@@ -151,6 +160,7 @@ impl EventDispatcher {
                 },
             ));
         }
+        counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(dispatched);
 
         let errors = self.router.route_batch(messages).await;
         if !errors.is_empty() {
@@ -263,24 +273,45 @@ impl CohortStreamEventsConsumer {
     /// sustained broker outage trips the stall detector. On shutdown: drop the router (workers drain
     /// then exit), join them, then a final *synchronous* commit so the just-drained offsets are
     /// durable before exit (the periodic commit is async to keep the hot loop cheap).
+    ///
+    /// ## Why the commit is deadline-driven, not a `select!` arm (F1 fix)
+    ///
+    /// An earlier shape raced [`consume_batch`](Self::consume_batch) against a periodic
+    /// `commit_tick` in the same `select!`. When the tick won, tokio **cancelled the in-flight
+    /// `consume_batch` and dropped every event it had already buffered** — events `recv()`'d off
+    /// librdkafka (gone from the broker) but never dispatched, never counted, and then committed
+    /// *past* by the next batch's offset mark. That silently dropped ~10% of events under bursty
+    /// arrival. The fix: commit **after** `handle_outcome` returns, gated on a wall-clock deadline,
+    /// so the loop's `select!` only ever races shutdown against `consume_batch`. `consume_batch`
+    /// self-bounds at `recv_batch_timeout`, so commits still fire ≈ every `offset_commit_interval`,
+    /// at most one `recv_batch_timeout` late. The single future the `select!` can still cancel is
+    /// `consume_batch` **on shutdown** — and that is safe: its dropped buffer was never marked
+    /// processed, so the final sync commit below leaves those offsets for Kafka to replay.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
-        let mut commit_tick = tokio::time::interval(self.offset_commit_interval);
-        // The first interval tick fires immediately; consume it so the first commit waits a full
-        // interval rather than firing on the very first loop iteration.
-        commit_tick.tick().await;
+        // First commit waits a full interval rather than firing on the very first iteration.
+        let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
 
         loop {
             tokio::select! {
+                // `biased`: check shutdown before polling `consume_batch`, so a pending shutdown
+                // can't be starved by a steadily-arriving topic.
+                biased;
                 _ = self.handle.shutdown_recv() => {
                     info!("shutdown signal received, stopping consume loop");
                     break;
                 }
-                outcome = self.consume_batch() => self.handle_outcome(outcome).await,
-                _ = commit_tick.tick() => {
-                    commit_offsets(&self.consumer, self.dispatcher.tracker(), &self.topic, CommitMode::Async);
+                outcome = self.consume_batch() => {
+                    self.handle_outcome(outcome).await;
+                    // Deadline-driven commit: never cancels accumulation. The workers mark offsets
+                    // as they finish producing; this flushes whatever is marked so far.
+                    let now = tokio::time::Instant::now();
+                    if now >= commit_deadline {
+                        commit_offsets(&self.consumer, self.dispatcher.tracker(), &self.topic, CommitMode::Async);
+                        commit_deadline = now + self.offset_commit_interval;
+                    }
                 }
             }
         }
@@ -307,6 +338,9 @@ impl CohortStreamEventsConsumer {
         if outcome.deserialize_errors > 0 {
             counter!(COHORT_STREAM_DESERIALIZE_ERRORS).increment(outcome.deserialize_errors);
         }
+        if outcome.empty_payloads > 0 {
+            counter!(COHORT_STREAM_EMPTY_PAYLOAD).increment(outcome.empty_payloads);
+        }
 
         self.dispatcher.dispatch(outcome.events).await;
 
@@ -325,6 +359,7 @@ impl CohortStreamEventsConsumer {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),
             deserialize_errors: 0,
+            empty_payloads: 0,
             transport_error: false,
         };
 
@@ -337,10 +372,13 @@ impl CohortStreamEventsConsumer {
                             let partition = message.partition();
                             let offset = message.offset();
                             match message.payload() {
-                                None => debug!(
-                                    partition, offset,
-                                    "skipping cohort_stream_events message with empty payload",
-                                ),
+                                None => {
+                                    outcome.empty_payloads += 1;
+                                    debug!(
+                                        partition, offset,
+                                        "skipping cohort_stream_events message with empty payload",
+                                    );
+                                }
                                 Some(payload) => match serde_json::from_slice::<CohortStreamEvent>(payload) {
                                     Ok(event) => outcome.events.push(ConsumedEvent { event, partition, offset }),
                                     Err(err) => {
@@ -372,6 +410,9 @@ impl CohortStreamEventsConsumer {
 struct ConsumeOutcome {
     events: Vec<ConsumedEvent>,
     deserialize_errors: u64,
+    /// Messages with a `None` (zero-byte) payload, skipped without deserializing — counted so they
+    /// are not a conservation blind spot (the shuffler never emits these).
+    empty_payloads: u64,
     /// A Kafka transport error occurred; the caller suppresses the heartbeat and backs off.
     transport_error: bool,
 }
@@ -749,6 +790,10 @@ mod tests {
             None,
             "a route error leaves the offset unmarked for Kafka to replay",
         );
+        // The dispatch ceiling *was* raised before routing (the partition is tracked), so the
+        // event is accounted for; it simply has no processed offset to commit. Raising the ceiling
+        // is a cap, never a floor — it never advances the committed position on its own.
+        assert_eq!(tracker.partition_count(), 1);
     }
 
     #[tokio::test]

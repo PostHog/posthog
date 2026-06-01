@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
+use chrono::NaiveDate;
 use serde_json::Value as JsonValue;
 
 use crate::{
@@ -128,6 +129,14 @@ impl HogValue {
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
+        // Hog datetime/date equality by epoch seconds (`is_date_exact` compiles to `Eq` of two
+        // `toDateTime(...)` objects). Inert unless *both* operands are temporal, so ordinary `Eq`
+        // semantics are unchanged for every other type. Like the ordering fast-path
+        // ([`compare_values`]) this goes beyond the reference Python/TS VMs (which compare the
+        // marker objects structurally) to match ClickHouse — see [`HogLiteral::as_temporal_seconds`].
+        if let (Some(a), Some(b)) = (lhs.as_temporal_seconds(heap), rhs.as_temporal_seconds(heap)) {
+            return Ok((a == b).into());
+        }
         lhs.equals(rhs)
     }
 
@@ -276,6 +285,35 @@ impl HogLiteral {
         Ok((lhs == rhs).into())
     }
 
+    /// Seconds since the Unix epoch if this literal is a **Hog datetime/date** object, else `None`.
+    ///
+    /// Hog represents temporals as plain objects carrying a marker key (mirroring the Python/TS
+    /// runtimes' dicts), built by [`crate::stl`]'s `toDateTime`/`toDate` natives:
+    /// - `{ __hogDateTime__: true, dt: <unix seconds>, zone: <str> }` → `dt` verbatim.
+    /// - `{ __hogDate__: true, year, month, day }` → UTC-midnight epoch, so a Date and a DateTime
+    ///   are mutually comparable on one axis.
+    ///
+    /// Returning `Some` is what lets [`compare_values`] and [`HogValue::equals`] order/compare two
+    /// temporals by seconds — the behavior real `is_date_before`/`is_date_after`/`is_date_exact`
+    /// cohort leaves need, and which the reference Python/TS HogVMs get wrong (they compare the
+    /// objects structurally). Inert (`None`) for every non-temporal literal.
+    pub fn as_temporal_seconds(&self, heap: &VmHeap) -> Option<f64> {
+        let HogLiteral::Object(map) = self else {
+            return None;
+        };
+        if object_marker(map.get("__hogDateTime__"), heap) {
+            return object_number(map.get("dt"), heap);
+        }
+        if object_marker(map.get("__hogDate__"), heap) {
+            let year = object_number(map.get("year"), heap)? as i32;
+            let month = u32::try_from(object_number(map.get("month"), heap)? as i64).ok()?;
+            let day = u32::try_from(object_number(map.get("day"), heap)? as i64).ok()?;
+            let midnight = NaiveDate::from_ymd_opt(year, month, day)?.and_hms_opt(0, 0, 0)?;
+            return Some(midnight.and_utc().timestamp() as f64);
+        }
+        None
+    }
+
     // Set a property, returning the number of bytes the old value used
     pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<usize, VmError> {
         match self {
@@ -300,6 +338,100 @@ impl HogLiteral {
             }
             _ => Err(VmError::ExpectedObject),
         }
+    }
+}
+
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, with the cross-runtime coercion
+/// the cohort bytecode relies on. Two concerns, in order:
+///
+/// 1. **Hog datetime/date** (F2): if *both* operands are temporal
+///    ([`HogLiteral::as_temporal_seconds`]) they are ordered by epoch seconds. This is deliberately
+///    stronger than the reference Python/TS HogVMs — they compare the marker objects structurally
+///    and so evaluate every `is_date_before`/`is_date_after` to `false` (Python actually raises) —
+///    and matches ClickHouse, the parity oracle for date cohorts. The divergence (Rust correct;
+///    Python/TS latently broken) is documented in the [`crate::stl`] module for a future backport.
+///
+/// 2. **Scalar coercion** (F3): otherwise the operands are coerced exactly like Python
+///    `unify_comparison_types` / TS `unifyComparisonTypes` — a String is coerced to a Number only
+///    when the *other* operand is a Number, Bool↔Number maps `true`/`false` to `1`/`0`, and
+///    both-strings compare lexicographically. A String that can't parse to a Number propagates
+///    `VmError::InvalidNumber`, which the cohort executor catches and coerces to `false` — matching
+///    Python's raised `TypeError` and TS's `NaN` comparison. This is **not** routed through
+///    [`HogLiteral::coerce_types`] (equality's coercion): that also remaps both-strings and is the
+///    `Eq` contract, which must stay untouched.
+///
+/// The operand order is preserved from the original per-arm implementation (`a` = top of stack),
+/// so pure-numeric comparisons stay byte-identical and Python-equivalent.
+pub fn compare_values(
+    op: NumOp,
+    a: &HogLiteral,
+    b: &HogLiteral,
+    heap: &VmHeap,
+) -> Result<HogLiteral, VmError> {
+    if let (Some(a_secs), Some(b_secs)) = (a.as_temporal_seconds(heap), b.as_temporal_seconds(heap))
+    {
+        return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
+    }
+
+    use HogLiteral::{Boolean, Number, String as HString};
+    match (a, b) {
+        (Number(x), Number(y)) => Num::binary_op(op, x, y),
+        (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
+        (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
+        (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
+        (Number(x), Boolean(y)) => Num::binary_op(op, x, &bool_to_num(*y)),
+        (Boolean(x), Boolean(y)) => Num::binary_op(op, &bool_to_num(*x), &bool_to_num(*y)),
+        (Boolean(x), HString(s)) => {
+            Num::binary_op(op, &bool_to_num(*x), &bool_to_num(str_is_true(s)))
+        }
+        (HString(s), Boolean(y)) => {
+            Num::binary_op(op, &bool_to_num(str_is_true(s)), &bool_to_num(*y))
+        }
+        (HString(x), HString(y)) => Ok(string_order(op, x, y).into()),
+        _ => Err(VmError::CannotCoerce(
+            a.type_name().to_string(),
+            b.type_name().to_string(),
+        )),
+    }
+}
+
+/// `true` iff `value` derefs to a `Boolean(true)` — the Hog temporal marker flags (`__hogDateTime__`
+/// / `__hogDate__`).
+fn object_marker(value: Option<&HogValue>, heap: &VmHeap) -> bool {
+    matches!(
+        value.and_then(|v| v.deref(heap).ok()),
+        Some(HogLiteral::Boolean(true))
+    )
+}
+
+/// The numeric value of an object field (`dt`, `year`, …) as `f64`, or `None` if absent/non-numeric.
+fn object_number(value: Option<&HogValue>, heap: &VmHeap) -> Option<f64> {
+    match value?.deref(heap).ok()? {
+        HogLiteral::Number(n) => Some(n.to_float()),
+        _ => None,
+    }
+}
+
+fn bool_to_num(b: bool) -> Num {
+    Num::Integer(i64::from(b))
+}
+
+/// String → bool coercion for comparisons, matching [`HogLiteral::coerce_types`] (and Python's
+/// `right.lower() == "true"`): only the literal `"true"` (case-insensitive) is truthy.
+fn str_is_true(s: &str) -> bool {
+    s.to_lowercase() == "true"
+}
+
+/// Lexicographic ordering of two strings under a comparison op. `compare_values` only ever calls
+/// this with an ordering op; arithmetic variants are unreachable and fall through to `false`.
+fn string_order(op: NumOp, a: &str, b: &str) -> bool {
+    let ord = a.cmp(b);
+    match op {
+        NumOp::Gt => ord.is_gt(),
+        NumOp::Lt => ord.is_lt(),
+        NumOp::Gte => ord.is_ge(),
+        NumOp::Lte => ord.is_le(),
+        _ => false,
     }
 }
 

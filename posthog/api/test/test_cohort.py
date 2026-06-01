@@ -2429,6 +2429,95 @@ email@example.org,
         )
         self.assertEqual(get_total_calculation_calls(), 3)
 
+    @parameterized.expand(["create", "update"])
+    @patch("posthog.api.cohort.report_user_action")
+    def test_minute_interval_performed_event_multiple_is_rejected(self, mode: str, _patch_capture):
+        bad_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event_multiple",
+                        "event_type": "events",
+                        "time_value": 5,
+                        "time_interval": "minute",
+                        "operator": "gte",
+                        "operator_value": 3,
+                    }
+                ],
+            }
+        }
+
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={"name": "minute multiple", "filters": bad_filters},
+            )
+        else:
+            cohort = Cohort.objects.create(
+                team=self.team, name="ok", filters={"properties": {"type": "AND", "values": []}}
+            )
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                data={"filters": bad_filters},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"type": "validation_error", "code": "minute_interval_not_supported"}.items(),
+            response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_referencing_a_looping_cohort_is_rejected_and_rolled_back(self, _patch_capture):
+        # Plant an A↔B cycle via the ORM (which doesn't run the loop check). Creating a cohort that
+        # references into the cycle must be rejected — and rolled back, not left half-saved.
+        def cohort_ref(cohort_id: int) -> list:
+            return [{"properties": [{"type": "cohort", "value": cohort_id, "key": "id"}]}]
+
+        a = Cohort.objects.create(team=self.team, name="loop A", groups=[])
+        b = Cohort.objects.create(team=self.team, name="loop B", groups=cohort_ref(a.id))
+        a.groups = cohort_ref(b.id)
+        a.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "loop C", "groups": cohort_ref(a.id)},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {"detail": "Cohorts cannot reference other cohorts in a loop."}.items(),
+            response.json().items(),
+        )
+        self.assertFalse(
+            Cohort.objects.filter(team=self.team, name="loop C").exists(),
+            "the looping create must roll back, not leave a half-saved cohort",
+        )
+
+    @parameterized.expand(["create", "update"])
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.api.cohort._acquire_cohort_save_lock")
+    def test_cohort_save_acquires_the_advisory_lock(self, mode: str, mock_lock, _patch_capture):
+        empty = {"properties": {"type": "AND", "values": []}}
+        if mode == "create":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={"name": "lock create", "filters": empty},
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        else:
+            cohort = Cohort.objects.create(team=self.team, name="lock update", filters=empty)
+            mock_lock.reset_mock()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                data={"name": "renamed"},
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        mock_lock.assert_called()
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.chain")

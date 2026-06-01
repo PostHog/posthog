@@ -33,10 +33,11 @@ use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
 use crate::observability::metrics::{
-    OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED,
-    STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS,
+    COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH, OUTPUT_MEMBERSHIP_CHANGES_EMITTED,
+    OUTPUT_PRODUCE_ERRORS, STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED,
+    STAGE1_EVENT_PROCESS_DURATION, STAGE1_TRANSITIONS,
 };
-use crate::partitions::offset_tracker::OffsetTracker;
+use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
     map_transition, now_last_updated, CohortMembershipChange, MembershipSink, MembershipStatus,
@@ -157,8 +158,19 @@ async fn run_worker(
         }
 
         // Success (or an empty buffer): the sub-batch's shadow output is durable, so its offset is
-        // safe to commit. `+ 1` is the next offset to consume.
-        tracker.mark_processed(partition_id as i32, max_offset + 1);
+        // safe to commit. `+ 1` is the next offset to consume. The tracker clamps the mark to the
+        // dispatch ceiling; a clamp that bites means we tried to commit past an undispatched offset
+        // (the F1 invariant), which must be surfaced rather than silently swallowed.
+        if let MarkOutcome::CappedAheadOfDispatch =
+            tracker.mark_processed(partition_id as i32, max_offset + 1)
+        {
+            counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
+            warn!(
+                partition_id,
+                next_offset = max_offset + 1,
+                "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
+            );
+        }
     }
 
     info!(partition_id, "stage 1 worker stopped");
@@ -217,7 +229,10 @@ fn handle_event(
         Err(error) => {
             // The store already counted the backend failure (store_errors_total). The offset still
             // advances (via max_offset) — this is a corrupt-event skip that replay won't fix, so it
-            // must not wedge the partition. Only a produce error holds the offset.
+            // must not wedge the partition. Only a produce error holds the offset. Count it as a
+            // skip too (F9), so the conservation identity `consumed == processed + Σskipped` stays
+            // exact even under store errors (otherwise the event vanishes from both tallies).
+            counter!(STAGE1_EVENTS_SKIPPED, "reason" => "store_error").increment(1);
             warn!(
                 partition_id,
                 team_id = event.team_id,

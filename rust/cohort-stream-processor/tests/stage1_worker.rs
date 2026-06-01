@@ -59,6 +59,23 @@ fn temp_store() -> (TempDir, CohortStore) {
     (dir, store)
 }
 
+/// Mirror [`EventDispatcher::dispatch`](cohort_stream_processor::consumers::EventDispatcher): raise
+/// the per-partition dispatch ceiling, *then* route the event to the worker's channel. The F1 clamp
+/// in [`OffsetTracker::mark_processed`] caps a processed offset to what was dispatched, so a test
+/// driving a worker directly must establish the ceiling the same way the dispatcher does — and
+/// *before* the send, since the worker may process (and mark) as soon as it receives the message.
+async fn dispatch_to_worker(
+    tracker: &OffsetTracker,
+    tx: &mpsc::Sender<Vec<ShuffleMessage>>,
+    event: CohortStreamEvent,
+    cse_offset: i64,
+) {
+    tracker.mark_dispatched(PARTITION_ID as i32, cse_offset + 1);
+    tx.send(vec![ShuffleMessage::Event { event, cse_offset }])
+        .await
+        .unwrap();
+}
+
 /// `event == "$pageview"` — the matcher every behavioral leaf with `BEHAVIORAL_HASH` shares.
 fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
@@ -705,12 +722,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
         tracker.clone(),
     );
 
-    tx.send(vec![ShuffleMessage::Event {
-        event: event(alice, 1, 0),
-        cse_offset: 0,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, event(alice, 1, 0), 0).await;
     // Dropping the sender closes the channel; the worker drains the queued batch and exits.
     drop(tx);
     worker.join().await.unwrap();
@@ -759,12 +771,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
         team_id: 999,
         ..event(alice, 1, 0)
     };
-    tx.send(vec![ShuffleMessage::Event {
-        event: unknown,
-        cse_offset: 3,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, unknown, 3).await;
     drop(tx);
     worker.join().await.unwrap();
 
@@ -818,12 +825,7 @@ async fn worker_produces_changes_and_advances_offset() {
         tracker.clone(),
     );
 
-    tx.send(vec![ShuffleMessage::Event {
-        event: event(person(1), 1, 0),
-        cse_offset: 5,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 5).await;
     drop(tx);
     worker.join().await.unwrap();
 
@@ -861,12 +863,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
         event: "$autocapture".to_string(),
         ..event(person(1), 1, 0)
     };
-    tx.send(vec![ShuffleMessage::Event {
-        event: non_match,
-        cse_offset: 42,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, non_match, 42).await;
     drop(tx);
     worker.join().await.unwrap();
 
@@ -896,12 +893,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     );
 
     // One matching event → one change → produce FAILS → offset held, nothing recorded.
-    tx.send(vec![ShuffleMessage::Event {
-        event: event(person(1), 1, 0),
-        cse_offset: 10,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
     drop(tx);
     worker.join().await.unwrap();
 
@@ -931,18 +923,8 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     );
 
     // First sub-batch fails its produce; the second succeeds.
-    tx.send(vec![ShuffleMessage::Event {
-        event: event(person(1), 1, 0),
-        cse_offset: 10,
-    }])
-    .await
-    .unwrap();
-    tx.send(vec![ShuffleMessage::Event {
-        event: event(person(2), 1, 1),
-        cse_offset: 11,
-    }])
-    .await
-    .unwrap();
+    dispatch_to_worker(&tracker, &tx, event(person(1), 1, 0), 10).await;
+    dispatch_to_worker(&tracker, &tx, event(person(2), 1, 1), 11).await;
     drop(tx);
     worker.join().await.unwrap();
 

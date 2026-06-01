@@ -17,6 +17,6 @@ pub mod offset_tracker;
 pub mod router;
 pub mod shuffle_message;
 
-pub use offset_tracker::{is_replay, OffsetTracker};
+pub use offset_tracker::{is_replay, MarkOutcome, OffsetTracker};
 pub use router::{PartitionRouter, RouteError};
 pub use shuffle_message::ShuffleMessage;

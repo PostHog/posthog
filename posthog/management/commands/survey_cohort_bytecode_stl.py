@@ -121,6 +121,8 @@ RUST_NATIVE_STL: frozenset[str] = frozenset(
         "match",
         "extractRegex",
         "JSONExtract",
+        "toDateTime",  # added for is_date_before/after/exact cohort leaves
+        "toDate",  # added for is_date_before/after/exact cohort leaves
         "multiSearchAnyCaseInsensitive",
         "randomFloat",
     }

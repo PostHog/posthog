@@ -101,6 +101,8 @@ mod tests {
     const OP_GET_GLOBAL: i64 = 1;
     const OP_CALL_GLOBAL: i64 = 2;
     const OP_EQ: i64 = 11;
+    const OP_GT: i64 = 13;
+    const OP_LT: i64 = 15;
     const OP_TRUE: i64 = 29;
     const OP_FALSE: i64 = 30;
     const OP_INTEGER: i64 = 33;
@@ -188,5 +190,74 @@ mod tests {
             EvalOutcome::VmError(_)
         ));
         assert!(!evaluate(&[], json!({})));
+    }
+
+    /// Push `person.properties.<key>` (GET_GLOBAL reads the path segments in reverse push order).
+    fn push_person_property(key: &str) -> Vec<Value> {
+        vec![
+            json!(OP_STRING),
+            json!(key),
+            json!(OP_STRING),
+            json!("properties"),
+            json!(OP_STRING),
+            json!("person"),
+            json!(OP_GET_GLOBAL),
+            json!(3),
+        ]
+    }
+
+    #[test]
+    fn is_date_before_person_cohort_enters_and_leaves() {
+        // The realistic `is_date_before` leaf (F2): `Lt(toDateTime(toString(person.properties.
+        // signup_date)), toDateTime("2026-01-01 00:00:00"))`. The compiler emits `right, left, op`.
+        let mut left = push_person_property("signup_date");
+        left.extend_from_slice(&[
+            json!(OP_CALL_GLOBAL),
+            json!("toString"),
+            json!(1),
+            json!(OP_CALL_GLOBAL),
+            json!("toDateTime"),
+            json!(1),
+        ]);
+        let right = vec![
+            json!(OP_STRING),
+            json!("2026-01-01 00:00:00"),
+            json!(OP_CALL_GLOBAL),
+            json!("toDateTime"),
+            json!(1),
+        ];
+        let mut bc = vec![json!("_H"), json!(1)];
+        bc.extend_from_slice(&right);
+        bc.extend_from_slice(&left);
+        bc.push(json!(OP_LT));
+
+        let globals =
+            |signup: Value| json!({ "person": { "properties": { "signup_date": signup } } });
+        // Before the threshold → member; after → not; missing → not (the null comparison errors and
+        // `evaluate` coerces it to false, matching the leaf's null-safe guard).
+        assert!(evaluate(&bc, globals(json!("2024-09-09 08:30:00"))));
+        assert!(!evaluate(&bc, globals(json!("2027-09-09 08:30:00"))));
+        assert!(!evaluate(&bc, json!({ "person": { "properties": {} } })));
+    }
+
+    #[test]
+    fn numeric_gt_person_cohort_coerces_the_string_threshold() {
+        // The F3 cohort case: the compiler emits the threshold as a *string* constant, so the leaf is
+        // `Gt(person.properties.bc_num, "10")`. Pre-fix the VM errored on the string operand and the
+        // cohort never entered; now String→Number coercion (because the other side is a Number) makes
+        // it correct.
+        let mut bc = vec![json!("_H"), json!(1)];
+        bc.extend_from_slice(&[json!(OP_STRING), json!("10")]); // right (threshold)
+        bc.extend_from_slice(&push_person_property("bc_num")); // left
+        bc.push(json!(OP_GT));
+
+        let globals = |num: Value| json!({ "person": { "properties": { "bc_num": num } } });
+        // Numeric property: real numeric comparison.
+        assert!(evaluate(&bc, globals(json!(20))));
+        assert!(!evaluate(&bc, globals(json!(5))));
+        // Equal-length numeric *string* property: lexicographic, which agrees with numeric here
+        // (the both-strings divergence only bites on unequal lengths — see hogvm numeric_coercion).
+        assert!(evaluate(&bc, globals(json!("20"))));
+        assert!(!evaluate(&bc, globals(json!("05"))));
     }
 }
