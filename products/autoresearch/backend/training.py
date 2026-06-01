@@ -230,17 +230,24 @@ def build_agent_description(
             holdout_auc = float(roc_auc_score(yho, model.predict_proba(Xho)[:, 1]))
         ```
 
-        **Record each iteration:** call `autoresearch-training-runs-iterations-create` with
+        **Record each iteration the instant you have its AUC — one call per hypothesis, live.**
+        The moment you compute a hypothesis's holdout AUC in Python, and BEFORE you start the next
+        hypothesis, call `autoresearch-training-runs-iterations-create` with
         `pipeline_id = "{pipeline.pk}"`, `id = "{training_run_id}"`, the iteration_number,
         recipe_snapshot (`{{"feature_sql": "..."}}`), model_spec (`{{"model_class": "...", "model_params": {{...}}}}`),
-        holdout_score (the AUC you computed), status (`"kept"` if it beats your best so far, else `"discarded"`),
-        and a one-line agent_description. These drive champion selection at completion.
+        holdout_score (the AUC you computed), status (`"kept"` if it beats your best AUC so far, else
+        `"discarded"`), and a one-line agent_description. Do NOT batch these up to record at the end —
+        the user watches the iteration trail stream in live as you work, so each must land as it happens.
+        Judge `status` against your best-so-far at the time you record; if a later iteration wins, that
+        is simply reflected by the climbing scores, not by rewriting earlier ones. These also drive
+        champion selection at completion.
 
         ### Step 4 — Iterate
 
         Try at least {min_iters} distinct hypotheses — vary which events you count, recency vs
-        frequency, cross-event ratios/diversity, property-conditioned counts. Pick the highest
-        holdout AUC as your winner.
+        frequency, cross-event ratios/diversity, property-conditioned counts. After each one, record
+        it immediately (above) before moving on — never run several hypotheses and only then record
+        them together. Pick the highest holdout AUC as your winner.
 
         ## Author and upload the winning bundle
 
