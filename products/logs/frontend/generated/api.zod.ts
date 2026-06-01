@@ -9,61 +9,6 @@
  */
 import * as zod from 'zod'
 
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
-
-export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
-    uuid: zod.string().describe('UUID of the log entry to explain'),
-    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
-    force_refresh: zod
-        .boolean()
-        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
-        .describe('Force regenerate explanation, bypassing cache'),
-})
-
-export const logsViewsCreateBodyNameMax = 400
-
-export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsCreateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsUpdateBodyNameMax = 400
-
-export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsUpdateBodyNameMax),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
-export const logsViewsPartialUpdateBodyNameMax = 400
-
-export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
-    filters: zod
-        .record(zod.string(), zod.unknown())
-        .optional()
-        .describe(
-            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
-        ),
-    pinned: zod.boolean().optional(),
-})
-
 export const logsAlertsCreateBodyNameMax = 255
 
 export const logsAlertsCreateBodyEnabledDefault = true
@@ -659,6 +604,22 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
         .describe('The bucketed-count query to execute.'),
 })
 
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreateBodyForceRefreshDefault = false
+
+export const LogsExplainLogWithAICreateBody = /* @__PURE__ */ zod.object({
+    uuid: zod.string().describe('UUID of the log entry to explain'),
+    timestamp: zod.iso.datetime({ offset: true }).describe('Timestamp of the log entry (used for efficient lookup)'),
+    force_refresh: zod
+        .boolean()
+        .default(logsExplainLogWithAICreateBodyForceRefreshDefault)
+        .describe('Force regenerate explanation, bypassing cache'),
+})
+
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
 export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
@@ -1111,4 +1072,43 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The sparkline query to execute.'),
+})
+
+export const logsViewsCreateBodyNameMax = 400
+
+export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsCreateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsUpdateBodyNameMax = 400
+
+export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsUpdateBodyNameMax),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
+})
+
+export const logsViewsPartialUpdateBodyNameMax = 400
+
+export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsViewsPartialUpdateBodyNameMax).optional(),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.'
+        ),
+    pinned: zod.boolean().optional(),
 })
