@@ -1543,6 +1543,28 @@ export interface PaginatedBatchImportListApi {
 }
 
 /**
+ * @nullable
+ */
+export type PatchedBatchImportApiCreatedBy = { [key: string]: unknown } | null
+
+/**
+ * Serializer for BatchImport model
+ */
+export interface PatchedBatchImportApi {
+    readonly id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    readonly updated_at?: string
+    readonly state?: unknown
+    /** @nullable */
+    readonly created_by?: PatchedBatchImportApiCreatedBy
+    readonly status?: BatchImportStatusEnumApi
+    /** @nullable */
+    readonly display_status_message?: string | null
+    readonly import_config?: unknown
+}
+
+/**
  * * `events` - events
  */
 export type FileDownloadEventsRequestModelEnumApi =

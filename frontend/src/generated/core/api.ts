@@ -16,6 +16,8 @@ import type {
     CimdVerificationTokensListParams,
     DomainsListParams,
     EnterprisePropertyDefinitionApi,
+    ExportedAssetApi,
+    ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
     GitHubBranchesResponseApi,
@@ -30,6 +32,7 @@ import type {
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
+    PaginatedExportedAssetListApi,
     PaginatedFileSystemListApi,
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
@@ -959,6 +962,76 @@ export const dashboardsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getExportsListUrl = (projectId: string, params?: ExportsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/exports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/exports/`
+}
+
+export const exportsList = async (
+    projectId: string,
+    params?: ExportsListParams,
+    options?: RequestInit
+): Promise<PaginatedExportedAssetListApi> => {
+    return apiMutator<PaginatedExportedAssetListApi>(getExportsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/exports/`
+}
+
+export const exportsCreate = async (
+    projectId: string,
+    exportedAssetApi: NonReadonly<ExportedAssetApi>,
+    options?: RequestInit
+): Promise<ExportedAssetApi> => {
+    return apiMutator<ExportedAssetApi>(getExportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(exportedAssetApi),
+    })
+}
+
+export const getExportsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/exports/${id}/`
+}
+
+export const exportsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExportedAssetApi> => {
+    return apiMutator<ExportedAssetApi>(getExportsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getExportsContentRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/exports/${id}/content/`
+}
+
+export const exportsContentRetrieve = async (projectId: string, id: number, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getExportsContentRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

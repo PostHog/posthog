@@ -233,6 +233,24 @@ tools:
     managed-migrations-create:
         operation: managed_migrations_create
         enabled: false
+    managed-migrations-destroy:
+        operation: managed_migrations_destroy
+        enabled: false
     managed-migrations-list:
         operation: managed_migrations_list
+        enabled: false
+    managed-migrations-partial-update:
+        operation: managed_migrations_partial_update
+        enabled: false
+    managed-migrations-pause-create:
+        operation: managed_migrations_pause_create
+        enabled: false
+    managed-migrations-resume-create:
+        operation: managed_migrations_resume_create
+        enabled: false
+    managed-migrations-retrieve:
+        operation: managed_migrations_retrieve
+        enabled: false
+    managed-migrations-update:
+        operation: managed_migrations_update
         enabled: false

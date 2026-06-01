@@ -31,6 +31,7 @@ import type {
     PaginatedBatchImportListApi,
     PaginatedListOutputListApi,
     PatchedBatchExportRequestApi,
+    PatchedBatchImportApi,
     RetrieveFileDownloadResponseApi,
 } from './api.schemas'
 
@@ -701,6 +702,122 @@ export const managedMigrationsCreate = async (
     options?: RequestInit
 ): Promise<BatchImportApi> => {
     return apiMutator<BatchImportApi>(getManagedMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsUpdate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedBatchImportApi?: NonReadonly<PatchedBatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBatchImportApi),
+    })
+}
+
+export const getManagedMigrationsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/`
+}
+
+/**
+ * Viewset for BatchImport model
+ */
+export const managedMigrationsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getManagedMigrationsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getManagedMigrationsPauseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/pause/`
+}
+
+/**
+ * Pause a running batch import.
+ */
+export const managedMigrationsPauseCreate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsPauseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
+
+export const getManagedMigrationsResumeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/managed_migrations/${id}/resume/`
+}
+
+/**
+ * Resume a paused batch import.
+ */
+export const managedMigrationsResumeCreate = async (
+    projectId: string,
+    id: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsResumeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
