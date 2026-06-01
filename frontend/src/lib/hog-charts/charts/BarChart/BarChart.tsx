@@ -75,13 +75,8 @@ function computeBandTrackRects(
     const valueMin = Math.min(axisA, axisB)
     const valueSize = Math.abs(axisB - axisA)
     const bandwidth = scales.band.bandwidth()
-    const seen = new Set<string>()
     const rects: BarRect[] = []
-    for (const label of labels) {
-        if (seen.has(label)) {
-            continue
-        }
-        seen.add(label)
+    for (const label of new Set(labels)) {
         const bandStart = scales.band(label)
         if (bandStart == null) {
             continue
