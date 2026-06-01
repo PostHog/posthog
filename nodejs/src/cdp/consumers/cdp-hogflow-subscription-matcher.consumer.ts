@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
+import { Counter, Histogram } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
@@ -15,14 +16,36 @@ import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import {
-    counterHogflowMatcherBytecodeError,
-    counterHogflowMatcherCandidatesEvaluated,
-    counterHogflowMatcherEventSkipped,
-    counterHogflowMatcherJobsWoken,
-    counterParseError,
-    histogramHogflowMatcherFindParkedJobs,
-} from './metrics'
+import { counterParseError } from './metrics'
+
+const counterHogflowMatcherBytecodeError = new Counter({
+    name: 'cdp_hogflow_matcher_bytecode_error',
+    help: 'A wait_until_condition or conversion-goal filter threw during evaluation. Filter is treated as non-matching, so the workflow falls through to its timeout branch.',
+})
+
+const counterHogflowMatcherCandidatesEvaluated = new Counter({
+    name: 'cdp_hogflow_matcher_candidates_evaluated',
+    help: 'Parked hogflow jobs the matcher loaded from cyclotron and evaluated against a batch.',
+})
+
+const counterHogflowMatcherJobsWoken = new Counter({
+    name: 'cdp_hogflow_matcher_jobs_woken',
+    help: 'Parked hogflow jobs the matcher woke because an incoming event matched.',
+})
+
+// Latency of the cyclotron lookup for parked jobs. Watch this for cyclotron-node
+// read pressure as the wait-until-event feature ramps.
+const histogramHogflowMatcherFindParkedJobs = new Histogram({
+    name: 'cdp_hogflow_matcher_find_parked_jobs_seconds',
+    help: 'Duration of the findParkedJobs cyclotron query.',
+    buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
+})
+
+const counterHogflowMatcherEventSkipped = new Counter({
+    name: 'cdp_hogflow_matcher_event_skipped',
+    help: 'An incoming event was dropped before matching: no identifiers (distinct_id or person_id), or unknown team.',
+    labelNames: ['reason'],
+})
 
 type ParkedCandidate = {
     id: string
@@ -37,20 +60,22 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
-    // Name of the event that matched, so the executor's resume log can surface it.
+    // Name and UUID of the event that matched, so the executor's resume log can surface the
+    // name and the logs view can link to the exact event.
     eventName?: string
+    eventUuid?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
 // Wakes parked hogflow jobs when an event matches a `wait_until_condition` step
-// or a workflow conversion goal. No-op when `CYCLOTRON_NODE_DATABASE_URL` is unset.
+// or a workflow conversion goal.
 export class CdpHogflowSubscriptionMatcherConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
 > extends CdpConsumerBase<TConfig> {
     protected name = 'CdpHogflowSubscriptionMatcherConsumer'
     protected kafkaConsumer: KafkaConsumerInterface
-    private cyclotronPool: Pool | null = null
+    private cyclotronPool: Pool
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -59,12 +84,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             topic: KAFKA_EVENTS_JSON,
         })
 
-        if (config.CYCLOTRON_NODE_DATABASE_URL) {
-            this.cyclotronPool = new Pool({
-                connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
-                max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
-            })
+        // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
+        // string means it would silently consume the event stream and wake nothing. Fail
+        // loudly on startup instead of degrading into a healthy-looking no-op.
+        if (!config.CYCLOTRON_NODE_DATABASE_URL) {
+            throw new Error('CdpHogflowSubscriptionMatcherConsumer requires CYCLOTRON_NODE_DATABASE_URL')
         }
+        this.cyclotronPool = new Pool({
+            connectionString: config.CYCLOTRON_NODE_DATABASE_URL,
+            max: config.CYCLOTRON_NODE_MAX_CONNECTIONS,
+        })
     }
 
     public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
@@ -76,42 +105,37 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
     private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
-        if (!this.cyclotronPool) {
-            return
-        }
-
-        const { teamIds, distinctIds, personIds, byDistinctId, byPersonId } = indexBatch(invocationGlobals)
+        const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
+            indexBatch(invocationGlobals)
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
             return
         }
 
-        // Team-level early-out via the in-memory hogflow cache (same pattern as cdp-events).
-        // Skip cyclotron entirely for teams that have no workflow with a wait_until_condition
-        // step or an event-based conversion goal — most batches won't have any.
+        // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
+        // cdp-events). Only flows with a wait_until_condition step or an event-based conversion
+        // goal can ever be woken; scoping to them keeps the function_id list in findParkedJobs
+        // small and skips cyclotron entirely when a batch has none.
         const hogFlowsByTeam = await this.hogFlowManager.getHogFlowsForTeams(teamIds)
-        const candidateTeamIds: number[] = []
         const hogflows: Record<string, HogFlow> = {}
-        for (const teamIdStr of Object.keys(hogFlowsByTeam)) {
-            const teamId = parseInt(teamIdStr)
-            const flows = hogFlowsByTeam[teamId]
-            if (!flows.some(hasWaitUntilOrConversion)) {
-                continue
-            }
-            candidateTeamIds.push(teamId)
+        for (const flows of Object.values(hogFlowsByTeam)) {
             for (const flow of flows) {
-                // Only flows with a wait step or event conversion goal are actionable;
-                // the matcher never wakes jobs parked in any other flow.
                 if (hasWaitUntilOrConversion(flow)) {
                     hogflows[flow.id] = flow
                 }
             }
         }
 
-        if (candidateTeamIds.length === 0) {
+        if (Object.keys(hogflows).length === 0) {
             return
         }
 
-        const candidates = await this.findParkedJobs(candidateTeamIds, distinctIds, personIds, Object.keys(hogflows))
+        const candidates = await this.findParkedJobs(
+            distinctTeamIds,
+            distinctIds,
+            personTeamIds,
+            personIds,
+            Object.keys(hogflows)
+        )
         if (candidates.length === 0) {
             return
         }
@@ -147,13 +171,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
             let stepMatchedEventName: string | undefined
+            let stepMatchedEventUuid: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (await this.evaluateWaitUntilCondition(action, filterGlobals)) {
+                    if (await this.evaluateWaitUntilCondition(action, filterGlobals, hogflow.id)) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
+                        stepMatchedEventUuid = globals.event.uuid
                     }
                 }
                 if (!conversionMatched) {
@@ -170,6 +196,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     stepMatched,
                     conversionMatched,
                     eventName: stepMatchedEventName,
+                    eventUuid: stepMatchedEventUuid,
                 })
             }
         }
@@ -189,56 +216,50 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     private async evaluateWaitUntilCondition(
         action: Extract<HogFlowAction, { type: 'wait_until_condition' }>,
-        filterGlobals: FilterGlobals
+        filterGlobals: FilterGlobals,
+        hogflowId: string
     ): Promise<boolean> {
         // `events` and the property-based `condition` are OR'd: a step can wait on either,
         // and either matching wakes the job. The condition is evaluated on every incoming
         // event, which is what makes property-based waits event-driven rather than polled.
+        // contextId carries both ids so a bytecode error log identifies the flow + action
+        // without having to scan the hogflow JSON for which action an id belongs to.
+        const contextId = `${hogflowId}/${action.id}`
         for (const eventConfig of action.config.events ?? []) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, action.id)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
                 return true
             }
         }
-        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, action.id)
+        return runBytecode(action.config.condition?.filters?.bytecode, filterGlobals, contextId)
     }
 
     private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const contextId = `${hogflow.id}/conversion`
         for (const eventConfig of conversionEvents) {
-            if (await this.evaluateEventConfig(eventConfig, filterGlobals, contextId)) {
+            if (await runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)) {
                 return true
             }
         }
         return false
     }
 
-    private async evaluateEventConfig(
-        eventConfig: { filters?: any },
-        filterGlobals: FilterGlobals,
-        contextId: string
-    ): Promise<boolean> {
-        // HogFlowSerializer compiles bytecode for every events[].filters at save time,
-        // so missing bytecode means a malformed row - fail closed rather than falling
-        // back to event-name-only matching (which would silently bypass property filters).
-        return runBytecode(eventConfig.filters?.bytecode, filterGlobals, contextId)
-    }
-
     private async findParkedJobs(
-        teamIds: number[],
+        distinctTeamIds: number[],
         distinctIds: string[],
+        personTeamIds: number[],
         personIds: string[],
         functionIds: string[]
     ): Promise<ParkedCandidate[]> {
-        if (!this.cyclotronPool) {
-            return []
-        }
-
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
         // sequential scan; splitting lets each branch hit its own composite index.
-        // The function_id filter keeps the result to flows the matcher can act on,
-        // skipping jobs parked in non-wait flows on the same teams.
+        // Each branch correlates (team_id, id) as a tuple via `unnest(teams, ids)`, which
+        // zips the parallel arrays row-wise — a job only matches when its team and its id
+        // came from the SAME event. Filtering team_id and distinct_id independently with
+        // ANY/ANY would match a job whose team and distinct_id came from two different
+        // events in the batch (a cross-team false-positive candidate). The function_id
+        // filter further scopes to flows the matcher can act on.
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
         let result
         try {
@@ -248,19 +269,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
              WHERE status = 'available'
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
-               AND team_id = ANY($1::int[])
-               AND function_id = ANY($4::uuid[])
-               AND distinct_id = ANY($2::text[])
+               AND function_id = ANY($5::uuid[])
+               AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
              SELECT id, team_id, function_id, action_id, distinct_id, person_id
              FROM cyclotron_jobs
              WHERE status = 'available'
                AND queue_name = 'hogflow'
                AND scheduled > NOW()
-               AND team_id = ANY($1::int[])
-               AND function_id = ANY($4::uuid[])
-               AND person_id = ANY($3::text[])`,
-                [teamIds, distinctIds, personIds, functionIds]
+               AND function_id = ANY($5::uuid[])
+               AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
             )
         } finally {
             stopTimer()
@@ -277,7 +296,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     private async wakeJobs(requests: WakeRequest[]): Promise<number> {
-        if (!this.cyclotronPool || requests.length === 0) {
+        if (requests.length === 0) {
             return 0
         }
 
@@ -348,8 +367,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             messages.map(async (message) => {
                 try {
                     const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-                    if (!clickHouseEvent.person_id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_person_id' }).inc()
+                    // A job can be parked by distinct_id or person_id, so an event needs at least
+                    // one of them to match anything. Drop only events that carry neither.
+                    if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                        return
+                    }
+                    // The vast majority of events belong to teams with no wait_until_condition
+                    // step and no event conversion goal. Bail on those via the in-memory hogflow
+                    // cache before paying for getTeam + full globals conversion.
+                    const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id)
+                    if (!teamHogFlows.some(hasWaitUntilOrConversion)) {
+                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_actionable_flow' }).inc()
                         return
                     }
                     const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
@@ -384,9 +413,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public override async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
-        if (this.cyclotronPool) {
-            await this.cyclotronPool.end()
-        }
+        await this.cyclotronPool.end()
         await super.stop()
         logger.info('💤', `${this.name} stopped!`)
     }
@@ -398,7 +425,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
 type IndexedBatch = {
     teamIds: number[]
+    // Parallel arrays of (teamId, id) pairs, zipped row-wise in the lookup query so a
+    // job only matches when BOTH its team and its id came from the same event. Sending
+    // deduped teamId[] + id[] separately would let the query's ANY/ANY form match a job
+    // whose team and distinct_id came from two different events (cross-team false positive).
+    distinctTeamIds: number[]
     distinctIds: string[]
+    personTeamIds: number[]
     personIds: string[]
     byDistinctId: Map<string, HogFunctionInvocationGlobals[]>
     byPersonId: Map<string, HogFunctionInvocationGlobals[]>
@@ -418,32 +451,44 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
 // and bucket every event under all the keys it could match a candidate by.
 function indexBatch(invocationGlobals: HogFunctionInvocationGlobals[]): IndexedBatch {
     const teamIds = new Set<number>()
-    const distinctIds = new Set<string>()
-    const personIds = new Set<string>()
+    const distinctTeamIds: number[] = []
+    const distinctIds: string[] = []
+    const personTeamIds: number[] = []
+    const personIds: string[] = []
     const byDistinctId = new Map<string, HogFunctionInvocationGlobals[]>()
     const byPersonId = new Map<string, HogFunctionInvocationGlobals[]>()
 
     for (const globals of invocationGlobals) {
         const teamId = globals.project.id
-        if (typeof teamId === 'number') {
-            teamIds.add(teamId)
-        }
+        teamIds.add(teamId)
+
         const distinctId = globals.event.distinct_id
         if (distinctId) {
-            distinctIds.add(distinctId)
-            pushToMap(byDistinctId, `${teamId}:${distinctId}`, globals)
+            const key = `${teamId}:${distinctId}`
+            // First time we see this (team, distinct_id) pair, add it to the lookup arrays.
+            if (!byDistinctId.has(key)) {
+                distinctTeamIds.push(teamId)
+                distinctIds.push(distinctId)
+            }
+            pushToMap(byDistinctId, key, globals)
         }
         const personId = globals.person?.id
         if (personId) {
-            personIds.add(personId)
-            pushToMap(byPersonId, `${teamId}:${personId}`, globals)
+            const key = `${teamId}:${personId}`
+            if (!byPersonId.has(key)) {
+                personTeamIds.push(teamId)
+                personIds.push(personId)
+            }
+            pushToMap(byPersonId, key, globals)
         }
     }
 
     return {
         teamIds: [...teamIds],
-        distinctIds: [...distinctIds],
-        personIds: [...personIds],
+        distinctTeamIds,
+        distinctIds,
+        personTeamIds,
+        personIds,
         byDistinctId,
         byPersonId,
     }
@@ -477,6 +522,10 @@ function collectCandidateGlobals(
     return [...seen]
 }
 
+// Evaluates a compiled filter against the event. HogFlowSerializer compiles bytecode for
+// every events[].filters at save time, so missing/empty bytecode means a malformed row:
+// we fail closed (return false) rather than falling back to event-name-only matching, which
+// would silently bypass property filters.
 async function runBytecode(bytecode: unknown, filterGlobals: FilterGlobals, contextId: string): Promise<boolean> {
     if (!Array.isArray(bytecode) || bytecode.length === 0) {
         return false
@@ -506,6 +555,7 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
                     ...updatedState.currentAction,
                     eventMatched: true,
                     eventMatchedEvent: req.eventName,
+                    eventMatchedEventUuid: req.eventUuid,
                 }
                 applied = true
             } else {

@@ -338,6 +338,9 @@ export type HogFlowInvocationContext = {
         // Name of the event that triggered the wake, so the executor can surface
         // "woken by event: X" in logs instead of echoing the trigger event.
         eventMatchedEvent?: string
+        // UUID of the exact event that triggered the wake, so the logs view can link to
+        // it precisely (the name alone is ambiguous when a person fires it repeatedly).
+        eventMatchedEventUuid?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
