@@ -4,7 +4,7 @@
  *   - loop/       — the session driver over pi-agent-core, the AgentTool
  *                   adapter, approval helpers, provider-safe-name sanitizer
  *   - workers/    — the long-running claim loop (Worker class)
- *   - models/     — model resolution + the llm-gateway Model factory
+ *   - models/     — model resolution + the ai-gateway Model factory
  *   - resolvers/  — pluggable Worker deps (encrypted-env decryption)
  */
 
@@ -14,5 +14,5 @@ export * from './loop/per-asker-auth'
 export * from './loop/provider-safe-names'
 export * from './workers/worker'
 export * from './models/pi-client'
-export * from './models/llm-gateway-model'
+export * from './models/ai-gateway-model'
 export * from './resolvers/encrypted-env-resolver'

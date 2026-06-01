@@ -60,12 +60,12 @@ export interface WorkerDeps {
     /**
      * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
      * to `resolveModelCached(spec.model)` which works for built-in providers.
-     * Override for custom-endpoint models (llm-gateway) or test faux models.
+     * Override for custom-endpoint models (ai-gateway) or test faux models.
      */
     resolveModel?: (specModel: string) => Model<string>
     /**
      * Per-session API key resolver. The resolved key is passed to the driver's
-     * loop config; defaults to no key. On the llm-gateway path this returns
+     * loop config; defaults to no key. On the ai-gateway path this returns
      * the owning team's `phc_` project key (via `TeamApiKeyResolver`); on the
      * direct path it returns the boot-time `defaultApiKeyFromConfig` (Anthropic
      * / OpenAI). The driver streams through `streamSimple` and there's no
@@ -74,7 +74,7 @@ export interface WorkerDeps {
     resolveApiKey?: (session: AgentSession) => Promise<string | undefined> | string | undefined
     /**
      * Per-session static HTTP headers stamped on every outbound pi-ai call.
-     * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
+     * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
      * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
      * attribute correctly. The driver's `gatewayMetadataStreamFn` wrapper
      * merges these with a per-turn `Idempotency-Key` + `X-Request-Id` of
@@ -124,7 +124,7 @@ export interface WorkerDeps {
      */
     maxConcurrency?: number
     /**
-     * Set to true when calls go through PostHog's llm-gateway. The runner
+     * Set to true when calls go through PostHog's ai-gateway. The runner
      * keeps token counts but drops pi-ai's `cost.*` accumulation — the
      * gateway tracks cost server-side; client-side estimates are unreliable.
      */

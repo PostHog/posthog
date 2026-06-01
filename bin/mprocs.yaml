@@ -243,16 +243,18 @@ procs:
             # falls back to NoopAnalyticsSink and `$ai_*` events vanish.
             POSTHOG_ANALYTICS_API_KEY: 'phc_localposthogprojecttoken'
             POSTHOG_ANALYTICS_HOST: 'http://localhost:8010'
-            # ai-gateway routing is opt-in locally — flip to 'true' to send
-            # every model call through the Go gateway at
-            # /Users/benwhite/Development/ai-gateway (bin/start gateway, port
-            # 8080). When 'true', the runner resolves the owning team's `phc_`
-            # per session so POSTHOG_LLM_GATEWAY_KEY isn't needed as a default
-            # bearer. Default 'false' keeps the direct-provider path
-            # (ANTHROPIC_API_KEY / OPENAI_API_KEY) working out of the box.
+            # ai-gateway routing — every model call goes through the
+            # external Go gateway (github.com/PostHog/ai-gateway), brought
+            # up by the `ai-gateway` mprocs entry below via docker compose
+            # in the sibling repo at ~/Development/ai-gateway, port 8080.
+            # The runner resolves the owning team's `phc_` per session so
+            # POSTHOG_AI_GATEWAY_KEY isn't needed as a default bearer. Flip
+            # to 'false' to fall back to the direct-provider path
+            # (ANTHROPIC_API_KEY / OPENAI_API_KEY) — useful if the docker
+            # gateway is down and you don't want it autostarted.
             # See docs/agent-platform/plans/ai-gateway-integration.md.
-            AGENT_USE_LLM_GATEWAY: 'false'
-            POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
+            AGENT_USE_AI_GATEWAY: 'true'
+            POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store. MinIO from the PostHog dev stack —
             # bucket `posthog` is pre-created by docker-compose.base.yml. The
             # runner writes via `@posthog/memory-*` tools; the janitor reads
@@ -278,7 +280,7 @@ procs:
         env:
             # Lights up GET /applications/:id/wallet — proxies the agent
             # owner team's gateway balance for the agent console UI.
-            POSTHOG_LLM_GATEWAY_URL: 'http://localhost:8080/v1'
+            POSTHOG_AI_GATEWAY_URL: 'http://localhost:8080/v1'
             # S3-backed memory store — same bucket the runner writes. Lights
             # up the /memory/team/:team_id/agent/:application_id/* routes the
             # Django AgentMemoryViewSet proxies through to.
@@ -477,18 +479,21 @@ procs:
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
 
-    llm-gateway:
-        shell: 'bin/wait-for-docker && bin/start-llm-gateway'
-        capability: llm_gateway
-        ready_pattern: 'Application startup complete'
+    ai-gateway:
+        # The external Go ai-gateway (github.com/PostHog/ai-gateway), brought
+        # up via docker compose in the sibling repo. The agent-runner above
+        # is wired to point at http://localhost:8080/v1 via
+        # POSTHOG_AI_GATEWAY_URL and AGENT_USE_AI_GATEWAY=true. Skip this
+        # entry (ask_skip: true) if you don't have the sibling clone — the
+        # runner falls back to the direct-provider path automatically when
+        # AGENT_USE_AI_GATEWAY is 'false'.
+        shell: 'bin/wait-for-docker && cd "$HOME/Development/ai-gateway" && docker compose up'
+        capability: ai_gateway
+        ready_pattern: 'listening on'
+        ask_skip: true
         groups:
             layer: Product services
-            tech: Python
-        env:
-            LLM_GATEWAY_DEBUG: 'true'
-            LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
-            LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
-            LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
+            tech: Go
 
     mcp:
         shell: 'bin/start-mcp-server'

@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * llm-gateway integration smoke test.
+ * ai-gateway integration smoke test.
  *
  * Two modes — pick one as the first positional arg:
  *
@@ -16,7 +16,7 @@
  * Env vars:
  *   probe mode:
  *     POSTHOG_DB_URL              required — main PostHog DB (reads posthog_team.api_token)
- *     POSTHOG_LLM_GATEWAY_URL     default http://localhost:8080/v1
+ *     POSTHOG_AI_GATEWAY_URL     default http://localhost:8080/v1
  *     TEAM_ID                     default 1
  *     PROBE_MODEL                 default openai/gpt-4o-mini
  *     PROBE_TIMEOUT_MS            default 15000
@@ -28,7 +28,7 @@
  *
  * Examples:
  *   pnpm tsx bin/gateway-smoke.ts probe
- *   POSTHOG_LLM_GATEWAY_URL=http://localhost:8765/v1 pnpm tsx bin/gateway-smoke.ts probe
+ *   POSTHOG_AI_GATEWAY_URL=http://localhost:8765/v1 pnpm tsx bin/gateway-smoke.ts probe
  *   ECHO_STATUS=402 pnpm tsx bin/gateway-smoke.ts echo
  *
  * See docs/agent-platform/plans/ai-gateway-integration.md.
@@ -55,7 +55,7 @@ interface ProbeOpts {
 async function probeMode(): Promise<number> {
     const opts: ProbeOpts = {
         posthogDbUrl: requireEnv('POSTHOG_DB_URL'),
-        gatewayUrl: process.env.POSTHOG_LLM_GATEWAY_URL ?? 'http://localhost:8080/v1',
+        gatewayUrl: process.env.POSTHOG_AI_GATEWAY_URL ?? 'http://localhost:8080/v1',
         teamId: Number(process.env.TEAM_ID ?? '1'),
         model: process.env.PROBE_MODEL ?? 'openai/gpt-4o-mini',
         timeoutMs: Number(process.env.PROBE_TIMEOUT_MS ?? '15000'),

@@ -21,8 +21,8 @@ projection — see open question #5).
 Today the gateway path on the agent platform is a half-circuit:
 
 - The runner posts to `/v1/chat/completions` with bearer auth
-  ([services/agent-runner/src/models/llm-gateway-model.ts](../../../services/agent-runner/src/models/llm-gateway-model.ts)),
-  but the bearer comes from `POSTHOG_LLM_GATEWAY_KEY` — a single
+  ([services/agent-runner/src/models/ai-gateway-model.ts](../../../services/agent-runner/src/models/ai-gateway-model.ts)),
+  but the bearer comes from `POSTHOG_AI_GATEWAY_KEY` — a single
   process-wide env var. There's no per-team `phc_` resolution.
 - `useGatewayCost: true` zeroes pi-ai's client-side cost numbers in
   `usage_total` ([services/agent-shared/src/spec/usage.ts](../../../services/agent-shared/src/spec/usage.ts)),
@@ -335,7 +335,7 @@ with two modes:
 ```bash
 # Talk to a running gateway with a real team's phc_:
 POSTHOG_DB_URL=postgres://... \
-POSTHOG_LLM_GATEWAY_URL=http://localhost:8080/v1 \
+POSTHOG_AI_GATEWAY_URL=http://localhost:8080/v1 \
 TEAM_ID=1 \
 pnpm --filter=@posthog/agent-runner gateway:smoke probe
 
@@ -353,8 +353,8 @@ classifier branch (200, 401, 402, 429, 5xx).
 
 `echo` mimics the gateway: serves a stub OpenAI streaming SSE body on 200,
 or the gateway's JSON envelope shape on 4xx/5xx. Point the runner at it
-via `POSTHOG_LLM_GATEWAY_URL=http://localhost:8765/v1
-AGENT_USE_LLM_GATEWAY=true` to exercise the full runner loop against
+via `POSTHOG_AI_GATEWAY_URL=http://localhost:8765/v1
+AGENT_USE_AI_GATEWAY=true` to exercise the full runner loop against
 arbitrary gateway responses without standing up the real gateway.
 
 ## 5. Rollout

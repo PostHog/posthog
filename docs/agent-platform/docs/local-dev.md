@@ -226,7 +226,7 @@ runs the same harness against a real provider model. **It runs by
 default and fails if no provider key is found** — that's the only way
 to know v2 talks to a real model end-to-end. Key discovery order:
 
-1. `POSTHOG_LLM_GATEWAY_KEY` + `POSTHOG_LLM_GATEWAY_URL` → llm-gateway
+1. `POSTHOG_AI_GATEWAY_KEY` + `POSTHOG_AI_GATEWAY_URL` → ai-gateway
 2. `ANTHROPIC_API_KEY` → Anthropic (default `claude-sonnet-4-6`)
 3. `OPENAI_API_KEY` → OpenAI (default `gpt-4o-mini`)
 

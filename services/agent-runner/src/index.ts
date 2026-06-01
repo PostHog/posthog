@@ -53,7 +53,7 @@ import {
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { makePerAskerAuth } from './loop/per-asker-auth'
-import { posthogLlmGatewayModel } from './models/llm-gateway-model'
+import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
 import { Worker } from './workers/worker'
@@ -150,9 +150,9 @@ async function main(): Promise<void> {
     // On the gateway path the bearer is the owning team's phc_ project key.
     // The resolver caches per team so the hot path is a hash lookup.
     // See docs/agent-platform/plans/ai-gateway-integration.md §3 (W1).
-    const teamApiKeys = config.useLlmGateway ? new PgTeamApiKeyResolver(posthogDb) : null
+    const teamApiKeys = config.useAiGateway ? new PgTeamApiKeyResolver(posthogDb) : null
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
-    const gatewayClient = config.useLlmGateway ? new HttpGatewayClient({ baseUrl: config.llmGatewayUrl }) : null
+    const gatewayClient = config.useAiGateway ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl }) : null
 
     // Agent memory: S3-backed file store. Disabled (memory tools surface
     // `memory_store_unavailable` to the model) when the bucket isn't
@@ -204,16 +204,16 @@ async function main(): Promise<void> {
         logs: logSink,
         resolveIntegrations,
         resolveSecrets,
-        resolveModel: config.useLlmGateway
-            ? // Route every model through PostHog's llm-gateway. The gateway's
+        resolveModel: config.useAiGateway
+            ? // Route every model through PostHog's ai-gateway. The gateway's
               // router admits on the canonical "<provider>/<model>" form; its
               // dispatcher strips the prefix before forwarding so the upstream
-              // provider sees the bare id (see llm-gateway PR #57). Pass
+              // provider sees the bare id (see ai-gateway PR #57). Pass
               // spec.model verbatim.
               (specModel) =>
-                  posthogLlmGatewayModel({
+                  posthogAiGatewayModel({
                       modelId: specModel,
-                      baseUrl: config.llmGatewayUrl,
+                      baseUrl: config.aiGatewayUrl,
                   })
             : undefined,
         // The driver streams through pi-ai's `streamSimple`; the per-session
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
         // → resolve the owning team's `phc_`; direct path → fall back to the
         // boot-time default (ANTHROPIC_API_KEY / OPENAI_API_KEY / etc).
         resolveApiKey: teamApiKeys ? (session) => teamApiKeys.resolve(session.team_id) : () => defaultApiKey,
-        resolveGatewayHeaders: config.useLlmGateway
+        resolveGatewayHeaders: config.useAiGateway
             ? (session) => ({
                   'X-PostHog-Distinct-Id': analyticsDistinctId(session),
                   'X-PostHog-Trace-Id': session.id,
@@ -234,7 +234,7 @@ async function main(): Promise<void> {
         // On the gateway path pi-ai's cost numbers are client-side estimates;
         // the gateway itself owns billing. We keep token counts. Cost is
         // recovered post-turn via /v1/usage/{request_id} (see resolveGatewayUsage).
-        useGatewayCost: config.useLlmGateway,
+        useGatewayCost: config.useAiGateway,
         analytics,
         maxConcurrency: config.maxConcurrency,
         memoryStore,
@@ -253,7 +253,7 @@ async function main(): Promise<void> {
             posthogDb: config.posthogDbUrl,
             agentDb: config.agentDbUrl,
             concurrency: config.maxConcurrency,
-            gateway: config.useLlmGateway,
+            gateway: config.useAiGateway,
         },
         'starting worker loop'
     )

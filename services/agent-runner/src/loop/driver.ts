@@ -134,7 +134,7 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
-     * On the llm-gateway path this carries `X-PostHog-Distinct-Id` +
+     * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
      * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
      * attribute correctly. The `gatewayMetadataStreamFn` wrapper merges
      * these with a per-turn `Idempotency-Key` + `X-Request-Id` of the form

@@ -21,12 +21,12 @@ first.
   selection. Each is a function the caller can override; the harness
   and prod wire different concrete impls.
 - [src/models/](src/models/) — model resolution (`resolveModel`) + the
-  LLM-gateway model factory. The driver streams through pi-ai's
+  ai-gateway model factory. The driver streams through pi-ai's
   `streamSimple` directly; there is no client wrapper.
 - [src/index.ts](src/index.ts) — prod bin entry. Reads env, wires
   real PG pools + KafkaLogSink + RedisSessionEventBus, starts the loop.
 - [src/lib.ts](src/lib.ts) — library entry (`Worker`, `runSession`,
-  `posthogLlmGatewayModel`). The harness imports from here.
+  `posthogAiGatewayModel`). The harness imports from here.
 
 ## Rules of engagement
 

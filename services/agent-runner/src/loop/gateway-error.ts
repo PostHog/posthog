@@ -1,6 +1,6 @@
 /**
  * Classifies a pi-ai error message into a gateway-specific failure mode when
- * the session ran through PostHog's llm-gateway. Used at the two pi-ai error
+ * the session ran through PostHog's ai-gateway. Used at the two pi-ai error
  * paths in `run-turn.ts`:
  *   - the catch around `pi.stream()` (synchronous throws / abort).
  *   - the post-stream `result.stopReason === 'error'` branch (provider

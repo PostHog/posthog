@@ -50,7 +50,7 @@ The shipped design uses **standard PostHog ingestion**:
 runner ──posthog-node──▶ /capture ──ingestion──▶ clickhouse_ai_events_json ──▶ ai_events (CH)
 ```
 
-Same path the llm-gateway uses (`posthoganalytics.capture()` →
+Same path the ai-gateway uses (`posthoganalytics.capture()` →
 `/capture`). Events show up in LLM Analytics with zero new infra.
 
 The trade-off: emission becomes one network call per turn instead of
@@ -113,7 +113,7 @@ Composite, with fallback:
   principal (`pat:user-7`, `slack:T01:U01`, `internal:...`).
 - `agent:<application_id>` for anonymous public-agent sessions.
 
-This matches `llm-gateway`'s `resolve_distinct_id(auth_user, end_user_id)`
+This matches `ai-gateway`'s `resolve_distinct_id(auth_user, end_user_id)`
 contract and lets the LLM Analytics surface slice both per-user and
 per-agent without joining session metadata.
 
@@ -167,7 +167,7 @@ present from day one; the signing extension is purely additive
 - Config knobs: `POSTHOG_ANALYTICS_API_KEY` + `POSTHOG_ANALYTICS_HOST`.
   Unset → `NoopAnalyticsSink` (harness / CI). Local `hogli` dev sets
   them on the agent-runner mprocs entry pointing at the same target
-  the llm-gateway uses (`phc_localposthogprojecttoken` /
+  the ai-gateway uses (`phc_localposthogprojecttoken` /
   `http://localhost:8010`), so a fresh `hogli` start has agent traffic
   showing up in the local PostHog project's LLM Analytics view.
 - `$ai_origin: 'agent_platform_runner'` stamped on every event as the

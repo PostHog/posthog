@@ -14,22 +14,22 @@ import { extendEnvKeyMap, loadConfigFromEnv, PLATFORM_ENV_KEY_MAP, PlatformConfi
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     maxConcurrency: z.coerce.number().int().positive().default(8).describe('In-flight sessions per worker process.'),
-    useLlmGateway: z
+    useAiGateway: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
         .default('0')
         .transform((v) => v === '1' || v === 'true')
         .describe(
-            'When truthy (`1`/`true`), routes every model call through PostHog llm-gateway via posthogLlmGatewayModel(). Spec.model still picks the underlying model id.'
+            'When truthy (`1`/`true`), routes every model call through PostHog ai-gateway via posthogAiGatewayModel(). Spec.model still picks the underlying model id.'
         ),
-    llmGatewayUrl: z
+    aiGatewayUrl: z
         .string()
         .url()
-        .default('http://llm-gateway/v1')
-        .describe('Custom baseUrl for the posthogLlmGatewayModel factory. In prod points at the in-cluster service.'),
-    posthogLlmGatewayKey: z
+        .default('http://ai-gateway/v1')
+        .describe('Custom baseUrl for the posthogAiGatewayModel factory. In prod points at the in-cluster service.'),
+    posthogAiGatewayKey: z
         .string()
         .optional()
-        .describe('PostHog gateway PAT (`phx_...`). First non-empty wins for pi-ai default apiKey.'),
+        .describe('PostHog ai-gateway PAT (`phx_...`). First non-empty wins for pi-ai default apiKey.'),
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
@@ -74,9 +74,9 @@ export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
 
 const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_MAX_CONCURRENCY: 'maxConcurrency',
-    AGENT_USE_LLM_GATEWAY: 'useLlmGateway',
-    POSTHOG_LLM_GATEWAY_URL: 'llmGatewayUrl',
-    POSTHOG_LLM_GATEWAY_KEY: 'posthogLlmGatewayKey',
+    AGENT_USE_AI_GATEWAY: 'useAiGateway',
+    POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
+    POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
     ANTHROPIC_API_KEY: 'anthropicApiKey',
     OPENAI_API_KEY: 'openaiApiKey',
     MODEL_API_KEY: 'modelApiKey',
@@ -101,5 +101,5 @@ export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): Age
  * here so the runner doesn't sprinkle the priority order across files.
  */
 export function defaultApiKeyFromConfig(cfg: AgentRunnerConfig): string | undefined {
-    return cfg.posthogLlmGatewayKey ?? cfg.anthropicApiKey ?? cfg.openaiApiKey ?? cfg.modelApiKey
+    return cfg.posthogAiGatewayKey ?? cfg.anthropicApiKey ?? cfg.openaiApiKey ?? cfg.modelApiKey
 }

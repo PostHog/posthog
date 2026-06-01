@@ -190,10 +190,10 @@ with a default; the backfill is async via the janitor endpoint.
    the numbers. No change needed.
 3. **LLM gateway cost — don't trust pi-ai's calc.** When
    `config.useLlmGateway === true`, the runner routes every call
-   through `posthogLlmGatewayModel()`. pi-ai's `usage.cost.*` numbers
+   through `posthogAiGatewayModel()`. pi-ai's `usage.cost.*` numbers
    in that path are client-side estimates (often zero / based on
    pi's own pricing tables, which we don't own and can't keep in
-   sync with our llm-gateway billing). We want **our own** cost
+   sync with our ai-gateway billing). We want **our own** cost
    calculation, not pi's:
    - **Token counts (`input`, `output`, `cacheRead`, `cacheWrite`)
      are fine** — those come from the provider response, not pi's
@@ -207,7 +207,7 @@ with a default; the backfill is async via the janitor endpoint.
         dollar figures. Same place as the accumulator; one source
         of truth.
      2. **Pull from the gateway's tracking endpoint.** The
-        llm-gateway already tracks per-request cost server-side; a
+        ai-gateway already tracks per-request cost server-side; a
         future endpoint returns the materialized number. Cleaner
         long-term but adds a round trip per turn.
    - Lean **(1)** for v0 — no new round trips, gateway service can

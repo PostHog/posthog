@@ -9,7 +9,7 @@
  *   2. `.env` at the posthog repo root (loaded via Node's loadEnvFile)
  *
  * Provider matrix:
- *   POSTHOG_LLM_GATEWAY_KEY + POSTHOG_LLM_GATEWAY_URL → llm-gateway
+ *   POSTHOG_AI_GATEWAY_KEY + POSTHOG_AI_GATEWAY_URL → ai-gateway
  *   ANTHROPIC_API_KEY                                 → Anthropic (default: claude-haiku-4-5)
  *   OPENAI_API_KEY                                    → OpenAI    (default: gpt-4o-mini)
  *
@@ -34,7 +34,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
-import { posthogLlmGatewayModel } from '@posthog/agent-runner'
+import { posthogAiGatewayModel } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
 
@@ -94,14 +94,14 @@ interface ProviderSpec {
 function discoverProviders(): ProviderSpec[] {
     const pin = process.env.REAL_INFERENCE_PROVIDER?.toLowerCase()
     const out: ProviderSpec[] = []
-    if ((!pin || pin === 'gateway') && process.env.POSTHOG_LLM_GATEWAY_KEY && process.env.POSTHOG_LLM_GATEWAY_URL) {
+    if ((!pin || pin === 'gateway') && process.env.POSTHOG_AI_GATEWAY_KEY && process.env.POSTHOG_AI_GATEWAY_URL) {
         out.push({
-            label: 'llm-gateway',
-            model: posthogLlmGatewayModel({
+            label: 'ai-gateway',
+            model: posthogAiGatewayModel({
                 modelId: process.env.REAL_INFERENCE_MODEL_ID ?? 'gpt-4.1-mini',
-                baseUrl: process.env.POSTHOG_LLM_GATEWAY_URL,
+                baseUrl: process.env.POSTHOG_AI_GATEWAY_URL,
             }),
-            apiKey: process.env.POSTHOG_LLM_GATEWAY_KEY,
+            apiKey: process.env.POSTHOG_AI_GATEWAY_KEY,
         })
     }
     if ((!pin || pin === 'anthropic') && process.env.ANTHROPIC_API_KEY) {
@@ -129,7 +129,7 @@ if (!SKIP && providers.length === 0) {
     // suite-level failure and the run exits non-zero. A skipped describe
     // would hide the regression silently.
     throw new Error(
-        'real-inference suite: no provider key found. Set ANTHROPIC_API_KEY / OPENAI_API_KEY / POSTHOG_LLM_GATEWAY_* (env or repo-root .env), or set AGENT_SKIP_REAL_INFERENCE=1 to opt out.'
+        'real-inference suite: no provider key found. Set ANTHROPIC_API_KEY / OPENAI_API_KEY / POSTHOG_AI_GATEWAY_* (env or repo-root .env), or set AGENT_SKIP_REAL_INFERENCE=1 to opt out.'
     )
 }
 

@@ -60,7 +60,7 @@ export function totalConversationUsage(conversation: ConversationMessage[]): Ses
  * the runner's per-turn accumulator and the backfill walk.
  *
  * `useGatewayCost: true` means the model went through PostHog's
- * llm-gateway — pi-ai's cost fields in that path are unreliable estimates,
+ * ai-gateway — pi-ai's cost fields in that path are unreliable estimates,
  * so we keep token counts but zero the cost contribution. The gateway is
  * the source of truth for cost on that path; a future revision pulls our
  * own price-table calc in here.

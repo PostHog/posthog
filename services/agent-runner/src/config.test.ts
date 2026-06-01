@@ -4,31 +4,31 @@ describe('loadAgentRunnerConfig', () => {
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentRunnerConfig({})
         expect(cfg.maxConcurrency).toBe(8)
-        expect(cfg.useLlmGateway).toBe(false)
-        expect(cfg.llmGatewayUrl).toBe('http://llm-gateway/v1')
+        expect(cfg.useAiGateway).toBe(false)
+        expect(cfg.aiGatewayUrl).toBe('http://ai-gateway/v1')
         expect(cfg.encryptionSaltKeys).toBe('')
         expect(cfg.logLevel).toBe('info')
     })
 
-    it('AGENT_USE_LLM_GATEWAY=1 parses to true', () => {
-        const cfg = loadAgentRunnerConfig({ AGENT_USE_LLM_GATEWAY: '1' })
-        expect(cfg.useLlmGateway).toBe(true)
+    it('AGENT_USE_AI_GATEWAY=1 parses to true', () => {
+        const cfg = loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: '1' })
+        expect(cfg.useAiGateway).toBe(true)
     })
 
-    it('AGENT_USE_LLM_GATEWAY=0 parses to false (legacy default)', () => {
-        const cfg = loadAgentRunnerConfig({ AGENT_USE_LLM_GATEWAY: '0' })
-        expect(cfg.useLlmGateway).toBe(false)
+    it('AGENT_USE_AI_GATEWAY=0 parses to false (legacy default)', () => {
+        const cfg = loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: '0' })
+        expect(cfg.useAiGateway).toBe(false)
     })
 
     it("'true' and 'false' string forms work too", () => {
-        expect(loadAgentRunnerConfig({ AGENT_USE_LLM_GATEWAY: 'true' }).useLlmGateway).toBe(true)
-        expect(loadAgentRunnerConfig({ AGENT_USE_LLM_GATEWAY: 'false' }).useLlmGateway).toBe(false)
+        expect(loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: 'true' }).useAiGateway).toBe(true)
+        expect(loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: 'false' }).useAiGateway).toBe(false)
     })
 
-    it("rejects garbage AGENT_USE_LLM_GATEWAY (won't silently default to false)", () => {
+    it("rejects garbage AGENT_USE_AI_GATEWAY (won't silently default to false)", () => {
         // Previously `'lol' === '1'` was false so this silently became false.
         // Schema now rejects so we don't pretend.
-        expect(() => loadAgentRunnerConfig({ AGENT_USE_LLM_GATEWAY: 'lol' })).toThrow()
+        expect(() => loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: 'lol' })).toThrow()
     })
 
     it('throws on bad numeric AGENT_MAX_CONCURRENCY', () => {
@@ -43,9 +43,9 @@ describe('loadAgentRunnerConfig', () => {
 })
 
 describe('defaultApiKeyFromConfig', () => {
-    it('picks POSTHOG_LLM_GATEWAY_KEY first', () => {
+    it('picks POSTHOG_AI_GATEWAY_KEY first', () => {
         const cfg = loadAgentRunnerConfig({
-            POSTHOG_LLM_GATEWAY_KEY: 'phx_gateway',
+            POSTHOG_AI_GATEWAY_KEY: 'phx_gateway',
             ANTHROPIC_API_KEY: 'sk-ant',
             OPENAI_API_KEY: 'sk-openai',
             MODEL_API_KEY: 'sk-catchall',

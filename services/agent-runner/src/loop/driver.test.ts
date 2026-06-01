@@ -267,7 +267,7 @@ describe('driver runSession', () => {
      * cost fetch. Uses a recording `streamFn` injected via deps so we can
      * inspect the headers pi-ai would see, and a fake GatewayClient so we
      * can drive cost merge without hitting a real /v1/usage. The behaviour
-     * here is load-bearing for the llm-gateway path — without the per-turn
+     * here is load-bearing for the ai-gateway path — without the per-turn
      * `request_id` stamp + Idempotency-Key, the gateway can't dedupe pi-ai
      * retries onto a single billed row, and without the post-turn
      * `getUsage` merge `usage_total.cost_total` stays zero forever.

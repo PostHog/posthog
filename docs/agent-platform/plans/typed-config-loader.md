@@ -27,7 +27,7 @@ Three concrete pain points:
    deploy-runbook is hand-maintained;
    [`docs/agent-platform/docs/deploy-runbook.md`](../docs/deploy-runbook.md)
    has drifted from the code (the wrong janitor port, missing
-   `AGENT_USE_LLM_GATEWAY`). With one loader the runbook can be
+   `AGENT_USE_AI_GATEWAY`). With one loader the runbook can be
    generated.
 
 ## 2. Shape — config schema per service

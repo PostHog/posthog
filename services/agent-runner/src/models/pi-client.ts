@@ -22,8 +22,8 @@ registerBuiltInApiProviders()
  *   "<provider>/<model-id>"           — built-in pi-ai providers
  *   "faux/<model-id>"                 — scripted faux model (tests register first)
  *
- * For custom endpoints (llm-gateway, Ollama, etc.) callers build the Model
- * directly via `posthogLlmGatewayModel()` and pass it in.
+ * For custom endpoints (ai-gateway, Ollama, etc.) callers build the Model
+ * directly via `posthogAiGatewayModel()` and pass it in.
  */
 export function resolveModel(specModel: string): Model<string> {
     const slash = specModel.indexOf('/')

@@ -49,7 +49,7 @@ integration drift sneaks in.
 **Provider matrix.** Every provider with a configured key runs the
 full case set — that's how we catch provider-specific drift (tool
 schemas, stop reasons, system-prompt handling) end-to-end. Detected
-keys (`POSTHOG_LLM_GATEWAY_KEY`+`URL` / `ANTHROPIC_API_KEY` /
+keys (`POSTHOG_AI_GATEWAY_KEY`+`URL` / `ANTHROPIC_API_KEY` /
 `OPENAI_API_KEY`) each contribute one `describe.each` row. Pin a
 single provider with `REAL_INFERENCE_PROVIDER=anthropic|openai|gateway`
 when iterating locally. Override the model with

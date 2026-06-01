@@ -1,5 +1,5 @@
 /**
- * HTTP clients for the llm-gateway's read-side endpoints.
+ * HTTP clients for the ai-gateway's read-side endpoints.
  *
  *   GET /v1/usage/{request_id} — settled cost + token breakdown per request
  *   GET /v1/wallet/balance     — team prepaid balance + pending hold

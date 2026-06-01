@@ -7,7 +7,7 @@
  *
  * Hitting `/capture` (rather than producing into a dedicated Kafka topic)
  * means agent traffic shows up in LLM Analytics with zero new
- * infrastructure — same path the llm-gateway uses for its own observability
+ * infrastructure — same path the ai-gateway uses for its own observability
  * events.
  *
  * Sinks:
@@ -66,7 +66,7 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     kind: 'generation'
     /** pi-ai resolved model id (e.g. `claude-haiku-4-5`). */
     model: string
-    /** pi-ai provider name (`anthropic`, `openai`, `posthog-llm-gateway`, …). */
+    /** pi-ai provider name (`anthropic`, `openai`, `posthog-ai-gateway`, …). */
     provider: string
     /** Serialised user/assistant/tool message history sent into the model. */
     input: unknown[]
@@ -140,7 +140,7 @@ export function toolSpanId(sessionId: string, turn: number, toolCallId: string):
  * Build the `$ai_*` property bag PostHog's LLM Analytics surface keys on.
  * Names match the existing `ai_events` MV schema
  * (`posthog/models/ai_events/sql.py:HEAVY_AI_PROPERTIES`) and what the
- * `llm-gateway` PostHogCallback emits. Exposed for tests + the future
+ * `ai-gateway` PostHogCallback emits. Exposed for tests + the future
  * signed-origin work.
  */
 export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, unknown> {
