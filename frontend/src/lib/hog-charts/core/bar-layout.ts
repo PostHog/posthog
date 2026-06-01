@@ -10,6 +10,24 @@ export interface BarChartPrivate {
 
 export type SeriesBarLayout = (BarRect | null)[]
 
+/** Pixel center of a band slot, or `undefined` when the label isn't in the band scale. */
+export function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+    const start = scales.band(label)
+    return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns `undefined` when the layout isn't grouped or the series isn't in the group scale. */
+export function groupedBarCenter(scales: BarScaleSet, label: string, seriesKey: string): number | undefined {
+    const start = scales.band(label)
+    const groupOffset = scales.group?.(seriesKey)
+    if (start == null || groupOffset == null) {
+        return undefined
+    }
+    return start + groupOffset + (scales.group?.bandwidth() ?? 0) / 2
+}
+
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
  *  layers below the topmost. `shouldRoundBaseline` rounds the side *towards* the baseline — used
  *  for the bottom-of-stack layer so a funnel-style bar reads as one rounded pill on both ends. */
