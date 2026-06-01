@@ -53,7 +53,7 @@ export function MCPUseCaseCard({
         if (willRender && surfaceKey === 'sql.execute' && topEvents.length === 0 && !topEventsLoading) {
             loadTopEvents()
         }
-    }, [willRender, surfaceKey, topEvents.length, topEventsLoading, loadTopEvents])
+    }, [willRender, surfaceKey]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!willRender) {
         return null
