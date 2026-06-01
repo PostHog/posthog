@@ -18,6 +18,8 @@ function session(id: string): AgentSession {
         revision_id: 'rev',
         team_id: 1,
         external_key: null,
+        idempotency_key: null,
+        trigger_metadata: null,
         state: 'running',
         conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
         pending_inputs: [],

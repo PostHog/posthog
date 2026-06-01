@@ -43,6 +43,128 @@ describe('AgentSpecSchema', () => {
         expect(() => AgentSpecSchema.parse({ model: 'x', tools: [{ kind: 'rogue', id: 'x' }] })).toThrow()
     })
 
+    describe('cron trigger config', () => {
+        const minimal = {
+            name: 'weekly-digest',
+            schedule: '0 9 * * MON',
+            prompt: 'Produce the digest.',
+        }
+
+        it('parses a minimal cron trigger with all defaults', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'cron', config: minimal }],
+            })
+            const t = spec.triggers[0]
+            if (t.type !== 'cron') {
+                throw new Error('expected cron trigger')
+            }
+            expect(t.config.name).toBe('weekly-digest')
+            expect(t.config.timezone).toBe('UTC')
+            expect(t.config.catch_up).toBe('most_recent')
+            expect(t.config.max_catch_up_age_seconds).toBe(3600)
+            expect(t.config.external_key).toBeUndefined()
+        })
+
+        it('parses a fully-populated cron trigger', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [
+                    {
+                        type: 'cron',
+                        config: {
+                            ...minimal,
+                            timezone: 'US/Pacific',
+                            external_key: 'digest-{fired_at:week}',
+                            catch_up: 'skip',
+                            max_catch_up_age_seconds: 7200,
+                        },
+                    },
+                ],
+            })
+            const t = spec.triggers[0]
+            if (t.type !== 'cron') {
+                throw new Error('expected cron trigger')
+            }
+            expect(t.config.timezone).toBe('US/Pacific')
+            expect(t.config.external_key).toBe('digest-{fired_at:week}')
+            expect(t.config.catch_up).toBe('skip')
+            expect(t.config.max_catch_up_age_seconds).toBe(7200)
+        })
+
+        it('rejects a name with disallowed characters', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, name: 'Weekly_Digest' } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects a name with a leading hyphen', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, name: '-digest' } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an empty schedule', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, schedule: '' } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an empty prompt', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, prompt: '' } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects a prompt longer than 4096 chars', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, prompt: 'x'.repeat(4097) } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects an unknown catch_up mode', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, catch_up: 'fire-twice' } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects max_catch_up_age_seconds above the 7-day cap', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, max_catch_up_age_seconds: 7 * 86400 + 1 } }],
+                })
+            ).toThrow()
+        })
+
+        it('rejects max_catch_up_age_seconds below 1', () => {
+            expect(() =>
+                AgentSpecSchema.parse({
+                    model: 'x',
+                    triggers: [{ type: 'cron', config: { ...minimal, max_catch_up_age_seconds: 0 } }],
+                })
+            ).toThrow()
+        })
+    })
+
     describe('framework_prompt config', () => {
         it('defaults to undefined when not present', () => {
             const spec = AgentSpecSchema.parse({ model: 'x' })

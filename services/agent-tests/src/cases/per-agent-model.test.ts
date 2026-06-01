@@ -114,6 +114,8 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 revision_id: rev.id,
                 team_id: 1,
                 external_key: null,
+                idempotency_key: null,
+                trigger_metadata: null,
                 state: 'queued',
                 conversation: [{ role: 'user', content: 'go', timestamp: Date.now() }],
                 pending_inputs: [],

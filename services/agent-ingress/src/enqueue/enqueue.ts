@@ -101,6 +101,11 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         revision_id: input.revision.id,
         team_id: deps.teamId,
         external_key: input.externalKey,
+        // PR-2 of cron-trigger-scheduler.md wires the upsert-on-conflict path
+        // that consumes these. v1 enqueues always create fresh keys (null)
+        // since no caller forwards an idempotency key yet.
+        idempotency_key: null,
+        trigger_metadata: null,
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],

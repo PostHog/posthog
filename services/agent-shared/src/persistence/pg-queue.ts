@@ -20,7 +20,8 @@ import {
 } from '../spec/spec'
 import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
 
-const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
+const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
+                     idempotency_key, trigger_metadata, state,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests,
                      created_at, updated_at`
@@ -31,12 +32,13 @@ export class PgSessionQueue implements SessionQueue {
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
             `INSERT INTO agent_session
-                (id, application_id, revision_id, team_id, external_key, state,
+                (id, application_id, revision_id, team_id, external_key,
+                 idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
                  usage_total, acl, pending_elevation_requests,
                  created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::jsonb,
-                     $12::jsonb, $13::jsonb, $14, $15)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -51,6 +53,8 @@ export class PgSessionQueue implements SessionQueue {
                 session.revision_id,
                 session.team_id,
                 session.external_key,
+                session.idempotency_key,
+                session.trigger_metadata ? JSON.stringify(session.trigger_metadata) : null,
                 session.state,
                 JSON.stringify(session.conversation),
                 JSON.stringify(session.pending_inputs),
@@ -352,6 +356,8 @@ interface DbRow {
     revision_id: string
     team_id: number
     external_key: string | null
+    idempotency_key: string | null
+    trigger_metadata: unknown
     state: string
     conversation: unknown
     pending_inputs: unknown
@@ -397,6 +403,11 @@ function rowToSession(row: DbRow): AgentSession {
         team_id: row.team_id,
         principal: (row.principal as AgentSession['principal']) ?? null,
         external_key: row.external_key,
+        idempotency_key: row.idempotency_key,
+        trigger_metadata:
+            row.trigger_metadata && typeof row.trigger_metadata === 'object'
+                ? (row.trigger_metadata as Record<string, unknown>)
+                : null,
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],

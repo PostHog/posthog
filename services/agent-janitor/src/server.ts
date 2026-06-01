@@ -265,6 +265,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 revision_id: s.revision_id,
                 state: s.state,
                 external_key: s.external_key,
+                idempotency_key: s.idempotency_key,
+                trigger_metadata: s.trigger_metadata,
                 principal: s.principal,
                 turns: s.conversation.length,
                 preview: lastAssistantTextPreview(s.conversation),

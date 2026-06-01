@@ -9,6 +9,8 @@ function session(id: string, state: AgentSession['state'], updatedAt: string): A
         revision_id: 'rev',
         team_id: 1,
         external_key: null,
+        idempotency_key: null,
+        trigger_metadata: null,
         state,
         conversation: [],
         pending_inputs: [],
