@@ -7,6 +7,7 @@
  */
 
 import { Request, Response, Router } from 'express'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { SessionQueue } from '@posthog/agent-shared'
@@ -60,7 +61,7 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
             }
             const externalKeyHeader = req.headers['x-external-key']
             const externalKey = typeof externalKeyHeader === 'string' ? externalKeyHeader : null
-            const idempotencyKey = extractProviderIdempotencyKey(req)
+            const idempotencyKey = extractProviderIdempotencyKey(req, parsed.data)
             const sessionPrincipal = auth.principal
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
@@ -108,16 +109,25 @@ export function webhookRouter(deps: WebhookTriggerDeps): Router {
  *     payload-shape extraction is out of scope here — that's the agent's
  *     job once it sees the seed, not the platform's.)
  *
- * Namespaced with a `webhook:` prefix so a future cron firing can never
- * collide with a webhook-supplied key for the same agent.
+ * The returned key is `webhook:<value>:<sha256(payload)>`. The `webhook:`
+ * prefix namespaces it away from cron firings. The payload digest defeats
+ * a spoof where an attacker with reachability to a public webhook posts
+ * first with a guessed header value (e.g. a Stripe event id leaked via
+ * a log) so a later legitimate provider delivery dedupes to the attacker's
+ * session and drops the real payload — a different body produces a
+ * different digest, so legitimate retries (same header + same body) still
+ * collapse correctly while spoofs do not. This is defence-in-depth, not a
+ * substitute for provider signature verification, which the configured
+ * auth provider should still enforce upstream.
  */
-function extractProviderIdempotencyKey(req: Request): string | undefined {
+function extractProviderIdempotencyKey(req: Request, parsedBody: unknown): string | undefined {
     const candidates = ['idempotency-key', 'x-idempotency-key', 'x-github-delivery']
     for (const name of candidates) {
         const v = req.headers[name]
         const value = typeof v === 'string' ? v : Array.isArray(v) ? v[0] : undefined
         if (value && value.length > 0) {
-            return `webhook:${value}`
+            const digest = createHash('sha256').update(JSON.stringify(parsedBody)).digest('hex')
+            return `webhook:${value}:${digest}`
         }
     }
     return undefined
