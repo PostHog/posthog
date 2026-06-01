@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag
@@ -408,6 +410,15 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=other_team.id, name="Theirs")
         _, response = self._run_query(metrics=["count()"], select=[])
         self.assertEqual(response.metricsResults, [1])
+
+    def test_bad_metric_raises_an_error_naming_the_offending_expression(self):
+        create_account(team_id=self.team.id, name="A")
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            self._run_query(select=["name"], metrics=["count()", "sum(does_not_exist)"])
+        message = str(ctx.exception)
+        self.assertIn("sum(does_not_exist)", message)
+        # The healthy metric should not be blamed.
+        self.assertNotIn("`count()`", message)
 
     def test_filter_expression_narrows_the_row_set(self):
         create_account(team_id=self.team.id, name="A", _properties={"score": 80})

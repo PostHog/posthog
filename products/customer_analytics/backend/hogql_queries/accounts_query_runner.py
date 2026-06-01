@@ -1,9 +1,11 @@
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
@@ -231,14 +233,14 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
 
     def _compute_metrics_results(self, metrics: list[str]) -> list[float | int | None]:
-        response = execute_hogql_query(
-            query_type="AccountsMetricsQuery",
-            query=self._to_metrics_query(metrics),
-            team=self.team,
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-        )
+        try:
+            response = self._execute_metrics_query(metrics)
+        except (InternalCHQueryError, BaseHogQLError) as error:
+            # The overview tile metrics ride on the same request as the row
+            # query, so a single bad metric otherwise surfaces as an opaque
+            # "ClickHouse error" with no clue which tile caused it. Pinpoint the
+            # offending expression(s) and re-raise something actionable.
+            raise self._metric_evaluation_error(metrics, error) from error
 
         row = response.results[0] if response.results else []
         metrics_results: list[float | int | None] = [
@@ -247,3 +249,36 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         while len(metrics_results) < len(metrics):
             metrics_results.append(None)
         return metrics_results
+
+    def _execute_metrics_query(self, metrics: list[str]):
+        return execute_hogql_query(
+            query_type="AccountsMetricsQuery",
+            query=self._to_metrics_query(metrics),
+            team=self.team,
+            user=self.user,
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+
+    def _metric_evaluation_error(self, metrics: list[str], error: Exception) -> ExposedHogQLError:
+        culprits = self._isolate_failing_metrics(metrics) if len(metrics) > 1 else list(metrics)
+        listed = ", ".join(f"`{expr}`" for expr in (culprits or metrics))
+        plural = "s" if len(culprits or metrics) > 1 else ""
+        detail = (
+            f"Could not evaluate overview tile metric{plural}: {listed}. "
+            "Check that any referenced column exists and is numeric "
+            "(data warehouse columns must be synced)."
+        )
+        if isinstance(error, (ExposedHogQLError, ExposedCHQueryError)):
+            detail = f"{detail} {error}"
+        return ExposedHogQLError(detail)
+
+    def _isolate_failing_metrics(self, metrics: list[str]) -> list[str]:
+        """Re-run each metric on its own (error path only) to name the offenders."""
+        failing: list[str] = []
+        for expr in metrics:
+            try:
+                self._execute_metrics_query([expr])
+            except Exception:
+                failing.append(expr)
+        return failing
