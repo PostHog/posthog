@@ -39,19 +39,17 @@ const TRIGGER_MODULES: TriggerModule[] = [chatTrigger, slackTrigger, webhookTrig
  * a PAT" or "shared_secret in X-Acme-Secret header" — not just "uses agent
  * auth, look it up yourself."
  */
-function resolveRouteAuth(kind: RouteAuthKind, specAuth: AgentSpec['auth']): Record<string, string> {
+function resolveRouteAuth(kind: RouteAuthKind, specAuth: AgentSpec['auth']): Record<string, unknown> {
     if (kind === 'public') {
         return { mode: 'public' }
     }
     if (kind === 'slack_signing') {
         return { mode: 'slack_signing', header: 'X-Slack-Signature' }
     }
-    // agent_spec
-    const out: Record<string, string> = { mode: specAuth.mode }
-    if (specAuth.header) {
-        out.header = specAuth.header
-    }
-    return out
+    // agent_spec — expose the accepted modes verbatim. Each mode is an
+    // already-discriminated `{type, ...}` object; clients introspect to
+    // pick a header / token shape they can send.
+    return { modes: specAuth.modes }
 }
 
 export interface BuildAppOpts {
@@ -85,6 +83,15 @@ export interface BuildAppOpts {
      * `integrations` is also set.
      */
     posthogDb?: Pool | null
+    /**
+     * Per-session credential broker. Ingress writes user auth materials
+     * (OAuth bearer, PAT, JWT) here at /run + /send; the runner reads
+     * via `ToolContext.credentials.resolve(target)`. Optional — when
+     * absent each trigger router defaults to a fresh process-local
+     * `MemoryCredentialBroker`, which works for tests that don't share
+     * a broker between processes but loses creds on a worker restart.
+     */
+    credentialBroker?: import('@posthog/agent-shared').CredentialBroker
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -134,6 +141,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         identities: opts.identities,
         integrations: opts.integrations ?? null,
         posthogDb: opts.posthogDb ?? null,
+        broker: opts.credentialBroker,
     }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

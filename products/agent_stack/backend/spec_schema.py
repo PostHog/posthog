@@ -255,7 +255,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "auth": {
-            "default": {"modes": [{"type": "public"}]},
+            # Nested object default removed — Orval's codegen stringifies
+            # `[{"type": "public"}]` as `[object Object]` in the generated
+            # zod file. The `modes` field has its own leaf default below,
+            # which is what actually applies in practice.
             "type": "object",
             "properties": {
                 "modes": {

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 30 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -17,7 +17,11 @@ URLs:
     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const AgentApplicationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -41,7 +45,11 @@ URLs:
     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const AgentApplicationsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -846,7 +854,11 @@ URLs:
     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const AgentApplicationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -866,7 +878,11 @@ URLs:
     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const AgentApplicationsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
@@ -897,10 +913,76 @@ URLs:
     GET    /api/projects/<team>/agent_applications/<id|slug>/   retrieve
     PATCH  /api/projects/<team>/agent_applications/<id|slug>/   update
     DELETE /api/projects/<team>/agent_applications/<id|slug>/   archive
-    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/   set env
+    POST   /api/projects/<team>/agent_applications/<id|slug>/set_env/        bulk replace env
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/        list set keys
+    GET    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  is one key set?
+    PUT    /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  set one key
+    DELETE /api/projects/<team>/agent_applications/<id|slug>/env_keys/<KEY>/  clear one key
  */
 export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * List the names of secrets currently set on the application.
+
+Returns names only — values stay server-side under
+`EncryptedTextField`. Use this to drive the "set / unset" badge
+next to a declared secret in the editor UI.
+ */
+export const AgentApplicationsEnvKeysListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name.
+
+- `GET`    → `{ key, is_set }` (never returns the value).
+- `PUT`    → upserts `{ value }` into the env block.
+- `DELETE` → removes the key. No-op when it wasn't set.
+
+Per-method scope: GET is treated as a write action so the
+single action name maps to one consistent scope; reading whether
+a secret is set is restricted to writers in any case.
+ */
+export const AgentApplicationsEnvKeysGetParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * GET / PUT / DELETE one secret by name.
+
+- `GET`    → `{ key, is_set }` (never returns the value).
+- `PUT`    → upserts `{ value }` into the env block.
+- `DELETE` → removes the key. No-op when it wasn't set.
+
+Per-method scope: GET is treated as a write action so the
+single action name maps to one consistent scope; reading whether
+a secret is set is restricted to writers in any case.
+ */
+export const AgentApplicationsEnvKeysClearParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this agent application.'),
+    key: zod
+        .string()
+        .describe('The env variable name. Conventionally UPPER_SNAKE_CASE; the API does not enforce a shape.'),
     project_id: zod
         .string()
         .describe(

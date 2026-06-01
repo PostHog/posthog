@@ -46,9 +46,7 @@ interface ConciergeSpec {
     secrets: string[]
     limits: { max_turns: number; max_tool_calls: number; max_wall_seconds: number }
     auth: {
-        modes?: string[]
-        mode?: string
-        oauth?: { provider: string; scopes: string[] }
+        modes?: Array<Record<string, unknown> & { type: string }>
     }
     reasoning?: string
     resume?: { enabled: boolean; max_completed_age_ms: number }
@@ -132,10 +130,13 @@ describe('example: agent-concierge bundle', () => {
 
     it('accepts oauth + pat + posthog_internal on the same revision', async () => {
         const { spec } = await loadBundle()
-        // Shared deployment serves console (posthog_internal), MCP clients (oauth),
-        // and scripted access (pat) — see plan §3 + §8 multi-mode auth gap.
-        expect(spec.auth.modes).toEqual(expect.arrayContaining(['oauth', 'pat', 'posthog_internal']))
-        expect(spec.auth.oauth?.provider).toBe('posthog')
+        // Shared deployment serves console (posthog_internal), MCP clients
+        // (oauth), and scripted access (pat). Each mode is a discriminated
+        // variant in the new `auth.modes[]` shape.
+        const modeTypes = (spec.auth.modes ?? []).map((m) => m.type)
+        expect(modeTypes).toEqual(expect.arrayContaining(['oauth', 'pat', 'posthog_internal']))
+        const oauthMode = (spec.auth.modes ?? []).find((m) => m.type === 'oauth')
+        expect(oauthMode?.issuer).toBe('posthog')
     })
 
     it('enables resume so multi-step flows can span days', async () => {

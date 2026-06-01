@@ -21,6 +21,18 @@ import {
     memoryWriteV1,
 } from './tools/memory'
 import { endSessionTool, endTurnTool, emitEventTool } from './tools/meta'
+import {
+    posthogAgentApplicationsListV1,
+    posthogAgentApplicationsRetrieveV1,
+    posthogAgentApplicationsRevisionsFileV1,
+    posthogAgentApplicationsRevisionsListV1,
+    posthogAgentApplicationsRevisionsManifestV1,
+    posthogAgentApplicationsRevisionsRetrieveV1,
+    posthogAgentApplicationsRevisionsSystemPromptV1,
+    posthogAgentApplicationsSessionLogsV1,
+    posthogAgentApplicationsSessionsListV1,
+    posthogAgentApplicationsSessionsRetrieveV1,
+} from './tools/posthog-agent-management.v1'
 import { posthogPersonsSearchV1 } from './tools/posthog-persons-search.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import {
@@ -35,6 +47,16 @@ import { webSearchV1 } from './tools/web-search.v1'
 
 export const ALL_TOOLS: NativeTool[] = [
     posthogQueryV1,
+    posthogAgentApplicationsListV1,
+    posthogAgentApplicationsRetrieveV1,
+    posthogAgentApplicationsRevisionsListV1,
+    posthogAgentApplicationsRevisionsRetrieveV1,
+    posthogAgentApplicationsRevisionsSystemPromptV1,
+    posthogAgentApplicationsRevisionsManifestV1,
+    posthogAgentApplicationsRevisionsFileV1,
+    posthogAgentApplicationsSessionsListV1,
+    posthogAgentApplicationsSessionsRetrieveV1,
+    posthogAgentApplicationsSessionLogsV1,
     posthogPersonsSearchV1,
     slackPostMessageV1,
     slackUpdateMessageV1,

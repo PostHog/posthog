@@ -66,6 +66,29 @@ async function postJson<TBody, TResult>(url: string, body: TBody): Promise<TResu
     return (await res.json()) as TResult
 }
 
+async function putJson<TBody, TResult>(url: string, body: TBody): Promise<TResult> {
+    const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+        throw new ApiError(res.status, await safeError(res))
+    }
+    return (await res.json()) as TResult
+}
+
+async function deleteJson<TResult>(url: string): Promise<TResult> {
+    const res = await fetch(url, {
+        method: 'DELETE',
+        headers: { Accept: 'application/json' },
+    })
+    if (!res.ok) {
+        throw new ApiError(res.status, await safeError(res))
+    }
+    return (await res.json()) as TResult
+}
+
 async function safeError(res: Response): Promise<string> {
     try {
         const body = (await res.json()) as { error?: string; detail?: string }
@@ -99,6 +122,48 @@ export async function listAgents(
 
 export async function getAgent(teamId: number, slug: string): Promise<AgentApplicationFixture> {
     return getJson<AgentApplicationFixture>(posthogUrl(teamId, `/agent_applications/${encodeURIComponent(slug)}/`))
+}
+
+/* ── Env / secrets (per-key REST) ────────────────────────────────── */
+
+/**
+ * Per-key REST surface for the encrypted env block. The server never
+ * returns decrypted values — only key names and set/unset status. The
+ * concierge agent uses these in tandem with `buildSecretEditUrl()` so it
+ * can either (a) call a client tool that opens the editor, or (b) hand a
+ * deep link to the user and react when the same-page callback fires.
+ *
+ * Mirrors:
+ *   GET    /agent_applications/<slug>/env_keys/
+ *   GET    /agent_applications/<slug>/env_keys/<KEY>/
+ *   PUT    /agent_applications/<slug>/env_keys/<KEY>/
+ *   DELETE /agent_applications/<slug>/env_keys/<KEY>/
+ */
+export interface EnvKeyStatus {
+    key: string
+    is_set: boolean
+}
+
+function envKeysUrl(teamId: number, slug: string, key?: string): string {
+    const base = `/agent_applications/${encodeURIComponent(slug)}/env_keys/`
+    return posthogUrl(teamId, key ? `${base}${encodeURIComponent(key)}/` : base)
+}
+
+export async function listEnvKeys(teamId: number, slug: string): Promise<string[]> {
+    const res = await getJson<{ keys: string[] }>(envKeysUrl(teamId, slug))
+    return res.keys
+}
+
+export async function getEnvKey(teamId: number, slug: string, key: string): Promise<EnvKeyStatus> {
+    return getJson<EnvKeyStatus>(envKeysUrl(teamId, slug, key))
+}
+
+export async function setEnvKey(teamId: number, slug: string, key: string, value: string): Promise<EnvKeyStatus> {
+    return putJson<{ value: string }, EnvKeyStatus>(envKeysUrl(teamId, slug, key), { value })
+}
+
+export async function clearEnvKey(teamId: number, slug: string, key: string): Promise<EnvKeyStatus> {
+    return deleteJson<EnvKeyStatus>(envKeysUrl(teamId, slug, key))
 }
 
 /* ── Revisions ───────────────────────────────────────────────────── */
@@ -872,4 +937,27 @@ export async function deleteMemoryFile(teamId: number, slug: string, path: strin
     if (!res.ok) {
         throw new ApiError(res.status, await safeError(res))
     }
+}
+
+/* ── Native tools catalog ─────────────────────────────────────────── */
+
+/** Mirror of `NativeToolCatalogEntry` on the runner side. `schema.args`
+ *  and `schema.returns` are TypeBox schemas — opaque JSON to this client. */
+export interface NativeToolCatalogEntry {
+    id: string
+    schema: {
+        description: string
+        args: unknown
+        returns: unknown
+        requires: {
+            integrations: string[]
+            scopes: string[]
+        }
+        cost_hint: 'cheap' | 'medium' | 'expensive'
+    }
+}
+
+export async function listNativeTools(teamId: number): Promise<NativeToolCatalogEntry[]> {
+    const res = await getJson<{ tools: NativeToolCatalogEntry[] }>(posthogUrl(teamId, '/agent_native_tools/'))
+    return res.tools
 }

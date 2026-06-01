@@ -18,9 +18,9 @@
 'use client'
 
 import { ChevronDownIcon, ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon, SearchIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { usePersistedWidth } from '@/lib/usePersistedWidth'
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@posthog/quill'
 
 export interface FileTreeNode {
     type: 'file' | 'folder'
@@ -70,11 +70,11 @@ export interface FileExplorerProps {
     /** Pre-tree async state. */
     loading?: boolean
     error?: Error | null
-    /** Initial left column width in px (used until the persisted value loads). Default 240. */
+    /** Initial left column width in px (used the first time, before any persisted layout exists). */
     leftWidth?: number
     /**
-     * Minimum + maximum drag bounds for the left pane, in px.
-     * Defaults to a sensible 180–480 range.
+     * Minimum + maximum drag bounds for the left pane, in px. Passed to
+     * the underlying Quill `<ResizablePanel>` as `minSize` / `maxSize`.
      */
     leftMin?: number
     leftMax?: number
@@ -85,14 +85,19 @@ export interface FileExplorerProps {
      */
     storageKey: string
     /**
-     * Outer wrapper height. Defaults to viewport-minus-padding so the
-     * explorer never exceeds the window, but is comfortably tall on
-     * large monitors. Both panes scroll independently within this
-     * bound. Override with `'h-full'` (or any Tailwind class string)
-     * when the parent already owns the height budget.
+     * Outer wrapper height as a raw CSS value (e.g. `'calc(100vh - 6rem)'`,
+     * `'600px'`, `'100%'`). Defaults to viewport-minus-padding so the
+     * explorer never exceeds the window. Passed as an inline `style`
+     * because react-resizable-panels sets `height: 100%` inline on the
+     * underlying group element, which would beat any `h-*` class.
      */
     height?: string
 }
+
+type Layout = Record<string, number>
+
+const LEFT_PANEL_ID = 'left'
+const RIGHT_PANEL_ID = 'right'
 
 export function FileExplorer({
     tree,
@@ -108,71 +113,115 @@ export function FileExplorer({
     leftMin = 180,
     leftMax = 480,
     storageKey,
-    height = 'h-[calc(100vh-6rem)]',
+    height = 'calc(100vh - 6rem)',
 }: FileExplorerProps): React.ReactElement {
     const searching = !!search && search.query.trim().length > 0
-    const { width, onResizeStart, isResizing } = usePersistedWidth({
-        storageKey,
-        defaultWidth: leftWidth,
-        min: leftMin,
-        max: leftMax,
-    })
+
+    // The Quill primitives are built on react-resizable-panels v4, which
+    // wants `defaultLayout` at mount and emits `onLayoutChanged` afterwards.
+    // We hydrate from localStorage on mount so SSR + first paint use the
+    // fallback; the panel group then mounts with the real layout.
+    const [layout, setLayout] = useState<Layout | null>(null)
+
+    useEffect(() => {
+        const fallback: Layout = { [LEFT_PANEL_ID]: leftWidth, [RIGHT_PANEL_ID]: 1000 }
+        if (typeof window === 'undefined') {
+            setLayout(fallback)
+            return
+        }
+        try {
+            const raw = window.localStorage.getItem(storageKey)
+            if (raw) {
+                const parsed = JSON.parse(raw) as unknown
+                if (isLayout(parsed)) {
+                    setLayout(parsed)
+                    return
+                }
+            }
+        } catch {
+            // Corrupt entry / blocked storage — keep the fallback.
+        }
+        setLayout(fallback)
+    }, [storageKey, leftWidth])
+
+    if (!layout) {
+        // One paint of an empty card while we read storage. Avoids the
+        // alternative of mounting with the fallback then remounting with
+        // the hydrated layout, which would flash.
+        return <div className="rounded-md border border-border bg-card" style={{ height }} aria-hidden />
+    }
+
+    const onLayoutChanged = (next: Layout): void => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        try {
+            window.localStorage.setItem(storageKey, JSON.stringify(next))
+        } catch {
+            // Quota / disabled storage — layout stays in memory only.
+        }
+    }
 
     return (
-        <div
-            className={`grid overflow-hidden rounded-md border border-border bg-card ${height}`}
-            style={{ gridTemplateColumns: `${width}px 4px minmax(0, 1fr)` }}
+        <ResizablePanelGroup
+            orientation="horizontal"
+            defaultLayout={layout}
+            onLayoutChanged={onLayoutChanged}
+            className="overflow-hidden rounded-md border border-border bg-card"
+            style={{ height }}
         >
-            <div className="flex flex-col bg-muted/20">
-                {(search || topAction) && (
-                    <div className="space-y-2 border-b border-border bg-muted/30 px-2 py-2">
-                        {search ? (
-                            <div className="relative">
-                                <SearchIcon className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-                                <input
-                                    type="search"
-                                    value={search.query}
-                                    onChange={(e) => search.onChange(e.currentTarget.value)}
-                                    placeholder={search.placeholder ?? 'Search…'}
-                                    className="h-7 w-full rounded border border-input bg-background pl-7 pr-2 text-xs"
-                                />
-                            </div>
-                        ) : null}
-                        {topAction ? <div>{topAction}</div> : null}
-                    </div>
-                )}
-                <div className="flex-1 overflow-y-auto py-1.5">
-                    {loading ? (
-                        <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
-                    ) : error ? (
-                        <div className="px-3 py-2 text-xs text-destructive-foreground">{error.message}</div>
-                    ) : searching ? (
-                        <SearchResultsList
-                            results={search!.results ?? []}
-                            loading={search!.loading}
-                            selectedPath={selectedPath}
-                            onSelectPath={onSelectPath}
-                        />
-                    ) : tree && tree.children && tree.children.length > 0 ? (
-                        <TreeView node={tree} selected={selectedPath} onSelect={onSelectPath} depth={0} />
-                    ) : (
-                        <div className="px-3 py-2 text-xs text-muted-foreground">{emptyMessage}</div>
+            <ResizablePanel id={LEFT_PANEL_ID} minSize={`${leftMin}px`} maxSize={`${leftMax}px`}>
+                <div className="flex h-full flex-col bg-muted/20">
+                    {(search || topAction) && (
+                        <div className="space-y-2 border-b border-border bg-muted/30 px-2 py-2">
+                            {search ? (
+                                <div className="relative">
+                                    <SearchIcon className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                                    <input
+                                        type="search"
+                                        value={search.query}
+                                        onChange={(e) => search.onChange(e.currentTarget.value)}
+                                        placeholder={search.placeholder ?? 'Search…'}
+                                        className="h-7 w-full rounded border border-input bg-background pl-7 pr-2 text-xs"
+                                    />
+                                </div>
+                            ) : null}
+                            {topAction ? <div>{topAction}</div> : null}
+                        </div>
                     )}
+                    <div className="flex-1 overflow-y-auto py-1.5">
+                        {loading ? (
+                            <div className="px-3 py-2 text-xs text-muted-foreground">Loading…</div>
+                        ) : error ? (
+                            <div className="px-3 py-2 text-xs text-destructive-foreground">{error.message}</div>
+                        ) : searching ? (
+                            <SearchResultsList
+                                results={search!.results ?? []}
+                                loading={search!.loading}
+                                selectedPath={selectedPath}
+                                onSelectPath={onSelectPath}
+                            />
+                        ) : tree && tree.children && tree.children.length > 0 ? (
+                            <TreeView node={tree} selected={selectedPath} onSelect={onSelectPath} depth={0} />
+                        ) : (
+                            <div className="px-3 py-2 text-xs text-muted-foreground">{emptyMessage}</div>
+                        )}
+                    </div>
                 </div>
-            </div>
-            <div
-                role="separator"
-                aria-orientation="vertical"
-                tabIndex={-1}
-                onMouseDown={onResizeStart}
-                className={
-                    'group/handle h-full cursor-col-resize bg-border/60 transition-colors hover:bg-foreground/30 ' +
-                    (isResizing ? 'bg-foreground/40' : '')
-                }
-            />
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">{children}</div>
-        </div>
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel id={RIGHT_PANEL_ID}>
+                <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">{children}</div>
+            </ResizablePanel>
+        </ResizablePanelGroup>
     )
+}
+
+function isLayout(value: unknown): value is Layout {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    return Object.values(value as Record<string, unknown>).every((v) => typeof v === 'number' && Number.isFinite(v))
 }
 
 function TreeView({

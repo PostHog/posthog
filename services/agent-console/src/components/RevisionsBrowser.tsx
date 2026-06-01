@@ -20,7 +20,7 @@
 
 'use client'
 
-import { ChevronDownIcon, PlayIcon, SearchIcon } from 'lucide-react'
+import { ArchiveIcon, ChevronDownIcon, PlayIcon, SearchIcon, UserIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
@@ -28,7 +28,15 @@ import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/age
 import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { useSessionTeamId } from '@/components/session-context'
-import { ApiError, archiveRevision, freezeRevision, getBundle, promoteRevision } from '@/lib/apiClient'
+import {
+    ApiError,
+    archiveRevision,
+    freezeRevision,
+    getBundle,
+    listNativeTools,
+    promoteRevision,
+    type NativeToolCatalogEntry,
+} from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 
 import { BundleTree } from './BundleTree'
@@ -64,6 +72,10 @@ function stateTone(state: AgentRevisionFixture['state'], isLive: boolean): { dot
         default:
             return { dotClass: 'bg-muted-foreground/40', label: state }
     }
+}
+
+function formatDate(iso: string): string {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium' })
 }
 
 function formatRelative(iso: string): string {
@@ -224,6 +236,15 @@ export function RevisionsBrowser({
     const bundleLoading = bundleRes.loading
     const bundleError = bundleRes.error
 
+    // Native tools catalog: team-scoped, doesn't change per revision. Tolerate
+    // missing janitor in dev — the config view still works without the
+    // detail dialog data.
+    const nativeToolsRes = useResource(
+        () => listNativeTools(teamId).catch(() => [] as NativeToolCatalogEntry[]),
+        [teamId]
+    )
+    const nativeToolCatalog = nativeToolsRes.data ?? []
+
     if (sortedRevisions.length === 0) {
         return (
             <p className="rounded-md border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
@@ -242,70 +263,44 @@ export function RevisionsBrowser({
             <div className="min-w-0 space-y-4">
                 {selected ? (
                     <>
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                            <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
-                                <PopoverTrigger
-                                    render={
-                                        <button
-                                            type="button"
-                                            className="inline-flex h-8 cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium hover:bg-accent"
-                                        />
-                                    }
-                                >
-                                    <span className="inline-flex items-center gap-1.5">
-                                        <span
-                                            className={`inline-flex h-1.5 w-1.5 rounded-full ${stateTone(selected.state, selected.id === agent.live_revision).dotClass}`}
-                                            aria-hidden
-                                        />
-                                        <span className="font-medium text-foreground">
-                                            {selected.id === agent.live_revision ? 'live' : selected.state}
-                                        </span>
-                                    </span>
-                                    <span className="text-muted-foreground/60">·</span>
-                                    <code className="text-[0.6875rem] text-muted-foreground">
-                                        {shortId(selected.id)}
-                                    </code>
-                                    <ChevronDownIcon className="ml-1 h-3 w-3 text-muted-foreground" />
-                                </PopoverTrigger>
-                                <PopoverContent side="bottom" align="start" sideOffset={6} className="w-80 p-0">
-                                    <RevisionPicker
-                                        agent={agent}
-                                        visibleRevisions={visibleRevisions}
-                                        totalCount={sortedRevisions.length}
-                                        selectedId={selected.id}
-                                        query={query}
-                                        onQueryChange={setQuery}
-                                        activeFilters={activeFilters}
-                                        onToggleFilter={toggleFilter}
-                                        onPick={onPickRevision}
-                                    />
-                                </PopoverContent>
-                            </Popover>
-                            <RevisionActions
-                                revision={selected}
-                                isLive={selected.id === agent.live_revision}
-                                hasLiveRevision={!!agent.live_revision}
+                        {/*
+                         * Top row: agent-meta + revision picker (left) and
+                         * the revision's config + actions (right). Bundle
+                         * lives below at full width.
+                         */}
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <MetaPanel
+                                agent={agent}
+                                selected={selected}
+                                liveRevision={revisions.find((r) => r.id === agent.live_revision) ?? null}
+                                previewRevision={
+                                    sortedRevisions.find(
+                                        (r) =>
+                                            r.id !== agent.live_revision && (r.state === 'draft' || r.state === 'ready')
+                                    ) ?? null
+                                }
+                                pickerOpen={pickerOpen}
+                                setPickerOpen={setPickerOpen}
+                                visibleRevisions={visibleRevisions}
+                                totalCount={sortedRevisions.length}
+                                query={query}
+                                setQuery={setQuery}
+                                activeFilters={activeFilters}
+                                toggleFilter={toggleFilter}
+                                onPickRevision={onPickRevision}
+                            />
+                            <ConfigPanelCard
+                                agent={agent}
+                                selected={selected}
+                                configView={configView}
+                                setConfigView={setConfigView}
+                                highlightedSection={highlightedSection}
+                                nativeToolCatalog={nativeToolCatalog}
+                                onSelectBundleFile={onSelectBundleFile}
                                 onAction={(action) => requestAction(action, selected)}
                                 onTryDraft={onTryDraft ? () => onTryDraft(selected.id) : undefined}
                             />
                         </div>
-
-                        <Section title="Config" right={<ConfigViewToggle view={configView} onChange={setConfigView} />}>
-                            {configView === 'structured' ? (
-                                <>
-                                    <ConfigPanel
-                                        spec={selected.spec as Record<string, unknown>}
-                                        highlightedSection={highlightedSection}
-                                    />
-                                    <UnstructuredFields
-                                        spec={selected.spec as Record<string, unknown>}
-                                        knownKeys={KNOWN_SPEC_KEYS}
-                                    />
-                                </>
-                            ) : (
-                                <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
-                            )}
-                        </Section>
 
                         <Section title="Bundle">
                             {bundleError ? (
@@ -347,6 +342,227 @@ export function RevisionsBrowser({
                 />
             ) : null}
         </>
+    )
+}
+
+/* ── Top-row cards ──────────────────────────────────────────────── */
+
+function MetaPanel({
+    agent,
+    selected,
+    liveRevision,
+    previewRevision,
+    pickerOpen,
+    setPickerOpen,
+    visibleRevisions,
+    totalCount,
+    query,
+    setQuery,
+    activeFilters,
+    toggleFilter,
+    onPickRevision,
+}: {
+    agent: AgentApplicationFixture
+    selected: AgentRevisionFixture
+    liveRevision: AgentRevisionFixture | null
+    previewRevision: AgentRevisionFixture | null
+    pickerOpen: boolean
+    setPickerOpen: (open: boolean) => void
+    visibleRevisions: AgentRevisionFixture[]
+    totalCount: number
+    query: string
+    setQuery: (q: string) => void
+    activeFilters: Set<StateFilter>
+    toggleFilter: (f: StateFilter) => void
+    onPickRevision: (id: string) => void
+}): React.ReactElement {
+    const isLive = selected.id === agent.live_revision
+    const showLiveLink = !!liveRevision && liveRevision.id !== selected.id
+    const showPreviewLink = !!previewRevision && previewRevision.id !== selected.id
+    return (
+        <section className="flex flex-col overflow-hidden rounded-md border border-border bg-card">
+            <header className="border-b border-border bg-muted/30 px-3 py-2">
+                <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">Agent</h3>
+            </header>
+            <div className="divide-y divide-border">
+                <MetaRow icon={<UserIcon className="h-3 w-3" />} label="Created">
+                    <span className="font-mono text-[0.6875rem]">{agent.created_by.first_name}</span>
+                    <span className="text-muted-foreground/70"> · {formatDate(agent.created_at)}</span>
+                </MetaRow>
+                <MetaRow icon={<ArchiveIcon className="h-3 w-3" />} label="Status">
+                    {agent.archived ? (
+                        <span className="text-warning-foreground">
+                            Archived · {formatDate(agent.archived_at ?? agent.updated_at)}
+                        </span>
+                    ) : (
+                        <span>Active</span>
+                    )}
+                </MetaRow>
+                <div className="px-3 py-2.5">
+                    <div className="mb-1.5 flex items-center justify-between gap-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                        <span>Selected revision</span>
+                        {showLiveLink || showPreviewLink ? (
+                            <span className="flex items-center gap-1 normal-case tracking-normal">
+                                {showLiveLink ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onPickRevision(liveRevision!.id)}
+                                        title={`Switch to live (${shortId(liveRevision!.id)})`}
+                                        className="inline-flex h-5 cursor-pointer items-center gap-1 rounded-full border border-border bg-card px-2 text-[0.625rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                    >
+                                        <span
+                                            className={`inline-flex h-1 w-1 rounded-full ${stateTone('live', true).dotClass}`}
+                                            aria-hidden
+                                        />
+                                        live
+                                    </button>
+                                ) : null}
+                                {showPreviewLink ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => onPickRevision(previewRevision!.id)}
+                                        title={`Switch to ${previewRevision!.state} (${shortId(previewRevision!.id)})`}
+                                        className="inline-flex h-5 cursor-pointer items-center gap-1 rounded-full border border-border bg-card px-2 text-[0.625rem] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                    >
+                                        <span
+                                            className={`inline-flex h-1 w-1 rounded-full ${stateTone(previewRevision!.state, false).dotClass}`}
+                                            aria-hidden
+                                        />
+                                        preview
+                                    </button>
+                                ) : null}
+                            </span>
+                        ) : null}
+                    </div>
+                    <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                        <PopoverTrigger
+                            render={
+                                <button
+                                    type="button"
+                                    className="inline-flex h-8 w-full cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 text-xs font-medium hover:bg-accent"
+                                />
+                            }
+                        >
+                            <span className="inline-flex items-center gap-1.5">
+                                <span
+                                    className={`inline-flex h-1.5 w-1.5 rounded-full ${stateTone(selected.state, isLive).dotClass}`}
+                                    aria-hidden
+                                />
+                                <span className="font-medium text-foreground">{isLive ? 'live' : selected.state}</span>
+                            </span>
+                            <span className="text-muted-foreground/60">·</span>
+                            <code className="text-[0.6875rem] text-muted-foreground">{shortId(selected.id)}</code>
+                            <ChevronDownIcon className="ml-auto h-3 w-3 text-muted-foreground" />
+                        </PopoverTrigger>
+                        <PopoverContent side="bottom" align="start" sideOffset={6} className="w-80 p-0">
+                            <RevisionPicker
+                                agent={agent}
+                                visibleRevisions={visibleRevisions}
+                                totalCount={totalCount}
+                                selectedId={selected.id}
+                                query={query}
+                                onQueryChange={setQuery}
+                                activeFilters={activeFilters}
+                                onToggleFilter={toggleFilter}
+                                onPick={onPickRevision}
+                            />
+                        </PopoverContent>
+                    </Popover>
+                    <div className="mt-2 flex flex-wrap gap-x-2 gap-y-0.5 text-[0.6875rem] text-muted-foreground">
+                        {selected.bundle_sha256 ? (
+                            <span>
+                                sha{' '}
+                                <code className="text-[0.6875rem]">
+                                    {selected.bundle_sha256.split(':').at(-1)?.slice(0, 8)}
+                                </code>
+                            </span>
+                        ) : null}
+                        <span>by {selected.created_by.first_name}</span>
+                        <span>updated {formatRelative(selected.updated_at)}</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+    )
+}
+
+function MetaRow({
+    icon,
+    label,
+    children,
+}: {
+    icon: React.ReactNode
+    label: string
+    children: React.ReactNode
+}): React.ReactElement {
+    return (
+        <div className="flex items-center gap-3 px-3 py-2.5 text-xs">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+                {icon}
+                <span className="text-[0.6875rem] uppercase tracking-wide">{label}</span>
+            </div>
+            <div className="ml-auto truncate text-right">{children}</div>
+        </div>
+    )
+}
+
+function ConfigPanelCard({
+    agent,
+    selected,
+    configView,
+    setConfigView,
+    highlightedSection,
+    nativeToolCatalog,
+    onSelectBundleFile,
+    onAction,
+    onTryDraft,
+}: {
+    agent: AgentApplicationFixture
+    selected: AgentRevisionFixture
+    configView: ConfigView
+    setConfigView: (v: ConfigView) => void
+    highlightedSection?: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
+    nativeToolCatalog?: NativeToolCatalogEntry[]
+    onSelectBundleFile?: (path: string) => void
+    onAction: (action: LifecycleAction) => void
+    onTryDraft?: () => void
+}): React.ReactElement {
+    return (
+        <section className="flex flex-col overflow-hidden rounded-md border border-border bg-card">
+            <header className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2">
+                    <h3 className="text-[0.6875rem] font-medium uppercase tracking-wide text-muted-foreground">
+                        Config
+                    </h3>
+                    <ConfigViewToggle view={configView} onChange={setConfigView} />
+                </div>
+                <RevisionActions
+                    revision={selected}
+                    isLive={selected.id === agent.live_revision}
+                    hasLiveRevision={!!agent.live_revision}
+                    onAction={onAction}
+                    onTryDraft={onTryDraft}
+                />
+            </header>
+            <div className="max-h-[480px] min-h-[280px] flex-1 space-y-3 overflow-auto px-3 py-3">
+                {configView === 'structured' ? (
+                    <>
+                        <ConfigPanel
+                            spec={selected.spec as Record<string, unknown>}
+                            highlightedSection={highlightedSection}
+                            nativeToolCatalog={nativeToolCatalog}
+                            onSelectBundleFile={onSelectBundleFile}
+                        />
+                        <UnstructuredFields
+                            spec={selected.spec as Record<string, unknown>}
+                            knownKeys={KNOWN_SPEC_KEYS}
+                        />
+                    </>
+                ) : (
+                    <JsonView value={selected.spec} defaultView="yaml" expandToLevel={3} />
+                )}
+            </div>
+        </section>
     )
 }
 

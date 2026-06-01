@@ -1,30 +1,42 @@
 /**
  * `<ConfigPanel />` — structured rendering of an agent revision's spec.
  *
- * The bundle (agent.md + skills + tools) renders as a filesystem
- * elsewhere; this panel covers the "knobs" portion of the spec:
- * model, triggers, secrets, limits, auth.
+ * Covers the "knobs" of the spec: model, triggers, tools, mcps, skills,
+ * integrations, secrets, limits, auth. The bundle (agent.md + skill
+ * markdown + custom tool source) renders as a filesystem elsewhere;
+ * clickable rows here cross-link into it.
  *
- * Each row is one config field with a label + value. Triggers render
- * type-aware (cron schedule + tz, slack workspaces, webhook path).
- * Unknown fields fall back to a JsonView so nothing is silently dropped.
+ * Native tool rows open a detail dialog with description + args schema
+ * pulled from the runner's catalog (`/agent_native_tools/`). When a
+ * shared Skills / Tools store ships, the dialog action will pop out to
+ * that catalog.
  */
+
+'use client'
 
 import {
     CalendarClockIcon,
+    CodeIcon,
     GlobeIcon,
     HashIcon,
     KeyIcon,
+    LinkIcon,
     MessageSquareIcon,
+    PuzzleIcon,
+    ServerIcon,
     ShieldIcon,
     SparklesIcon,
     TimerIcon,
     WebhookIcon,
+    WrenchIcon,
     ZapIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import { JsonView } from '@posthog/agent-chat'
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@posthog/quill'
+
+import type { NativeToolCatalogEntry } from '@/lib/apiClient'
 
 export interface ConfigPanelProps {
     spec: Record<string, unknown>
@@ -33,7 +45,58 @@ export interface ConfigPanelProps {
      * scroll target when the dock's focus call lands on a spec section.
      */
     highlightedSection?: 'triggers' | 'tools' | 'skills' | 'secrets' | 'limits' | null
+    /**
+     * Optional native-tool catalog (from `/agent_native_tools/`). When
+     * provided, clicking a native tool row opens a detail dialog with
+     * its description + args schema.
+     */
+    nativeToolCatalog?: NativeToolCatalogEntry[]
+    /**
+     * Navigate to a file inside the revision's bundle. Wired to custom
+     * tool rows (`path` from spec.tools) and skill rows (`path` from
+     * spec.skills).
+     */
+    onSelectBundleFile?: (path: string) => void
 }
+
+interface NativeToolRef {
+    kind: 'native'
+    id: string
+}
+interface CustomToolRef {
+    kind: 'custom'
+    id: string
+    path: string
+}
+interface CustomTemplateToolRef {
+    kind: 'custom_template'
+    id: string
+    from_template: string
+}
+interface ClientToolRef {
+    kind: 'client'
+    id: string
+    description?: string
+    args_schema?: unknown
+}
+type ToolRef = NativeToolRef | CustomToolRef | CustomTemplateToolRef | ClientToolRef
+
+interface SkillRef {
+    id: string
+    path: string
+    description?: string
+}
+
+interface AgentMcpRef {
+    kind: 'agent'
+    slug: string
+}
+interface ExternalMcpRef {
+    kind: 'external'
+    url: string
+    auth?: { integration?: string }
+}
+type McpRef = AgentMcpRef | ExternalMcpRef
 
 interface Trigger {
     type: string
@@ -50,12 +113,25 @@ interface Auth {
     mode?: string
 }
 
-export function ConfigPanel({ spec, highlightedSection }: ConfigPanelProps): React.ReactElement {
+export function ConfigPanel({
+    spec,
+    highlightedSection,
+    nativeToolCatalog,
+    onSelectBundleFile,
+}: ConfigPanelProps): React.ReactElement {
     const model = typeof spec.model === 'string' ? spec.model : undefined
     const triggers = Array.isArray(spec.triggers) ? (spec.triggers as Trigger[]) : []
+    const tools = Array.isArray(spec.tools) ? (spec.tools as ToolRef[]) : []
+    const mcps = Array.isArray(spec.mcps) ? (spec.mcps as McpRef[]) : []
+    const skills = Array.isArray(spec.skills) ? (spec.skills as SkillRef[]) : []
+    const integrations = Array.isArray(spec.integrations) ? (spec.integrations as string[]) : []
     const secrets = Array.isArray(spec.secrets) ? (spec.secrets as string[]) : []
     const limits = (spec.limits && typeof spec.limits === 'object' ? spec.limits : {}) as Limits
     const auth = (spec.auth && typeof spec.auth === 'object' ? spec.auth : {}) as Auth
+    const reasoning = typeof spec.reasoning === 'string' ? spec.reasoning : undefined
+    const entrypoint = typeof spec.entrypoint === 'string' ? spec.entrypoint : undefined
+
+    const [openTool, setOpenTool] = useState<{ kind: 'native' | 'client'; ref: ToolRef } | null>(null)
 
     return (
         <div className="space-y-3">
@@ -74,6 +150,62 @@ export function ConfigPanel({ spec, highlightedSection }: ConfigPanelProps): Rea
                     <div className="flex flex-col gap-1.5">
                         {triggers.map((t, i) => (
                             <TriggerRow key={i} trigger={t} />
+                        ))}
+                    </div>
+                )}
+            </Row>
+
+            <Row label="Tools" icon={<WrenchIcon className="h-3 w-3" />} highlighted={highlightedSection === 'tools'}>
+                {tools.length === 0 ? (
+                    <Empty label="No tools" />
+                ) : (
+                    <div className="flex flex-col gap-1.5">
+                        {tools.map((t, i) => (
+                            <ToolRow
+                                key={`${t.kind}:${t.id}:${i}`}
+                                tool={t}
+                                onNativeClick={(ref) => setOpenTool({ kind: 'native', ref })}
+                                onClientClick={(ref) => setOpenTool({ kind: 'client', ref })}
+                                onCustomClick={(path) => onSelectBundleFile?.(path)}
+                            />
+                        ))}
+                    </div>
+                )}
+            </Row>
+
+            <Row label="MCPs" icon={<ServerIcon className="h-3 w-3" />}>
+                {mcps.length === 0 ? (
+                    <Empty label="None connected" />
+                ) : (
+                    <div className="flex flex-col gap-1.5">
+                        {mcps.map((m, i) => (
+                            <McpRow key={i} mcp={m} />
+                        ))}
+                    </div>
+                )}
+            </Row>
+
+            <Row label="Skills" icon={<PuzzleIcon className="h-3 w-3" />} highlighted={highlightedSection === 'skills'}>
+                {skills.length === 0 ? (
+                    <Empty label="None loaded" />
+                ) : (
+                    <div className="flex flex-col gap-1.5">
+                        {skills.map((s) => (
+                            <SkillRow key={s.id} skill={s} onClick={onSelectBundleFile} />
+                        ))}
+                    </div>
+                )}
+            </Row>
+
+            <Row label="Integrations" icon={<LinkIcon className="h-3 w-3" />}>
+                {integrations.length === 0 ? (
+                    <Empty label="None required" />
+                ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                        {integrations.map((i) => (
+                            <Chip key={i} kind="muted">
+                                {i}
+                            </Chip>
                         ))}
                     </div>
                 )}
@@ -115,6 +247,27 @@ export function ConfigPanel({ spec, highlightedSection }: ConfigPanelProps): Rea
                 <Row label="Auth" icon={<ShieldIcon className="h-3 w-3" />}>
                     <Chip kind="muted">mode: {String(auth.mode)}</Chip>
                 </Row>
+            ) : null}
+
+            {reasoning ? (
+                <Row label="Reasoning" icon={<SparklesIcon className="h-3 w-3" />}>
+                    <Chip kind="muted">{reasoning}</Chip>
+                </Row>
+            ) : null}
+
+            {entrypoint && entrypoint !== 'agent.md' ? (
+                <Row label="Entrypoint" icon={<CodeIcon className="h-3 w-3" />}>
+                    <Chip kind="muted">{entrypoint}</Chip>
+                </Row>
+            ) : null}
+
+            {openTool ? (
+                <ToolDetailDialog
+                    tool={openTool.ref}
+                    kind={openTool.kind}
+                    catalog={nativeToolCatalog}
+                    onClose={() => setOpenTool(null)}
+                />
             ) : null}
         </div>
     )
@@ -168,6 +321,214 @@ function LimitStat({ label, value }: { label: string; value: string }): React.Re
             <span className="font-mono text-sm font-medium text-foreground">{value}</span>
             <span className="text-[0.6875rem] text-muted-foreground">{label}</span>
         </span>
+    )
+}
+
+/* ── Tools / MCPs / Skills ───────────────────────────────────────── */
+
+function ToolRow({
+    tool,
+    onNativeClick,
+    onClientClick,
+    onCustomClick,
+}: {
+    tool: ToolRef
+    onNativeClick: (ref: NativeToolRef) => void
+    onClientClick: (ref: ClientToolRef) => void
+    onCustomClick: (path: string) => void
+}): React.ReactElement {
+    const clickable = tool.kind === 'native' || tool.kind === 'client' || tool.kind === 'custom'
+    const onClick = (): void => {
+        if (tool.kind === 'native') {
+            onNativeClick(tool)
+        } else if (tool.kind === 'client') {
+            onClientClick(tool)
+        } else if (tool.kind === 'custom') {
+            onCustomClick(tool.path)
+        }
+    }
+    return (
+        <RefRow
+            onClick={clickable ? onClick : undefined}
+            kind={tool.kind}
+            primary={<code className="font-mono text-[0.6875rem]">{tool.id}</code>}
+            secondary={
+                tool.kind === 'custom'
+                    ? `bundle: ${tool.path}`
+                    : tool.kind === 'custom_template'
+                      ? `from template ${tool.from_template}`
+                      : tool.kind === 'client'
+                        ? (tool.description ?? 'client-fulfilled')
+                        : undefined
+            }
+        />
+    )
+}
+
+function McpRow({ mcp }: { mcp: McpRef }): React.ReactElement {
+    if (mcp.kind === 'agent') {
+        return (
+            <RefRow
+                kind="agent"
+                primary={<code className="font-mono text-[0.6875rem]">{mcp.slug}</code>}
+                secondary="in-platform agent MCP"
+            />
+        )
+    }
+    return (
+        <RefRow
+            kind="external"
+            primary={<code className="truncate font-mono text-[0.6875rem]">{mcp.url}</code>}
+            secondary={mcp.auth?.integration ? `via integration ${mcp.auth.integration}` : 'no auth'}
+        />
+    )
+}
+
+function SkillRow({ skill, onClick }: { skill: SkillRef; onClick?: (path: string) => void }): React.ReactElement {
+    return (
+        <RefRow
+            onClick={onClick ? () => onClick(skill.path) : undefined}
+            kind="skill"
+            primary={<code className="font-mono text-[0.6875rem]">{skill.id}</code>}
+            secondary={skill.description ?? skill.path}
+        />
+    )
+}
+
+/**
+ * Generic clickable row used by Tool / MCP / Skill lists. The `kind` chip
+ * gives a quick visual disambiguation between e.g. native and custom tools.
+ */
+function RefRow({
+    kind,
+    primary,
+    secondary,
+    onClick,
+}: {
+    kind: string
+    primary: ReactNode
+    secondary?: ReactNode
+    onClick?: () => void
+}): React.ReactElement {
+    const inner = (
+        <>
+            <span className="inline-flex h-4 shrink-0 items-center rounded-full border border-border/60 bg-muted/40 px-1.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                {kind}
+            </span>
+            <div className="min-w-0 flex-1">
+                <div className="truncate">{primary}</div>
+                {secondary ? <div className="truncate text-[0.6875rem] text-muted-foreground">{secondary}</div> : null}
+            </div>
+        </>
+    )
+    if (onClick) {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-accent/60"
+            >
+                {inner}
+            </button>
+        )
+    }
+    return (
+        <div className="flex items-start gap-2 rounded-md border border-border/60 bg-muted/20 px-2.5 py-1.5 text-xs">
+            {inner}
+        </div>
+    )
+}
+
+/* ── Tool detail dialog ─────────────────────────────────────────── */
+
+function ToolDetailDialog({
+    tool,
+    kind,
+    catalog,
+    onClose,
+}: {
+    tool: ToolRef
+    kind: 'native' | 'client'
+    catalog?: NativeToolCatalogEntry[]
+    onClose: () => void
+}): React.ReactElement {
+    const native = kind === 'native' && tool.kind === 'native' ? catalog?.find((e) => e.id === tool.id) : undefined
+    const description =
+        kind === 'client' && tool.kind === 'client' ? (tool.description ?? '') : (native?.schema.description ?? '')
+    const args = kind === 'client' && tool.kind === 'client' ? tool.args_schema : native?.schema.args
+    const returns = native?.schema.returns
+    const requires = native?.schema.requires
+    const costHint = native?.schema.cost_hint
+    const sourceHint =
+        kind === 'native' && !native
+            ? 'Native tool catalog not loaded — details unavailable until /agent_native_tools/ resolves.'
+            : null
+
+    return (
+        <Dialog open onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                    <DialogTitle className="font-mono text-sm">{tool.id}</DialogTitle>
+                    <DialogDescription className="flex items-center gap-2 text-xs">
+                        <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                            {kind}
+                        </span>
+                        {costHint ? (
+                            <span className="rounded-full border border-border/60 bg-muted/40 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+                                {costHint}
+                            </span>
+                        ) : null}
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogBody render={<div />} className="space-y-4 py-4 text-sm">
+                    {sourceHint ? (
+                        <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                            {sourceHint}
+                        </p>
+                    ) : null}
+                    {description ? <p className="text-foreground/90">{description}</p> : null}
+                    {requires && (requires.integrations.length > 0 || requires.scopes.length > 0) ? (
+                        <div className="space-y-1.5">
+                            <h4 className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">Requires</h4>
+                            <div className="flex flex-wrap gap-1.5 text-xs">
+                                {requires.integrations.map((i) => (
+                                    <Chip key={`int:${i}`} kind="muted">
+                                        integration: {i}
+                                    </Chip>
+                                ))}
+                                {requires.scopes.map((s) => (
+                                    <Chip key={`scope:${s}`} kind="muted">
+                                        scope: {s}
+                                    </Chip>
+                                ))}
+                            </div>
+                        </div>
+                    ) : null}
+                    {args ? (
+                        <div className="space-y-1.5">
+                            <h4 className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+                                Arguments
+                            </h4>
+                            <div className="rounded-md border border-border bg-muted/20 p-2">
+                                <JsonView value={args} expandToLevel={2} />
+                            </div>
+                        </div>
+                    ) : null}
+                    {returns ? (
+                        <div className="space-y-1.5">
+                            <h4 className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">Returns</h4>
+                            <div className="rounded-md border border-border bg-muted/20 p-2">
+                                <JsonView value={returns} expandToLevel={1} />
+                            </div>
+                        </div>
+                    ) : null}
+                    <p className="text-[0.6875rem] italic text-muted-foreground">
+                        A future Skills / Tools store will host catalog-style browsing and richer examples; today this
+                        dialog reads `/agent_native_tools/` directly.
+                    </p>
+                </DialogBody>
+            </DialogContent>
+        </Dialog>
     )
 }
 

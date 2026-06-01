@@ -34,10 +34,12 @@ import {
     AgentRevision,
     AgentSpecSchema,
     buildTestStore as buildMemoryTestStore,
+    CredentialBroker,
     FsBundleStore,
     InProcessSandboxPool,
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
+    PgCredentialBroker,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -72,6 +74,7 @@ export interface Cluster {
     identities: IdentityStore
     logs: InMemoryLogSink
     sandboxes: InProcessSandboxPool
+    credentialBroker: CredentialBroker
     sandboxInstances: PgSandboxInstanceStore
     broker: SecretBroker
     /**
@@ -167,6 +170,17 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const sandboxInstances = new PgSandboxInstanceStore(pool)
     const approvals = new PgApprovalStore(pool)
     const broker = new SecretBroker()
+    // Real PG-backed credential broker — matches what prod runs. Mocking
+    // this with an in-memory map would let test-only behavior diverge
+    // from the real SQL path (per the harness CLAUDE.md "no fakes for
+    // the persistence layer" rule).
+    // Deterministic per-cluster key — encryption is the real path even
+    // in tests so the encrypt/decrypt round-trip is exercised.
+    // EncryptedFields expects a 32-byte UTF-8 string (same constraint
+    // production uses; matches `pg-impls.test.ts`).
+    const credentialBroker = new PgCredentialBroker(pool, {
+        encryptionSaltKeys: '01234567890123456789012345678901',
+    })
     // Real S3 (MinIO) memory store with a per-cluster random prefix —
     // teardown wipes it. Failing here means MinIO isn't up; fix the dev
     // stack rather than mocking around it.
@@ -196,6 +210,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxes,
         sandboxInstances,
         broker,
+        credentialBroker,
         bus,
         logs,
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
@@ -219,6 +234,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         slackSigningSecret: opts.slackSigningSecret,
         authProvider: opts.authProvider,
         identities,
+        credentialBroker,
     })
 
     const janitor = buildJanitorApp({
@@ -243,6 +259,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         logs,
         sandboxes,
         broker,
+        credentialBroker,
         memoryStore,
         model,
         ingress,

@@ -20,6 +20,7 @@ import {
     EncryptedFields,
     installProcessHandlers,
     MemorySessionEventBus,
+    PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
@@ -29,6 +30,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { loadAgentIngressConfig } from './config'
+import { buildDefaultVerifiers, defaultPosthogIntrospector } from './enqueue/verifiers'
 import { buildApp } from './routing/server'
 
 const log = createLogger('agent-ingress')
@@ -51,11 +53,28 @@ async function main(): Promise<void> {
     }
 
     // Slack → PostHog user bridge needs the integration store to fetch the
-    // workspace bot token for `users.info`. Encryption is required to decrypt
-    // sensitive_config; when it's not configured (dev / CI) the bridge is
-    // simply absent and AgentUser.posthog_user_id stays null.
+    // workspace bot token for `users.info`. Construction throws if
+    // encryption isn't configured — fail-fast at boot rather than first
+    // tool call.
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
-    const integrations = encryption.isConfigured ? new PgIntegrationStore(posthogDb, encryption) : null
+    const integrations = new PgIntegrationStore(posthogDb, encryption)
+
+    // Per-mode auth verifiers. The introspector validates OAuth + PAT
+    // bearers against PostHog's `/api/users/@me/` (covers both token
+    // types). JWT verification needs an `issuer_secret_ref` resolver to
+    // pull the embedding party's secret from the agent's encrypted env —
+    // wired below.
+    const introspector = defaultPosthogIntrospector({ baseUrl: config.posthogApiBaseUrl })
+    const authProvider = {
+        verifiers: buildDefaultVerifiers({ introspector }),
+    }
+    // Encrypted-at-rest credential broker (separate row per session,
+    // Fernet-encrypted by the same EncryptedFields helper as
+    // `AgentApplication.encrypted_env`). Required for any non-public
+    // auth mode — construction throws if encryption isn't configured.
+    const credentialBroker = new PgCredentialBroker(agentDb, {
+        encryptionSaltKeys: config.encryptionSaltKeys,
+    })
 
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
@@ -70,6 +89,8 @@ async function main(): Promise<void> {
         previewSecret: config.previewSecret,
         integrations,
         posthogDb,
+        authProvider,
+        credentialBroker,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port, bus: bus.constructor.name }, 'listening')

@@ -37,6 +37,7 @@ import {
     MemoryStore,
     NoopAnalyticsSink,
     NoopSessionEventBus,
+    PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
     PgRevisionStore,
@@ -76,28 +77,24 @@ async function main(): Promise<void> {
     const defaultApiKey = defaultApiKeyFromConfig(config)
     const revisions = new PgRevisionStore(posthogDb)
 
-    // Build the resolveSecrets path. If ENCRYPTION_SALT_KEYS is set, decrypt
-    // AgentApplication.encrypted_env via Fernet (matches Django). Otherwise
-    // start with no secrets — dev / CI is happy without encryption configured.
+    // Encryption is required at boot now — constructor throws on empty
+    // keys. Dev gets a deterministic default via `isDev()` in platform
+    // config; prod must set ENCRYPTION_SALT_KEYS explicitly.
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
-    const resolveSecrets = encryption.isConfigured
-        ? makeEncryptedEnvResolver({ revisions, encryption })
-        : async () => ({})
+    const resolveSecrets = makeEncryptedEnvResolver({ revisions, encryption })
 
     // Integration credentials live in PostHog's existing `posthog_integration`
     // table (the same one Settings → Integrations writes to and HogFunctions
-    // read from). When encryption isn't configured the store can't decrypt
-    // sensitive_config — the resolver falls back to an empty map so dev
-    // without integrations keeps working. See
-    // services/agent-shared/src/persistence/integration-store.ts.
-    const integrations = encryption.isConfigured ? new PgIntegrationStore(posthogDb, encryption) : null
-    const resolveIntegrations = integrations
-        ? async (session: { team_id: number; revision_id: string }) => {
-              const rev = await revisions.getRevision(session.revision_id)
-              const kinds = rev?.spec?.integrations ?? []
-              return integrations.resolveForSpec(session.team_id, kinds)
-          }
-        : async () => ({})
+    // read from). Unconditionally wired now that encryption is required.
+    const integrations = new PgIntegrationStore(posthogDb, encryption)
+    const resolveIntegrations = async (session: {
+        team_id: number
+        revision_id: string
+    }): Promise<Awaited<ReturnType<typeof integrations.resolveForSpec>>> => {
+        const rev = await revisions.getRevision(session.revision_id)
+        const kinds = rev?.spec?.integrations ?? []
+        return integrations.resolveForSpec(session.team_id, kinds)
+    }
 
     // Cross-process event bus. With REDIS_URL set, ingress /listen on host A
     // sees events published by a runner on host B. Without it the runner
@@ -187,6 +184,14 @@ async function main(): Promise<void> {
         log.warn({}, 'memory.s3.disabled — set AGENT_MEMORY_S3_BUCKET + AGENT_MEMORY_S3_ENDPOINT to enable')
     }
 
+    // Per-session credential broker — same shape ingress writes to.
+    // Required for any non-public auth mode (e.g. the concierge's
+    // oauth/pat). Construction throws if encryption isn't configured —
+    // fail-fast at boot.
+    const credentialBroker = new PgCredentialBroker(agentDb, {
+        encryptionSaltKeys: config.encryptionSaltKeys,
+    })
+
     const worker = new Worker({
         queue: new PgSessionQueue(agentDb),
         revisions,
@@ -194,6 +199,7 @@ async function main(): Promise<void> {
         sandboxes: selectSandboxPool(),
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
         broker: new SecretBroker(),
+        credentialBroker,
         bus,
         logs: logSink,
         resolveIntegrations,

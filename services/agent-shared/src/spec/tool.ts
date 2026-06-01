@@ -18,6 +18,7 @@
 import { Static, TSchema, Type } from 'typebox'
 
 import type { MemoryStore } from '../memory/store'
+import type { Credential } from '../runtime/credential-broker'
 
 export type { Static, TSchema }
 
@@ -68,6 +69,16 @@ export interface ToolContext {
      * `InMemoryMemoryStore` directly.
      */
     memoryStore?: MemoryStore
+    /**
+     * Resolve a per-session credential by target name. Set by ingress at
+     * /run + /send (see `CredentialBroker`); returns null when the broker
+     * isn't wired or the target isn't bound. Convention names:
+     *   - `posthog_api` — bearer for calling PostHog APIs as the user
+     *   - `self`        — raw auth proof + claims (jwt mode)
+     */
+    credentials?: {
+        resolve(target: string): Promise<Credential | null>
+    }
 }
 
 export interface IntegrationCredentials {

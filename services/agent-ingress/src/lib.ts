@@ -12,6 +12,7 @@
 export * from '@posthog/agent-shared'
 export * from './enqueue/auth'
 export * from './enqueue/enqueue'
+export * from './enqueue/verifiers'
 export * from './routing/resolver'
 export * from './routing/server'
 export * from './triggers/chat'

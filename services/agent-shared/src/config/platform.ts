@@ -25,6 +25,31 @@
 
 import { z } from 'zod'
 
+/**
+ * "Is this a dev/test process?" Lets us provide ergonomic dev defaults
+ * (encryption keys, local Django URL, …) without forcing every dev to
+ * remember to set them, while staying strictly fail-closed in prod.
+ *
+ * Rule: dev = `NODE_ENV !== 'production'`. Production deployments
+ * always have `NODE_ENV=production` set; everything else (local dev,
+ * vitest, CI test runners) is dev.
+ */
+export function isDev(env: NodeJS.ProcessEnv = process.env): boolean {
+    return env.NODE_ENV !== 'production'
+}
+
+/**
+ * Dev-only Fernet key — 32 UTF-8 bytes, matches the convention in
+ * `agent-shared/src/persistence/pg-impls.test.ts`. **Never used in
+ * production**: the dev default is gated by `isDev()` at schema-default
+ * time. A prod deploy with `NODE_ENV=production` and `ENCRYPTION_SALT_KEYS`
+ * unset fails closed (empty key → encryption-requiring components
+ * refuse to start).
+ */
+const DEV_ENCRYPTION_KEY = '00beef0000beef0000beef0000beef00'
+
+const DEV_POSTHOG_API_BASE_URL = 'http://localhost:8010'
+
 export const PlatformConfigSchema = z.object({
     posthogDbUrl: z
         .string()
@@ -52,9 +77,15 @@ export const PlatformConfigSchema = z.object({
         ),
     encryptionSaltKeys: z
         .string()
-        .default('')
+        .default(isDev() ? DEV_ENCRYPTION_KEY : '')
         .describe(
-            'Comma-separated UTF-8 Fernet keys. Matches Django EncryptedTextField. When unset, secret resolvers are noops.'
+            'Comma-separated UTF-8 Fernet keys (32 bytes each). Matches Django EncryptedTextField. In dev (NODE_ENV != production) defaults to a deterministic test key so the credential broker + encrypted env work out of the box. In prod, MUST be set explicitly — empty value → encryption-requiring components fail closed.'
+        ),
+    posthogApiBaseUrl: z
+        .string()
+        .default(isDev() ? DEV_POSTHOG_API_BASE_URL : '')
+        .describe(
+            'Base URL for the PostHog API the oauth/pat verifiers introspect against. Dev defaults to localhost:8010; prod must set explicitly (e.g. https://app.posthog.com).'
         ),
     kafkaHosts: z
         .string()
@@ -80,6 +111,7 @@ export const PLATFORM_ENV_KEY_MAP: Record<string, keyof PlatformConfig> = {
     AGENT_BUNDLE_ROOT: 'bundleRoot',
     REDIS_URL: 'redisUrl',
     ENCRYPTION_SALT_KEYS: 'encryptionSaltKeys',
+    POSTHOG_API_BASE_URL: 'posthogApiBaseUrl',
     KAFKA_HOSTS: 'kafkaHosts',
     LOG_LEVEL: 'logLevel',
 }

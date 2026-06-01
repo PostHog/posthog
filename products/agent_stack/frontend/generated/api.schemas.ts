@@ -138,16 +138,6 @@ export const AgentRevisionStateEnumApi = {
     Archived: 'archived',
 } as const
 
-export type AgentRevisionApiSpecAuthMode =
-    (typeof AgentRevisionApiSpecAuthMode)[keyof typeof AgentRevisionApiSpecAuthMode]
-
-export const AgentRevisionApiSpecAuthMode = {
-    Public: 'public',
-    Pat: 'pat',
-    PosthogInternal: 'posthog_internal',
-    SharedSecret: 'shared_secret',
-} as const
-
 export type AgentRevisionApiSpecReasoning =
     (typeof AgentRevisionApiSpecReasoning)[keyof typeof AgentRevisionApiSpecReasoning]
 
@@ -256,9 +246,35 @@ export type AgentRevisionApiSpecLimits = {
     max_wall_seconds: number
 }
 
+export type AgentRevisionApiSpecAuthModesItem =
+    | {
+          type: 'public'
+      }
+    | {
+          type: 'oauth'
+          /** @minLength 1 */
+          issuer: string
+          scopes?: string[]
+      }
+    | {
+          type: 'pat'
+      }
+    | {
+          type: 'jwt'
+          /** @minLength 1 */
+          issuer_secret_ref: string
+      }
+    | {
+          type: 'shared_secret'
+          /** @minLength 1 */
+          header: string
+      }
+    | {
+          type: 'posthog_internal'
+      }
+
 export type AgentRevisionApiSpecAuth = {
-    mode: AgentRevisionApiSpecAuthMode
-    header?: string
+    modes?: AgentRevisionApiSpecAuthModesItem[]
 }
 
 export type AgentRevisionApiSpec = {
@@ -398,19 +414,35 @@ export type PatchedAgentRevisionApiSpecLimits = {
     max_wall_seconds: number
 }
 
-export type PatchedAgentRevisionApiSpecAuthMode =
-    (typeof PatchedAgentRevisionApiSpecAuthMode)[keyof typeof PatchedAgentRevisionApiSpecAuthMode]
-
-export const PatchedAgentRevisionApiSpecAuthMode = {
-    Public: 'public',
-    Pat: 'pat',
-    PosthogInternal: 'posthog_internal',
-    SharedSecret: 'shared_secret',
-} as const
+export type PatchedAgentRevisionApiSpecAuthModesItem =
+    | {
+          type: 'public'
+      }
+    | {
+          type: 'oauth'
+          /** @minLength 1 */
+          issuer: string
+          scopes?: string[]
+      }
+    | {
+          type: 'pat'
+      }
+    | {
+          type: 'jwt'
+          /** @minLength 1 */
+          issuer_secret_ref: string
+      }
+    | {
+          type: 'shared_secret'
+          /** @minLength 1 */
+          header: string
+      }
+    | {
+          type: 'posthog_internal'
+      }
 
 export type PatchedAgentRevisionApiSpecAuth = {
-    mode: PatchedAgentRevisionApiSpecAuthMode
-    header?: string
+    modes?: PatchedAgentRevisionApiSpecAuthModesItem[]
 }
 
 export type PatchedAgentRevisionApiSpecReasoning =
@@ -704,6 +736,28 @@ export interface AgentApprovalsDecideResponseApi {
     state: string
 }
 
+export interface AgentApplicationEnvKeysResponseApi {
+    /** Names of env variables currently set on the application. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentApplicationEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+
+The view merges `{KEY: value}` into the existing encrypted env block
+without touching other keys, so callers can set or rotate one secret
+without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
 export interface AgentApplicationPreviewTokenResponseApi {
     /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
     token: string
@@ -946,6 +1000,190 @@ export interface AgentAggregateStatsApi {
     failedInWindowCount: number
 }
 
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface CustomToolTemplateSummaryApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    readonly is_latest: boolean
+    readonly requires_secrets: readonly string[]
+    /** Number of frozen agent revisions pinning this template (any version). */
+    readonly usage_count: number
+    /** Publisher. Null for canonical PostHog-owned templates. */
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+}
+
+export interface CustomToolTemplateCreateApi {
+    /**
+     * Slug-shaped name unique per team.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * One-line description.
+     * @maxLength 4096
+     */
+    description?: string
+    /** TypeScript source. */
+    source?: string
+    /** Bundler output. The publisher (UI or MCP) computes this client-side. */
+    compiled_js?: string
+    /** TypeBox / JSON Schema for tool args. */
+    args_schema?: unknown
+    /** Optional TypeBox / JSON Schema for the return value. */
+    returns_schema?: unknown
+    /** Names of secrets the tool reads via `ctx.secret(...)`. */
+    requires_secrets?: string[]
+}
+
+export interface CustomToolTemplateDetailApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    readonly is_latest: boolean
+    readonly requires_secrets: readonly string[]
+    /** Number of frozen agent revisions pinning this template (any version). */
+    readonly usage_count: number
+    /** Publisher. Null for canonical PostHog-owned templates. */
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    /** TypeScript source the bundler compiles to `compiled_js`. */
+    source: string
+    /** Last bundle output. Copied into `bundle/tools/<alias>/compiled.js` at freeze. */
+    compiled_js: string
+    /** TypeBox / JSON Schema for tool args. */
+    args_schema: unknown
+    /** Optional TypeBox / JSON Schema for the return value (informational). */
+    returns_schema?: unknown
+}
+
+export interface CustomToolTemplateDuplicateApi {
+    /**
+     * Slug for the duplicate.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * Description for the new template.
+     * @maxLength 4096
+     */
+    description?: string
+}
+
+/**
+ * Structured edit applied to source.
+ */
+export interface CustomToolTemplateEditApi {
+    /** Text to locate (must match exactly once). */
+    old: string
+    /** Replacement text. */
+    new: string
+}
+
+export interface CustomToolTemplatePublishApi {
+    /**
+     * Overrides the prior description. Omit to keep the prior value.
+     * @maxLength 4096
+     */
+    description?: string
+    /** Full new TypeScript source. Mutually exclusive with `edits`. */
+    source?: string
+    /** Structured edits against the current source. */
+    edits?: CustomToolTemplateEditApi[]
+    /** Updated bundle output. Required when `source` or `edits` are supplied. */
+    compiled_js?: string
+    /** Overrides args_schema. Omit to keep prior value. */
+    args_schema?: unknown
+    /** Overrides returns_schema. Omit to keep prior value. */
+    returns_schema?: unknown
+    /** Overrides requires_secrets. Omit to keep prior value. */
+    requires_secrets?: string[]
+}
+
+export interface CustomToolTemplateUsageApi {
+    /** Slug of the agent whose revision pins this tool. */
+    agent_slug: string
+    /** Display name of the agent. */
+    agent_name: string
+    /** Frozen revision id. */
+    revision_id: string
+    /** First 8 chars of the revision id, for display. */
+    revision_short_id: string
+    /** Tool version pinned at freeze. */
+    pinned_version: number
+}
+
+/**
+ * Read shape used by `…/versions/` on both template families.
+ */
+export interface TemplateVersionEntryApi {
+    /** Version number. */
+    version: number
+    /** True for the current row in this version's name lineage. */
+    is_latest: boolean
+    /** Publisher. Null for canonical. */
+    created_by: UserBasicApi | null
+    /** When this version was published. */
+    updated_at: string
+}
+
 export interface AgentFleetLiveSessionSummaryApi {
     usage_total: AgentSessionUsageTotalApi
     principal: AgentSessionPrincipalApi | null
@@ -980,6 +1218,184 @@ export interface AgentNativeToolEntryApi {
 
 export interface AgentNativeToolsListResponseApi {
     tools: AgentNativeToolEntryApi[]
+}
+
+/**
+ * List shape — no body / file contents (keeps the index page fast).
+ */
+export interface SkillTemplateSummaryApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    readonly is_latest: boolean
+    /** Number of companion files attached to the current version. */
+    readonly file_count: number
+    /** Number of frozen agent revisions pinning this template (any version). */
+    readonly usage_count: number
+    readonly metadata: unknown
+    readonly allowed_tools: unknown
+    /** Publisher. Null for canonical PostHog-owned templates. */
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+}
+
+export interface SkillTemplateFileApi {
+    readonly id: string
+    /**
+     * Relative path inside the skill folder. Becomes `bundle/skills/<alias>/<path>` at freeze.
+     * @maxLength 512
+     */
+    path: string
+    /** File body. Plain text or markdown — companion files are not interpreted by the runner. */
+    content: string
+    /**
+     * MIME type hint. Read-only at runtime; aids the registry UI's file viewer.
+     * @maxLength 128
+     */
+    content_type?: string
+}
+
+/**
+ * Initial-create payload — produces v1.
+ */
+export interface SkillTemplateCreateApi {
+    /**
+     * Slug-shaped name unique per team. `@posthog/<slug>` is reserved for canonical templates.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * One-line description shown in the list view + system-prompt skill index.
+     * @maxLength 4096
+     */
+    description?: string
+    /** Initial SKILL.md markdown. */
+    body?: string
+    /** Optional companion files at creation time. */
+    files?: SkillTemplateFileApi[]
+    /** Free-form, agentskills.io-compatible bag (license, compatibility, …). */
+    metadata?: unknown
+    /** Optional list of tool ids the skill is meant to reach for. */
+    allowed_tools?: unknown
+}
+
+/**
+ * Detail shape: adds body + files. Used by the registry detail page.
+ */
+export interface SkillTemplateDetailApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly version: number
+    readonly is_latest: boolean
+    /** Number of companion files attached to the current version. */
+    readonly file_count: number
+    /** Number of frozen agent revisions pinning this template (any version). */
+    readonly usage_count: number
+    readonly metadata: unknown
+    readonly allowed_tools: unknown
+    /** Publisher. Null for canonical PostHog-owned templates. */
+    readonly created_by: UserBasicApi
+    readonly updated_at: string
+    /** Markdown body. The `SKILL.md` equivalent. */
+    body: string
+    /** Companion files attached to this version. */
+    readonly files: readonly SkillTemplateFileApi[]
+}
+
+export interface SkillTemplateDuplicateApi {
+    /**
+     * Slug for the new duplicate. Must not collide with an existing template.
+     * @maxLength 128
+     */
+    name: string
+    /**
+     * Description for the new template. Defaults to the source's description.
+     * @maxLength 4096
+     */
+    description?: string
+}
+
+export interface SkillTemplateFileWriteApi {
+    /**
+     * Relative path inside the skill folder.
+     * @maxLength 512
+     */
+    path: string
+    /** File body. */
+    content: string
+    /**
+     * MIME type hint.
+     * @maxLength 128
+     */
+    content_type?: string
+}
+
+export interface SkillTemplateFileRenameApi {
+    /**
+     * Existing file path inside the skill folder.
+     * @maxLength 512
+     */
+    from_path: string
+    /**
+     * New path. Must not collide with another file.
+     * @maxLength 512
+     */
+    to_path: string
+}
+
+/**
+ * A single find/replace edit applied to body or a file's content.
+ */
+export interface SkillTemplateEditApi {
+    /** Text to locate (must match exactly once). */
+    old: string
+    /** Replacement text. */
+    new: string
+    /**
+     * Apply this edit to a companion file instead of the body. Null/omitted = body edit.
+     * @nullable
+     */
+    file_path?: string | null
+}
+
+/**
+ * Publish a new version.
+
+Supply EITHER `body` (full overwrite) OR `edits` (structured
+find/replace). The viewset rejects requests carrying both.
+ */
+export interface SkillTemplatePublishApi {
+    /**
+     * Overrides the prior description. Omit to keep the prior value.
+     * @maxLength 4096
+     */
+    description?: string
+    /** Full new body. Mutually exclusive with `edits`. */
+    body?: string
+    /** Structured edits. Each `old` must match exactly once in the current body / file. */
+    edits?: SkillTemplateEditApi[]
+    /** Overrides metadata. Omit to keep the prior value. */
+    metadata?: unknown
+    /** Overrides allowed_tools. Omit to keep the prior value. */
+    allowed_tools?: unknown
+}
+
+/**
+ * Read shape returned by `…/usages/`. Sourced from the join table.
+ */
+export interface SkillTemplateUsageApi {
+    /** Slug of the agent whose revision pins this template. */
+    agent_slug: string
+    /** Display name of the agent. */
+    agent_name: string
+    /** Frozen revision id. */
+    revision_id: string
+    /** First 8 chars of the revision id, for display. */
+    revision_short_id: string
+    /** Template version pinned at freeze. */
+    pinned_version: number
 }
 
 /**
@@ -1213,6 +1629,27 @@ export type AgentApplicationsStatsParams = {
     since?: string
 }
 
+export type AgentCustomToolTemplatesListParams = {
+    /**
+     * Optional substring filter against name + description.
+     */
+    search?: string
+}
+
+export type AgentCustomToolTemplatesNameRetrieveParams = {
+    /**
+     * Fetch a specific version.
+     */
+    version?: number
+}
+
+export type AgentCustomToolTemplatesNameUsagesListParams = {
+    /**
+     * Filter to a specific pinned version.
+     */
+    pinned_version?: number
+}
+
 export type AgentFleetLiveSessionsParams = {
     /**
      * Cap on returned sessions (default 100, max 500).
@@ -1225,4 +1662,25 @@ export type AgentFleetStatsParams = {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string
+}
+
+export type AgentSkillTemplatesListParams = {
+    /**
+     * Optional substring filter against name + description.
+     */
+    search?: string
+}
+
+export type AgentSkillTemplatesNameRetrieveParams = {
+    /**
+     * Fetch a specific version. Omit for the current `is_latest=true` row.
+     */
+    version?: number
+}
+
+export type AgentSkillTemplatesNameUsagesListParams = {
+    /**
+     * Filter to revisions stuck on a specific version (`/?pinned_version=3`).
+     */
+    pinned_version?: number
 }

@@ -32,6 +32,7 @@ import {
     AgentRevision,
     AgentSession,
     BundleStore,
+    CredentialBroker,
     IntegrationCredentials,
     MemoryStore,
     Sandbox,
@@ -114,6 +115,14 @@ export interface AgentToolDeps {
      * unset for tests that don't exercise client tools.
      */
     dispatchClientTool?: ClientToolDispatcher
+    /**
+     * Per-session credential broker, populated by ingress at /run + /send.
+     * Native tools read through this for user auth materials (PostHog
+     * OAuth bearer, JWT claims, etc.). Optional — when absent, any
+     * `ctx.credentials.resolve()` returns null and the calling tool
+     * decides how to degrade.
+     */
+    credentialBroker?: CredentialBroker
 }
 
 export interface BuiltAgentTools {
@@ -273,10 +282,12 @@ function makeClientTool(
 
 /** Replicates the `ToolContext` the old `dispatchTool` built for native tools. */
 function buildToolContext(deps: AgentToolDeps): ToolContext {
+    const credentialBroker = deps.credentialBroker
+    const sessionId = deps.session.id
     return {
         teamId: deps.session.team_id,
         applicationId: deps.rev.application_id,
-        sessionId: deps.session.id,
+        sessionId,
         integrations: deps.integrations,
         secret: (name) => deps.secrets[name],
         log: deps.log,
@@ -289,6 +300,11 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
             }
         },
         memoryStore: deps.memoryStore,
+        credentials: credentialBroker
+            ? {
+                  resolve: (target) => credentialBroker.resolve(sessionId, target),
+              }
+            : undefined,
     }
 }
 

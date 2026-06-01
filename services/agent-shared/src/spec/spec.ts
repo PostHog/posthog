@@ -201,12 +201,55 @@ export const SpecLimitsSchema = z.object({
         .default(15 * 60),
 })
 
-export const AuthModeSchema = z.enum(['public', 'pat', 'posthog_internal', 'shared_secret'])
+/**
+ * Auth modes — each entry is a discriminated variant. A spec can accept
+ * multiple modes simultaneously; the ingress verifier tries each in order
+ * and the first that matches the incoming request wins.
+ *
+ * The principle running through the design: **identity (who) is separate
+ * from credentials (what tokens)**. Verifier produces a `SessionPrincipal`
+ * (stored on the session row, identity-only) plus a `credentials` map
+ * (stashed in the `CredentialBroker` for tool runtime to query at call
+ * time — never persisted, never on the principal).
+ */
+export const AuthModeSchema = z.discriminatedUnion('type', [
+    /** Anonymous — no auth required. */
+    z.object({ type: z.literal('public') }),
+    /** PostHog OAuth bearer. Validated against `issuer`'s introspection
+     *  endpoint (for `issuer: 'posthog'`, that's `/api/users/@me/`).
+     *  Credential available to tools as target `posthog_api`. */
+    z.object({
+        type: z.literal('oauth'),
+        issuer: z.string().min(1),
+        scopes: z.array(z.string()).default([]),
+    }),
+    /** PostHog Personal API Key bearer. Same validation endpoint as oauth
+     *  for PostHog (PostHog accepts both). Credential as `posthog_api`. */
+    z.object({ type: z.literal('pat') }),
+    /** JWT signed with the named encrypted-env secret. Lets a B2B
+     *  embedder mint identity tokens for their users without going
+     *  through OAuth. Credential available to tools as `self` (the JWT
+     *  itself + decoded claims). */
+    z.object({
+        type: z.literal('jwt'),
+        issuer_secret_ref: z.string().min(1),
+    }),
+    /** A shared secret in a named header. Mostly for webhook triggers. */
+    z.object({
+        type: z.literal('shared_secret'),
+        header: z.string().min(1),
+    }),
+    /** PostHog-internal server-to-server token (for Django ↔ ingress). */
+    z.object({ type: z.literal('posthog_internal') }),
+])
+
 export const AuthConfigSchema = z.object({
-    mode: AuthModeSchema.default('public'),
-    /** For shared_secret mode: name of the HTTP header carrying the secret. */
-    header: z.string().optional(),
+    /** Accepted auth modes. First successful match per request wins. */
+    modes: z.array(AuthModeSchema).default([{ type: 'public' }]),
 })
+
+export type AuthMode = z.infer<typeof AuthModeSchema>
+export type AuthModeType = AuthMode['type']
 
 /**
  * Normalized reasoning-effort knob. Matches pi-ai's `ThinkingLevel` exactly,
@@ -291,7 +334,7 @@ export const AgentSpecSchema = z.object({
     secrets: z.array(z.string()).default([]),
     limits: SpecLimitsSchema.default({ max_turns: 50, max_tool_calls: 200, max_wall_seconds: 15 * 60 }),
     entrypoint: z.string().default('agent.md'),
-    auth: AuthConfigSchema.default({ mode: 'public' }),
+    auth: AuthConfigSchema.default({ modes: [{ type: 'public' }] }),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
@@ -334,13 +377,56 @@ export interface AgentRevision {
     spec: AgentSpec
 }
 
-export interface SessionPrincipal {
-    /** "anonymous" | "service" | "internal" | "shared_secret" | "slack" */
-    kind: string
-    team_id?: number
-    /** Stable identifier for the principal — pat_id, slack user, etc. */
-    id?: string
-}
+/**
+ * Session-bound identity — **never carries tokens**. Tokens live in the
+ * `CredentialBroker` keyed by session_id; this struct is the persisted
+ * "who" answer that the ACL machinery + audit log consume.
+ *
+ * Discriminated by `kind`; each variant carries whatever fields uniquely
+ * identify that principal type. New auth modes should add a new variant
+ * here rather than overloading existing ones.
+ */
+export type SessionPrincipal =
+    | { kind: 'anonymous' }
+    /** PostHog OAuth or PAT — both resolve through `/api/users/@me/`. */
+    | {
+          kind: 'posthog'
+          source: 'oauth' | 'pat'
+          user_id: string
+          user_uuid?: string
+          team_id: number
+          email?: string
+          scopes?: string[]
+      }
+    /** JWT signed with the agent's configured secret. `sub` + `claims`
+     *  are author-defined; the platform treats them as opaque. */
+    | {
+          kind: 'jwt'
+          issuer_secret_ref: string
+          sub: string
+          claims: Record<string, unknown>
+      }
+    /**
+     * Slack user resolved through the slack integration. Pure Slack
+     * identity only — any cross-platform linkage (e.g. "this Slack user
+     * maps to a PostHog user") is a credential-resolution concern, not
+     * an identity property. The broker resolves `posthog_api` for a
+     * Slack principal by looking up `agent_user_id → posthog user →
+     * stored auth`; if nothing's stored, the broker returns null and
+     * the tool degrades.
+     */
+    | {
+          kind: 'slack'
+          workspace_id: string
+          slack_user_id: string
+          agent_user_id?: string
+      }
+    /** Internal / service-to-service caller (PostHog backend → ingress). */
+    | { kind: 'posthog_internal'; team_id?: number }
+    /** Shared-secret bearer (webhook-style). */
+    | { kind: 'shared_secret'; team_id?: number }
+    /** Cron / scheduler / other system principals. */
+    | { kind: 'service'; team_id?: number; id?: string }
 
 /**
  * One slot in a session's ACL allowlist. Exactly one of `principal` or

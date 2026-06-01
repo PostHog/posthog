@@ -4058,6 +4058,17 @@ export namespace Schemas {
       results: AgentApprovalRequest[];
     }
 
+    export interface AgentApplicationEnvKeyStatus {
+      key: string;
+      /** True if the key is present in the env block. The value itself is never returned. */
+      is_set: boolean;
+    }
+
+    export interface AgentApplicationEnvKeysResponse {
+      /** Names of env variables currently set on the application. Values are never returned. */
+      keys: string[];
+    }
+
     export interface AgentApplicationPreviewTokenResponse {
       /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
       token: string;
@@ -37184,6 +37195,17 @@ export namespace Schemas {
       product_context?: string;
       /** Team-defined tags layered on top of the fixed taxonomy, as a {name: description} map. Names must be lowercase snake_case (max 60 chars), descriptions max 200 chars, max 15 entries. */
       custom_tags?: SessionSummariesConfigCustomTags;
+    }
+
+    /**
+     * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+
+    The view merges `{KEY: value}` into the existing encrypted env block
+    without touching other keys, so callers can set or rotate one secret
+    without needing to read the whole block back.
+     */
+    export interface SetEnvKeyRequest {
+      value: string;
     }
 
     export type SetEnvRequestEnv = {[key: string]: string};
