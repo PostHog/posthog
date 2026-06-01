@@ -20,7 +20,6 @@ import products.tasks.backend.api as tasks
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
 import products.alerts.backend.api.alert as alert
-import products.web_analytics.backend.api as web_analytics_api
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -75,23 +74,7 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.deployments.backend.routes import register_routes as register_deployments_routes
 from products.desktop_recordings.backend.routes import register_routes as register_desktop_recordings_routes
 from products.endpoints.backend.routes import register_routes as register_endpoints_routes
-from products.error_tracking.backend.api import (
-    ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingExternalReferenceViewSet,
-    ErrorTrackingFingerprintViewSet,
-    ErrorTrackingGroupingRuleViewSet,
-    ErrorTrackingIssueViewSet,
-    ErrorTrackingQueryViewSet,
-    ErrorTrackingRecommendationViewSet,
-    ErrorTrackingReleaseViewSet,
-    ErrorTrackingSettingsViewSet,
-    ErrorTrackingSpikeDetectionConfigViewSet,
-    ErrorTrackingSpikeEventViewSet,
-    ErrorTrackingStackFrameViewSet,
-    ErrorTrackingSuppressionRuleViewSet,
-    ErrorTrackingSymbolSetViewSet,
-    GitProviderFileLinksViewSet,
-)
+from products.error_tracking.backend.routes import register_routes as register_error_tracking_routes
 from products.feature_flags.backend.api import feature_flag, flag_value, organization_feature_flag, scheduled_change
 from products.legal_documents.backend.routes import register_routes as register_legal_documents_routes
 from products.links.backend.routes import register_routes as register_links_routes
@@ -126,13 +109,7 @@ from products.visual_review.backend.presentation.views import (
     RunViewSet as VisualReviewRunViewSet,
     SnapshotViewSet as VisualReviewSnapshotViewSet,
 )
-from products.web_analytics.backend.api.heatmaps_api import (
-    HeatmapScreenshotViewSet,
-    HeatmapViewSet,
-    LegacyHeatmapViewSet,
-    SavedHeatmapViewSet,
-)
-from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.web_analytics.backend.routes import register_routes as register_web_analytics_routes
 from products.wizard.backend.routes import register_routes as register_wizard_routes
 from products.workflows.backend.routes import register_routes as register_workflows_routes
 
@@ -833,7 +810,7 @@ from products.product_analytics.backend.api.insight_variable import InsightVaria
 # Legacy endpoints CH (to be removed eventually)
 router.register(r"cohort", LegacyCohortViewSet, basename="cohort")
 router.register(r"element", LegacyElementViewSet, basename="element")
-router.register(r"heatmap", LegacyHeatmapViewSet, basename="heatmap")
+register_web_analytics_routes(routers)
 router.register(r"event", LegacyEventViewSet, basename="event")
 
 # Nested endpoints CH
@@ -872,11 +849,6 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
-register_legacy_dual_route_team_nested_viewset(
-    r"heatmap_screenshots", HeatmapScreenshotViewSet, "environment_heatmap_screenshots", ["team_id"]
-)
-register_legacy_dual_route_team_nested_viewset(r"saved", SavedHeatmapViewSet, "environment_saved", ["team_id"])
 register_legacy_dual_route_team_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
@@ -1011,131 +983,8 @@ projects_router.register(
     ["project_id"],
 )
 
-# Env side is team-scoped (team_id) while project side below is genuinely
-# project-scoped (project_id); register_legacy_dual_route_team_nested_viewset
-# assumes both sides share the same parent lookup, so these stay as manual
-# dual-registrations.
-# nosemgrep: no-environments-router-register
-environments_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "environment_error_tracking_release",
-    ["team_id"],
-)
+register_error_tracking_routes(routers)
 
-projects_router.register(
-    r"error_tracking/releases",
-    ErrorTrackingReleaseViewSet,
-    "project_error_tracking_release",
-    ["project_id"],
-)
-
-# Same shape as error_tracking/releases above (env team_id vs project project_id).
-# nosemgrep: no-environments-router-register
-environments_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "environment_error_tracking_symbol_set",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"error_tracking/symbol_sets",
-    ErrorTrackingSymbolSetViewSet,
-    "project_error_tracking_symbol_set",
-    ["project_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/assignment_rules",
-    ErrorTrackingAssignmentRuleViewSet,
-    "project_error_tracking_assignment_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/grouping_rules",
-    ErrorTrackingGroupingRuleViewSet,
-    "project_error_tracking_grouping_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/suppression_rules",
-    ErrorTrackingSuppressionRuleViewSet,
-    "project_error_tracking_suppression_rule",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/recommendations",
-    ErrorTrackingRecommendationViewSet,
-    "project_error_tracking_recommendation",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/fingerprints",
-    ErrorTrackingFingerprintViewSet,
-    "project_error_tracking_fingerprint",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/issues",
-    ErrorTrackingIssueViewSet,
-    "project_error_tracking_issue",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/query",
-    ErrorTrackingQueryViewSet,
-    "project_error_tracking_query",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/external_references",
-    ErrorTrackingExternalReferenceViewSet,
-    "project_error_tracking_external_references",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/stack_frames",
-    ErrorTrackingStackFrameViewSet,
-    "project_error_tracking_stack_frames",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/spike_detection_config",
-    ErrorTrackingSpikeDetectionConfigViewSet,
-    "project_error_tracking_spike_detection_config",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/settings",
-    ErrorTrackingSettingsViewSet,
-    "project_error_tracking_settings",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/spike_events",
-    ErrorTrackingSpikeEventViewSet,
-    "project_error_tracking_spike_events",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"error_tracking/git-provider-file-links",
-    GitProviderFileLinksViewSet,
-    "project_error_tracking_git_provider_file_links",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"signals",
@@ -1299,18 +1148,6 @@ register_legacy_dual_route_team_nested_viewset(
     r"web_vitals",
     web_vitals.WebVitalsViewSet,
     "project_web_vitals",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"web_analytics_filter_presets",
-    WebAnalyticsFilterPresetViewSet,
-    "project_web_analytics_filter_preset",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"web_analytics",
-    web_analytics_api.WebAnalyticsViewSet,
-    "project_web_analytics",
     ["team_id"],
 )
 
