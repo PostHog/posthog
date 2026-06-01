@@ -10,6 +10,7 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.contrib.sessions.backends.db import SessionStore
 from django.core.signing import TimestampSigner
+from django.http import HttpRequest
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
@@ -222,7 +223,7 @@ class TestImpersonationAIProcessingBlock(BaseTest):
     Customers authorizing a client themselves are unaffected — they have already consented for
     their own data."""
 
-    def _build_request(self, target: User, *, impersonating: bool) -> RequestFactory:
+    def _build_request(self, target: User, *, impersonating: bool) -> HttpRequest:
         request = RequestFactory().get("/")
         request.session = SessionStore()
         if impersonating:

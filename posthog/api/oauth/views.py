@@ -691,6 +691,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # impersonating), so its split form is the effective set we need to match.
                 for token in tokens:
                     if token.allow_scopes(scope_str.split()):
+                        # Conservative fallback: check every org the impersonated user belongs to,
+                        # not just the existing token's scope. Auto-approval during impersonation
+                        # is a near-dead path (those tokens are short-lived, refresh-less, and
+                        # revoked on logout), so the broader check isn't worth threading the
+                        # matched token's scope through — the precise check lives in the POST path.
                         if block := _impersonation_ai_processing_block(request):
                             return block
                         uri, headers, body, status_code = self.create_authorization_response(
