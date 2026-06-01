@@ -140,7 +140,7 @@ describe('DashboardWidgetItem', () => {
 
         await userEvent.click(screen.getByRole('button', { name: /more/i }))
 
-        expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/error_tracking')
+        expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/project/997/error_tracking')
         expect(
             screen
                 .getAllByRole('button', { name: 'Edit' })

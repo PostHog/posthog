@@ -4,23 +4,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
-jest.mock('scenes/dashboard/widgetFetchUtils', () => ({
-    ...jest.requireActual('scenes/dashboard/widgetFetchUtils'),
-    fetchRunWidgets: jest.fn(),
-}))
-
-jest.mock('@posthog/lemon-ui', () => ({
-    ...jest.requireActual('@posthog/lemon-ui'),
-    lemonToast: {
-        success: jest.fn(),
-        error: jest.fn(),
-        info: jest.fn(),
-    },
-    LemonDialog: {
-        open: jest.fn(),
-    },
-}))
-
+import { lemonToast } from '@posthog/lemon-ui'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
@@ -1373,10 +1357,17 @@ describe('dashboardLogic', () => {
     })
 
     describe('text tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+
         beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
         })
 
         it('can remove text tiles', async () => {
@@ -1393,14 +1384,13 @@ describe('dashboardLogic', () => {
         })
 
         it('shows undo toast when removing a text tile', async () => {
-            const { lemonToast } = jest.requireMock('@posthog/lemon-ui')
             const { render } = await import('@testing-library/react')
 
             await expectLogic(logic, () => {
                 logic.actions.removeTile(TEXT_TILE)
             }).toFinishAllListeners()
 
-            expect(lemonToast.info).toHaveBeenCalledWith(
+            expect(lemonToastInfoSpy).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.objectContaining({
                     toastId: `remove-tile-${TEXT_TILE.id}`,
@@ -1408,28 +1398,34 @@ describe('dashboardLogic', () => {
                 })
             )
 
-            const toastContent = lemonToast.info.mock.calls.at(-1)?.[0]
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
             expect(container.textContent).toBe('Text card has been removed from the dashboard')
         })
     })
 
     describe('widget tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+
         beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
         })
 
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+        })
+
         it('shows undo toast with widget name when removing a widget tile', async () => {
-            const { lemonToast } = jest.requireMock('@posthog/lemon-ui')
             const { render } = await import('@testing-library/react')
 
             await expectLogic(logic, () => {
                 logic.actions.removeTile(WIDGET_TILE)
             }).toFinishAllListeners()
 
-            expect(lemonToast.info).toHaveBeenCalledWith(
+            expect(lemonToastInfoSpy).toHaveBeenCalledWith(
                 expect.anything(),
                 expect.objectContaining({
                     toastId: `remove-tile-${WIDGET_TILE.id}`,
@@ -1437,20 +1433,19 @@ describe('dashboardLogic', () => {
                 })
             )
 
-            const toastContent = lemonToast.info.mock.calls.at(-1)?.[0]
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
             expect(container.textContent).toBe('error_tracking_list widget removed')
         })
 
         it('uses custom widget name in undo toast when set', async () => {
-            const { lemonToast } = jest.requireMock('@posthog/lemon-ui')
             const { render } = await import('@testing-library/react')
 
             await expectLogic(logic, () => {
                 logic.actions.removeTile(WIDGET_TILE_WITH_CUSTOM_NAME)
             }).toFinishAllListeners()
 
-            const toastContent = lemonToast.info.mock.calls.at(-1)?.[0]
+            const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { container } = render(toastContent)
             expect(container.textContent).toBe('Critical errors widget removed')
         })
@@ -1555,14 +1550,14 @@ describe('dashboardLogic', () => {
     })
 
     describe('widget orchestration', () => {
-        const fetchRunWidgetsMock = widgetFetchUtils.fetchRunWidgets as jest.Mock
+        let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
 
         beforeEach(() => {
+            featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
                 [FEATURE_FLAGS.DASHBOARD_WIDGETS]: true,
             })
-            fetchRunWidgetsMock.mockReset()
-            fetchRunWidgetsMock.mockResolvedValue([
+            fetchRunWidgetsMock = jest.spyOn(widgetFetchUtils, 'fetchRunWidgets').mockResolvedValue([
                 {
                     tile_id: WIDGET_TILE.id,
                     widget_type: 'error_tracking_list',
@@ -1579,6 +1574,10 @@ describe('dashboardLogic', () => {
                     ],
                 },
             })
+        })
+
+        afterEach(() => {
+            fetchRunWidgetsMock.mockRestore()
         })
 
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {

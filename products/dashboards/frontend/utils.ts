@@ -1,8 +1,7 @@
-import api from 'lib/api'
-
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
-import type { DashboardApi } from './generated/api.schemas'
+import { dashboardsPartialUpdate } from './generated/api'
+import type { PatchedDashboardApi } from './generated/api.schemas'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
 
@@ -50,7 +49,7 @@ export async function updateDashboardWidgetTile({
         widgetPatch.description = description
     }
 
-    const dashboard = await api.update<DashboardApi>(`api/environments/${teamId}/dashboards/${dashboardId}`, {
+    const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
         tiles: [
             {
                 id: tile.id,
@@ -60,7 +59,7 @@ export async function updateDashboardWidgetTile({
                 },
             },
         ],
-    })
+    } as PatchedDashboardApi)
     const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
     if (!updatedTile) {
         throw new Error('Updated tile not found in dashboard response')
