@@ -179,8 +179,12 @@ test.describe('Dashboards', () => {
         await test.step('write query, run, and save as insight', async () => {
             const editor = page.locator('.monaco-editor').first()
             await editor.click()
-            await page.keyboard.press('Meta+a')
-            await page.keyboard.type('SELECT {variables.test_number}', { delay: 10 })
+            await page.keyboard.press('ControlOrMeta+a')
+            // insertText() inserts the whole string at once, so Monaco's bracket
+            // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
+            // produce a malformed query that leaves "Save as insight" disabled.
+            await page.keyboard.insertText('SELECT {variables.test_number}')
+            await page.keyboard.press('Escape')
 
             await page.getByRole('button', { name: 'Run' }).click()
             await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
