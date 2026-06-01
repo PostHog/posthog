@@ -336,6 +336,7 @@ class TestWebhookSourceManager:
 
         assert tables == []
 
+
 # -- Integration tests using MinIO --
 
 

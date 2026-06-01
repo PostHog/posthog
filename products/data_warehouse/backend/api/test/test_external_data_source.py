@@ -5913,9 +5913,7 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_propagates_failure_from_source(
-        self, mock_create_webhook, mock_inputs_updated
-    ):
+    def test_update_webhook_inputs_propagates_failure_from_source(self, mock_create_webhook, mock_inputs_updated):
         # If the source's webhook_inputs_updated reports failure (e.g. Customer.io
         # rejects the request to enable the webhook), surface that to the caller as
         # a 400 instead of returning 200 + success=true while the webhook stays
@@ -6004,9 +6002,7 @@ class TestCreateWebhook(APIBaseTest):
         assert "signing_secret" in response.json()["message"]
 
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(
-        self, mock_create_webhook
-    ):
+    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
         from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -6867,9 +6863,7 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
         side_effect=Exception("Stripe API error"),
     )
-    def test_destroy_source_continues_if_webhook_cleanup_fails(
-        self, _mock_delete_webhook, mock_capture_exception
-    ):
+    def test_destroy_source_continues_if_webhook_cleanup_fails(self, _mock_delete_webhook, mock_capture_exception):
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = ExternalDataSource.objects.create(
