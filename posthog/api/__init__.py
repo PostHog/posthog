@@ -20,7 +20,7 @@ import products.alerts.backend.api.alert as alert
 from products.actions.backend.routes import register_routes as register_actions_routes
 from products.ai_observability.backend.routes import register_routes as register_ai_observability_routes
 from products.business_knowledge.backend.routes import register_routes as register_business_knowledge_routes
-from products.cdp.backend.api import hog_function, hog_function_template, plugin, plugin_log_entry
+from products.cdp.backend.routes import register_routes as register_cdp_routes
 from products.conversations.backend.routes import register_routes as register_conversations_routes
 from products.customer_analytics.backend.routes import register_routes as register_customer_analytics_routes
 from products.dashboards.backend.api import dashboard, dashboard_templates
@@ -137,7 +137,6 @@ router.register(r"dashboard", dashboard.LegacyDashboardsViewSet, "legacy_dashboa
 router.register(
     r"dashboard_item", dashboard.LegacyInsightViewSet, "legacy_insights"
 )  # To be deleted - unified into insight viewset
-router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plugin_configs")
 
 # Nested endpoints shared
 projects_router = routers.add("projects", router.register(r"projects", project.RootProjectViewSet, "projects"))
@@ -197,48 +196,6 @@ def register_legacy_dual_route_team_nested_viewset(
     """
     return routers.register_legacy_dual_route(prefix, viewset, basename, parents_query_lookups)
 
-
-legacy_project_plugins_configs_router, environment_plugins_configs_router = (
-    register_legacy_dual_route_team_nested_viewset(
-        r"plugin_configs", plugin.PluginConfigViewSet, "environment_plugin_configs", ["team_id"]
-    )
-)
-environment_plugins_configs_router.register(
-    r"logs",
-    plugin_log_entry.PluginLogEntryViewSet,
-    "environment_plugin_config_logs",
-    ["team_id", "plugin_config_id"],
-)
-legacy_project_plugins_configs_router.register(
-    r"logs",
-    plugin_log_entry.PluginLogEntryViewSet,
-    "project_plugin_config_logs",
-    ["team_id", "plugin_config_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_transformation_configs",
-    plugin.PipelineTransformationsConfigsViewSet,
-    "environment_pipeline_transformation_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_destination_configs",
-    plugin.PipelineDestinationsConfigsViewSet,
-    "environment_pipeline_destination_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_frontend_apps_configs",
-    plugin.PipelineFrontendAppsConfigsViewSet,
-    "environment_pipeline_frontend_apps_configs",
-    ["team_id"],
-)
-register_legacy_dual_route_team_nested_viewset(
-    r"pipeline_import_apps_configs",
-    plugin.PipelineImportAppsConfigsViewSet,
-    "environment_pipeline_import_apps_configs",
-    ["team_id"],
-)
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["project_id"])
 projects_router.register(r"sdk_doctor", SdkDoctorViewSet, "project_sdk_doctor", ["project_id"])
@@ -456,6 +413,7 @@ organizations_router = routers.add(
 # feature_flags registers on root + projects + organizations, so it runs once the
 # organizations parent exists.
 register_feature_flags_routes(routers)
+register_cdp_routes(routers)
 organizations_router.register(r"projects", project.ProjectViewSet, "organization_projects", ["organization_id"])
 organizations_router.register(
     r"integrations",
@@ -471,33 +429,6 @@ organizations_router.register(
 )
 organizations_router.register(
     r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
-)
-organization_plugins_router = organizations_router.register(
-    r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
-)
-organizations_router.register(
-    r"pipeline_transformations",
-    plugin.PipelineTransformationsViewSet,
-    "organization_pipeline_transformations",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_destinations",
-    plugin.PipelineDestinationsViewSet,
-    "organization_pipeline_destinations",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_frontend_apps",
-    plugin.PipelineFrontendAppsViewSet,
-    "organization_pipeline_frontend_apps",
-    ["organization_id"],
-)
-organizations_router.register(
-    r"pipeline_import_apps",
-    plugin.PipelineImportAppsViewSet,
-    "organization_pipeline_import_apps",
-    ["organization_id"],
 )
 organizations_router.register(
     r"members",
@@ -792,12 +723,6 @@ projects_router.register(
     ["project_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"hog_functions",
-    hog_function.HogFunctionViewSet,
-    "environment_hog_functions",
-    ["team_id"],
-)
 
 register_workflows_routes(routers)
 
@@ -807,12 +732,6 @@ register_business_knowledge_routes(routers)
 
 register_conversations_routes(routers)
 
-projects_router.register(
-    r"hog_function_templates",
-    hog_function_template.PublicHogFunctionTemplateViewSet,
-    "project_hog_function_templates",
-    ["project_id"],
-)
 
 projects_router.register(
     r"managed_migrations",
