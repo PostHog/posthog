@@ -269,8 +269,6 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     return (
         <div className="ActivityLog" data-attr="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
-            {/* Mount the activity-fetching contents inside the gate so we never fire the (always-402)
-                request when the org lacks the plan — the upsell CTA is enough on its own. */}
             <PayGateMini
                 feature={AvailableFeature.AUDIT_LOGS}
                 overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
