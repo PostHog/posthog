@@ -108,7 +108,7 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
     return report_rank <= min_rank
 
 
-def _latest_priority(report: SignalReport) -> str | None:
+def _get_latest_priority(report: SignalReport) -> str | None:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         .order_by("-created_at")
@@ -126,7 +126,7 @@ def _latest_priority(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _latest_actionability(report: SignalReport) -> str | None:
+def _get_latest_actionability(report: SignalReport) -> str | None:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
         .order_by("-created_at")
@@ -377,10 +377,10 @@ def dispatch_inbox_item_notifications(
 
     if report.status != SignalReport.Status.READY:
         return 0
-    if _latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+    if _get_latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
         return 0
 
-    priority = _latest_priority(report)
+    priority = _get_latest_priority(report)
     if _priority_rank(priority) is None:
         return 0
 
