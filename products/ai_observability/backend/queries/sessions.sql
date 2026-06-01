@@ -17,11 +17,10 @@ SELECT
     sum(generations) as generations,
     sum(embeddings) as embeddings,
     sum(errors) as errors,
-    -- Person of the session's first trace (mirrors traces_query_runner's first_distinct_id).
     argMin(trace_distinct_id, trace_first_seen) as distinct_id,
     -- Distinct tool names called across the whole session. $ai_tools_called is a
     -- comma-separated string per generation (and can repeat within one), so we
-    -- concat all of them, split, and dedupe — same shape as traces_query_runner.
+    -- concat all of them, split, and dedupe - same shape as traces_query_runner.
     arrayFilter(
         x -> x != '',
         arrayDistinct(splitByChar(',', arrayStringConcat(groupArray(trace_tools), ',')))
@@ -38,10 +37,7 @@ FROM (
         countIf(event = '$ai_embedding') as embeddings,
         countIf(properties.$ai_is_error = 'true') as errors,
         argMin(distinct_id, timestamp) as trace_distinct_id,
-        -- groupUniqArrayIf (not groupArrayIf): generations in a trace repeat the
-        -- same $ai_tools_called string, so deduping inside the aggregate state
-        -- keeps it small. The outer arrayDistinct makes this redundant for
-        -- correctness, but it roughly halves peak query memory on busy teams.
+        -- groupUniqArrayIf instead of groupArrayIf to dedup and keep it small
         arrayStringConcat(
             groupUniqArrayIf(
                 toString(properties.$ai_tools_called),
