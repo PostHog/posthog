@@ -535,39 +535,39 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # pyarrow).
         pa_schema: pa.Schema | None = None
 
-        # buffer every batch, then write them all through a single deltalake transaction.
-        # writing per-batch with mode="append" routes through delta-rs's DataFusion-backed
-        # writer, which lowercases identifiers and breaks columns with uppercase characters
-        # (`personId`, `Event`, ...) with errors like "Generic DeltaTable error: Schema
-        # error: No field named personid. ... Did you mean 'personId'?". one overwrite of
-        # the full result takes the case-safe create path. note this holds the whole result
-        # in memory; hogql_table yields ~100MB combined batches, so peak ≈ result size.
-        batches: list[pa.RecordBatch] = []
+        # write each batch as its own delta commit, imitating the data_imports pipeline
+        # (DeltaTableHelper.write_to_deltalake): the first batch overwrites — creating the
+        # table from the exact arrow schema, which pins column case like `personId` — and
+        # later batches append with schema_mode="merge". this keeps peak memory at ~one
+        # batch (hogql_table yields ~100MB combined batches) and, because each write is a
+        # brief to_thread released between batches, never pins a worker thread for the whole
+        # read — which is what starved the shared executor that heartbeats/db/logging use.
         async for batch, ch_types in hogql_table(hogql_query, team, logger):
             batch = _transform_unsupported_decimals(batch)
             batch = _transform_date_and_datetimes(batch, ch_types)
-            batches.append(batch)
+            if delta_table is None:
+                pa_schema = batch.schema
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                    storage_options=storage_options,
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,  # type: ignore[arg-type]
+                    table_or_uri=delta_table,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                )
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
-
-        # hogql_table always yields at least one batch (an empty one carrying the schema for
-        # zero-row results), so batches is non-empty whenever the query ran to completion.
-        if batches:
-            pa_schema = batches[0].schema
-            await logger.adebug(
-                f"Writing {len(batches)} batches to delta table in a single transaction: "
-                f"mode=overwrite schema_mode=overwrite row_count={row_count}"
-            )
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=table_uri,
-                data=pa.RecordBatchReader.from_batches(pa_schema, batches),
-                mode="overwrite",
-                schema_mode="overwrite",
-                storage_options=storage_options,
-            )
-            delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
 
         await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
         # row count validation warning

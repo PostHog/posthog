@@ -597,15 +597,13 @@ class TestMaterializeViewActivity:
     ):
         # regression: multiple batches with case-sensitive columns must materialize cleanly.
         #
-        # per-batch mode="append" writes route through delta-rs's DataFusion-backed
-        # writer, which lowercases identifiers and fails with
-        # "Generic DeltaTable error: Schema error: No field named personid. ...
-        # Did you mean 'personId'?" on tables whose column names contain uppercase
-        # characters. the activity streams every batch through a single mode="overwrite"
-        # transaction to take the case-safe create path; this test guards both invariants:
-        #   - all rows from every batch are written and column casing is preserved;
-        #   - the delta history contains a single version (i.e. one commit), which would
-        #     regress to N versions if someone reintroduced per-batch append.
+        # delta-rs's DataFusion-backed append writer can lowercase identifiers and fail with
+        # "Generic DeltaTable error: Schema error: No field named personid. ... Did you mean
+        # 'personId'?" on tables whose column names contain uppercase characters. the activity
+        # writes the first batch with mode="overwrite" (creating the table from the exact arrow
+        # schema, pinning case) and appends later batches with schema_mode="merge" — the
+        # data_imports write path. this asserts every batch's rows land and casing survives
+        # across the overwrite + append commits.
         camel_case_names = ["Event", "DistinctId", "personId", "CamelCaseColumn"]
 
         def mock_hogql_table(*args, **kwargs):
@@ -652,10 +650,6 @@ class TestMaterializeViewActivity:
             materialized = delta_table.to_pyarrow_table()
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
-            # one commit per materialization — guards against reintroducing per-batch
-            # append, which would record N+ versions and route through the broken
-            # DataFusion-backed writer.
-            assert len(delta_table.history()) == 1
 
     async def test_zero_row_materialization_writes_empty_parquet(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
@@ -711,11 +705,9 @@ class TestMaterializeViewActivity:
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
 
-    async def test_write_failure_surfaces_after_buffering_batches(
-        self, activity_environment, ateam, anode, ajob, bucket_name, adag
-    ):
-        # regression: a failure in the single buffered write_deltalake transaction must
-        # surface from the activity so Temporal retries, rather than being swallowed.
+    async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
+        # regression: a failure in a per-batch write_deltalake call must surface from the
+        # activity so Temporal retries, rather than being swallowed.
         names = ["a", "b"]
 
         def mock_hogql_table(*args, **kwargs):
