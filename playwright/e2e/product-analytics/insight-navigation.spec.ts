@@ -33,13 +33,15 @@ typeTestCases.forEach(({ type, expectedTabText }) => {
         await new InsightPage(page).goToNew(type)
         await expect(page.locator('.LemonTabs__tab--active')).toContainText(expectedTabText)
 
-        // EmptyStates.tsx tags every empty-state variant with this data-attr,
-        // and the insight viz always swaps between empty state and a `<canvas>`
-        // once data resolves. Treating either as success keeps the smoke test
-        // stable across query backends and chart types.
+        // Once data resolves the viz swaps in either the empty state
+        // (`insight-empty-state`, tagged on every variant in EmptyStates.tsx), a
+        // `<canvas>` (Trends/Funnels/Retention/Stickiness/Lifecycle), or the Paths
+        // SVG container (`paths-viz`, which never renders a `<canvas>`). Treating any
+        // as success keeps the smoke test stable across query backends and chart types.
         const emptyState = page.locator('[data-attr="insight-empty-state"]')
         const chartCanvas = page.locator('main canvas')
-        await expect(emptyState.or(chartCanvas).first()).toBeVisible()
+        const pathsViz = page.locator('[data-attr="paths-viz"]')
+        await expect(emptyState.or(chartCanvas).or(pathsViz).first()).toBeVisible()
     })
 })
 
