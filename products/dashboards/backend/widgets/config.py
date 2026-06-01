@@ -1,3 +1,5 @@
+"""Shared helpers for dashboard widget config: validation, defaults, and common fields."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,9 +8,10 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.models.team import Team
 
-# Upper bound for widget config `limit` (max rows/items returned per query).
+# Cap per-query row count so run-widgets responses stay bounded.
 MAX_WIDGET_RESULT_LIMIT = 25
 
+# Preset relative ranges only — widgets don't accept arbitrary HogQL date strings.
 WIDGET_DATE_FROM_VALUES = frozenset({"-1h", "-3h", "-24h", "-7d", "-14d", "-30d", "-90d"})
 
 
@@ -19,14 +22,14 @@ def validate_filter_test_accounts_value(value: object) -> bool:
 
 
 def resolve_filter_test_accounts(config: dict[str, Any], team: Team) -> bool:
-    """Return whether widget queries should apply team.test_account_filters."""
+    # Omitting filterTestAccounts should follow the team default, not hardcode false.
     if "filterTestAccounts" in config:
         return validate_filter_test_accounts_value(config["filterTestAccounts"])
     return bool(team.test_account_filters_default_checked)
 
 
 def merge_base_widget_config_fields(config: dict[str, Any]) -> dict[str, Any]:
-    """Shared config fields inherited by all widget types."""
+    # Centralizes shared fields so each widget type doesn't re-validate them.
     if "filterTestAccounts" not in config:
         return {}
     return {
@@ -35,6 +38,7 @@ def merge_base_widget_config_fields(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_widget_date_range(date_range: object) -> dict[str, object] | None:
+    # Fail fast on unsupported shapes before widget runners build queries.
     if date_range is None:
         return None
     if not isinstance(date_range, dict):
