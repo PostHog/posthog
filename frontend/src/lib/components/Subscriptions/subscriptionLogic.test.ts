@@ -145,27 +145,18 @@ describe('subscriptionLogic', () => {
         })
     })
 
-    it('records the channel as recently subscribed when a slack subscription is saved', async () => {
+    it.each<[string, Partial<SubscriptionType>, string[]]>([
+        ['a slack subscription', { target_type: 'slack', target_value: 'C123|#general', integration_id: 7 }, ['C123']],
+        [
+            'a non-slack target type',
+            { target_type: 'email', target_value: 'ben@posthog.com', integration_id: null },
+            [],
+        ],
+    ])('records the channel recency for %s', async (_label, subscription, expectedIds) => {
         await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess({
-                target_type: 'slack',
-                target_value: 'C123|#general',
-                integration_id: 7,
-            } as SubscriptionType)
+            newLogic.actions.submitSubscriptionSuccess(subscription as SubscriptionType)
         }).toFinishListeners()
 
-        expect(getRecentSlackChannelIds(7)).toEqual(['C123'])
-    })
-
-    it('does not record anything for non-slack target types', async () => {
-        await expectLogic(newLogic, () => {
-            newLogic.actions.submitSubscriptionSuccess({
-                target_type: 'email',
-                target_value: 'ben@posthog.com',
-                integration_id: null,
-            } as SubscriptionType)
-        }).toFinishListeners()
-
-        expect(getRecentSlackChannelIds(7)).toEqual([])
+        expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
     })
 })
