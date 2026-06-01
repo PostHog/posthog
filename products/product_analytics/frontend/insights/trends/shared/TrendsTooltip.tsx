@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from 'react'
 
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import type { TooltipContext } from 'lib/hog-charts'
+import type { TooltipContext } from '@posthog/quill-charts'
 import { percentage } from 'lib/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'

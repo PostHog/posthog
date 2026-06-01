@@ -5,7 +5,7 @@ import type {
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
-} from 'lib/hog-charts'
+} from '@posthog/quill-charts'
 import type { RetentionTrendPayload } from 'scenes/retention/types'
 
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'

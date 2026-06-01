@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart, type BarChartConfig, type PointClickData, type TooltipContext } from 'lib/hog-charts'
+import { BarChart, type BarChartConfig, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

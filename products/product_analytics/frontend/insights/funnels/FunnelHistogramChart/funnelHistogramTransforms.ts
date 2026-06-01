@@ -1,4 +1,4 @@
-import type { Series } from 'lib/hog-charts'
+import type { Series } from '@posthog/quill-charts'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import type { HistogramGraphDatum } from '~/types'

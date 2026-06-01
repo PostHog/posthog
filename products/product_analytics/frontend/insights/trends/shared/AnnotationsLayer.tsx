@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { computeVisibleXLabels, useChartLayout } from 'lib/hog-charts'
+import { computeVisibleXLabels, useChartLayout } from '@posthog/quill-charts'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */

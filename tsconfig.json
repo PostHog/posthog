@@ -58,7 +58,8 @@
         "common/esbuilder/*",
         "common/replay-shared/src/**/*",
         "common/storybook/*",
-        "docs/onboarding/**/*"
+        "docs/onboarding/**/*",
+        "packages/quill/packages/charts/src/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {

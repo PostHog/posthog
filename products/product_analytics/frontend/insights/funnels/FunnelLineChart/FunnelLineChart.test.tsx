@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ensureJsdom, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import { ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 
 import { buildFunnelsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'

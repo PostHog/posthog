@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,

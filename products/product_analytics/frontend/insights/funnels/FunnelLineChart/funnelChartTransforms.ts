@@ -1,4 +1,4 @@
-import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from 'lib/hog-charts'
+import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from '@posthog/quill-charts'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import type { GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'

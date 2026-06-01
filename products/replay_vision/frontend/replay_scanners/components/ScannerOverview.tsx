@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BoxPlot } from 'lib/hog-charts'
+import { BoxPlot } from '@posthog/quill-charts'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'

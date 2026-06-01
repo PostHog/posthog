@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonInput, LemonLabel } from '@posthog/lemon-ui'
 
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { insightLogic } from '../insightLogic'

@@ -31,7 +31,7 @@ import {
 import { resolveVariableColor } from 'lib/charts/utils/color'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { createXAxisTickCallback } from 'lib/hog-charts'
+import { createXAxisTickCallback } from '@posthog/quill-charts'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { hexToRGBA, uuid } from 'lib/utils'

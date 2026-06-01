@@ -1,4 +1,4 @@
-import * as d3 from 'd3'
+import { pie } from 'd3-shape'
 
 import type { ResolvedSeries } from '../../core/types'
 
@@ -10,7 +10,7 @@ export interface PieSlice<Meta = unknown> {
     value: number
     /** value / total (0 when total is 0). */
     fraction: number
-    /** Radians, 12 o'clock = 0, increasing clockwise (d3.pie convention). */
+    /** Radians, 12 o'clock = 0, increasing clockwise (pie convention). */
     startAngle: number
     endAngle: number
     /** Bisector angle — anchor for pop-out and on-slice labels. */
@@ -108,8 +108,7 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
         return { slices: [], total: 0, cx, cy, outerRadius, innerRadius, padAngle }
     }
 
-    const pieGenerator = d3
-        .pie<Indexed>()
+    const pieGenerator = pie<Indexed>()
         .value((d) => d.value)
         .padAngle(padAngle)
     if (sort === null) {
@@ -137,7 +136,7 @@ export function computePieLayout<Meta = unknown>(opts: ComputePieLayoutOptions<M
 }
 
 /** Maps a cursor offset (dx, dy) from the chart center to an angle in radians, matching
- *  the d3.pie convention: 12 o'clock = 0, increasing clockwise, range [0, 2π). */
+ *  the pie convention: 12 o'clock = 0, increasing clockwise, range [0, 2π). */
 export function cursorOffsetToAngle(dx: number, dy: number): number {
     // 12 o'clock = (0, -1) → atan2(0, 1) = 0
     // 3 o'clock = (1, 0) → atan2(1, 0) = π/2
@@ -159,7 +158,7 @@ export interface SliceAtOptions {
  *  - Misses the donut inner hole (`r < innerRadius`).
  *  - Misses past the outer edge plus optional slack.
  *  - Treats `padAngle/2` of each slice's start/end as a gap (no hit).
- *  - Handles d3.pie's 12 o'clock wraparound (slice that crosses 0). */
+ *  - Handles pie's 12 o'clock wraparound (slice that crosses 0). */
 export function sliceAt<Meta>(
     layout: PieLayout<Meta>,
     cursor: { x: number; y: number },

@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { clickAtIndex, getHogChartTooltip, hoverAtIndex, waitForHogChartTooltip } from 'lib/hog-charts/testing'
+import { clickAtIndex, getHogChartTooltip, hoverAtIndex, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'

@@ -1,4 +1,4 @@
-import type { Series } from 'lib/hog-charts'
+import type { Series } from '@posthog/quill-charts'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'

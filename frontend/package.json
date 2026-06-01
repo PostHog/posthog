@@ -120,6 +120,7 @@
         "@posthog/products-wizard": "workspace:*",
         "@posthog/products-workflows": "workspace:*",
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "@posthog/react": "catalog:",
         "@posthog/replay-shared": "workspace:*",
         "@posthog/tailwind": "workspace:*",

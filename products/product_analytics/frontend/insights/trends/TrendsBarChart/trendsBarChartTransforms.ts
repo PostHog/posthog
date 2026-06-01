@@ -1,5 +1,5 @@
-import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
+import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 import { hexToRGBA } from 'lib/utils'
 import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 

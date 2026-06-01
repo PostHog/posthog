@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 
-import type { TooltipContext } from 'lib/hog-charts'
+import type { TooltipContext } from '@posthog/quill-charts'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { getDatumTitle, type SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'

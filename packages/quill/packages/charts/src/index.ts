@@ -99,6 +99,9 @@ export type { AxisTitlesProps } from './overlays/AxisTitles'
 // Helper for adapters that need to align with the same x-axis tick selection the chart draws.
 export { computeVisibleXLabels } from './overlays/AxisLabels'
 
+// Axis label normalization (shared by chart adapters)
+export { normalizeAxisLabel } from './utils/axis-labels'
+
 export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
 export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'

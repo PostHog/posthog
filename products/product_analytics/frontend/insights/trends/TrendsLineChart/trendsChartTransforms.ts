@@ -1,4 +1,4 @@
-import { DEFAULT_Y_AXIS_ID, movingAverageKey } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, movingAverageKey, normalizeAxisLabel } from '@posthog/quill-charts'
 import type {
     ConfidenceIntervalConfig,
     MovingAverageConfig,
@@ -6,8 +6,7 @@ import type {
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
-} from 'lib/hog-charts'
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
+} from '@posthog/quill-charts'
 import { ciRanges } from 'lib/statistics'
 
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
