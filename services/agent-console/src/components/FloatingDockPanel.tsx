@@ -74,12 +74,31 @@ export function FloatingDockPanel({ floating, setFloating, children }: FloatingD
     const [dragging, setDragging] = useState<DragState['kind'] | null>(null)
     const [snapPreview, setSnapPreview] = useState<DockSnap>(null)
 
-    const resolved = useMemo(() => resolveRect(floating), [floating])
+    // Re-render on viewport resize so corner / edge snaps stay anchored
+    // to their corner. `resolveRect` already computes positions relative
+    // to the live `window.innerWidth/Height`, but without a viewport
+    // dep the memo would never recompute on resize and the panel would
+    // drift away from its corner.
+    const viewport = useViewportSize()
+    const resolved = useMemo(() => resolveRect(floating), [floating, viewport.w, viewport.h])
 
     /* ── Move (drag header) ─────────────────────────────────────── */
+    //
+    // The chat dock is rendered into a slot inside this panel via
+    // `createPortal()` (see AppShell). React's synthetic event
+    // bubbling walks the *virtual* tree, not the DOM — and the
+    // portal's React parent is the AppShell, not this component. So
+    // an `onMouseDown` prop on the container div would NEVER fire for
+    // mousedowns inside the portaled dock, even though the dock's
+    // DOM lives inside the container. Native DOM listeners follow
+    // the actual DOM tree, so we attach one in the effect below.
 
-    const beginMove = useCallback(
-        (e: React.MouseEvent<HTMLDivElement>) => {
+    useEffect(() => {
+        const node = containerRef.current
+        if (!node) {
+            return
+        }
+        const handler = (e: MouseEvent): void => {
             if (!(e.target instanceof Element)) {
                 return
             }
@@ -115,9 +134,10 @@ export function FloatingDockPanel({ floating, setFloating, children }: FloatingD
                 originH,
             }
             setDragging('move')
-        },
-        [floating]
-    )
+        }
+        node.addEventListener('mousedown', handler)
+        return () => node.removeEventListener('mousedown', handler)
+    }, [floating])
 
     /* ── Resize (drag corner / edge) ────────────────────────────── */
 
@@ -271,7 +291,6 @@ export function FloatingDockPanel({ floating, setFloating, children }: FloatingD
             {snapPreview ? <SnapPreview snap={snapPreview} w={floating.w} h={floating.h} /> : null}
             <div
                 ref={containerRef}
-                onMouseDown={beginMove}
                 className={
                     'fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border bg-background shadow-xl ' +
                     (dragging ? 'select-none ' : '') +
@@ -306,6 +325,27 @@ export function FloatingDockPanel({ floating, setFloating, children }: FloatingD
             </div>
         </>
     )
+}
+
+/**
+ * Live viewport size. Updates on window resize so consumers can
+ * recompute layout-dependent values. Cheap — just one resize listener
+ * that fires at most once per frame; consumers re-render when the
+ * tuple they consume changes.
+ */
+function useViewportSize(): { w: number; h: number } {
+    const [size, setSize] = useState<{ w: number; h: number }>(() =>
+        typeof window === 'undefined' ? { w: 0, h: 0 } : { w: window.innerWidth, h: window.innerHeight }
+    )
+    useEffect(() => {
+        if (typeof window === 'undefined') {
+            return
+        }
+        const onResize = (): void => setSize({ w: window.innerWidth, h: window.innerHeight })
+        window.addEventListener('resize', onResize)
+        return () => window.removeEventListener('resize', onResize)
+    }, [])
+    return size
 }
 
 /* ── Helpers ────────────────────────────────────────────────────── */
