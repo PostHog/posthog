@@ -170,32 +170,23 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         result = verify_provisioning_signature(drf_request)
         assert result is None
 
-    def test_rejects_when_no_signature_matches(self):
+    @parameterized.expand(
+        [
+            (
+                "no_signature_matches",
+                lambda body,
+                ts: f"t={ts},v1={compute_signature('wrong_a', ts, body)},v1={compute_signature('wrong_b', ts, body)}",
+            ),
+            ("stale_timestamp", lambda body, ts: f"t={ts - 301},v1={compute_signature(HMAC_SECRET, ts - 301, body)}"),
+            ("wrong_scheme_only", lambda body, ts: f"t={ts},v0={compute_signature(HMAC_SECRET, ts, body)}"),
+            ("missing_header", lambda body, ts: ""),
+        ]
+    )
+    def test_rejects_invalid_signature(self, _name, build_header):
         body = b'{"email":"test@example.com"}'
         ts = int(time.time())
-        wrong_a = compute_signature("wrong_secret_a", ts, body)
-        wrong_b = compute_signature("wrong_secret_b", ts, body)
 
-        drf_request = self._make_request(body, f"t={ts},v1={wrong_a},v1={wrong_b}")
-        result = verify_provisioning_signature(drf_request)
-        assert result is not None
-        assert result.status_code == 401
-        assert result.data["error"]["code"] == "invalid_signature"
-
-    def test_rejects_stale_timestamp(self):
-        body = b'{"email":"test@example.com"}'
-        ts = int(time.time()) - 301
-        sig = compute_signature(HMAC_SECRET, ts, body)
-
-        drf_request = self._make_request(body, f"t={ts},v1={sig}")
-        result = verify_provisioning_signature(drf_request)
-        assert result is not None
-        assert result.status_code == 401
-        assert result.data["error"]["code"] == "invalid_signature"
-
-    def test_rejects_missing_header(self):
-        body = b'{"email":"test@example.com"}'
-        drf_request = self._make_request(body, "")
+        drf_request = self._make_request(body, build_header(body, ts))
         result = verify_provisioning_signature(drf_request)
         assert result is not None
         assert result.status_code == 401
