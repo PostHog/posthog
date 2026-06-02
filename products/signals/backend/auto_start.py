@@ -1,12 +1,3 @@
-"""Shared post-report autostart logic.
-
-When a SignalReport (from the agentic signals pipeline or from a custom agent)
-is created with high-enough actionability/priority and identifiable reviewers,
-this module decides whether to also kick off an implementation Task that opens
-a draft PR. Both callers funnel through :func:`maybe_autostart_implementation_task`
-so any future fix to the hack (e.g. proper assignment service) lands in one place.
-"""
-
 from __future__ import annotations
 
 from typing import TypedDict
@@ -98,6 +89,7 @@ def _resolve_autostart_assignee(
         for u in User.objects.filter(
             id__in=candidate_user_ids,
             signal_autonomy_config__isnull=False,
+            teams__id=team_id,
         ).select_related("signal_autonomy_config")
     }
 
@@ -105,8 +97,6 @@ def _resolve_autostart_assignee(
     for uid in candidate_user_ids:
         user = users_with_config.get(uid)
         if user is None:
-            continue
-        if not user.teams.filter(id=team_id).exists():
             continue
         config: SignalUserAutonomyConfig = user.signal_autonomy_config
         effective_threshold = (
@@ -132,8 +122,9 @@ async def maybe_autostart_implementation_task(
     """Start an implementation Task for a SignalReport if autonomy + priority allow it.
 
     Idempotent: skipped if an IMPLEMENTATION task already exists for the report,
-    if the report is not immediately actionable, if priority is missing, if there
-    are no suggested reviewers, or if no reviewer's autonomy threshold is met.
+    if the report is not immediately actionable, if it's already addressed, if
+    priority is missing, if there are no suggested reviewers, or if no reviewer's
+    autonomy threshold is met.
 
     Both the agentic signals pipeline (``temporal/agentic/report.py``) and the
     custom agent activity (``temporal/custom_agent.py``) call this after persisting
@@ -141,10 +132,11 @@ async def maybe_autostart_implementation_task(
     autostart failure does not fail the report itself.
     """
     task_exists = await SignalReportTask.objects.filter(
-        report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
+        team_id=team_id, report_id=report_id, relationship=SignalReportTask.Relationship.IMPLEMENTATION
     ).aexists()
     if (
         actionability.actionability != ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+        or actionability.already_addressed
         or priority is None
         or not reviewers_content
         or task_exists

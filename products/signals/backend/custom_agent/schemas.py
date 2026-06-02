@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
+
+from posthog.schema import RelevantCommit
 
 from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
 
@@ -53,7 +55,7 @@ def validated_identifier(agent_class: type[CustomSignalAgent]) -> tuple[str, str
 class CustomAgentAssignee(BaseModel):
     github_login: str = Field(description="GitHub username/login to suggest as reviewer or assignee.")
     github_name: str | None = Field(default=None, description="Optional display name from GitHub.")
-    relevant_commits: list[dict[str, Any]] = Field(
+    relevant_commits: list[RelevantCommit] = Field(
         default_factory=list,
         description="Optional commit evidence explaining why this assignee is relevant.",
     )

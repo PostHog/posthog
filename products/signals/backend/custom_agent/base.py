@@ -479,7 +479,7 @@ Rules:
             ReviewerContent(
                 github_login=a.github_login,
                 github_name=a.github_name,
-                relevant_commits=list(a.relevant_commits),
+                relevant_commits=[c.model_dump(mode="json") for c in a.relevant_commits],
             )
             for a in final.assignees
         ]
