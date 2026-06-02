@@ -717,10 +717,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
-        # If the connection host changed, require credentials to be re-entered.
-        connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
-            "host"
-        ] != existing_job_inputs.get("host")
+        # If the connection host changed, require credentials to be re-entered. The host can live
+        # in a differently-named field per source (e.g. Freshdesk's `subdomain`), so check whichever
+        # fields the source declares as its connection target.
+        connection_host_changed = any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in source.connection_host_fields
+        )
 
         # If the SSH tunnel's connection target changed, also require credentials. Without this an
         # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled

@@ -36,6 +36,10 @@ _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
 @SourceRegistry.register
 class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConfig]):
+    # Freshdesk's connection target is the subdomain, not a `host` field. Editing it on an
+    # existing source must force the API key to be re-entered (see `connection_host_fields`).
+    connection_host_fields = frozenset({"subdomain"})
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.FRESHDESK

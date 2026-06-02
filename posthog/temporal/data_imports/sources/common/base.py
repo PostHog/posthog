@@ -55,6 +55,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # via their own override if a driver genuinely can't project columns).
     supports_column_selection: bool = False
 
+    # Job-input fields that identify the connection target. Changing any of these on an
+    # existing source must force credential re-entry, so a stored secret can't be redirected
+    # to a different destination (VERIA-311). Sources whose connection target lives in a
+    # differently-named field (e.g. Freshdesk's `subdomain`) override this.
+    connection_host_fields: frozenset[str] = frozenset({"host"})
+
     @property
     @abstractmethod
     def source_type(self) -> ExternalDataSourceType:
