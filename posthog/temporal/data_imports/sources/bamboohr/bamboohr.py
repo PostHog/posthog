@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urlencode
 
 import requests
@@ -60,16 +60,17 @@ def _build_url(subdomain: str, config: BambooHREndpointConfig) -> str:
 
 
 def _extract_records(payload: Any, config: BambooHREndpointConfig) -> list[dict[str, Any]]:
+    records: Any = payload
     if config.data_key is not None and isinstance(payload, dict):
         # Direct key access so a missing envelope key (e.g. an API change) fails loudly
         # rather than silently syncing zero rows.
-        payload = payload[config.data_key]
+        records = payload[config.data_key]
 
     if config.data_shape == "dict":
         # e.g. meta/users returns ``{"<id>": {...}}`` — flatten to the list of records.
-        return list(payload.values()) if isinstance(payload, dict) else []
+        return cast(list[dict[str, Any]], list(records.values())) if isinstance(records, dict) else []
 
-    return payload if isinstance(payload, list) else []
+    return cast(list[dict[str, Any]], records) if isinstance(records, list) else []
 
 
 def _next_url(payload: Any) -> str | None:
