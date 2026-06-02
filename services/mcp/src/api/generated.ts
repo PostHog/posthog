@@ -34253,6 +34253,36 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PreviewInviteRequest {
+      /**
+         * Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.
+         * @maxLength 400
+         */
+      interviewee_identifier?: string;
+    }
+
+    export interface PreviewInviteResult {
+      /** The identifier (email or distinct ID) the preview was rendered for. */
+      interviewee_identifier: string;
+      /** The display name used in the email greeting, derived from the identifier. */
+      user_name: string;
+      /**
+         * The email address the invite would be sent to. Null for distinct-ID-only interviewees.
+         * @nullable
+         */
+      email: string | null;
+      /** The rendered subject line (saved topic subject, sanitized, or the default). */
+      subject: string;
+      /** The fully rendered, CSS-inlined HTML body of the invite email. Safe to display in a sandboxed iframe. */
+      html: string;
+      /** The interview link shown in the previewed email body. */
+      interview_url: string;
+      /** True if this interviewee has an email address and could actually receive the invite. */
+      emailable: boolean;
+      /** True if interview_url is an illustrative placeholder because no share link exists yet — a real per-recipient link is minted when invites are sent. */
+      is_preview_link: boolean;
+    }
+
     /**
      * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
      */
