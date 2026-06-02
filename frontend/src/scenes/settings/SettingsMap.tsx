@@ -95,6 +95,7 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
+import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
@@ -714,6 +715,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsPiiScrubSettings />,
                 flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
+            },
+            {
+                id: 'logs-distinct-id-attribute-key',
+                title: 'Person pivot attribute',
+                description:
+                    "Which OTel log attribute we match against a person's distinct_ids to surface logs on their person profile. " +
+                    'Defaults to `posthogDistinctId` — the key the JavaScript and React Native SDKs auto-attach. ' +
+                    'Override only if your pipeline emits the person identifier under a different key.',
+                component: <LogsDistinctIdAttributeKey />,
+                flag: 'LOGS_SETTINGS',
+                keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
                 id: 'logs-retention',
