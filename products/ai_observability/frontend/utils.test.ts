@@ -44,7 +44,7 @@ const IMPLS = [
     },
 ] as const
 
-describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, normalizeMessages }) => {
+describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage, normalizeMessages }) => {
     beforeEach(() => {
         console.warn = jest.fn()
     })
@@ -2742,6 +2742,172 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 },
             ]
             expect(getToolNamesCalled(events)).toEqual([])
+        })
+    })
+
+    // Regressions found by sampling real production payloads across teams (see
+    // normalizer/coverageHarness.test.ts). These shapes were mishandled by the
+    // recipe pipeline; both implementations must agree on them.
+    describe('production payload regressions', () => {
+        it('null input carries no message', () => {
+            // Recipe used to salvage `null` into a spurious empty user message.
+            expect(normalizeMessages(null, 'user')).toEqual([])
+        })
+
+        it('number/boolean input carries no message', () => {
+            expect(normalizeMessages(42, 'user')).toEqual([])
+            expect(normalizeMessages(true, 'user')).toEqual([])
+        })
+
+        it('a single-field {content} object inherits the default role', () => {
+            // Recipe used to force role:user even on the output (assistant) side.
+            expect(normalizeMessages({ content: 'hi' }, 'assistant')).toEqual([{ role: 'assistant', content: 'hi' }])
+            expect(normalizeMessages({ content: 'hi' }, 'user')).toEqual([{ role: 'user', content: 'hi' }])
+        })
+
+        it('an empty top-level tool_calls array adds no synthetic message', () => {
+            // Recipe used to append an empty assistant message for `tool_calls: []`.
+            // (thinking+text content so the Anthropic envelope path is exercised.)
+            const message = {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', thinking: 'x' },
+                    { type: 'text', text: 'done' },
+                ],
+                tool_calls: [],
+            }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                { role: 'assistant (thinking)', content: 'x' },
+                { role: 'assistant', content: 'done' },
+            ])
+        })
+
+        it('OTel parts whose text lives under an unexpected key degrade to empty content, not [null]', () => {
+            // `text`-keyed parts (some SDKs) don't match the `content` pluck; the
+            // result must collapse to '' rather than a malformed [null] array.
+            const message = { role: 'user', parts: [{ type: 'text', text: 'hi' }] }
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: '' }])
+        })
+    })
+
+    // Cases where the recipe pipeline deliberately IMPROVES on legacy. The legacy
+    // path retires once the recipe pipeline is the default, at which point these
+    // collapse to a single assertion. Until then each documents both behaviors.
+    describe('accepted divergences (recipe improvements)', () => {
+        const expectByImpl = (input: unknown, role: string, legacyOut: unknown, recipeOut: unknown): void => {
+            expect(normalizeMessages(input, role)).toEqual(name === 'recipe' ? recipeOut : legacyOut)
+        }
+
+        it('extracts single-field {text}/{message} wrappers instead of stringifying them', () => {
+            // legacy stringifies the whole object; recipe surfaces the inner text.
+            expectByImpl(
+                { text: 'hello' },
+                'assistant',
+                [{ role: 'assistant', content: '{"text":"hello"}' }],
+                [{ role: 'assistant', content: 'hello' }]
+            )
+        })
+
+        it('empties null content instead of preserving it', () => {
+            // legacy keeps content:null (and the empty tool_calls); recipe
+            // normalizes content to '' (renderers expect a string) and drops the
+            // empty tool_calls.
+            expectByImpl(
+                { role: 'assistant', content: null, tool_calls: [] },
+                'assistant',
+                [{ role: 'assistant', content: null, tool_calls: [] }],
+                [{ role: 'assistant', content: '' }]
+            )
+        })
+
+        it('preserves and canonicalizes a tool_call that legacy drops', () => {
+            // The tool_call lacks the `type: "function"` marker, so legacy's
+            // strict guard rejects the whole array and loses the call. Recipe
+            // canonicalizes it to {type, id, function:{name, parsed args}}.
+            const input = {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                    {
+                        id: 'call_1',
+                        caller: { type: 'direct' },
+                        index: 0,
+                        function: { name: 'send_email', arguments: '{"to":"x@y.com"}' },
+                    },
+                ],
+            }
+            expectByImpl(
+                input,
+                'assistant',
+                [{ role: 'assistant', content: null }],
+                [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'call_1',
+                                function: { name: 'send_email', arguments: { to: 'x@y.com' } },
+                            },
+                        ],
+                    },
+                ]
+            )
+        })
+
+        it('flattens a doubly-nested message array instead of stringifying it', () => {
+            // legacy stringifies the inner array as one user message; recipe flattens.
+            const input = [
+                [
+                    { role: 'system', content: 'a' },
+                    { role: 'user', content: 'b' },
+                ],
+            ]
+            expectByImpl(
+                input,
+                'user',
+                [{ role: 'user', content: '[{"role":"system","content":"a"},{"role":"user","content":"b"}]' }],
+                [
+                    { role: 'system', content: 'a' },
+                    { role: 'user', content: 'b' },
+                ]
+            )
+        })
+
+        it('parses typed agent items (tool_call/tool_result) legacy stringifies or drops', () => {
+            // Flat type-discriminated agent stream (OpenAI Agents SDK and similar).
+            // legacy stringifies the tool_call and drops the tool_result's output;
+            // recipe produces a real tool call and tool message.
+            const input = [
+                { type: 'tool_call', callId: 'c1', name: 'getWeather', arguments: { city: 'NYC' } },
+                { type: 'tool_result', callId: 'c1', name: 'getWeather', output: { tempF: 71 } },
+            ]
+            expectByImpl(
+                input,
+                'user',
+                [
+                    {
+                        role: 'user',
+                        content: '{"type":"tool_call","callId":"c1","name":"getWeather","arguments":{"city":"NYC"}}',
+                    },
+                    { role: 'assistant (tool result)' },
+                ],
+                [
+                    {
+                        role: 'assistant',
+                        content: '',
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'c1',
+                                function: { name: 'getWeather', arguments: { city: 'NYC' } },
+                            },
+                        ],
+                    },
+                    { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
+                ]
+            )
         })
     })
 })
