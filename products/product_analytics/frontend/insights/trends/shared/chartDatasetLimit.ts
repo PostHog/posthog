@@ -1,6 +1,7 @@
-// Rendering hundreds of series freezes the main thread and makes the chart unreadable.
-// Cap the number of series actually drawn, matching the legacy Chart.js LineGraph limit.
-// The full result set stays browsable in the results table below the chart.
+// In the aggregated (horizontal) bar value chart each breakdown value gets its own bar, so a
+// high-cardinality breakdown turns into hundreds of stacked bars that blow out the chart height
+// and freeze the main thread. Cap the number of bars actually drawn; the full result set stays
+// browsable in the results table below the chart.
 export const MAX_CHART_DATASETS = 150
 
 // Returns the prefix of `results` containing at most `limit` visible (non-hidden) entries.

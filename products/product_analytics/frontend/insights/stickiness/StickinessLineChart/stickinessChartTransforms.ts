@@ -4,8 +4,6 @@ import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipU
 
 import { ChartDisplayType } from '~/types'
 
-import { capResultsToChartLimit } from '../../trends/shared/chartDatasetLimit'
-
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
     id?: string | number
@@ -64,7 +62,7 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
     results: R[],
     opts: BuildStickinessSeriesOpts<R, M>
 ): Series<M>[] {
-    return capResultsToChartLimit(results, opts.getHidden).map((r, index) => buildStickinessMainSeries(r, index, opts))
+    return results.map((r, index) => buildStickinessMainSeries(r, index, opts))
 }
 
 /** Produce per-bucket labels ("Day 0", "Day 1", …). The API's own "X day(s)" labels

@@ -56,9 +56,7 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): Series<M>[] {
-    return capResultsToChartLimit(results, opts.getHidden).map((r, index) =>
-        buildMainTrendsBarSeries(r, index, opts, r.data)
-    )
+    return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data))
 }
 
 export interface BuildTrendsBarTimeSeriesConfigOpts {
