@@ -33,7 +33,6 @@ def _get_headers(api_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
-        "Content-Type": "application/json",
     }
 
 

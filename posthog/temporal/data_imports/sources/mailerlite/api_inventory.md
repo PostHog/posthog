@@ -17,18 +17,18 @@ conservative (follow `links.next`, yield rows verbatim, merge on `id`).
 
 ## Endpoints implemented
 
-| Schema           | Path               | Pagination   | Primary key | Partition key |
-| ---------------- | ------------------ | ------------ | ----------- | ------------- |
-| subscribers      | /subscribers       | cursor       | id          | created_at    |
-| campaigns        | /campaigns         | page number  | id          | created_at    |
-| groups           | /groups            | page number  | id          | created_at    |
-| segments         | /segments          | page number  | id          | created_at    |
-| fields           | /fields            | page number  | id          | (none)        |
-| automations      | /automations       | page number  | id          | created_at    |
-| forms_popup      | /forms/popup       | page number  | id          | created_at    |
-| forms_embedded   | /forms/embedded    | page number  | id          | created_at    |
-| forms_promotion  | /forms/promotion   | page number  | id          | created_at    |
-| webhooks         | /webhooks          | page number  | id          | created_at    |
+| Schema          | Path             | Pagination  | Primary key | Partition key |
+| --------------- | ---------------- | ----------- | ----------- | ------------- |
+| subscribers     | /subscribers     | cursor      | id          | created_at    |
+| campaigns       | /campaigns       | page number | id          | created_at    |
+| groups          | /groups          | page number | id          | created_at    |
+| segments        | /segments        | page number | id          | created_at    |
+| fields          | /fields          | page number | id          | (none)        |
+| automations     | /automations     | page number | id          | created_at    |
+| forms_popup     | /forms/popup     | page number | id          | created_at    |
+| forms_embedded  | /forms/embedded  | page number | id          | created_at    |
+| forms_promotion | /forms/promotion | page number | id          | created_at    |
+| webhooks        | /webhooks        | page number | id          | created_at    |
 
 ## Pagination
 

@@ -59,8 +59,8 @@ You can create an API key in your [MailerLite integrations settings](https://das
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url": "Your MailerLite API key is invalid or expired. Please generate a new key and reconnect.",
-            "403 Client Error: Forbidden for url": "Your MailerLite API key does not have the required permissions. Please check the key and reconnect.",
+            "401 Client Error: Unauthorized for url: https://connect.mailerlite.com": "Your MailerLite API key is invalid or expired. Please generate a new key and reconnect.",
+            "403 Client Error: Forbidden for url: https://connect.mailerlite.com": "Your MailerLite API key does not have the required permissions. Please check the key and reconnect.",
         }
 
     def get_schemas(
@@ -79,7 +79,7 @@ You can create an API key in your [MailerLite integrations settings](https://das
                 supports_append=False,
                 incremental_fields=[],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)

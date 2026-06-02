@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MailerLiteSourceConfig
@@ -24,8 +26,11 @@ class TestMailerLiteSourceClass:
         assert config.label == "MailerLite"
         assert config.unreleasedSource is True
         assert [field.name for field in config.fields] == ["api_key"]
-        assert config.fields[0].required is True
-        assert config.fields[0].secret is True
+        api_key_field = config.fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.required is True
+        assert api_key_field.secret is True
+        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
 
     def test_get_schemas_are_all_full_refresh(self) -> None:
         schemas = MailerLiteSource().get_schemas(_config(), team_id=1)
