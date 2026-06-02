@@ -27,6 +27,8 @@
 
 const SLACK_API = 'https://slack.com/api'
 const INCIDENT_EVENT_TYPE = 'master_ci_incident'
+// One page of channel history. #alerts-devex is low-traffic, so the open anchor
+// reliably stays within the newest 100 messages; a busier channel would need paging.
 const HISTORY_LIMIT = 100
 
 // ---------------------------------------------------------------------------
@@ -126,30 +128,20 @@ function classifyCommits(commits, allWorkflowRuns, criticalWorkflows) {
     })
 }
 
-// Walk newest-to-oldest, count reds, stop at the first green. Unknowns (CI still
-// running, path-filtered) neither count nor break the streak, so a freshly-pushed
-// commit whose CI hasn't completed does not mask a real underlying streak.
-function countConsecutiveRedCommits(classified) {
+// Walk newest-to-oldest over the leading red streak, returning its length and the
+// oldest red commit's timestamp (for incident duration). Stop at the first green;
+// unknowns (CI still running, path-filtered) neither count nor break the streak, so
+// a freshly-pushed commit whose CI hasn't completed does not mask a real streak.
+function leadingRedStreak(classified) {
     let count = 0
-    for (const commit of classified) {
-        if (commit.status === 'green') break
-        if (commit.status === 'red') count++
-    }
-    return count
-}
-
-// Oldest commit timestamp within the leading red streak (for incident duration).
-function oldestRedCommitDate(classified, count) {
-    let seen = 0
-    let date = null
+    let since = null
     for (const commit of classified) {
         if (commit.status === 'green') break
         if (commit.status !== 'red') continue
-        seen++
-        if (commit.date) date = commit.date
-        if (seen >= count) break
+        count++
+        if (commit.date) since = commit.date
     }
-    return date
+    return { count, since }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,9 +244,9 @@ function buildResolvedText({ previousWorkflows, durationMins }) {
     ].join('\n')
 }
 
-// One thread reply summarizing what changed this tick (or the initial state).
-function buildThreadReply({ created, added, removed, commitStarted, resolved, durationMins }) {
-    if (resolved) return `:white_check_mark: master green again — was red ${formatDuration(durationMins)}`
+// One thread reply summarizing what changed this tick — the initial failing set on
+// create, or the delta on later ticks. Returns '' when nothing changed.
+function buildThreadReply({ created = [], added = [], removed = [], commitStarted = false }) {
     const parts = []
     if (created.length) {
         parts.push(...created.map((w) => `:red_circle: ${slackEscape(w)} crossed the failure threshold`))
@@ -263,6 +255,10 @@ function buildThreadReply({ created, added, removed, commitStarted, resolved, du
     if (removed.length) parts.push(`:white_check_mark: recovered: ${slackEscape(removed.join(', '))}`)
     if (commitStarted) parts.push(`:red_circle: commit-failure streak crossed the threshold`)
     return parts.join('\n')
+}
+
+function buildRecoveryReply(durationMins) {
+    return `:white_check_mark: master green again — was red ${formatDuration(durationMins)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -284,38 +280,38 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const perPage = Math.max(workflowThreshold * 3, 20)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
-    // 1. Recompute master health from the API (no stored state).
-    const allWorkflowRuns = await Promise.all(
-        workflowFiles.map((wf) =>
-            fetchWorkflowRuns(github, owner, repo, wf, perPage).catch((err) => {
-                core.warning(`Failed to fetch ${wf}: ${err.message}`)
-                return []
-            })
-        )
-    )
+    // Recompute master health from the API and read the Slack incident state (the
+    // source of truth for whether an incident is open). All three are independent
+    // network calls, so run them concurrently.
+    const [allWorkflowRuns, commits, active] = await Promise.all([
+        Promise.all(
+            workflowFiles.map((wf) =>
+                fetchWorkflowRuns(github, owner, repo, wf, perPage).catch((err) => {
+                    core.warning(`Failed to fetch ${wf}: ${err.message}`)
+                    return []
+                })
+            )
+        ),
+        fetchRecentCommits(github, owner, repo, commitsToFetch).catch((err) => {
+            core.warning(`Failed to fetch commits: ${err.message}`)
+            return []
+        }),
+        findActiveIncident(slack, channel),
+    ])
+
     const failing = buildFailingMap(allWorkflowRuns)
     const blocking = sortBlocking(
         Object.values(failing).filter((f) => f.consecutive_failures >= workflowThreshold),
         criticalWorkflows
     )
 
-    let commitStreakCount = 0
-    let commitStreakSince = null
-    let latestCommit = null
-    try {
-        const commits = await fetchRecentCommits(github, owner, repo, commitsToFetch)
-        latestCommit = commits[0] || null
-        const classified = classifyCommits(commits, allWorkflowRuns, criticalWorkflows)
-        commitStreakCount = countConsecutiveRedCommits(classified)
-        commitStreakSince = oldestRedCommitDate(classified, commitStreakCount)
-    } catch (err) {
-        core.warning(`Failed to compute red commits: ${err.message}`)
-    }
+    const latestCommit = commits[0] || null
+    const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
+        classifyCommits(commits, allWorkflowRuns, criticalWorkflows)
+    )
     const commitActive = commitStreakCount >= commitThreshold
     const unhealthy = blocking.length > 0 || commitActive
 
-    // 2. Slack is the source of truth for whether an incident is already open.
-    const active = await findActiveIncident(slack, channel)
     const runsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
     // Earliest start across both active signals (preserve original on update).
@@ -342,11 +338,11 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             await slack.postMessage({
                 channel,
                 thread_ts: posted.ts,
-                text: buildThreadReply({ created: blockingNames, added: [], removed: [], commitStarted: commitActive }),
+                text: buildThreadReply({ created: blockingNames, commitStarted: commitActive }),
             })
             action = 'create'
         } else {
-            await slack.update({ channel, ts: active.ts, text, metadata })
+            await slack.update({ channel, ts: active.ts, text, metadata, unfurl_links: false })
             // Diff against the previous set to decide whether the timeline moved.
             const prev = new Set(active.payload?.workflows || [])
             const curr = new Set(blockingNames)
@@ -357,7 +353,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
                 await slack.postMessage({
                     channel,
                     thread_ts: active.ts,
-                    text: buildThreadReply({ created: [], added, removed, commitStarted }),
+                    text: buildThreadReply({ added, removed, commitStarted }),
                 })
             }
             action = 'update'
@@ -371,12 +367,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
             ts: active.ts,
             text: buildResolvedText({ previousWorkflows, durationMins }),
             metadata: { event_type: INCIDENT_EVENT_TYPE, event_payload: { status: 'resolved' } },
+            unfurl_links: false,
         })
-        await slack.postMessage({
-            channel,
-            thread_ts: active.ts,
-            text: buildThreadReply({ created: [], added: [], removed: [], resolved: true, durationMins }),
-        })
+        await slack.postMessage({ channel, thread_ts: active.ts, text: buildRecoveryReply(durationMins) })
         action = 'resolve'
     }
 
@@ -388,11 +381,4 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     core.setOutput('commit_streak', String(commitStreakCount))
 }
 
-module.exports.buildFailingMap = buildFailingMap
-module.exports.countConsecutiveFailures = countConsecutiveFailures
-module.exports.countConsecutiveRedCommits = countConsecutiveRedCommits
-module.exports.classifyCommits = classifyCommits
-module.exports.buildAnchorText = buildAnchorText
-module.exports.buildResolvedText = buildResolvedText
 module.exports.formatDuration = formatDuration
-module.exports.findActiveIncident = findActiveIncident
