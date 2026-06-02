@@ -6,6 +6,8 @@ import { Spinner } from '@posthog/lemon-ui'
 import { SupermanHog } from 'lib/components/hedgehogs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+
 import { ErrorTrackingIssueList } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList'
 import { ErrorTrackingIssueListSkeleton } from 'products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueListSkeleton'
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
@@ -14,7 +16,13 @@ import { ErrorTrackingIngestionPrompt } from 'products/error_tracking/frontend/c
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import { WidgetCardProductIntroduction } from '../../components/WidgetCardProductIntroduction/WidgetCardProductIntroduction'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { canConfigureErrorTrackingWidgetIssues, type ErrorTrackingWidgetResult } from './utils'
+import { canConfigureErrorTrackingWidgetIssues } from './utils'
+
+type ErrorTrackingWidgetResult = {
+    results?: ErrorTrackingIssue[]
+    hasMore?: boolean
+    limit?: number
+}
 
 export function ErrorTrackingWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
     if (loading) {

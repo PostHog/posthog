@@ -56,7 +56,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
     }),
 
     actions({
-        setOrderBy: (orderBy: string) => ({ orderBy }),
+        setOrderBy: (orderBy: ErrorTrackingWidgetConfig['orderBy']) => ({ orderBy }),
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
         ...widgetEditModalFilterTestAccountsActions,
@@ -68,9 +68,12 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
 
     reducers({
         orderBy: [
-            'occurrences',
+            'occurrences' as ErrorTrackingWidgetConfig['orderBy'],
             {
-                setOrderBy: (_, { orderBy }) => orderBy,
+                setOrderBy: (
+                    _: ErrorTrackingWidgetConfig['orderBy'],
+                    { orderBy }: { orderBy: ErrorTrackingWidgetConfig['orderBy'] }
+                ) => orderBy,
             },
         ],
         ...widgetEditModalListFieldReducers,

@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 import type { ComponentType } from 'react'
 
 import type { DashboardWidgetProductAccess } from '../types'
-import { type DashboardWidgetCatalogKey, getDashboardWidgetCatalogEntry } from '../widget_types/catalog'
+import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
@@ -28,7 +28,7 @@ function reportMissingDashboardWidgetRegistryEntry(
         return
     }
 
-    const hasCatalogEntry = getDashboardWidgetCatalogEntry(widgetType) !== undefined
+    const hasCatalogEntry = widgetType in DASHBOARD_WIDGET_CATALOG
     const dedupeKey = `${canonicalType}:${hasCatalogEntry ? 'catalog' : 'none'}`
     if (reportedMissingRegistryEntries.has(dedupeKey)) {
         return

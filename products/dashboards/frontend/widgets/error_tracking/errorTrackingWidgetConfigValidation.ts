@@ -16,8 +16,8 @@ function fieldErrorsFromZodError(error: ZodError): ErrorTrackingWidgetFieldError
     const { fieldErrors } = z.flattenError(error)
 
     return Object.fromEntries(
-        Object.entries(fieldErrors).flatMap(([field, messages]) =>
-            messages.length > 0 ? [[field, messages[0] as string]] : []
+        (Object.entries(fieldErrors) as [string, string[]][]).flatMap(([field, messages]) =>
+            messages.length > 0 ? [[field, messages[0]]] : []
         )
     )
 }

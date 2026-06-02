@@ -1,4 +1,4 @@
-import type { ValidationResult } from './editWidgetModalLogicTypes'
+type ValidationResult = { success: true } | { success: false; fieldErrors: Record<string, string> }
 
 export const widgetEditModalTileActions = {
     setTileName: (tileName: string) => ({ tileName }),

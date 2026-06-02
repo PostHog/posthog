@@ -87,13 +87,12 @@ function resolveDashboardWidgetCatalogEntry(entry: DashboardWidgetCatalogEntry):
     }
 }
 
-export function getDashboardWidgetCatalogEntry(widgetType: string): ResolvedDashboardWidgetCatalogEntry | undefined {
-    if (widgetType in DASHBOARD_WIDGET_CATALOG) {
-        return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
+export function getDashboardWidgetCatalogEntry(widgetType: string): ResolvedDashboardWidgetCatalogEntry {
+    if (!(widgetType in DASHBOARD_WIDGET_CATALOG)) {
+        throw new Error(`Unknown dashboard widget type: ${widgetType}`)
     }
 
-    console.warn(`[dashboard-widgets] Unknown widget type: ${widgetType}`)
-    return undefined
+    return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
 }
 
 export type DashboardWidgetCatalogGroup = {

@@ -1,11 +1,3 @@
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-
-export type ErrorTrackingWidgetResult = {
-    results?: ErrorTrackingIssue[]
-    hasMore?: boolean
-    limit?: number
-}
-
 export const ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS = [
     { value: 'occurrences', label: 'Occurrences' },
     { value: 'last_seen', label: 'Last seen' },

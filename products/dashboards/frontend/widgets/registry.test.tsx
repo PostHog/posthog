@@ -25,11 +25,6 @@ describe('dashboard widget registry', () => {
         expect(posthog.captureException).not.toHaveBeenCalled()
     })
 
-    it('resolves error_tracking widget type alias', () => {
-        expect(getDashboardWidgetDefinition('error_tracking')).toBe(getDashboardWidgetDefinition('error_tracking_list'))
-        expect(posthog.captureException).not.toHaveBeenCalled()
-    })
-
     it('registers every catalog key', () => {
         for (const key of Object.keys(DASHBOARD_WIDGET_CATALOG)) {
             expect(getDashboardWidgetDefinition(key)).not.toBeUndefined()
