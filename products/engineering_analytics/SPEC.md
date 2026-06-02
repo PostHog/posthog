@@ -7,6 +7,8 @@ Sibling doc: [README.md](./README.md) — read that first for the product pictur
 
 Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) through a curated HogQL read layer. **MCP is the official surface**; a read-only UI is built on the same read layer. Consumers and motivations are in the README.
 
+The **goal** is to surface these as **Signals** for PostHog Code: valuable CI conditions are emitted into PostHog's [Signals](../signals) product, grouped and researched against the repository, and acted on autonomously when a finding is actionable. The read substrate + MCP serve that goal directly — what counts as a valuable CI Signal is defined once in `logic/` over the read layer, reused by both the surface and the emitter — and the UI is a showcase over the same layer.
+
 ## 2. Non-goals
 
 - Per-developer surveillance metrics or rankings. Filters operate at cohort level by default.
@@ -158,10 +160,13 @@ Vertical slices, each independently mergeable. The near-term path:
 
 The earlier "three report endpoints" approach (`workflow_report` / `time_to_merge` / `pr_lifecycle` as bespoke RPC tools) is **superseded** by the substrate-plus-SQL surface; `pr_lifecycle` survives as the one genuine deep tool. See §7 for why.
 
+The goal these slices build toward: emit valuable CI Signals from the read substrate into the Signals product for PostHog Code. That emission rides on the read layer — it does not wait on the events destination — and reuses the `logic/` detection that backs the MCP surface.
+
 ## 7. Locked decisions
 
 Engineering-specific decisions. Product-level decisions live in README → Locked decisions. If you want to change one, do it in a separate PR with a written reason.
 
+- **Signals emission for PostHog Code is the goal; the substrate is shaped for it.** Valuable CI conditions are surfaced as Signals via the Signals product's `emit_signal()` for PostHog Code to act on. Detection of what counts as a valuable Signal is defined once in `logic/` over the read layer, so the emitter and the MCP/SQL surface share one definition — never re-derived in the UI. The emission contract (source taxonomy, thresholds, autonomy priority) is owned by the Signals product; nothing in the read substrate or surfaces may foreclose it.
 - **Read substrate = curated HogQL read layer; MCP is the official surface.** _(Changed — reason:)_ the repo's MCP convention is atomic capabilities composed by agents, with skills teaching composition (`implementing-mcp-tools.md`), and its prescribed analytics path is a HogQL system table + a `querying-posthog-data` reference. A SQL-over-substrate surface is also more APOSD-faithful (one deep general mechanism, thin surfaces, domain rules defined once — no information leakage across per-report endpoints) and is the only shape that lets the read-only UI consume the **same** data without a parallel read path. Bespoke `*_report` RPC tools are not the surface.
 - **`metric_quality` is carried by honest column naming + the skill, plus a typed field on named deep tools where load-bearing.** _(Changed — reason:)_ a SQL/substrate surface returns rows, not typed contracts, so the "typed `metric_quality` field on every tool" rule cannot hold there. Encoding the caveat in the column name (`open_to_merge_seconds`) makes the misread structurally impossible, and the skill carries the nuance for composition. The typed field stays on named deep tools (e.g. `pr_lifecycle`) where free composition can't be trusted to preserve it.
 - **No new ingestion to support v1 UI.** Repo identity, labels, and `is_bot` are mapped from the warehouse JSON already landed; the PR↔CI status is a head-SHA join. All in the read layer.
