@@ -49,6 +49,34 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert printed == self.snapshot
 
+    def test_aliased_events_pushdown_does_not_reference_outer_alias_in_subquery(self):
+        # Regression for the aliased-events pushdown bug.
+        #
+        # When the events table is aliased (FROM events AS e), the predicate pushed into
+        # the wrapping subquery must be scoped to the inner `events` table, not to the
+        # outer subquery alias `e`. The alias `e` only exists in the outer query's scope;
+        # inside `FROM events` it is an unknown identifier, so a leaked reference like
+        # `e.timestamp` produces SQL that ClickHouse rejects at runtime ("Unknown
+        # identifier e.timestamp"). The printer renders a field from its resolved type,
+        # not its chain, so stripping the chain prefix alone is not enough.
+        printed = self._print_select(
+            "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
+        )
+
+        # Isolate the pushed-down events subquery: `FROM ( <subquery> ) AS e LEFT JOIN ...`
+        assert "FROM (" in printed and ") AS e LEFT JOIN" in printed, printed
+        events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
+
+        # The timestamp predicate was pushed into this subquery; it must reference the
+        # inner `events` table, never the outer alias `e`.
+        assert "e.timestamp" not in events_subquery, (
+            "predicate pushdown leaked the outer table alias `e` into the events subquery "
+            "(`e` is out of scope inside `FROM events`):\n" + events_subquery
+        )
+        assert "events.timestamp" in events_subquery, (
+            "expected the pushed-down predicate to reference the inner `events` table:\n" + events_subquery
+        )
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_without_join_no_pushdown(self):
         """No pushdown when there are no lazy joins."""
