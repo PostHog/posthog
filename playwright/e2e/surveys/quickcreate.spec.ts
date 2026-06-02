@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 import { randomString } from '../../utils'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
-const saveFeatureFlag = async (page: Page): Promise<void> => {
+const saveFeatureFlag = async (page: Page): Promise<string> => {
     const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
     await expect(saveButton).toBeEnabled()
     const responsePromise = page.waitForResponse(
@@ -13,7 +13,11 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     )
     await saveButton.click()
     await responsePromise
-    await page.goto(urls.featureFlags())
+    // Saving redirects to the flag's own detail page (featureFlagLogic.saveFeatureFlagSuccess).
+    // Stay here and return its URL — survey creation is available straight from the flag page,
+    // which avoids the flaky round-trip of finding the just-created flag in the list search.
+    await page.waitForURL(/\/feature_flags\/\d+/)
+    return page.url()
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -49,24 +53,16 @@ const addTwoVariants = async (page: Page): Promise<void> => {
     await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
 }
 
-const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
-    // Wait for the flags list to finish mounting before searching.
-    await expect(page.locator('h1')).toContainText('Feature flags')
-    const search = page.locator('[data-attr="feature-flag-search"]')
-    await expect(search).toBeVisible()
-    const row = page.locator(`[data-row-key="${name}"]`)
-    // The list fires a single debounced search request. If it races the flag's creation
-    // (or the filter is reset during mount) it can come back without our flag, and a plain
-    // toBeVisible then waits on a static DOM that never re-queries. Re-issue the search —
-    // clear + refill forces a fresh request — until the exact-key row appears. Filtering by
-    // the key also forces it onto the single visible page.
-    await expect(async () => {
-        await search.fill('')
-        await search.fill(name)
-        await expect(row).toBeVisible({ timeout: 5_000 })
-    }).toPass({ timeout: 40_000 })
-    await row.locator('[data-attr="more-button"]').click()
-    await page.locator('[data-attr="create-survey"]').click()
+const clickCreateSurvey = async (page: Page): Promise<void> => {
+    // Open survey creation from the flag's own detail page (its scene panel), not the
+    // feature-flag list search — that search intermittently never surfaces the just-created
+    // flag, even on an isolated workspace. The panel may already be open (it persists across
+    // navigation), so only toggle it open when the action isn't already visible.
+    const createSurvey = page.locator('[data-attr="feature_flag-create-survey"]')
+    if (!(await createSurvey.isVisible().catch(() => false))) {
+        await page.locator('[data-attr="open-context-panel-button"]').first().click()
+    }
+    await createSurvey.click()
 }
 
 const goToSurveyOverview = async (page: Page): Promise<void> => {
@@ -118,7 +114,7 @@ test.describe('Quick create survey from feature flag', () => {
         // use defaults for basic ff
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
         await launchSurvey(page, name)
 
@@ -132,7 +128,7 @@ test.describe('Quick create survey from feature flag', () => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
         await launchSurvey(page, name)
 
@@ -147,7 +143,7 @@ test.describe('Quick create survey from feature flag', () => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
         // select variant test-1
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
@@ -159,17 +155,15 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, [])
     })
 
-    // TODO un-skip: on a no_demo_data workspace the survey event picker (a TaxonomicFilter
-    // Events group) never lists "Autocapture". Seeding a $autocapture event in the workspace
-    // did NOT surface it (failed consistently, not flaky), so the picker isn't populating from
-    // event definitions the way we assumed. Needs a local repro to see how it loads core events
-    // — likely the fix is to type "$autocapture" into the taxonomic search (allowNonCapturedEvents).
-    test.skip('launch survey with event', async ({ page }) => {
+    test('launch survey with event', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
-        // add event
+        // add event — the picker is a TaxonomicFilter Events group with allowNonCapturedEvents,
+        // so on an empty no_demo_data workspace nothing is listed until we search. Typing the
+        // event name surfaces $autocapture (rendered with its "Autocapture" friendly label).
         await page.locator('.LemonButton').getByText('Add event').click()
+        await page.locator('[data-attr="taxonomic-filter-searchfield"]').fill('$autocapture')
         const autocaptureOption = page.locator('span[aria-label="Autocapture"]').getByText('Autocapture')
         await expect(autocaptureOption).toBeVisible()
         await autocaptureOption.click()
@@ -183,7 +177,7 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
         await launchSurvey(page, name)
         await goToSurveyOverview(page)
 
@@ -199,15 +193,15 @@ test.describe('Quick create survey from feature flag', () => {
 
     test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
-        await saveFeatureFlag(page)
+        const flagUrl = await saveFeatureFlag(page)
 
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
-        await page.goto(urls.featureFlags())
-        await expect(page.locator('h1')).toContainText('Feature flags')
-        await clickCreateSurvey(page, name)
+        // Back to the flag's own page to spin up a second survey (test-2 variant).
+        await page.goto(flagUrl)
+        await clickCreateSurvey(page)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
@@ -223,14 +217,9 @@ test.describe('Quick create survey from feature flag', () => {
         await expect(page.locator('[data-attr="surveys-table"]')).toBeVisible()
     })
 
-    // TODO un-skip: flaky in clickCreateSurvey — the just-saved flag intermittently never
-    // appears in the feature-flag list search, even on an isolated workspace and with the
-    // clear+refill retry. The durable fix is to stop round-tripping through the list search
-    // entirely: capture the flag's detail URL from saveFeatureFlag's post-save navigation and
-    // open "create survey" from the flag page directly. Tracked for the whole helper.
-    test.skip('create draft survey', async ({ page }) => {
+    test('create draft survey', async ({ page }) => {
         await saveFeatureFlag(page)
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
         await page
             .getByTestId('quick-survey-create')
@@ -273,7 +262,7 @@ test.describe('Quick create survey from feature flag', () => {
         })
 
         await page.reload()
-        await clickCreateSurvey(page, name)
+        await clickCreateSurvey(page)
 
         await expect(page.locator('label').getByText('Enable surveys')).toBeVisible()
     })
