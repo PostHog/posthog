@@ -251,13 +251,6 @@ def test_validate_credentials_basic_only_probes_one_endpoint():
     mock_client = mock.MagicMock()
     _mock_all_stripe_endpoints(mock_client)
 
-
-def test_validate_credentials_basic_only_probes_one_endpoint():
-    """Default (no `endpoints`) is the cheap auth probe — one call total. We must not bang
-    every resource during initial source setup; that's what schema selection is for."""
-    mock_client = mock.MagicMock()
-    _mock_all_stripe_endpoints(mock_client)
-
     with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
         result = validate_credentials("api_key")
 
