@@ -67,6 +67,7 @@ the row lists both.
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql         | DB protocol                 | pymysql                                                         | ➖                          |
 | paddle        | HTTP                        | requests                                                        | ✅                          |
+| pagerduty     | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads | HTTP                        | requests                                                        | ✅                          |
 | plain         | HTTP                        | requests                                                        | ✅                          |
 | polar         | HTTP                        | requests                                                        | ✅                          |
@@ -125,7 +126,7 @@ drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, 
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
-pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
+pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
 recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
 square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
