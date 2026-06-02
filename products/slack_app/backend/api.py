@@ -24,7 +24,6 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
-    GitHubIntegration,
     Integration,
     SlackIntegration,
     SlackIntegrationError,
@@ -33,6 +32,7 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
@@ -91,12 +91,12 @@ REPO_LIST_CACHE_TTL_SECONDS = 300
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
 
-def _repo_list_cache_key(team_id: int) -> str:
-    return f"posthog_code:repo_list:v1:{team_id}"
+def _user_repo_list_cache_key(user_id: int) -> str:
+    return f"posthog_code:user_repo_list:v1:{user_id}"
 
 
-def _invalidate_repo_list_cache(team_id: int) -> None:
-    cache.delete(_repo_list_cache_key(team_id))
+def _invalidate_user_repo_list_cache(user_id: int) -> None:
+    cache.delete(_user_repo_list_cache_key(user_id))
 
 
 def _pending_repo_picker_cache_key(integration_id: int, channel: str, thread_ts: str, slack_user_id: str) -> str:
@@ -110,6 +110,7 @@ def _set_pending_repo_picker(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
+    user_id: int,
     workflow_id: str,
     context_token: str,
     message_ts: str | None,
@@ -120,6 +121,7 @@ def _set_pending_repo_picker(
             "workflow_id": workflow_id,
             "context_token": context_token,
             "message_ts": message_ts,
+            "mentioning_user_id": user_id,
         },
         timeout=PENDING_REPO_PICKER_TTL_SECONDS,
     )
@@ -787,6 +789,7 @@ def _post_repo_picker_message(
     channel: str,
     thread_ts: str,
     slack_user_id: str,
+    user_id: int,
     event_text: str,
     user_message_ts: str | None,
     guidance: str,
@@ -800,6 +803,7 @@ def _post_repo_picker_message(
         "thread_ts": thread_ts,
         "user_message_ts": user_message_ts,
         "mentioning_slack_user_id": slack_user_id,
+        "mentioning_user_id": user_id,
         "event_text": event_text,
         "created_at": int(time.time()),
         "workflow_id": workflow_id,
@@ -857,6 +861,7 @@ def _post_repo_picker_message(
             channel=channel,
             thread_ts=thread_ts,
             slack_user_id=slack_user_id,
+            user_id=user_id,
             workflow_id=workflow_id,
             context_token=context_token,
             message_ts=message_ts,
@@ -866,9 +871,9 @@ def _post_repo_picker_message(
     # is served from cache rather than hitting the GitHub API inline.
     # Non-fatal: the dropdown will still work, it will just fetch on demand.
     try:
-        _get_full_repo_names(integration)
+        _get_full_repo_names(integration, user_id=user_id)
     except Exception:
-        logger.warning("repo_list_prewarm_failed", team_id=integration.team_id, exc_info=True)
+        logger.warning("repo_list_prewarm_failed", user_id=user_id, exc_info=True)
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
@@ -1018,28 +1023,40 @@ def _collect_thread_messages(
     return messages
 
 
-def _get_full_repo_names(integration: Integration) -> list[str]:
-    """Return canonical org/repo names across all GitHub integrations for the team, or [] if unavailable."""
-    cache_key = _repo_list_cache_key(integration.team_id)
+def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
+    """Return canonical org/repo names from the mentioning user's GitHub install, or [] if unavailable.
+
+    Repos are scoped to the user's personal GitHub integration so the picker matches the
+    identity that will author the resulting pull request. Users without a personal install
+    see an empty list; the downstream personal-GitHub gate posts the connect-GitHub prompt.
+    A `None` user_id (e.g. a workflow replay predating per-user scoping) also returns [].
+    """
+    if user_id is None:
+        return []
+    cache_key = _user_repo_list_cache_key(user_id)
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
-    github_records = Integration.objects.filter(team=integration.team, kind="github")
-    if not github_records.exists():
+    user_records = UserIntegration.objects.filter(
+        user_id=user_id,
+        kind=UserIntegration.IntegrationKind.GITHUB,
+    )
+    if not user_records.exists():
         cache.set(cache_key, [], timeout=REPO_LIST_CACHE_TTL_SECONDS)
         return []
 
     all_repos: set[str] = set()
 
-    for record in github_records:
-        github = GitHubIntegration(record)
+    for record in user_records:
+        github = UserGitHubIntegration(record)
         repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
                 logger.warning(
                     "github_repo_list_capped",
+                    user_id=user_id,
                     team_id=integration.team_id,
                     cap=_MAX_GITHUB_REPOS,
                 )
@@ -1148,8 +1165,14 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
         )
         return False
 
+    mentioning_user_id = pending_picker.get("mentioning_user_id")
+    if not isinstance(mentioning_user_id, int):
+        # Without a known PostHog user we can't scope the picker to a personal install;
+        # let the message fall through to the standard flow, which will re-resolve and re-post.
+        return False
+
     try:
-        all_repos = _get_full_repo_names(integration)
+        all_repos = _get_full_repo_names(integration, user_id=mentioning_user_id)
     except Exception:
         logger.exception("posthog_code_pending_picker_repo_fetch_failed", integration_id=integration.id)
         return False
@@ -1845,8 +1868,15 @@ def _handle_repo_picker_options(payload: dict) -> JsonResponse:
         logger.info("posthog_code_repo_picker_options_no_integration", context_token=context_token)
         return JsonResponse({"options": []})
 
+    mentioning_user_id = ctx.get("mentioning_user_id") if ctx else None
+    if not isinstance(mentioning_user_id, int):
+        # Without a known PostHog user we can't scope the options to a personal install;
+        # return empty rather than falling back to the team install — the user can re-mention.
+        logger.info("posthog_code_repo_picker_options_missing_user_id", context_token=context_token)
+        return JsonResponse({"options": []})
+
     try:
-        all_repos = _get_full_repo_names(integration)
+        all_repos = _get_full_repo_names(integration, user_id=mentioning_user_id)
     except Exception:
         logger.exception("twig_repo_picker_options_repo_fetch_error", integration_id=integration.id)
         return JsonResponse({"options": []})
