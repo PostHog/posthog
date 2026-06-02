@@ -192,6 +192,16 @@ describe('hog-charts scales', () => {
             expect(scale.domain()[1]).toBeGreaterThanOrEqual(1)
             expect(scale.domain()[1]).toBeLessThan(2)
         })
+
+        it.each([
+            ['a positive goal anchors to zero', [100], 100],
+            ['a zero goal still yields a unit span', [0], 0],
+        ])('stays well-formed with no data and only %s', (_name, include, goal) => {
+            const scale = createYScale([], dimensions, { valueDomain: { include } })
+            const [lo, hi] = scale.domain()
+            expect(lo).toBeLessThan(hi)
+            expect(isFinite(scale(goal))).toBe(true)
+        })
     })
 
     describe('createYScale — valueDomain [min, max] (fixed)', () => {

@@ -179,12 +179,20 @@ export function createYScale(
     // 0 — d3.nice() applied to a slightly-negative min produces a disproportionately
     // large negative tick (e.g. [-1, 14500] → [-2000, 16000]). A negative `include`
     // value (a goal line below 0) is explicit, though, so it must not be clamped away.
-    const hasNegativeExtend = include?.some((v) => v != null && isFinite(v) && v < 0) ?? false
+    const hasExplicitNegativeGoal = include?.some((v) => v != null && isFinite(v) && v < 0) ?? false
     const primaryRange = series.some((s) => s.overlay) ? seriesValueRange(series.filter((s) => !s.overlay)) : dataRange
-    if (primaryRange.count > 0 && primaryRange.min >= 0 && !hasNegativeExtend) {
+    if (primaryRange.count > 0 && primaryRange.min >= 0 && !hasExplicitNegativeGoal) {
         min = 0
     } else if (max < 0) {
         max = 0
+    }
+
+    // With no real data, `include` (goal) values are the only contributors, so the range can
+    // collapse to a single point (e.g. `[100, 100]`) — a degenerate domain that maps everything to
+    // NaN. Bracket zero, then guarantee a unit span, so the axis stays well-formed.
+    if (min === max) {
+        min = Math.min(0, min)
+        max = Math.max(0, max, min + 1)
     }
 
     return d3
@@ -447,9 +455,13 @@ function buildBarValueScale(
         return d3.scaleLinear().domain([0, 1]).range(valueRange)
     }
     const min = range.min > 0 ? 0 : range.min
-    const max = range.max < 0 ? 0 : range.max
+    let max = range.max < 0 ? 0 : range.max
     if (scaleType === 'log' && isFinite(range.minPositive)) {
         return d3.scaleLog().domain(niceLogDomain(range.minPositive, max)).range(valueRange).clamp(true)
+    }
+    // Guard the degenerate single-point domain (e.g. empty data with a single goal value at 0).
+    if (min === max) {
+        max = min + 1
     }
     return d3.scaleLinear().domain([min, max]).nice(tickCount).range(valueRange)
 }

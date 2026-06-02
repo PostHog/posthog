@@ -313,7 +313,7 @@ function ReferenceLineView({
             {label && (
                 <div
                     data-attr="hog-chart-reference-line-label"
-                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 bg-black/80 text-white"
+                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 bg-[var(--tooltip-bg)] text-white"
                     style={labelStyle}
                 >
                     {label}

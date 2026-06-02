@@ -245,8 +245,7 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
-    /** Controls the value axis — a fixed `[min, max]` or `{ include }` to stretch the auto range
-     *  to cover extra values. Omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
     /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
      *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
@@ -266,8 +265,7 @@ export interface BarChartConfig extends ChartConfig {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
-    /** Controls the value axis — a fixed `[min, max]` or `{ include }` to stretch the auto range
-     *  to cover extra values. Omit for data-derived auto-scaling. See {@link ValueDomain}. */
+    /** Value-axis domain control — omit for data-derived auto-scaling. See {@link ValueDomain}. */
     valueDomain?: ValueDomain
 }
 

@@ -159,22 +159,33 @@ describe('hog-charts bar scales', () => {
             })
             expect(value.domain()[1]).toBeGreaterThanOrEqual(9000)
         })
-    })
 
-    describe('createBarScales — valueDomain [min, max] (fixed)', () => {
-        it('pins the domain regardless of data and skips nice()', () => {
-            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
-            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { valueDomain: [0, 40] })
-            expect(value.domain()).toEqual([0, 40])
-        })
-
-        it('takes precedence over percent layout', () => {
+        it('is ignored under percent layout (domain stays [0, 1])', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, {
                 barLayout: 'percent',
-                valueDomain: [0, 200],
+                valueDomain: { include: [500] },
             })
-            expect(value.domain()).toEqual([0, 200])
+            expect(value.domain()[0]).toBeCloseTo(0)
+            expect(value.domain()[1]).toBeCloseTo(1)
+        })
+
+        it('stays well-formed when there is no data and only a goal line', () => {
+            const { value } = createBarScales([], ['a', 'b'], dimensions, { valueDomain: { include: [0] } })
+            const [lo, hi] = value.domain()
+            expect(lo).toBeLessThan(hi)
+            expect(isFinite(value(0))).toBe(true)
+        })
+    })
+
+    describe('createBarScales — valueDomain [min, max] (fixed)', () => {
+        it.each([
+            ['pins the domain regardless of data and skips nice()', undefined, [0, 40] as [number, number]],
+            ['takes precedence over percent layout', 'percent' as const, [0, 200] as [number, number]],
+        ])('%s', (_name, barLayout, valueDomain) => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const { value } = createBarScales(series, ['a', 'b', 'c'], dimensions, { barLayout, valueDomain })
+            expect(value.domain()).toEqual(valueDomain)
         })
     })
 
