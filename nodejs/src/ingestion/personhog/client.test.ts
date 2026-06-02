@@ -392,12 +392,12 @@ describe('PersonHogClient', () => {
             })
 
             it('chunks large batches into multiple gRPC calls', async () => {
-                const callCount = { value: 0 }
+                let callCount = 0
                 const batchSizes: number[] = []
 
                 const client = createMockClient({
                     getGroupsBatch: (req) => {
-                        callCount.value++
+                        callCount++
                         batchSizes.push(req.keys.length)
                         return {
                             results: req.keys.map((key) => ({
@@ -416,7 +416,7 @@ describe('PersonHogClient', () => {
 
                 const result = await client.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
 
-                expect(callCount.value).toBe(2)
+                expect(callCount).toBe(2)
                 expect(batchSizes).toEqual([250, 50])
                 expect(result).toHaveLength(300)
                 expect(result.every((r) => r.group_properties.chunked === true)).toBe(true)
