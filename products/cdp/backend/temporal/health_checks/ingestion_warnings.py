@@ -3,7 +3,7 @@ import structlog
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -45,6 +45,13 @@ class IngestionWarningsCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "0 7 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        warning_type = issue.payload.get("warning_type", "ingestion warning")
+        count = issue.payload.get("affected_count")
+        summary = f"{warning_type} fired {count} times" if count is not None else f"{warning_type} detected"
+        return AlertContent(title="Ingestion warning detected", summary=summary, link="/health/ingestion")
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo } from 'react'
 
 import { AxisLabels } from '../overlays/AxisLabels'
+import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
+import { normalizeAxisLabel } from '../utils/axis-labels'
 import { composeDrawHoverWithCrosshair } from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
@@ -19,6 +21,7 @@ import type {
     ChartScales,
     ChartTheme,
     CreateScalesFn,
+    DrawHoverResult,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,
@@ -52,6 +55,18 @@ const OVERLAY_CANVAS_STYLE: React.CSSProperties = {
     left: 0,
     pointerEvents: 'none',
 }
+const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
+const DEFAULT_HOVER_ANIMATION_MS = 150
+
+function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
+    if (animateHover === true) {
+        return DEFAULT_HOVER_ANIMATION_MS
+    }
+    if (typeof animateHover === 'number') {
+        return animateHover
+    }
+    return 0
+}
 
 function OverlayLayer({ children }: { children: React.ReactNode }): React.ReactElement {
     return <div style={OVERLAY_STYLE}>{children}</div>
@@ -65,8 +80,9 @@ export interface ChartProps<Meta = unknown> {
     createScales: CreateScalesFn
     /** Static layer — grid, lines, areas, points. Redrawn only when chart inputs change. */
     drawStatic: (args: ChartDrawArgs) => void
-    /** Hover overlay — highlight rings only. Redrawn on every hoverIndex change. */
-    drawHover: (args: ChartDrawArgs) => void
+    /** Hover overlay — highlight rings only. Return `false` if nothing was drawn (the
+     *  hover-fade timer pauses while invisible). */
+    drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
     className?: string
@@ -88,6 +104,15 @@ export interface ChartProps<Meta = unknown> {
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
     labelToCoord?: (label: string) => number | undefined
+    /** Override the series fed into value-axis tick sizing (`useChartMargins`). Use when the
+     *  visible series's `data[i]` doesn't span the y-domain — e.g. BoxPlot passes synthetic
+     *  whisker min/max samples so the y-tick column fits the real value range, not just the
+     *  medians it draws on `series.data`. */
+    valueRangeSeries?: Series[]
+    /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
+     *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
+     *  Chart-type adapters provide this; consumers do not. */
+    wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 export function Chart<Meta = unknown>({
@@ -106,17 +131,24 @@ export function Chart<Meta = unknown>({
     resolveValue,
     resolvePositionValue,
     labelToCoord,
+    valueRangeSeries,
+    wrapClickData,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
         yTickFormatter,
         hideXAxis = false,
         hideYAxis = false,
+        xAxisLabel,
+        yAxisLabel,
         tooltip: tooltipConfig,
         showCrosshair = false,
         axisOrientation = 'vertical',
         isPercent = false,
+        animateHover,
+        margins: marginsOverride,
     } = config ?? {}
+    const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
         enabled: showTooltip = true,
@@ -129,9 +161,13 @@ export function Chart<Meta = unknown>({
         labels,
         hideXAxis,
         hideYAxis,
+        xAxisLabel,
+        yAxisLabel,
         xTickFormatter,
         yTickFormatter,
         axisOrientation,
+        override: marginsOverride,
+        valueRangeSeries,
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
@@ -168,6 +204,7 @@ export function Chart<Meta = unknown>({
         resolvePositionValue,
         interactionAxis,
         labelToCoord,
+        wrapClickData,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
@@ -195,14 +232,24 @@ export function Chart<Meta = unknown>({
         theme,
         drawStatic,
         drawHover: composedDrawHover,
+        hoverAnimationMs,
     })
 
     const wrapperStyle = hoverIndex >= 0 && onPointClick ? WRAPPER_STYLE_POINTER : WRAPPER_STYLE_DEFAULT
 
     const ariaLabel = useMemo(() => {
         const visible = coloredSeries.reduce((n, s) => n + (s.visibility?.excluded ? 0 : 1), 0)
-        return `Chart with ${visible} data series`
-    }, [coloredSeries])
+        const parts = [`Chart with ${visible} data series`]
+        const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
+        const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
+        if (!hideXAxis && cleanXAxisLabel) {
+            parts.push(`X-axis: ${cleanXAxisLabel}`)
+        }
+        if (!hideYAxis && cleanYAxisLabel) {
+            parts.push(`Y-axis: ${cleanYAxisLabel}`)
+        }
+        return parts.join('. ')
+    }, [coloredSeries, hideXAxis, hideYAxis, xAxisLabel, yAxisLabel])
 
     const canvasBounds = useCallback(
         (): DOMRect | null => canvasRef.current?.getBoundingClientRect() ?? null,
@@ -217,6 +264,7 @@ export function Chart<Meta = unknown>({
         () => ({ orientation: axisOrientation, xTickFormatter, isPercent }),
         [axisOrientation, xTickFormatter, isPercent]
     )
+    const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -259,9 +307,16 @@ export function Chart<Meta = unknown>({
                                 yRightTickFormatter={resolvedYRightFormatter}
                                 hideXAxis={hideXAxis}
                                 hideYAxis={hideYAxis}
-                                axisColor={theme.axisColor}
+                                axisColor={axisColor}
                                 orientation={axisOrientation}
                                 labelToCoord={labelToCoord}
+                            />
+                            <AxisTitles
+                                xAxisLabel={xAxisLabel}
+                                yAxisLabel={yAxisLabel}
+                                hideXAxis={hideXAxis}
+                                hideYAxis={hideYAxis}
+                                axisColor={axisColor}
                             />
 
                             {children}

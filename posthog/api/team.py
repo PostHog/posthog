@@ -42,7 +42,6 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
-from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
@@ -89,9 +88,49 @@ from posthog.utils import (
 
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    TeamDefaultEvaluationContext,
+    normalize_context_name,
+)
+from products.logs.backend.models import TeamLogsConfig
 from products.signals.backend.models import SignalSourceConfig
 
 tracer = trace.get_tracer(__name__)
+
+
+class TeamLogsConfigSerializer(serializers.ModelSerializer):
+    logs_distinct_id_attribute_key = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Log attribute key whose value should match a person's distinct_id. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
+            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "https://posthog.com/docs/logs/link-session-replay and the key the "
+            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
+            "your pipeline emits a different attribute."
+        ),
+    )
+
+    class Meta:
+        model = TeamLogsConfig
+        fields = ["logs_distinct_id_attribute_key"]
+
+
+def handle_logs_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the logs_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamLogsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamLogsConfigSerializer(config).data)
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -1702,6 +1741,16 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     @action(
         methods=["GET", "PATCH"],
         detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this environment."""
+        return handle_logs_config(request, self.get_object())
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
         permission_classes=[TeamMemberStrictManagementPermission],
         url_path="experiments_config",
     )
@@ -1721,6 +1770,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "experiment_precomputation_enabled",
                     "default_only_count_matured_users",
                     "default_cuped_enabled",
+                    "default_cuped_lookback_days",
                     "default_minimum_detectable_effect",
                 ]
 

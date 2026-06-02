@@ -7,8 +7,7 @@ import {
     buildAutocaptureSeriesShortcuts,
     buildEventTypeFilterShortcuts,
 } from 'lib/components/TaxonomicFilter/eventTypeShortcuts'
-import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { taxonomicFilterPinnedPropertiesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { RECENT_PINNED_TAB_DEFINITIONS } from 'lib/components/TaxonomicFilter/recentPinnedTabDefinitions'
 import {
     DataWarehousePopoverField,
     SimpleOption,
@@ -470,7 +469,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 .filter(
                     (o) => !excludedProperties[TaxonomicFilterGroupType.RevenueAnalyticsProperties]?.includes(o.value)
                 ),
-            getIcon: (option: PropertyDefinition): JSX.Element => getRevenueAnalyticsDefinitionIcon(option),
+            getIcon: getRevenueAnalyticsDefinitionIcon,
             getName: (option: PropertyDefinition) => {
                 const coreDefinition = getCoreFilterDefinition(
                     option.id,
@@ -657,6 +656,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Cohorts,
             endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
             value: 'cohorts',
+            // See taxonomicFilterLogic — cohort populations comfortably fit
+            // in one page; cache the first 100 and fuse-filter typed
+            // queries locally to avoid per-keystroke round-trips.
+            clientFilterFirstPage: true,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
             getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
@@ -676,6 +679,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.CohortsWithAllUsers,
             endpoint: combineUrl(`api/projects/${projectId}/cohorts/`).url,
+            clientFilterFirstPage: true,
             options: COHORTS_WITH_ALL_USERS_OPTIONS,
             getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
             getValue: (cohort: CohortType) => cohort.id,
@@ -789,7 +793,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.Persons,
             endpoint: `api/environments/${teamId}/persons/`,
             getName: (person: PersonType) => person.name || 'Anon user?',
-            getValue: (person: PersonType) => person.distinct_ids[0],
+            getValue: (person: PersonType) => person.distinct_ids?.[0],
             getPopoverHeader: () => `Person`,
         },
         {
@@ -955,6 +959,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 type: 'filters',
                 order: '-last_modified_at',
             }).url,
+            // Recording playlists are tiny per team — cache the first page
+            // and let fuse handle keystrokes locally.
+            clientFilterFirstPage: true,
             render: SavedFiltersTaxonomicGroup,
             getName: (filter: SessionRecordingPlaylistType) => filter.name || filter.derived_name || 'Unnamed',
             getValue: (filter: SessionRecordingPlaylistType) => filter.short_id,
@@ -1001,32 +1008,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 'name' in item ? (item.name ?? null) : null,
             getPopoverHeader: () => suggestedFiltersLabel ?? 'Suggested filters',
         },
-        {
-            name: 'Recent',
-            searchPlaceholder: 'recent',
-            type: TaxonomicFilterGroupType.RecentFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: recentTaxonomicFiltersLogic,
-            value: 'recentFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Recent',
-        } as TaxonomicFilterGroup,
-        {
-            name: 'Pinned',
-            searchPlaceholder: 'pinned',
-            type: TaxonomicFilterGroupType.PinnedFilters,
-            isLocalOnly: true,
-            isMetaGroup: true,
-            logic: taxonomicFilterPinnedPropertiesLogic,
-            value: 'pinnedFilterItems',
-            getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
-            getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
-                'name' in item ? (item.name ?? null) : null,
-            getPopoverHeader: () => 'Pinned',
-        } as TaxonomicFilterGroup,
+        ...RECENT_PINNED_TAB_DEFINITIONS,
         ...groupAnalyticsTaxonomicGroups,
         ...groupAnalyticsTaxonomicGroupNames,
     ]

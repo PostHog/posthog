@@ -65,25 +65,44 @@ class TestRelaySlackMessage(TestCase):
             mentioning_slack_user_id="U123",
         )
 
+    @parameterized.expand(
+        [
+            ("no_reaction_emoji", "relay-1", "Which license should I use?", None),
+            ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x"),
+        ]
+    )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_relay_posts_message_and_marks_sent(self, mock_delete_progress, mock_post, mock_update):
+    def test_relay_posts_message_and_marks_sent(
+        self,
+        _name,
+        relay_id,
+        text,
+        reaction_emoji,
+        mock_delete_progress,
+        mock_post,
+        mock_update,
+    ):
         relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
-                relay_id="relay-1",
-                text="Which license should I use?",
+                relay_id=relay_id,
+                text=text,
                 user_message_ts="1234.5",
+                reaction_emoji=reaction_emoji,
             )
         )
 
         mock_delete_progress.assert_called_once()
         mock_post.assert_called_once()
-        assert "Which license should I use?" in mock_post.call_args.args[0]
-        mock_update.assert_called_once_with("hedgehog")
+        assert text in mock_post.call_args.args[0]
+        if reaction_emoji is None:
+            mock_update.assert_not_called()
+        else:
+            mock_update.assert_called_once_with(reaction_emoji)
         self.task_run.refresh_from_db()
-        assert "relay-1" in self.task_run.state.get("slack_sent_relay_ids", [])
+        assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
 
 class TestMarkdownToSlackMrkdwn(TestCase):

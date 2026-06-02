@@ -3,6 +3,7 @@ import {
     autoFormatYTick,
     buildSegmentResolveValue,
     buildStackedPositionValue,
+    computeDivergingStackData,
     computePercentStackData,
     computeStackData,
     createScales,
@@ -149,6 +150,74 @@ describe('hog-charts scales', () => {
         })
     })
 
+    describe('createYScale — valueDomain { include } (goal lines)', () => {
+        it('extends the domain upward to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: { include: [100] } })
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(100)
+            expect(scale.domain()[0]).toBe(0)
+        })
+
+        it('extends the domain downward to include a negative goal line on positive data', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: { include: [-50] } })
+            expect(scale.domain()[0]).toBeLessThanOrEqual(-50)
+        })
+
+        it('still clips an overlay-driven negative baseline to 0 when include values are non-negative', () => {
+            const main = makeSeries({ key: 'main', data: [0, 5000, 14500] })
+            const trendline = makeSeries({ key: 'trend', data: [-1000, 7000, 10000], overlay: true })
+            const scale = createYScale([main, trendline], dimensions, { valueDomain: { include: [20000] } })
+            expect(scale.domain()[0]).toBe(0)
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(20000)
+        })
+
+        it('leaves the data-derived domain unchanged when the goal line is within range', () => {
+            const series = [makeSeries({ key: 's1', data: [0, 50, 100] })]
+            const withGoal = createYScale(series, dimensions, { valueDomain: { include: [50] } })
+            const withoutGoal = createYScale(series, dimensions)
+            expect(withGoal.domain()).toEqual(withoutGoal.domain())
+        })
+
+        it('extends the log-scale domain to include a goal line above the data', () => {
+            const series = [makeSeries({ key: 's1', data: [3, 50, 700] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { include: [9000] } })
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(9000)
+        })
+
+        it('is ignored under percent stack mode', () => {
+            const series = [makeSeries({ key: 's1', data: [50, 100] })]
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { include: [500] } })
+            expect(scale.domain()[0]).toBe(0)
+            expect(scale.domain()[1]).toBeGreaterThanOrEqual(1)
+            expect(scale.domain()[1]).toBeLessThan(2)
+        })
+
+        it.each([
+            ['a positive goal anchors to zero', [100], 100],
+            ['a zero goal still yields a unit span', [0], 0],
+        ])('stays well-formed with no data and only %s', (_name, include, goal) => {
+            const scale = createYScale([], dimensions, { valueDomain: { include } })
+            const [lo, hi] = scale.domain()
+            expect(lo).toBeLessThan(hi)
+            expect(isFinite(scale(goal))).toBe(true)
+        })
+    })
+
+    describe('createYScale — valueDomain [min, max] (fixed)', () => {
+        it('pins the domain regardless of data and skips nice()', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { valueDomain: [0, 40] })
+            expect(scale.domain()).toEqual([0, 40])
+        })
+
+        it('takes precedence over percent stack mode', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: [0, 200] })
+            expect(scale.domain()).toEqual([0, 200])
+        })
+    })
+
     describe('createYScale — log mode', () => {
         it('returns a log scale', () => {
             const series = [makeSeries({ key: 's1', data: [1, 10, 100] })]
@@ -289,6 +358,15 @@ describe('hog-charts scales', () => {
             // nice() can extend the domain slightly but nowhere near 9999.
             expect(leftMax).toBeLessThan(100)
         })
+
+        it('extends only the primary axis for goal lines, leaving secondary axes untouched', () => {
+            const left = makeSeries({ key: 'left', data: [0, 10], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [0, 500], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, { valueDomain: { include: [1000] } })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[1]).toBeGreaterThanOrEqual(1000)
+            // The right axis is unaffected — nice() can nudge 500 up a little, but nowhere near 1000.
+            expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
+        })
     })
 
     describe('computePercentStackData', () => {
@@ -425,6 +503,18 @@ describe('hog-charts scales', () => {
             expect(result.get('s1')!.top).toEqual([0, 20])
             expect(result.get('s2')!.bottom).toEqual([0, 20])
             expect(result.get('s2')!.top).toEqual([30, 30])
+        })
+
+        it('computeDivergingStackData preserves negative values, stacking them below 0', () => {
+            const positive = makeSeries({ key: 'pos', data: [10, 20] })
+            const negative = makeSeries({ key: 'neg', data: [-5, -7] })
+            const result = computeDivergingStackData([positive, negative], ['a', 'b'])
+            // Positive stacks above zero, negative stacks below zero — diverging offset
+            // keeps both signs intact instead of clamping the negative to 0.
+            expect(result.get('pos')!.bottom).toEqual([0, 0])
+            expect(result.get('pos')!.top).toEqual([10, 20])
+            expect(result.get('neg')!.bottom).toEqual([-5, -7])
+            expect(result.get('neg')!.top).toEqual([0, 0])
         })
 
         it('stacks per yAxisId so series on different axes do not contaminate each others totals', () => {

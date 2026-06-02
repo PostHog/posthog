@@ -1,3 +1,5 @@
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
+
 import { hasScope } from '@/lib/api'
 import type { QueryToolInfo } from '@/lib/instructions'
 import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
@@ -5,8 +7,6 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { formatPrompt } from '@/lib/utils'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { getToolDefinition } from '@/tools/toolDefinitions'
-
-import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import type { ResolvedState } from './request-state-resolver'
 
@@ -21,7 +21,9 @@ export class InstructionsBuilder {
 
     async build(props: RequestProperties, state: ResolvedState): Promise<string> {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
-        if (!supportsInstructions) {return ''}
+        if (!supportsInstructions) {
+            return ''
+        }
 
         const { projectId } = props
         const resolvedProjectId = projectId || (await state.reqCtx.cache.get('projectId'))
@@ -40,10 +42,8 @@ export class InstructionsBuilder {
 
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)
-        } else if (state.version === 2) {
-            return this.formatter.buildV2Instructions(ctx)
         }
-        return this.formatter.buildV1Instructions(metadata)
+        return this.formatter.buildToolsInstructions(ctx)
     }
 
     buildContext(state: ResolvedState): InstructionsContext {
@@ -51,12 +51,12 @@ export class InstructionsBuilder {
             guidelines: this.guidelines,
             tools: state.allTools.map((t) => ({
                 name: t.name,
-                category: getToolDefinition(t.name, state.version).category,
+                category: getToolDefinition(t.name).category,
             })),
             queryTools: state.allTools
                 .filter((t) => t.name.startsWith('query-'))
                 .map((t) => {
-                    const def = getToolDefinition(t.name, state.version)
+                    const def = getToolDefinition(t.name)
                     return {
                         name: t.name,
                         title: def.title,
@@ -67,7 +67,7 @@ export class InstructionsBuilder {
         }
     }
 
-    buildExecToolEntry(state: ResolvedState, _props: RequestProperties): McpTool {
+    buildExecToolEntry(state: ResolvedState): McpTool {
         const supportsInstructions = state.clientProfile.capabilities.supportsInstructions
         const ctx = this.buildContext(state)
         const commandReference = this.formatter.buildExecCommandReference(ctx, {

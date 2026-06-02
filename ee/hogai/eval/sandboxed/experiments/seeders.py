@@ -67,9 +67,8 @@ def seed_running_experiment(context: CustomPromptSandboxContext) -> dict[str, An
     parameterising this one — the eval framework passes only ``context`` to seeders, so
     case-specific config has to live in the seeder definition.
     """
-    from posthog.models import FeatureFlag
-
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
     user_id = context.user_id
@@ -125,9 +124,8 @@ def seed_uneven_split_experiment(context: CustomPromptSandboxContext) -> dict[st
     recognise that an 80/20 split combined with Exclude systematically removes
     overlap users from the smaller variant, biasing the test arm.
     """
-    from posthog.models import FeatureFlag
-
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
     user_id = context.user_id
@@ -176,9 +174,8 @@ def seed_inactive_flag_experiment(context: CustomPromptSandboxContext) -> dict[s
     can never fire, so the exposure-shape snapshot will be empty and the
     diagnostic is B0 (flag inactive / experiment not actually live).
     """
-    from posthog.models import FeatureFlag
-
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
     user_id = context.user_id
@@ -238,10 +235,10 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
     would emit — before-state is a 50/50 multivariate with no signature
     properties; after-state is the live 0/100 + signature filters payload.
     """
-    from posthog.models import FeatureFlag
     from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail
 
     from products.experiments.backend.models.experiment import Experiment
+    from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
     team_id = context.team_id
     user_id = context.user_id

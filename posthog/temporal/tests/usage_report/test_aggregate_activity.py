@@ -96,6 +96,13 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         }
     if query_name == "api_queries_metrics":
         return {"count": [(team_b_id, 100)], "read_bytes": [(team_b_id, 5_000_000)]}
+    if query_name == "sdk_logs_records":
+        return {
+            "ios": [(team_a_id, 4)],
+            "react_native": [(team_b_id, 6)],
+            "android": [],
+            "flutter": [],
+        }
 
     if query_name == "teams_with_event_count_in_period":
         return [(team_a_id, 100), (team_b_id, 50), *extra_total_rows]
@@ -315,7 +322,8 @@ async def test_aggregate_drops_orgs_with_no_usage_from_chunks(
         elif spec.name == "api_queries_metrics":
             payload = {"count": [], "read_bytes": []}
         else:
-            payload = []
+            # Multi-output specs fan out from a dict; single-output specs are a row list.
+            payload = {} if spec.output == "multi" else []
         key = queries_key(ctx, spec.name)
         write_json(key, payload)
         query_results.append(RunQueryToS3Result(query_name=spec.name, s3_key=key, duration_ms=1))

@@ -7,7 +7,9 @@ from pydantic import ValidationError
 
 from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArtifactContent, VisualizationMessage
 
-from posthog.models import Insight, Team
+from posthog.models import Team
+
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.artifacts.handlers.base import ArtifactHandler, EnrichmentContext, register_handler
 from ee.hogai.artifacts.types import (

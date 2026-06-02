@@ -113,11 +113,13 @@ class TestResolveSlackUser:
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
             "user": {
+                "is_admin": True,
+                "is_owner": True,
                 "profile": {
                     "email": "dev@example.com",
                     "display_name": "Dev",
                     "real_name": "Developer",
-                }
+                },
             }
         }
 
@@ -129,6 +131,8 @@ class TestResolveSlackUser:
         assert profile.email == "dev@example.com"
         assert profile.display_name == "Dev"
         assert profile.real_name == "Developer"
+        assert profile.is_admin is True
+        assert profile.is_owner is True
 
 
 class TestLookupSlackUserIdByEmail:
@@ -139,7 +143,7 @@ class TestLookupSlackUserIdByEmail:
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-posthog-code",
+            kind="slack",
             integration_id="T12345",
             sensitive_config={"access_token": "xoxb-test"},
         )

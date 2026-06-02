@@ -229,6 +229,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-resolution:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-resolution
+        capability: error_symbolication
+        ready_pattern: 'gRPC server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \
@@ -256,6 +266,9 @@ procs:
         # POC skeleton — opt-in until the CDC consumer logic lands
         autostart: false
         ready_pattern: 'listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     hypercache-server:
         shell: |-
@@ -411,10 +424,10 @@ procs:
     mcp:
         shell: 'bin/start-mcp-server'
         capability: mcp_server
-        ready_pattern: 'Ready on *'
+        ready_pattern: 'Server started on'
         groups:
             layer: Product services
-            tech: Python
+            tech: Node
 
     mcp-ui-apps:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
@@ -489,6 +502,9 @@ procs:
         shell: 'bin/wait-for-docker && bin/migrate --scope=flags-read-store'
         autostart: false
         ready_pattern: 'All migrations completed successfully'
+        groups:
+            layer: Infrastructure
+            tech: Migrations
         # no capability - optional migration
 
     generate-demo-data:

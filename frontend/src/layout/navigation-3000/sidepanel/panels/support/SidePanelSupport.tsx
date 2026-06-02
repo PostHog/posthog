@@ -4,7 +4,7 @@ import React from 'react'
 import { IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { incidentStatusLogic } from 'lib/components/HealthMenu/incidentStatusLogic'
+import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -117,8 +117,8 @@ const SupportResponseTimesTable = ({
     const knownEnterpriseOrgIds = ['018713f3-8d56-0000-32fa-75ce97e6662f']
     const isKnownEnterpriseOrg = knownEnterpriseOrgIds.includes(user?.organization?.id || '')
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
     const hasExpiredTrial = billing?.trial?.status === 'expired'
@@ -199,7 +199,7 @@ const SupportResponseTimesTable = ({
     ]
 
     return (
-        <div className="grid grid-cols-2 border rounded [&_>*]:px-2 [&_>*]:py-0.5 bg-surface-primary mb-2">
+        <div className="grid grid-cols-2 border rounded *:px-2 *:py-0.5 bg-surface-primary mb-2">
             {plansToDisplay.map((plan, index) => {
                 const isBold = plan.current_plan
 
@@ -323,8 +323,8 @@ export function SidePanelSupport(): JSX.Element {
 
     const useProductSupportSidePanel = featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIDE_PANEL]
 
-    const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-    const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+    const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+    const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
     const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
     const hasActiveTrial = hasBoostTrial || hasScaleTrial || hasEnterpriseTrial
 
