@@ -171,7 +171,7 @@ function PersonColumnCellWithRedirect({ person }: { person: PersonData | null | 
     )
 }
 
-function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
+export function LazyPersonColumnCell({ distinctId }: { distinctId: string }): JSX.Element {
     const { personsCache, currentTeamId } = useValues(llmPersonsLazyLoaderLogic)
     const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
 
@@ -368,7 +368,7 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
 
 const MAX_VISIBLE_TOOLS = 5
 
-function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
+export function ToolsDisplay({ tools }: { tools: string[] | undefined | null }): JSX.Element {
     if (!tools || tools.length === 0) {
         return <>–</>
     }

@@ -194,7 +194,7 @@ export function ManagedSourcesTable(): JSX.Element {
                                             title={
                                                 <ul className="list-disc pl-4 m-0">
                                                     {schemas.map((s) => (
-                                                        <li key={s.id}>{s.name}</li>
+                                                        <li key={s.id}>{s.label ?? s.name}</li>
                                                     ))}
                                                 </ul>
                                             }

@@ -7,53 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DataWarehouseSavedQueryDraftApi {
-    readonly id: string
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
-export interface PaginatedDataWarehouseSavedQueryDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DataWarehouseSavedQueryDraftApi[]
-}
-
-export interface PatchedDataWarehouseSavedQueryDraftApi {
-    readonly id?: string
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** HogQL query draft */
-    query?: unknown
-    /** @nullable */
-    saved_query_id?: string | null
-    /** @nullable */
-    name?: string | null
-    /**
-     * view history id that the draft branched from
-     * @maxLength 255
-     * @nullable
-     */
-    edited_history_id?: string | null
-}
-
 /**
  * * `Cancelled` - Cancelled
  * `Completed` - Completed
@@ -584,6 +537,7 @@ export const CreatedViaEnumApi = {
  * `Plain` - Plain
  * `Resend` - Resend
  * `PgAnalyze` - PgAnalyze
+ * `WorkOS` - WorkOS
  * `Custom` - Custom
  */
 export type ExternalDataSourceTypeEnumApi =
@@ -735,6 +689,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plain: 'Plain',
     Resend: 'Resend',
     PgAnalyze: 'PgAnalyze',
+    WorkOS: 'WorkOS',
     Custom: 'Custom',
 } as const
 
@@ -980,6 +935,7 @@ export interface ExternalDataSourceCreateApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
@@ -1288,6 +1244,7 @@ export interface DatabaseSchemaRequestApi {
   * `Plain` - Plain
   * `Resend` - Resend
   * `PgAnalyze` - PgAnalyze
+  * `WorkOS` - WorkOS
   * `Custom` - Custom */
     source_type: ExternalDataSourceTypeEnumApi
 }
@@ -1597,7 +1554,7 @@ export const DataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type DataWarehouseSavedQueryApiQuery = {
     kind?: DataWarehouseSavedQueryApiQueryKind
@@ -1620,7 +1577,7 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1698,7 +1655,7 @@ export const PatchedDataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type PatchedDataWarehouseSavedQueryApiQuery = {
     kind?: PatchedDataWarehouseSavedQueryApiQueryKind
@@ -1721,7 +1678,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -1789,6 +1746,53 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface DataWarehouseSavedQueryDraftApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PaginatedDataWarehouseSavedQueryDraftListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataWarehouseSavedQueryDraftApi[]
+}
+
+export interface PatchedDataWarehouseSavedQueryDraftApi {
+    readonly id?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
 }
 
 /**
@@ -1914,6 +1918,42 @@ export interface PaginatedTableListApi {
     results: TableApi[]
 }
 
+export type PatchedTableApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type PatchedTableApiExternalSchema = { [key: string]: unknown } | null
+
+export type PatchedTableApiOptions = { [key: string]: unknown }
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface PatchedTableApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name?: string
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 500 */
+    url_pattern?: string
+    credential?: CredentialApi
+    readonly columns?: readonly PatchedTableApiColumnsItem[]
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
+    /** @nullable */
+    readonly external_schema?: PatchedTableApiExternalSchema
+    options?: PatchedTableApiOptions
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
+}
+
 export interface ViewLinkApi {
     readonly id: string
     /** @nullable */
@@ -1942,6 +1982,25 @@ export interface PaginatedViewLinkListApi {
     results: ViewLinkApi[]
 }
 
+export interface PatchedViewLinkApi {
+    readonly id?: string
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @maxLength 400 */
+    source_table_name?: string
+    /** @maxLength 400 */
+    source_table_key?: string
+    /** @maxLength 400 */
+    joining_table_name?: string
+    /** @maxLength 400 */
+    joining_table_key?: string
+    /** @maxLength 400 */
+    field_name?: string
+    configuration?: unknown
+}
+
 export interface ViewLinkValidationApi {
     /** @maxLength 255 */
     joining_table_name: string
@@ -1951,28 +2010,6 @@ export interface ViewLinkValidationApi {
     source_table_name: string
     /** @maxLength 255 */
     source_table_key: string
-}
-
-export type FixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type WarehouseSavedQueryDraftsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type DataModelingJobsListParams = {
@@ -2060,6 +2097,17 @@ export type ExternalDataSourcesConnectionsListParams = {
     search?: string
 }
 
+export type FixHogqlListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type InsightVariablesListParams = {
     /**
      * A page number within the paginated result set.
@@ -2098,6 +2146,17 @@ export type WarehouseSavedQueriesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type WarehouseSavedQueryDraftsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type WarehouseTablesListParams = {

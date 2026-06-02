@@ -22,14 +22,10 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+from posthog.temporal.data_imports.sources.google_ads.configs import (
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
-    get_incremental_fields as get_google_ads_incremental_fields,
-    get_schemas as get_google_ads_schemas,
-    google_ads_client,
-    google_ads_source,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -50,6 +46,7 @@ class GoogleAdsSource(
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
             "INVALID_CUSTOMER_ID": None,
+            "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
             # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
             # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
             # Retrying cannot recover — the user must reconnect their Google Ads account.
@@ -71,6 +68,12 @@ class GoogleAdsSource(
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        # Deferred so registering this source doesn't import the google-ads SDK — see configs.py.
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
+            get_incremental_fields as get_google_ads_incremental_fields,
+            get_schemas as get_google_ads_schemas,
+        )
+
         google_ads_schemas = get_google_ads_schemas(
             config,
             team_id,
@@ -108,6 +111,8 @@ class GoogleAdsSource(
         resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import google_ads_source  # noqa: PLC0415
+
         return google_ads_source(
             config=config,
             resource_name=inputs.schema_name,
@@ -227,6 +232,8 @@ class GoogleAdsSource(
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
+        from posthog.temporal.data_imports.sources.google_ads.google_ads import google_ads_client  # noqa: PLC0415
+
         try:
             client = google_ads_client(config, team_id)
 

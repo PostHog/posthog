@@ -59,12 +59,12 @@ def _handle_rules_add(
 
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
 
-    all_repos = _get_full_repo_names(integration)
+    all_repos = _get_full_repo_names(integration, user_id=user_id)
     if not all_repos:
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="No connected GitHub repositories found for this project.",
+            text="No connected GitHub repositories found for your account.",
         )
         return
 
@@ -168,7 +168,7 @@ def _handle_project_show(
     else:
         result = load_integrations(
             slack_team_id=slack_workspace_id,
-            kinds=["slack-posthog-code"],
+            kinds=["slack"],
             slack_user_id=slack_user_id,
             user=user,
         )
@@ -239,7 +239,7 @@ def _handle_project_set(
     else:
         target = (
             Integration.objects.filter(
-                kind="slack-posthog-code",
+                kind="slack",
                 integration_id=slack_workspace_id,
                 team_id=target_team_id,
             )
@@ -298,7 +298,7 @@ def resolve_command_target(
         resolve_from_candidates,
     )
 
-    initial = load_integrations(slack_team_id=slack_team_id, kinds=["slack-posthog-code"])
+    initial = load_integrations(slack_team_id=slack_team_id, kinds=["slack"])
     candidates = initial.candidates
     if not candidates:
         return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])

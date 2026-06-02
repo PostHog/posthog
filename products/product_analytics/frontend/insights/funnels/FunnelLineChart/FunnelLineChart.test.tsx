@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ensureJsdom, waitForHogChartTooltip } from 'lib/hog-charts/testing'
@@ -10,6 +10,8 @@ import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
 import { FUNNEL_CONVERSION_SERIES_LABEL } from '../shared/funnelSeriesMeta'
+
+configure({ asyncUtilTimeout: 2000 })
 
 ensureJsdom()
 
