@@ -885,30 +885,41 @@ def ingest_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
 
 
 @with_team_scope(canonical=True)
-def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
     """
-    Re-fetch a URL source and rebuild its content if it changed.
+    Mark a URL source PROCESSING so a background worker can refresh it.
 
-    Dispatches on `crawl_mode`:
-      - `single`: single-URL conditional GET + full doc rebuild.
-      - `sitemap` / `same_origin`: re-discover + per-URL upsert.
+    Acquires the per-team advisory lock and enforces the single-PROCESSING
+    invariant. Raises `SourceBusyError` / `InvalidUrlError` synchronously so
+    the API can return 409 / 400 before kicking off the workflow.
     """
-
-    # Acquire the per-team advisory lock and enforce the single-PROCESSING
-    # invariant before claiming this source. This prevents concurrent refreshes
-    # of different sources on the same team from each tying up a Django worker.
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         try:
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
-            return None
+            raise
         if source.source_type != SourceType.URL or not source.source_url:
             raise InvalidUrlError("Only URL sources can be refreshed.")
         if source.status == SourceStatus.PROCESSING:
             raise SourceBusyError("This source is already refreshing.")
         source.status = SourceStatus.PROCESSING
         source.save(update_fields=["status", "updated_at"])
+    return source
+
+
+@with_team_scope(canonical=True)
+def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+    """
+    Actually re-fetch + rebuild a source that's already claimed PROCESSING.
+
+    Called from a Temporal activity or as an inline fallback. The claim must
+    have happened beforehand via `claim_refresh_source`.
+    """
+    try:
+        source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
 
     try:
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
@@ -934,6 +945,19 @@ def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
                 ]
             )
         raise
+
+
+@with_team_scope(canonical=True)
+def refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource | None:
+    """
+    Synchronous claim + refresh. Used by the background coordinator activity
+    and kept for callers/tests that want the result inline.
+    """
+    try:
+        claim_refresh_source(source_id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+    return execute_refresh_source(source_id=source_id, team_id=team_id)
 
 
 def _refresh_single_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:

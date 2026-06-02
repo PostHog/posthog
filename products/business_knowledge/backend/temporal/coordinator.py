@@ -137,6 +137,23 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
 
 
 @activity.defn
+async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
+    """
+    Execute the fetch+rebuild half of a refresh for a source already claimed
+    PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch").
+    """
+    log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
+    try:
+        await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
+            source_id=UUID(inputs.source_id), team_id=inputs.team_id
+        )
+    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
+        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+        return {"status": "error", "reason": type(exc).__name__}
+    return {"status": "ok"}
+
+
+@activity.defn
 async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[str, Any]:
     """
     Fetch + index a freshly-created PROCESSING source in the background.
@@ -172,6 +189,25 @@ class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> IngestSourceInputs:
         loaded = json.loads(inputs[0])
         return IngestSourceInputs(**loaded)
+
+
+@workflow.defn(name="business-knowledge-refresh-source")
+class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
+    """One-shot workflow for ad-hoc manual refreshes (user clicks "Re-fetch")."""
+
+    @workflow.run
+    async def run(self, inputs: RefreshSourceInputs) -> dict[str, Any]:
+        return await workflow.execute_activity(
+            execute_refresh_knowledge_source_activity,
+            inputs,
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> RefreshSourceInputs:
+        loaded = json.loads(inputs[0])
+        return RefreshSourceInputs(**loaded)
 
 
 @workflow.defn(name="business-knowledge-refresh-coordinator")

@@ -1,7 +1,9 @@
 from .coordinator import (
     BusinessKnowledgeIngestSourceWorkflow,
     BusinessKnowledgeRefreshCoordinatorWorkflow,
+    BusinessKnowledgeRefreshSourceWorkflow,
     classify_pending_documents_activity,
+    execute_refresh_knowledge_source_activity,
     ingest_knowledge_source_activity,
     list_due_refresh_sources_activity,
     refresh_knowledge_source_activity,
@@ -11,6 +13,7 @@ from .coordinator import (
 WORKFLOWS = [
     BusinessKnowledgeRefreshCoordinatorWorkflow,
     BusinessKnowledgeIngestSourceWorkflow,
+    BusinessKnowledgeRefreshSourceWorkflow,
 ]
 
 ACTIVITIES = [
@@ -18,6 +21,7 @@ ACTIVITIES = [
     classify_pending_documents_activity,
     list_due_refresh_sources_activity,
     refresh_knowledge_source_activity,
+    execute_refresh_knowledge_source_activity,
     ingest_knowledge_source_activity,
 ]
 
@@ -26,7 +30,9 @@ __all__ = [
     "WORKFLOWS",
     "BusinessKnowledgeIngestSourceWorkflow",
     "BusinessKnowledgeRefreshCoordinatorWorkflow",
+    "BusinessKnowledgeRefreshSourceWorkflow",
     "classify_pending_documents_activity",
+    "execute_refresh_knowledge_source_activity",
     "ingest_knowledge_source_activity",
     "list_due_refresh_sources_activity",
     "refresh_knowledge_source_activity",

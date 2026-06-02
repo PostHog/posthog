@@ -27,7 +27,7 @@ from .. import logic
 from ..file_parse import FileParseError
 from ..models import KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
-from ..temporal.coordinator import IngestSourceInputs
+from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
     CreateCrawlSourceSerializer,
     CreateFileSourceSerializer,
@@ -312,18 +312,36 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except (ValueError, DjangoValidationError):
             raise exceptions.NotFound()
         try:
-            source = logic.refresh_source(source_id=source_id, team_id=self.team_id)
+            source = logic.claim_refresh_source(source_id=source_id, team_id=self.team_id)
+        except KnowledgeSource.DoesNotExist:
+            raise exceptions.NotFound()
         except logic.SourceBusyError:
             raise _ConflictError("A refresh is already in progress for this source.")
         except logic.InvalidUrlError:
-            raise exceptions.ValidationError({"url": "URL is not reachable."})
-        except (logic.UrlFetchFailedError, logic.EmptyContentError):
-            raise exceptions.ValidationError({"url": "Could not fetch the URL."})
+            raise exceptions.ValidationError({"url": "Only URL sources can be refreshed."})
         except logic.QuotaExceededError:
             raise exceptions.PermissionDenied(detail="Knowledge source quota exceeded for this project.")
-        if source is None:
-            raise exceptions.NotFound()
-        return Response(KnowledgeSourceSerializer(instance=source).data)
+        self._start_background_refresh(source)
+        fresh = logic.get_for_team(source.id, self.team_id) or source
+        return Response(KnowledgeSourceSerializer(instance=fresh).data)
+
+    def _start_background_refresh(self, source: KnowledgeSource) -> None:
+        """
+        Hand fetch + rebuild to a background Temporal workflow so the request
+        returns right away. Falls back to inline refresh if Temporal is
+        unreachable.
+        """
+        try:
+            client = sync_connect()
+            async_to_sync(client.start_workflow)(  # type: ignore[misc]
+                "business-knowledge-refresh-source",  # type: ignore[arg-type]
+                RefreshSourceInputs(team_id=self.team_id, source_id=str(source.id)),  # type: ignore[arg-type]
+                id=f"business-knowledge-refresh-{source.id}",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            )
+        except Exception:
+            logger.exception("business_knowledge.refresh.workflow_start_failed", source_id=str(source.id))
+            logic.execute_refresh_source(source_id=source.id, team_id=self.team_id)
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:
