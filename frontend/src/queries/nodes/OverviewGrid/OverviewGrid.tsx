@@ -268,10 +268,14 @@ export const getOverviewItemTooltip = (item: OverviewItem, label: string, curren
         return `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
             Math.abs(item.changeFromPreviousPct),
             { precise: true }
-        )}, to ${formatItem(item.value, item.kind, { precise: true, currency })} from ${formatItem(item.previous, item.kind, {
-            precise: true,
-            currency,
-        })}`
+        )}, to ${formatItem(item.value, item.kind, { precise: true, currency })} from ${formatItem(
+            item.previous,
+            item.kind,
+            {
+                precise: true,
+                currency,
+            }
+        )}`
     }
     if (isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999) {
         return `${label}: ${formatItem(item.value, item.kind, { precise: true, currency })} (was 0 in previous period)`

@@ -135,27 +135,33 @@ function WebOverviewMetric({ item, helpers }: { item: OverviewItem; helpers: Ove
     )
 
     return (
-        <Tooltip title={getOverviewItemTooltip(item, label, baseCurrency)}>
-            <div className="relative flex-1 min-w-[10rem] border bg-surface-primary rounded p-3">
-                {usedLazyPrecompute ? (
-                    <PreAggregatedBadge variant="precomputed" />
-                ) : usedPreAggregatedTables ? (
-                    <PreAggregatedBadge variant="preagg" />
-                ) : null}
-                <Metric
-                    title={title}
-                    value={numericValue ?? 0}
-                    change={change}
-                    goodDirection={item.isIncreaseBad ? 'down' : 'up'}
-                    formatValue={(v) => (numericValue == null ? '-' : formatItem(v, item.kind, { currency: baseCurrency }))}
-                    subtitle={
-                        isNotNil(item.previous)
-                            ? `vs. ${formatItem(item.previous, item.kind, { currency: baseCurrency })} previous`
-                            : undefined
-                    }
-                />
-            </div>
-        </Tooltip>
+        <div className="relative flex-1 min-w-[10rem] border bg-surface-primary rounded p-3">
+            {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
+                does not also surface the cell's metric tooltip. */}
+            {usedLazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" />
+            ) : usedPreAggregatedTables ? (
+                <PreAggregatedBadge variant="preagg" />
+            ) : null}
+            <Tooltip title={getOverviewItemTooltip(item, label, baseCurrency)}>
+                <div className="w-full">
+                    <Metric
+                        title={title}
+                        value={numericValue ?? 0}
+                        change={change}
+                        goodDirection={item.isIncreaseBad ? 'down' : 'up'}
+                        formatValue={(v) =>
+                            numericValue == null ? '-' : formatItem(v, item.kind, { currency: baseCurrency })
+                        }
+                        subtitle={
+                            isNotNil(item.previous)
+                                ? `vs. ${formatItem(item.previous, item.kind, { currency: baseCurrency })} previous`
+                                : undefined
+                        }
+                    />
+                </div>
+            </Tooltip>
+        </div>
     )
 }
 
