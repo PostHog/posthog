@@ -9,6 +9,7 @@ import {
     SnapshotEvent,
     SnapshotEventSchema,
 } from '../../session-recording/kafka/types'
+import { SessionRecordingIngesterMetrics } from '../../session-recording/metrics'
 import { parseJSON } from '../../utils/json-parse'
 import { normalizeSessionId } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
@@ -117,6 +118,9 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         } catch (error) {
             return dlq('invalid_compressed_data', error)
         }
+        SessionRecordingIngesterMetrics.incrementMessagesByEncoding(
+            contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
+        )
 
         let rawPayload: unknown
         try {
