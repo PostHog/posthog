@@ -103,7 +103,8 @@ class PulseFindingSerializer(serializers.ModelSerializer):
                 "help_text": "Breakdown segment that best explains the change, e.g. {'$browser': 'Safari'}, or null."
             },
             "evidence": {
-                "help_text": "Supporting evidence, currently {'session_ids': [...]} for example replays, or null."
+                "help_text": "Supporting evidence: {'session_ids': [...]} for example replays and/or "
+                "{'references': [{type, label, id}]} for related changes (feature flags, experiments), or null."
             },
             "narrative": {"help_text": "LLM-generated explanation of the change."},
         }

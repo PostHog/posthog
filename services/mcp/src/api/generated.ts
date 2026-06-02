@@ -23978,7 +23978,7 @@ export namespace Schemas {
       readonly impact: number;
       /** Breakdown segment that best explains the change, e.g. {'$browser': 'Safari'}, or null. */
       readonly attribution_breakdown: unknown;
-      /** Supporting evidence, currently {'session_ids': [...]} for example replays, or null. */
+      /** Supporting evidence: {'session_ids': [...]} for example replays and/or {'references': [{type, label, id}]} for related changes (feature flags, experiments), or null. */
       readonly evidence: unknown;
       /** LLM-generated explanation of the change. */
       readonly narrative: string;

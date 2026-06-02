@@ -43,7 +43,7 @@ ATTRIBUTION_CONCURRENCY = 5
 # Non-reasoning model on purpose — short factual prose with a hard max_tokens cap. A reasoning
 # model (e.g. gpt-5-mini) spends the token budget thinking and returns an empty completion here.
 NARRATIVE_MODEL = "gpt-4.1"
-NARRATIVE_MAX_TOKENS = 200
+NARRATIVE_MAX_TOKENS = 600
 NARRATIVE_TIMEOUT_SECONDS = 45.0
 
 
@@ -70,15 +70,13 @@ def _resolve_service_user(team: Team, user_id: int | None) -> User:
     return admin.user
 
 
-NARRATIVE_SYSTEM_PROMPT = """You are PostHog Pulse, summarizing one metric change for a product team in 1-2 short sentences.
+NARRATIVE_SYSTEM_PROMPT = """You are PostHog Pulse, explaining ONE flagged metric change to a product team in 1-3 short sentences.
 
-Rules:
-- Lead with what changed and by how much, using a percentage. Example: "$pageview is down 22% this week (3,400 vs 4,350 baseline)."
-- If an attribution breakdown is provided, say which segment drove the change in plain English.
-- Stay factual. No speculation about causes or recommendations.
-- Plain English. No jargon, no emoji, no markdown.
-- Maximum 2 sentences total.
-""".strip()
+The reader already sees the metric name, the headline percentage, and the weekly totals next to your text, so do NOT restate them. Add the insight they can't get at a glance:
+- WHERE the change is concentrated. If an attribution segment is given, name it with its own numbers — e.g. "Almost all of the gain came from Chrome users (140 vs ~70/week typical)." If no segment is given, say the change looks broad-based rather than tied to one segment.
+- A single plausible hypothesis for WHY, framed as something to verify and never as a proven cause. Ground it in the segment's nature: a browser- or device-concentrated change suggests a client release or a campaign reaching that segment; a country-concentrated change suggests a regional launch or seasonality; a referrer- or channel-concentrated change suggests one acquisition source. If a coincident signal is given (a same-period deploy note, feature-flag change, or experiment launch) that could plausibly affect this metric, mention it as a coincidence worth checking — e.g. "lines up with turning on the 'new-onboarding' flag."
+
+Stay factual and humble: at most one hypothesis, clearly hedged ("worth checking", "could be"). No recommendations, jargon, emoji, or markdown. Maximum 3 sentences.""".strip()
 
 
 def _build_breakdown_query(base_query: dict, breakdown_property: str) -> dict:
@@ -146,7 +144,9 @@ async def _attribute_finding(
             value, current, prior = top
             return prop, {
                 "property": prop,
-                "value": value,
+                # Sanitized at the source: the segment value can be externally influenced (e.g. a
+                # $referring_domain), and it flows into the LLM prompt, the fallback prose, and the UI.
+                "value": _sanitize_for_prompt(str(value)),
                 "current": current,
                 "baseline": prior,
                 "_contribution": abs(current - prior),
@@ -164,14 +164,31 @@ async def _attribute_finding(
     return best
 
 
-async def _generate_narrative(team: Team, user: User, finding: Finding, attribution: dict[str, Any] | None) -> str:
+async def _generate_narrative(
+    team: Team,
+    user: User,
+    finding: Finding,
+    attribution: dict[str, Any] | None,
+    coincident_signals: dict[str, list[dict[str, str]]] | None = None,
+) -> str:
+    has_signals = bool(
+        coincident_signals
+        and (
+            coincident_signals.get("annotations")
+            or coincident_signals.get("feature_flag_changes")
+            or coincident_signals.get("experiment_changes")
+        )
+    )
     facts = {
-        "metric": finding.descriptor.label,
+        "metric": _sanitize_for_prompt(finding.descriptor.label),
+        "direction": "up" if finding.change_pct > 0 else "down",
         "current_value": round(finding.current_value, 2),
         "baseline_value": round(finding.baseline_value, 2),
+        "absolute_change": round(finding.current_value - finding.baseline_value, 2),
         "change_pct": round(finding.change_pct, 3),
         "robust_z": round(finding.robust_z, 2),
         "attribution": attribution,
+        "coincident_signals": coincident_signals if has_signals else None,
     }
 
     llm = MaxChatOpenAI(
@@ -200,20 +217,15 @@ async def _generate_narrative(team: Team, user: User, finding: Finding, attribut
 def _fallback_narrative(finding: Finding, attribution: dict[str, Any] | None = None) -> str:
     """Deterministic narrative used when the LLM is unavailable or returns nothing.
 
-    Folds in the attribution segment when we have one, so the line still points at a likely driver
-    instead of just restating the headline number.
+    Points at WHERE the change concentrated rather than restating the headline numbers — those already
+    sit on the card next to this line. Falls back to a broad-based note when no single segment moved.
     """
-    direction = "up" if finding.change_pct > 0 else "down"
-    base = (
-        f"{finding.descriptor.label} is {direction} {abs(finding.change_pct):.0%} this week "
-        f"({finding.current_value:.0f} vs {finding.baseline_value:.0f}/week baseline)."
-    )
     if attribution and attribution.get("value"):
         segment = attribution["value"]
         prop = attribution.get("property")
         prop_clause = f" ({prop})" if prop else ""
-        base += f" The shift is concentrated in {segment}{prop_clause} — the biggest mover, worth a look."
-    return base
+        return f"The change is concentrated in {segment}{prop_clause} — the biggest mover, worth a look."
+    return "No single segment stands out, so the change looks broad-based across users — worth a look at what's common."
 
 
 REPLAY_EVIDENCE_LIMIT = 3
@@ -304,6 +316,8 @@ async def _enrich_one(
     attribution_semaphore: asyncio.Semaphore,
     period_start: str = "",
     period_end: str = "",
+    coincident_signals: dict[str, list[dict[str, str]]] | None = None,
+    references: list[dict[str, str]] | None = None,
 ) -> EnrichedFinding:
     async with enrichment_semaphore:
         # Attribution and evidence are independent of the narrative LLM, so collect them first and
@@ -313,7 +327,7 @@ async def _enrich_one(
         try:
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
             session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
-            narrative = await _generate_narrative(team, user, finding, attribution)
+            narrative = await _generate_narrative(team, user, finding, attribution, coincident_signals)
             if not narrative:  # empty LLM response — keep a useful, attribution-aware line
                 narrative = _fallback_narrative(finding, attribution)
         except Exception as exc:
@@ -324,6 +338,12 @@ async def _enrich_one(
                 error=str(exc),
             )
             narrative = _fallback_narrative(finding, attribution)
+        # Evidence carries both example replays and the linkable same-period changes the UI turns into chips.
+        evidence: dict[str, Any] = {}
+        if session_ids:
+            evidence["session_ids"] = session_ids
+        if references:
+            evidence["references"] = references
         return EnrichedFinding(
             descriptor=finding.descriptor,
             current_value=finding.current_value,
@@ -332,7 +352,7 @@ async def _enrich_one(
             impact=finding.impact,
             robust_z=finding.robust_z,
             attribution_breakdown=attribution,
-            evidence={"session_ids": session_ids} if session_ids else None,
+            evidence=evidence or None,
             narrative=narrative,
         )
 
@@ -348,18 +368,37 @@ async def enrich_findings(
     ranked = sorted(findings, key=lambda f: f.impact, reverse=True)[:max_findings]
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User]:
+    def _resolve() -> tuple[Team, User, dict[str, list[dict[str, str]]], list[dict[str, str]]]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
-        return team, user
+        # Same-period deploys / flag changes / experiment launches, so a per-finding hypothesis can point
+        # at a real coincidence — and the same flags/experiments become clickable reference chips in the UI.
+        annotations, flag_changes, experiment_changes = _fetch_period_signals(team_id, period_start, period_end)
+        coincident_signals = {
+            "annotations": annotations,
+            "feature_flag_changes": flag_changes,
+            "experiment_changes": experiment_changes,
+        }
+        references = _build_finding_references(flag_changes, experiment_changes)
+        return team, user, coincident_signals, references
 
-    team, user = await _resolve()
+    team, user, coincident_signals, references = await _resolve()
     enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
     attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
     return list(
         await asyncio.gather(
             *[
-                _enrich_one(team, user, f, enrichment_semaphore, attribution_semaphore, period_start, period_end)
+                _enrich_one(
+                    team,
+                    user,
+                    f,
+                    enrichment_semaphore,
+                    attribution_semaphore,
+                    period_start,
+                    period_end,
+                    coincident_signals,
+                    references,
+                )
                 for f in ranked
             ]
         )
@@ -372,11 +411,12 @@ MAX_NEW_ISSUES_FOR_AI_CONTEXT = 5
 
 SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
 
-You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), optionally feature-flag changes in the same period (a flag rolled out, turned on/off), and optionally new error-tracking issues that appeared recently (name and how many times they fired). Write a short paragraph, 2-4 sentences:
+You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), optionally feature-flag changes in the same period (a flag rolled out, turned on/off), optionally experiments launched in the same period, and optionally new error-tracking issues that appeared recently (name and how many times they fired). Write a short paragraph, 2-4 sentences:
 - If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
 - Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
 - If a change lines up with an annotation, note it as a possible explanation to verify — e.g. "the signup rise lines up with your 'pricing v2' note on the 20th." A coincidence to check, never proven cause.
 - If a change lines up with a feature-flag change, note it as a possible explanation to verify — e.g. "the activation dip coincides with turning on the 'new-onboarding' flag — worth checking." A coincidence to check, never proven cause.
+- If a change lines up with an experiment launch, note it as a possible explanation to verify — e.g. "the conversion lift coincides with launching the 'checkout-v2' experiment — worth checking." A coincidence to check, never proven cause.
 - If a metric drop lines up with a new error issue, note it as a possible explanation to verify — e.g. "checkout completions fell while a new 'Payment timeout' error appeared — worth checking if they're linked." A coincidence to check, never proven cause.
 - Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
 
@@ -415,16 +455,108 @@ def _fetch_flag_changes(team_id: int, start: datetime, end: datetime) -> list[di
             created_at__lte=end,
         )
         .order_by("created_at")
-        .values_list("created_at", "activity", "detail")[:MAX_FLAG_CHANGES_FOR_AI_CONTEXT]
+        .values_list("created_at", "activity", "detail", "item_id")[:MAX_FLAG_CHANGES_FOR_AI_CONTEXT]
     )
     return [
         {
             "date": created_at.date().isoformat(),
             "flag": _sanitize_for_prompt(str((detail or {}).get("name") or "a feature flag")),
             "change": _describe_flag_change(activity, detail),
+            # item_id is the flag's pk; the UI turns it into a /feature_flags/:id link (None when absent).
+            "id": str(item_id) if item_id else "",
         }
-        for created_at, activity, detail in rows
+        for created_at, activity, detail, item_id in rows
     ]
+
+
+def _describe_experiment_change(activity: str, detail: dict[str, Any] | None) -> str:
+    """Short human label for an Experiment ActivityLog row: created / deleted / launched / stopped / updated."""
+    if activity == "created":
+        return "created"
+    if activity == "deleted":
+        return "deleted"
+    for change in (detail or {}).get("changes") or []:
+        if isinstance(change, dict) and change.get("field") == "start_date":
+            return "launched" if change.get("after") else "stopped"
+    return "updated"
+
+
+def _fetch_experiment_changes(team_id: int, start: datetime, end: datetime) -> list[dict[str, str]]:
+    """Experiment changes in the period (launched / created / stopped) — a strong coincident signal.
+
+    Read from ActivityLog (scope="Experiment"), exactly like flag changes: a plain team_id-scoped model, so
+    no products import or team scoping is needed, and item_id is the experiment's id for the UI link.
+    """
+    rows = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="Experiment",
+            activity__in=["created", "updated", "deleted"],
+            created_at__gte=start,
+            created_at__lte=end,
+        )
+        .order_by("created_at")
+        .values_list("created_at", "activity", "detail", "item_id")[:MAX_FLAG_CHANGES_FOR_AI_CONTEXT]
+    )
+    return [
+        {
+            "date": created_at.date().isoformat(),
+            "experiment": _sanitize_for_prompt(str((detail or {}).get("name") or "an experiment")),
+            "change": _describe_experiment_change(activity, detail),
+            "id": str(item_id) if item_id else "",
+        }
+        for created_at, activity, detail, item_id in rows
+    ]
+
+
+def _build_finding_references(
+    flag_changes: list[dict[str, str]], experiment_changes: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Linkable chips for the UI: the same-period flags and experiments a narrative may reference.
+
+    The frontend builds the URL from (type, id) — mirroring how replay session ids become links. Only
+    items with a real id become references; annotations have no detail page, so they stay in the prose.
+    """
+    references: list[dict[str, str]] = []
+    references.extend(
+        {"type": "feature_flag", "label": flag["flag"], "id": flag["id"]} for flag in flag_changes if flag.get("id")
+    )
+    references.extend(
+        {"type": "experiment", "label": exp["experiment"], "id": exp["id"]}
+        for exp in experiment_changes
+        if exp.get("id")
+    )
+    return references
+
+
+def _fetch_period_signals(
+    team_id: int, period_start: str, period_end: str
+) -> tuple[list[dict[str, str]], list[dict[str, str]], list[dict[str, str]]]:
+    """Annotations, feature-flag changes, and experiment launches within the digest period.
+
+    Coincident-signal context only — shared by per-finding narrative (a metric-specific hypothesis) and
+    digest synthesis (the cross-metric read). Returns ([], [], []) without period bounds. Never causation.
+    """
+    if not period_start or not period_end:
+        return [], [], []
+    start = datetime.fromisoformat(period_start)
+    end = datetime.fromisoformat(period_end)
+    rows = (
+        Annotation.objects.filter(
+            team_id=team_id,
+            deleted=False,
+            date_marker__gte=start,
+            date_marker__lte=end,
+        )
+        .order_by("date_marker")
+        .values_list("date_marker", "content")[:20]
+    )
+    annotations = [
+        {"date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)} for dm, content in rows if content
+    ]
+    flag_changes = _fetch_flag_changes(team_id, start, end)
+    experiment_changes = _fetch_experiment_changes(team_id, start, end)
+    return annotations, flag_changes, experiment_changes
 
 
 def _fetch_error_signals(team: Team) -> list[dict[str, Any]]:
@@ -469,39 +601,21 @@ async def synthesize_digest(
         return ""
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User, list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]]]:
+    def _resolve() -> tuple[
+        Team, User, list[dict[str, str]], list[dict[str, str]], list[dict[str, str]], list[dict[str, Any]]
+    ]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
         # New error issues use a ~7-day window internally, independent of the digest period bounds.
         error_signals = _fetch_error_signals(team)
-        annotations: list[dict[str, str]] = []
-        flag_changes: list[dict[str, str]] = []
-        if period_start and period_end:
-            start = datetime.fromisoformat(period_start)
-            end = datetime.fromisoformat(period_end)
-            rows = (
-                Annotation.objects.filter(
-                    team_id=team_id,
-                    deleted=False,
-                    date_marker__gte=start,
-                    date_marker__lte=end,
-                )
-                .order_by("date_marker")
-                .values_list("date_marker", "content")[:20]
-            )
-            annotations = [
-                {"date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)}
-                for dm, content in rows
-                if content
-            ]
-            flag_changes = _fetch_flag_changes(team_id, start, end)
-        return team, user, annotations, flag_changes, error_signals
+        annotations, flag_changes, experiment_changes = _fetch_period_signals(team_id, period_start, period_end)
+        return team, user, annotations, flag_changes, experiment_changes, error_signals
 
-    team, user, annotations, flag_changes, error_signals = await _resolve()
+    team, user, annotations, flag_changes, experiment_changes, error_signals = await _resolve()
     facts = {
         "findings": [
             {
-                "metric": f.descriptor.label,
+                "metric": _sanitize_for_prompt(f.descriptor.label),
                 "change_pct": round(f.change_pct, 3),
                 "attribution": f.attribution_breakdown,
             }
@@ -509,6 +623,7 @@ async def synthesize_digest(
         ],
         "annotations": annotations,
         "feature_flag_changes": flag_changes,
+        "experiment_changes": experiment_changes,
         "new_error_issues": error_signals,
     }
 
@@ -530,7 +645,7 @@ async def synthesize_digest(
     messages = [
         SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),
         HumanMessage(
-            content=f"This period's findings, annotations, flag changes, and new error issues:\n{json.dumps(facts, default=str)}"
+            content=f"This period's findings, annotations, flag changes, experiment launches, and new error issues:\n{json.dumps(facts, default=str)}"
         ),
     ]
     try:

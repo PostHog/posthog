@@ -14,6 +14,14 @@ export interface PulseDigestSummary {
     summary: string
 }
 
+// A same-period change (feature flag, experiment) the finding's narrative may reference. The frontend
+// builds the link from (type, id) — mirroring how replay session ids become links.
+export interface PulseReference {
+    type: 'feature_flag' | 'experiment' | string
+    label: string
+    id?: string
+}
+
 export interface PulseFindingType {
     id: string
     digest: string
@@ -25,7 +33,7 @@ export interface PulseFindingType {
     robust_z: number
     impact: number
     attribution_breakdown: Record<string, any> | null
-    evidence: { session_ids?: string[] } | null
+    evidence: { session_ids?: string[]; references?: PulseReference[] } | null
     narrative: string
     chart_thumbnail_url: string
     rank: number

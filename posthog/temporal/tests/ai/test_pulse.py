@@ -25,12 +25,16 @@ from posthog.temporal.ai.pulse.narrative import (
     REPLAY_EVIDENCE_LIMIT,
     SYNTHESIS_SYSTEM_PROMPT,
     _attribute_finding,
+    _build_finding_references,
     _collect_replay_evidence,
+    _describe_experiment_change,
     _describe_flag_change,
     _enrich_one,
     _fallback_narrative,
     _fetch_error_signals,
+    _fetch_experiment_changes,
     _fetch_flag_changes,
+    _fetch_period_signals,
     _finding_event,
     _generate_narrative,
     _pick_top_contributor,
@@ -288,13 +292,75 @@ class TestGenerateNarrativeRoutesThroughMaxChatOpenAI:
         assert kwargs["posthog_properties"]["ai_product"] == "pulse"
 
 
+class TestGenerateNarrativeFactsCarryAbsoluteAndSignals:
+    @pytest.mark.asyncio
+    async def test_facts_include_absolute_change_segment_and_coincident_signal(self):
+        fake_chain = MagicMock()
+        fake_chain.ainvoke = AsyncMock(return_value="Concentrated in Chrome — worth checking the new-onboarding flag.")
+        finding = _finding(impact=10.0, robust_z=4.0, label="signup_started")
+
+        with (
+            patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
+            patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
+        ):
+            mock_llm_cls.return_value.__or__ = MagicMock(return_value=fake_chain)
+            await _generate_narrative(
+                MagicMock(),
+                MagicMock(),
+                finding,
+                attribution={"property": "$browser", "value": "Chrome"},
+                coincident_signals={
+                    "annotations": [],
+                    "feature_flag_changes": [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}],
+                },
+            )
+
+        human_message_content = fake_chain.ainvoke.call_args.args[0][1].content
+        # absolute_change = current - baseline = 50 - 100 = -50, so the key (and the coincident flag) reach the model.
+        assert "absolute_change" in human_message_content
+        assert "Chrome" in human_message_content
+        assert "new-onboarding" in human_message_content
+
+    @pytest.mark.asyncio
+    async def test_empty_signals_are_dropped_from_facts(self):
+        fake_chain = MagicMock()
+        fake_chain.ainvoke = AsyncMock(return_value="Broad-based, worth a look.")
+        finding = _finding(impact=10.0, robust_z=4.0, label="signup_started")
+
+        with (
+            patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
+            patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
+        ):
+            mock_llm_cls.return_value.__or__ = MagicMock(return_value=fake_chain)
+            await _generate_narrative(
+                MagicMock(),
+                MagicMock(),
+                finding,
+                attribution=None,
+                coincident_signals={"annotations": [], "feature_flag_changes": [], "experiment_changes": []},
+            )
+
+        human_message_content = fake_chain.ainvoke.call_args.args[0][1].content
+        assert '"coincident_signals": null' in human_message_content
+
+
+class TestNarrativePromptDropsRedundantHeadline:
+    def test_prompt_tells_model_not_to_restate_headline(self):
+        from posthog.temporal.ai.pulse.narrative import NARRATIVE_SYSTEM_PROMPT
+
+        lowered = NARRATIVE_SYSTEM_PROMPT.lower()
+        assert "do not restate" in lowered
+        assert "hypothesis" in lowered
+
+
 class TestEnrichFindingsRanksByImpact:
     @pytest.mark.asyncio
     @patch("posthog.temporal.ai.pulse.narrative._enrich_one", new_callable=AsyncMock)
     @patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async")
     async def test_ranks_by_impact_not_robust_z(self, mock_db_wrap, mock_enrich_one):
         async def _fake_resolve():
-            return (MagicMock(), MagicMock())
+            coincident = {"annotations": [], "feature_flag_changes": [], "experiment_changes": []}
+            return (MagicMock(), MagicMock(), coincident, [])
 
         # database_sync_to_async is used as @decorator(fn) -> wrapped; the wrapped call returns the coroutine.
         mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
@@ -431,17 +497,19 @@ class TestSynthesisPromptFramesFlagChanges:
 class TestSynthesizeDigestFeedsFlagChangesToLLM:
     @pytest.mark.asyncio
     @patch("posthog.temporal.ai.pulse.narrative.database_sync_to_async")
-    async def test_flag_changes_reach_the_model(self, mock_db_wrap):
-        flag_changes = [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]
+    async def test_flag_and_experiment_changes_reach_the_model(self, mock_db_wrap):
+        flag_changes = [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on", "id": "7"}]
+        experiment_changes = [{"date": "2026-05-21", "experiment": "checkout-v2", "change": "launched", "id": "exp-3"}]
 
         async def _fake_resolve():
-            return MagicMock(name="team"), MagicMock(name="user"), [], flag_changes, []
+            # (team, user, annotations, flag_changes, experiment_changes, error_signals)
+            return MagicMock(name="team"), MagicMock(name="user"), [], flag_changes, experiment_changes, []
 
         # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
         mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
 
         fake_chain = MagicMock()
-        fake_chain.ainvoke = AsyncMock(return_value="Two metrics moved, coinciding with a flag change.")
+        fake_chain.ainvoke = AsyncMock(return_value="Two metrics moved, coinciding with a flag and an experiment.")
         with (
             patch("posthog.temporal.ai.pulse.narrative.MaxChatOpenAI") as mock_llm_cls,
             patch("posthog.temporal.ai.pulse.narrative.StrOutputParser"),
@@ -458,10 +526,12 @@ class TestSynthesizeDigestFeedsFlagChangesToLLM:
                 period_end="2026-05-26T00:00:00+00:00",
             )
 
-        assert result == "Two metrics moved, coinciding with a flag change."
+        assert result == "Two metrics moved, coinciding with a flag and an experiment."
         human_message = fake_chain.ainvoke.call_args.args[0][1]
         assert "new-onboarding" in human_message.content
         assert "turned on" in human_message.content
+        assert "checkout-v2" in human_message.content
+        assert "launched" in human_message.content
 
     @pytest.mark.asyncio
     async def test_returns_empty_with_fewer_than_two_findings(self):
@@ -481,6 +551,7 @@ class TestFetchFlagChanges:
             team_id=team_id,
             scope="FeatureFlag",
             activity="updated",
+            item_id="42",
             detail={"name": "new-onboarding", "changes": [{"field": "active", "after": True}]},
             created_at=datetime(2026, 5, 20, tzinfo=UTC),
         )
@@ -512,7 +583,122 @@ class TestFetchFlagChanges:
             datetime(2026, 5, 26, tzinfo=UTC),
         )
 
-        assert out == [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on"}]
+        assert out == [{"date": "2026-05-20", "flag": "new-onboarding", "change": "turned on", "id": "42"}]
+
+
+@pytest.mark.django_db
+class TestFetchExperimentChanges:
+    @parameterized.expand(
+        [
+            ("created", "created", None, "created"),
+            ("launched", "updated", [{"field": "start_date", "after": "2026-05-21T00:00:00Z"}], "launched"),
+            ("stopped", "updated", [{"field": "start_date", "after": None}], "stopped"),
+            ("other_update", "updated", [{"field": "name", "after": "x"}], "updated"),
+        ]
+    )
+    def test_describes_experiment_change_from_activity(self, _name, activity, changes, expected_change):
+        team_id = 555111
+        detail = {"name": "checkout-v2"}
+        if changes is not None:
+            detail["changes"] = changes
+        ActivityLog.objects.create(
+            team_id=team_id,
+            scope="Experiment",
+            activity=activity,
+            item_id="exp-9",
+            detail=detail,
+            created_at=datetime(2026, 5, 21, tzinfo=UTC),
+        )
+
+        out = _fetch_experiment_changes(team_id, datetime(2026, 5, 19, tzinfo=UTC), datetime(2026, 5, 26, tzinfo=UTC))
+
+        assert out == [{"date": "2026-05-21", "experiment": "checkout-v2", "change": expected_change, "id": "exp-9"}]
+
+
+@pytest.mark.django_db
+class TestFetchPeriodSignals:
+    def test_combines_annotations_flags_and_experiments_in_window(self):
+        from posthog.models import Annotation, Organization, Team
+
+        org = Organization.objects.create(name="pulse-signals-org")
+        team = Team.objects.create(organization=org, name="pulse-signals-team")
+
+        Annotation.objects.create(
+            team=team,
+            content="pricing v2 launch",
+            date_marker=datetime(2026, 5, 20, tzinfo=UTC),
+        )
+        Annotation.objects.create(  # out of period — excluded
+            team=team,
+            content="old note",
+            date_marker=datetime(2026, 4, 1, tzinfo=UTC),
+        )
+        ActivityLog.objects.create(
+            team_id=team.id,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="7",
+            detail={"name": "new-onboarding", "changes": [{"field": "active", "after": True}]},
+            created_at=datetime(2026, 5, 21, tzinfo=UTC),
+        )
+        ActivityLog.objects.create(
+            team_id=team.id,
+            scope="Experiment",
+            activity="updated",
+            item_id="exp-3",
+            detail={"name": "checkout-v2", "changes": [{"field": "start_date", "after": "2026-05-22T00:00:00Z"}]},
+            created_at=datetime(2026, 5, 22, tzinfo=UTC),
+        )
+
+        annotations, flag_changes, experiment_changes = _fetch_period_signals(
+            team.id, "2026-05-19T00:00:00+00:00", "2026-05-26T00:00:00+00:00"
+        )
+
+        assert annotations == [{"date": "2026-05-20", "note": "pricing v2 launch"}]
+        assert flag_changes == [{"date": "2026-05-21", "flag": "new-onboarding", "change": "turned on", "id": "7"}]
+        assert experiment_changes == [
+            {"date": "2026-05-22", "experiment": "checkout-v2", "change": "launched", "id": "exp-3"}
+        ]
+
+    def test_returns_empty_without_period_bounds(self):
+        assert _fetch_period_signals(1, "", "") == ([], [], [])
+
+
+class TestBuildFindingReferences:
+    def test_maps_flags_and_experiments_skipping_idless(self):
+        flag_changes = [
+            {"date": "2026-05-21", "flag": "new-onboarding", "change": "turned on", "id": "7"},
+            {"date": "2026-05-21", "flag": "no-id-flag", "change": "updated", "id": ""},  # skipped, no id
+        ]
+        experiment_changes = [
+            {"date": "2026-05-22", "experiment": "checkout-v2", "change": "launched", "id": "exp-3"},
+        ]
+
+        refs = _build_finding_references(flag_changes, experiment_changes)
+
+        assert refs == [
+            {"type": "feature_flag", "label": "new-onboarding", "id": "7"},
+            {"type": "experiment", "label": "checkout-v2", "id": "exp-3"},
+        ]
+
+    def test_empty_when_no_linkable_signals(self):
+        assert _build_finding_references([], []) == []
+
+
+class TestDescribeExperimentChange:
+    @parameterized.expand(
+        [
+            ("created", "created", None, "created"),
+            ("deleted", "deleted", None, "deleted"),
+            ("launched", "updated", [{"field": "start_date", "after": "2026-05-22T00:00:00Z"}], "launched"),
+            ("stopped", "updated", [{"field": "start_date", "after": None}], "stopped"),
+            ("plain_update", "updated", [{"field": "name", "after": "x"}], "updated"),
+            ("update_no_changes", "updated", None, "updated"),
+        ]
+    )
+    def test_label(self, _name, activity, changes, expected):
+        detail = {"changes": changes} if changes is not None else {}
+        assert _describe_experiment_change(activity, detail) == expected
 
 
 class TestFetchErrorSignals:
@@ -565,7 +751,8 @@ class TestSynthesizeDigestFeedsErrorIssuesToLLM:
         error_signals = [{"name": "Payment timeout", "count": 42}]
 
         async def _fake_resolve():
-            return MagicMock(name="team"), MagicMock(name="user"), [], [], error_signals
+            # (team, user, annotations, flag_changes, experiment_changes, error_signals)
+            return MagicMock(name="team"), MagicMock(name="user"), [], [], [], error_signals
 
         # database_sync_to_async(fn) -> a callable returning the coroutine (matches the real wrapper shape).
         mock_db_wrap.side_effect = lambda fn: (lambda: _fake_resolve())
@@ -751,6 +938,28 @@ class TestEnrichOneSetsEvidence:
 
         assert result.evidence == {"session_ids": ["s1", "s2"]}
         assert result.attribution_breakdown == {"property": "$browser", "value": "Safari"}
+
+    async def test_evidence_carries_references(self):
+        references = [{"type": "feature_flag", "label": "new-onboarding", "id": "7"}]
+        with (
+            patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock) as mock_attr,
+            patch("posthog.temporal.ai.pulse.narrative._collect_replay_evidence", new_callable=AsyncMock) as mock_evi,
+            patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock) as mock_narr,
+        ):
+            mock_attr.return_value = None
+            mock_evi.return_value = []
+            mock_narr.return_value = "Broad-based."
+            result = await _enrich_one(
+                team=MagicMock(id=1),
+                user=MagicMock(),
+                finding=_finding_with_event("purchase"),
+                enrichment_semaphore=asyncio.Semaphore(1),
+                attribution_semaphore=asyncio.Semaphore(1),
+                references=references,
+            )
+
+        # No replays here, so evidence carries only the linkable references.
+        assert result.evidence == {"references": references}
 
     async def test_evidence_none_when_no_sessions(self):
         with (
