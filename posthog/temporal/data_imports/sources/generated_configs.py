@@ -808,7 +808,8 @@ class SupabaseSourceConfig(config.Config):
 
 @config.config
 class SurveyMonkeySourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ca"] = config.value(default="us")
 
 
 @config.config
