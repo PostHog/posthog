@@ -19,10 +19,13 @@ describe('tracingIngestionLogic', () => {
     })
 
     describe('loadTeamHasSpans', () => {
-        it('loads teamHasSpans as true when spans exist', async () => {
+        it.each([
+            { hasSpans: true, label: 'spans exist' },
+            { hasSpans: false, label: 'no spans exist' },
+        ])('loads teamHasSpans as $hasSpans when $label', async ({ hasSpans }) => {
             useMocks({
                 get: {
-                    '/api/environments/:team_id/tracing/spans/has_spans/': () => [200, { hasSpans: true }],
+                    '/api/environments/:team_id/tracing/spans/has_spans/': () => [200, { hasSpans }],
                 },
             })
 
@@ -30,24 +33,7 @@ describe('tracingIngestionLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadTeamHasSpans', 'loadTeamHasSpansSuccess']).toMatchValues({
-                teamHasSpans: true,
-                teamHasSpansLoading: false,
-                teamHasSpansCheckFailed: false,
-            })
-        })
-
-        it('loads teamHasSpans as false when no spans exist', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/tracing/spans/has_spans/': () => [200, { hasSpans: false }],
-                },
-            })
-
-            logic = tracingIngestionLogic()
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadTeamHasSpans', 'loadTeamHasSpansSuccess']).toMatchValues({
-                teamHasSpans: false,
+                teamHasSpans: hasSpans,
                 teamHasSpansLoading: false,
                 teamHasSpansCheckFailed: false,
             })
