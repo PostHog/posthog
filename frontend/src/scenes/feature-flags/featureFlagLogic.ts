@@ -192,7 +192,10 @@ export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): n
 // break by `id` (creation order) for a stable order.
 export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
     const epoch = (sc: ScheduledChangeType): number => {
-        const ms = dayjs(sc.executed_at ?? undefined).valueOf()
+        if (!sc.executed_at) {
+            return Number.NEGATIVE_INFINITY
+        }
+        const ms = dayjs(sc.executed_at).valueOf()
         return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
     }
     return epoch(b) - epoch(a) || b.id - a.id
