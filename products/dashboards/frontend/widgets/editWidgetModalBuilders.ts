@@ -81,9 +81,9 @@ export const widgetEditModalSavingReducers = {
     saving: [
         false,
         {
-            submit: () => true,
-            submitSuccess: () => false,
-            submitFailure: () => false,
+            submit: (_state: boolean, _payload: { value: true }) => true,
+            submitSuccess: (_state: boolean, _payload: { value: true }) => false,
+            submitFailure: (_state: boolean, _payload: { value: true }) => false,
         },
     ],
 }

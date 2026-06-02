@@ -6,19 +6,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { isWidgetConfigValidationError } from '../../utils'
-import { resolveWidgetFilterTestAccounts, type ErrorTrackingWidgetConfig } from '../../widget_types/configSchemas'
 import {
-    widgetEditModalFieldErrorsActions,
-    widgetEditModalFieldErrorsReducers,
+    resolveWidgetFilterTestAccounts,
+    type ErrorTrackingWidgetConfig,
+    type WidgetDateFromValue,
+} from '../../widget_types/configSchemas'
+import {
     widgetEditModalFilterTestAccountsActions,
-    widgetEditModalFilterTestAccountsReducers,
     widgetEditModalListFieldActions,
-    widgetEditModalListFieldReducers,
     widgetEditModalPropSelectors,
-    widgetEditModalSavingReducers,
     widgetEditModalTileActions,
-    widgetEditModalTileReducers,
-    widgetEditModalValidationSelectors,
 } from '../editWidgetModalBuilders'
 import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
@@ -56,11 +53,12 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
     }),
 
     actions({
-        setOrderBy: (orderBy: ErrorTrackingWidgetConfig['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: string) => ({ orderBy }),
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
         ...widgetEditModalFilterTestAccountsActions,
-        ...widgetEditModalFieldErrorsActions,
+        setFieldErrors: (fieldErrors: ErrorTrackingWidgetFieldErrors) => ({ fieldErrors }),
+        clearFieldError: (field: keyof ErrorTrackingWidgetFieldErrors) => ({ field }),
         submit: true,
         submitSuccess: true,
         submitFailure: true,
@@ -72,15 +70,70 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             {
                 setOrderBy: (
                     _: ErrorTrackingWidgetConfig['orderBy'],
-                    { orderBy }: { orderBy: ErrorTrackingWidgetConfig['orderBy'] }
-                ) => orderBy,
+                    { orderBy }: { orderBy: string }
+                ): ErrorTrackingWidgetConfig['orderBy'] => orderBy as ErrorTrackingWidgetConfig['orderBy'],
             },
         ],
-        ...widgetEditModalListFieldReducers,
-        ...widgetEditModalTileReducers,
-        ...widgetEditModalFilterTestAccountsReducers,
-        ...widgetEditModalFieldErrorsReducers,
-        ...widgetEditModalSavingReducers,
+        limit: [
+            10,
+            {
+                setLimit: (_: number, { limit }: { limit: number }) => limit,
+            },
+        ],
+        dateFrom: [
+            '-7d',
+            {
+                setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: string }): WidgetDateFromValue =>
+                    dateFrom as WidgetDateFromValue,
+            },
+        ],
+        tileName: [
+            '',
+            {
+                setTileName: (_: string, { tileName }: { tileName: string }) => tileName,
+            },
+        ],
+        tileDescription: [
+            '',
+            {
+                setTileDescription: (_: string, { tileDescription }: { tileDescription: string }) => tileDescription,
+            },
+        ],
+        filterTestAccounts: [
+            false,
+            {
+                setFilterTestAccounts: (_: boolean, { filterTestAccounts }: { filterTestAccounts: boolean }) =>
+                    filterTestAccounts,
+            },
+        ],
+        fieldErrors: [
+            {} as ErrorTrackingWidgetFieldErrors,
+            {
+                setFieldErrors: (
+                    _: ErrorTrackingWidgetFieldErrors,
+                    { fieldErrors }: { fieldErrors: ErrorTrackingWidgetFieldErrors }
+                ) => fieldErrors,
+                clearFieldError: (
+                    state: ErrorTrackingWidgetFieldErrors,
+                    { field }: { field: keyof ErrorTrackingWidgetFieldErrors }
+                ) => {
+                    if (!state[field]) {
+                        return state
+                    }
+                    const next = { ...state }
+                    delete next[field]
+                    return next
+                },
+            },
+        ],
+        saving: [
+            false,
+            {
+                submit: (_state: boolean, _payload: { value: true }) => true,
+                submitSuccess: (_state: boolean, _payload: { value: true }) => false,
+                submitFailure: (_state: boolean, _payload: { value: true }) => false,
+            },
+        ],
     }),
 
     selectors({
@@ -107,7 +160,27 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                     baseConfig: widgetConfig,
                 }),
         ],
-        ...widgetEditModalValidationSelectors,
+        activeFieldErrors: [
+            (s) => [s.validation, s.fieldErrors],
+            (validation, fieldErrors): ErrorTrackingWidgetFieldErrors => {
+                if (!validation.success) {
+                    return { ...validation.fieldErrors, ...fieldErrors }
+                }
+                return fieldErrors
+            },
+        ],
+        saveDisabledReason: [
+            (s) => [s.saving, s.validation],
+            (saving, validation): string | undefined => {
+                if (saving) {
+                    return 'Saving…'
+                }
+                if (!validation.success) {
+                    return 'Fix validation errors to save'
+                }
+                return undefined
+            },
+        ],
     }),
 
     defaults(({ props, values }) => {
