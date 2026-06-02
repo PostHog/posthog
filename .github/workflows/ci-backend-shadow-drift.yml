@@ -7,8 +7,11 @@ name: Backend CI shadow drift check
 # measuring the same work.
 #
 # Cheap to run — only triggers when one of the two files changes. Gated on the
-# DEPOT_CI_SHADOW_ENABLED repository variable so drift enforcement tracks the
-# shadow itself: no point keeping the shadow in sync while it is switched off.
+# ENABLE_DEPOT_SHADOW GitHub repository variable so drift enforcement tracks the
+# shadow's on/off state — no point keeping the shadow in sync while it is off. This
+# workflow runs on GitHub Actions, so its `vars` come from GitHub (Settings →
+# Secrets and variables → Actions → Variables), separate from the same-named Depot
+# CI variable that gates the shadow itself.
 
 on:
     pull_request:
@@ -26,7 +29,7 @@ concurrency:
 jobs:
     check:
         name: Both ci-backend files updated together
-        if: vars.DEPOT_CI_SHADOW_ENABLED == 'true'
+        if: vars.ENABLE_DEPOT_SHADOW == 'true'
         runs-on: ubuntu-latest
         # 5 min absorbs cold-runner startup + the explicit depth=100 fetch of BASE_SHA below.
         # `actions/checkout` defaults to depth=1 (HEAD only); a full-history clone is unnecessary
