@@ -1,5 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -498,9 +499,18 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             }
             actions.setSpanTreeAbortController(controller)
         },
+        fetchSpansSuccess: () => {
+            const tracesCount = values.rootSpans.length
+            if (tracesCount === 0) {
+                posthog.capture('tracing no results returned')
+            } else {
+                posthog.capture('tracing results returned', { count: tracesCount })
+            }
+        },
         fetchSpansFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
                 lemonToast.error(`Failed to load traces: ${error}`)
+                posthog.capture('tracing query failed', { query_type: 'spans', error_message: String(error) })
             }
         },
         fetchSparklineFailure: ({ error }) => {
