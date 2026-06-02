@@ -168,8 +168,8 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             <>
                                 Session IDs can't be searched here. Open it directly in{' '}
                                 <Link to={urls.replaySingle(searchTerm!)}>Session replay</Link>, or search sessions on
-                                the <Link to={urls.activity(ActivityTab.ExploreSessions)}>Activity</Link> page. To find a
-                                person instead, search by name, email, person ID, or distinct ID.
+                                the <Link to={urls.activity(ActivityTab.ExploreSessions)}>Activity</Link> page. To find
+                                a person instead, search by name, email, person ID, or distinct ID.
                             </>
                         ) : currentTeam?.ingested_event ? (
                             <>
