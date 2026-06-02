@@ -658,3 +658,11 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     is_existing = serializers.BooleanField(
         read_only=True, required=False, help_text="True if returning an existing job rather than a newly created one"
     )
+    # Populated by the GET endpoints (latest / by-id). Omitted from the POST response payload (which doesn't carry
+    # per-metric results yet — the workflow has just started).
+    results = MetricRecalculationResultSerializer(
+        many=True,
+        read_only=True,
+        required=False,
+        help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )

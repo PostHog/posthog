@@ -53,7 +53,6 @@ from products.experiments.backend.presentation.serializers import (
     EndExperimentSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
-    MetricRecalculationResultSerializer,
     RecalculateMetricsRequestSerializer,
     ShipVariantSerializer,
 )
@@ -905,6 +904,9 @@ def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
         "completed_at": recalc.completed_at,
+        # The serializer's nested results field declares this in the OpenAPI schema so the generated TS type
+        # includes `results`. The POST endpoint omits it (workflow has just started; no results yet).
+        "results": get_run_results(recalc),
     }
     data = ExperimentMetricsRecalculationSerializer(payload).data
     data["results"] = MetricRecalculationResultSerializer(get_run_results(recalc), many=True).data
