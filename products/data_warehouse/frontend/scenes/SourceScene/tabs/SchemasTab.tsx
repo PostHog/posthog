@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -274,11 +274,7 @@ function ManagedSchemaTable({
                         }
                         const openSyncsForSchema = (): void => {
                             setSelectedSchemas([schema.name])
-                            router.actions.push(
-                                combineUrl(urls.dataWarehouseSource(prefixedSourceId, 'syncs'), {
-                                    schema: schema.name,
-                                }).url
-                            )
+                            router.actions.push(urls.dataWarehouseSource(prefixedSourceId, 'syncs'))
                         }
                         const tagContent = (
                             <LemonTag
@@ -380,21 +376,11 @@ function ManagedSchemaTable({
                         return (
                             <SourceEditorAction source={source}>
                                 <LemonSwitch
+                                    disabledReason={
+                                        schema.sync_type === null ? 'Set up the sync method first' : undefined
+                                    }
                                     checked={schema.should_sync}
                                     onChange={(active) => {
-                                        if (active && !schema.sync_type) {
-                                            // No sync method saved yet — send the user to set one up
-                                            // before the schema can be enabled.
-                                            router.actions.push(
-                                                urls.dataWarehouseSourceSchema(
-                                                    prefixedSourceId,
-                                                    schema.id,
-                                                    'configuration',
-                                                    'sync-method'
-                                                )
-                                            )
-                                            return
-                                        }
                                         if (!active && schema.sync_type === 'cdc') {
                                             LemonDialog.open({
                                                 title: 'Disable CDC table?',

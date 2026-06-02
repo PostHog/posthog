@@ -109,39 +109,6 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
- * * `suppressed` - suppressed
- * `potential` - potential
- */
-export type SignalReportStateRequestStateEnumApi =
-    (typeof SignalReportStateRequestStateEnumApi)[keyof typeof SignalReportStateRequestStateEnumApi]
-
-export const SignalReportStateRequestStateEnumApi = {
-    Suppressed: 'suppressed',
-    Potential: 'potential',
-} as const
-
-export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.
-
-  * `suppressed` - suppressed
-  * `potential` - potential */
-    state: SignalReportStateRequestStateEnumApi
-    /** Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). The set of reason codes is owned by the caller and is not validated server-side. */
-    dismissal_reason?: string
-    /**
-     * Optional free-form note explaining the dismissal. Capped at 4000 characters.
-     * @maxLength 4000
-     */
-    dismissal_note?: string
-    /**
-     * Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.
-     * @minimum 1
-     * @maximum 100000
-     */
-    snooze_for?: number
-}
-
-/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {

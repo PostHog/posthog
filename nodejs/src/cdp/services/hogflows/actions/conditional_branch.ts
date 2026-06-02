@@ -17,19 +17,6 @@ export class ConditionalBranchHandler implements ActionHandler {
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
-        // The subscription matcher sets eventMatched when an incoming event matched this
-        // step's wait condition. Honor it as a forced match and advance immediately,
-        // rather than re-evaluating the stored condition against the original event.
-        if (action.type === 'wait_until_condition' && invocation.state?.currentAction?.eventMatched === true) {
-            invocation.state.currentAction.eventMatched = false
-            invocation.state.currentAction.eventMatchedEvent = undefined
-            invocation.state.currentAction.eventMatchedEventUuid = undefined
-            return {
-                nextAction: findNextAction(invocation.hogFlow, action.id, 0),
-                result: { eventMatched: true },
-            }
-        }
-
         const conditionResult = await checkConditions(
             invocation,
             action.type === 'conditional_branch'

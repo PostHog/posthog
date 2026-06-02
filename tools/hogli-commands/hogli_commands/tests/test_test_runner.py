@@ -75,17 +75,6 @@ class TestDetectTestType:
         assert config.test_type == "jest"
         assert config.command == ["pnpm", f"--filter={expected_filter}", "exec", "jest", file_path]
 
-    @parameterized.expand(
-        [
-            "products/ai_observability/frontend/utils.test.ts",
-            "products/llm_analytics/frontend/scenes/Trace.test.tsx",
-        ]
-    )
-    def test_product_frontend_jest_routes_to_frontend(self, file_path: str) -> None:
-        config = detect_test_type(file_path)
-        assert config.test_type == "jest"
-        assert config.command == ["pnpm", "--filter=@posthog/frontend", "exec", "jest", file_path]
-
     def test_jest_node_id_adds_test_name_pattern(self) -> None:
         config = detect_test_type("frontend/src/lib/utils.test.ts::some test name")
         assert config.test_type == "jest"

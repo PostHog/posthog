@@ -1024,35 +1024,5 @@ describe('infiniteListLogic', () => {
                 .map((i) => i._recentContext.propertyFilter?.value)
             expect(cohortValues).toEqual(expect.arrayContaining([1, 2]))
         })
-
-        it('preserves sourceValue on recent Persons items so the row resolves the correct distinct_id', () => {
-            // Persons items are stored stripped ({name, id?}) — distinct_ids is not persisted.
-            // The fix in InfiniteListRow falls back to _recentContext.sourceValue instead of
-            // calling Persons.getValue (which would return undefined). This test asserts that
-            // sourceValue is recorded correctly at storage time so the fallback has something to use.
-            const recentLogic = recentTaxonomicFiltersLogic.build()
-            recentLogic.mount()
-            recentLogic.actions.recordRecentFilter({
-                groupType: TaxonomicFilterGroupType.Persons,
-                groupName: 'Persons',
-                value: 'user-distinct-id',
-                item: { name: 'Jane Doe' },
-            })
-
-            const listLogic = infiniteListLogic({
-                taxonomicFilterLogicKey: 'persons-recents-test',
-                listGroupType: TaxonomicFilterGroupType.RecentFilters,
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.RecentFilters],
-                showNumericalPropsOnly: false,
-            })
-            listLogic.mount()
-
-            const personItems = listLogic.values.contextFilteredRecentItems
-                .filter(onlyWithRecentContext)
-                .filter((i) => i._recentContext.sourceGroupType === TaxonomicFilterGroupType.Persons)
-
-            expect(personItems).toHaveLength(1)
-            expect((personItems[0] as any)._recentContext.sourceValue).toBe('user-distinct-id')
-        })
     })
 })

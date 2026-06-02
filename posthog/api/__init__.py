@@ -22,6 +22,7 @@ import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
 import products.signals.backend.views as signals
 import products.tasks.backend.seat_api as seats
+import products.deployments.backend.api as deployments
 import products.alerts.backend.api.alert as alert
 import products.conversations.backend.api as conversations
 import products.live_debugger.backend.api as live_debugger
@@ -358,6 +359,22 @@ projects_router.register(
     "project_wizard_sessions",
     ["project_id"],
 )
+# Deployments: DeploymentProject is the top-level entity; Deployment nests under it.
+# Mirrors `project_tasks_router` → `runs` pattern above for the parent/child URL shape:
+# /api/projects/{team_id}/deployment_projects/{deployment_project_id}/deployments/...
+project_deployment_projects_router = projects_router.register(
+    r"deployment_projects",
+    deployments.DeploymentProjectViewSet,
+    "project_deployment_projects",
+    ["project_id"],
+)
+project_deployment_projects_router.register(
+    r"deployments",
+    deployments.DeploymentViewSet,
+    "project_deployment_projects_deployments",
+    ["project_id", "deployment_project_id"],
+)
+
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
@@ -502,13 +519,6 @@ register_legacy_dual_route_team_nested_viewset(
     r"file_system", file_system.FileSystemViewSet, "environment_file_system", ["team_id"]
 )
 
-projects_router.register(
-    r"desktop_file_system",
-    file_system.DesktopFileSystemViewSet,
-    "project_desktop_file_system",
-    ["team_id"],
-)
-
 register_legacy_dual_route_team_nested_viewset(
     r"file_system_shortcut",
     file_system_shortcut.FileSystemShortcutViewSet,
@@ -516,24 +526,10 @@ register_legacy_dual_route_team_nested_viewset(
     ["team_id"],
 )
 
-projects_router.register(
-    r"desktop_file_system_shortcut",
-    file_system_shortcut.DesktopFileSystemShortcutViewSet,
-    "project_desktop_file_system_shortcut",
-    ["team_id"],
-)
-
 register_legacy_dual_route_team_nested_viewset(
     r"persisted_folder",
     persisted_folder.PersistedFolderViewSet,
     "environment_persisted_folder",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_persisted_folder",
-    persisted_folder.DesktopPersistedFolderViewSet,
-    "project_desktop_persisted_folder",
     ["team_id"],
 )
 

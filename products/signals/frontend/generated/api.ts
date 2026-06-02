@@ -23,7 +23,6 @@ import type {
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
-    SignalReportStateRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -159,41 +158,6 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/state/`
-}
-
-/**
- * Transition a report to a new state. The model validates allowed transitions.
-
-The request body is validated by SignalReportStateRequestSerializer — only the
-fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
-and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
-so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
-
-Body: {
-    "state": "suppressed" | "potential",
-    # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
-    "dismissal_reason": "<any string code, owned by the caller>",
-    "dismissal_note": "free-form text",
-    # Optional, only honored for state == "potential":
-    "snooze_for": <number of additional signals before re-promotion>,
-}
- */
-export const signalsReportsStateCreate = async (
-    projectId: string,
-    id: string,
-    signalReportStateRequestApi: SignalReportStateRequestApi,
-    options?: RequestInit
-): Promise<SignalReportApi> => {
-    return apiMutator<SignalReportApi>(getSignalsReportsStateCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(signalReportStateRequestApi),
     })
 }
 

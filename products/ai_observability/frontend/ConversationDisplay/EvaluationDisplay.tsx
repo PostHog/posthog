@@ -52,7 +52,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
                         {evaluationName}
                     </MetadataTag>
                 )}
-                {typeof model === 'string' && model && (
+                {model && (
                     <MetadataTag label="Judge model" textToCopy={lowercaseFirstLetter(model)}>
                         {lowercaseFirstLetter(model)}
                     </MetadataTag>

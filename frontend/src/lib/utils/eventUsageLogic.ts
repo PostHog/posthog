@@ -1017,10 +1017,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => ({ props }),
         reportWebAnalyticsCompareToggled: (props: { enabled: boolean }) => ({ props }),
         reportWebAnalyticsConversionGoalSet: (props: { goal_type: string | null }) => ({ props }),
-        reportWebAnalyticsFocusModeOnboardingShown: true,
-        reportWebAnalyticsFocusModeOnboardingStarted: true,
-        reportWebAnalyticsFocusModeOnboardingSkipped: true,
-        reportWebAnalyticsFocusModeOnboardingCompleted: (props: { concern_count: number }) => ({ props }),
         reportWebAnalyticsPathCleaningToggled: (props: { enabled: boolean }) => ({ props }),
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: ({ business_mode }) => ({ business_mode }),
@@ -2342,18 +2338,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
-        },
-        reportWebAnalyticsFocusModeOnboardingShown: () => {
-            posthog.capture('web analytics focus mode onboarding shown')
-        },
-        reportWebAnalyticsFocusModeOnboardingStarted: () => {
-            posthog.capture('web analytics focus mode onboarding started')
-        },
-        reportWebAnalyticsFocusModeOnboardingSkipped: () => {
-            posthog.capture('web analytics focus mode onboarding skipped')
-        },
-        reportWebAnalyticsFocusModeOnboardingCompleted: ({ props }) => {
-            posthog.capture('web analytics focus mode onboarding completed', props)
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)

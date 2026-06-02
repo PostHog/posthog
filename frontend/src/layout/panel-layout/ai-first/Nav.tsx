@@ -1,7 +1,6 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { lazy, Suspense, useRef } from 'react'
 
@@ -19,7 +18,6 @@ import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
 
 import { NavExperimentTab, PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
@@ -175,14 +173,10 @@ export function Nav(): JSX.Element {
                                 tooltipPlacement="right"
                                 active={activePanelIdentifier === 'Chat'}
                                 onClick={() => {
-                                    const isOpening = activePanelIdentifier !== 'Chat'
                                     posthog.capture('nav chat panel toggled', {
-                                        is_open: isOpening,
+                                        is_open: activePanelIdentifier !== 'Chat',
                                     })
                                     handlePanelTriggerClick('Chat')
-                                    if (isOpening) {
-                                        router.actions.push(urls.ai())
-                                    }
                                 }}
                             >
                                 <span
@@ -211,9 +205,6 @@ export function Nav(): JSX.Element {
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
                         setNavExperimentTab(value as NavExperimentTab)
-                        if (value === 'chat') {
-                            router.actions.push(urls.ai())
-                        }
                     }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >

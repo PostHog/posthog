@@ -24,9 +24,12 @@ from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
-from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS
+from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
 from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     get_channels,
@@ -184,23 +187,21 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         if not access_token:
             raise ValueError("Slack access token not found")
 
+        msg_config = messages_endpoint_config()
+        webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = self._get_authed_user_id(integration)
         channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
-            # Channel message tables are webhook-only: messages arrive via the realtime webhook
-            # pipeline, not the polling sync, so incremental/append don't apply and full-refresh
-            # would only delete data and reload nothing. Webhook is the only sync method we offer
-            # (mirrors the Customer.io webhook schemas).
             schemas.append(
                 SourceSchema(
                     name=ch["id"],
                     label=ch["name"],
-                    supports_incremental=False,
-                    supports_append=False,
-                    supports_webhooks=True,
-                    incremental_fields=[],
+                    supports_incremental=len(msg_config.incremental_fields) > 0,
+                    supports_webhooks=webhook_flag_enabled,
+                    supports_append=len(msg_config.incremental_fields) > 0,
+                    incremental_fields=msg_config.incremental_fields,
                 )
             )
 

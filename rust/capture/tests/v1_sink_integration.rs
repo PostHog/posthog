@@ -5,8 +5,9 @@
 //!
 //! Requires Docker Kafka (same rig as legacy integration tests).
 //!
-//! HTTP-level round trips (POST /i/v1/analytics/events -> Kafka) live in
-//! `v1_http_integration.rs`; this file stays focused on the sink layer.
+//! TODO(v1): add HTTP-level integration tests (ServerHandle + POST /i/v1/analytics/events)
+//! and process_batch orchestration tests once the v1 HTTP router is merged into the
+//! main application and process_batch is fully implemented (currently a stub).
 
 #[path = "common/utils.rs"]
 mod utils;

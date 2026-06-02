@@ -351,32 +351,6 @@ async fn load_events_do_not_shrink_streamed_item_submission() {
 }
 
 #[tokio::test]
-async fn accepted_outcomes_release_routing_slots_before_terminal_completion() {
-    let (addr, _streams, items) =
-        spawn_recording_stub_server(ServerBehavior::AcceptedThenDoneDelayed {
-            delay: Duration::from_millis(300),
-        })
-        .await;
-    let ctx = make_ctx_with_sample_rate(&[addr], 0, Duration::from_secs(5), 1.0).await;
-    let events: Vec<_> = (0..11)
-        .map(|i| {
-            Ok(build_event_with_symbol_refs(
-                Uuid::from_u128(600 + i),
-                &["x"],
-            ))
-        })
-        .collect();
-
-    let task = tokio::spawn(remote_stage(ctx).process(Batch::from(events)));
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    assert_eq!(items.lock().unwrap().len(), 11);
-    task.await
-        .expect("join remote resolution")
-        .expect("stage processed");
-}
-
-#[tokio::test]
 async fn metadata_encodes_apple_debug_images_as_json_field() {
     let (addr, _streams, items) = spawn_recording_stub_server(ServerBehavior::Happy).await;
     let ctx = make_ctx(&[addr], 0, Duration::from_secs(5)).await;

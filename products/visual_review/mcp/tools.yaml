@@ -83,15 +83,15 @@ tools:
             - visual_review:write
         annotations:
             readOnly: false
-            destructive: false
-            idempotent: true
-        title: Mark visual review snapshots reviewed
+            destructive: true
+            idempotent: false
+        title: Approve visual review snapshots
         description: >
-            Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being
-            `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only
-            records the review in the database (the per-snapshot "Accept change" action) — it does NOT update the
-            baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual
-            change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.
+            Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new
+            snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}`
+            — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML
+            in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user
+            before approving — this is the action that ships the visual change.
         feature_flag: visual-review
     visual-review-runs-complete-create:
         operation: visual_review_runs_complete_create
@@ -113,28 +113,6 @@ tools:
     visual-review-runs-create:
         operation: visual_review_runs_create
         enabled: false
-    visual-review-runs-finalize-create:
-        operation: visual_review_runs_finalize_create
-        enabled: true
-        scopes:
-            - visual_review:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Finalize a visual review run
-        description: >
-            Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub
-            visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their
-            baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot
-            is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With
-            `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is
-            pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed
-            committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was
-            skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and
-            finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation
-            first — finalizing ships the visual change and rewrites the committed baseline.
-        feature_flag: visual-review
     visual-review-runs-list:
         operation: visual_review_runs_list
         enabled: true

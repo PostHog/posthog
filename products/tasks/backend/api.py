@@ -54,14 +54,6 @@ from .automation_service import (
     sync_automation_schedule,
     update_automation_run_result,
 )
-from .metrics import (
-    StreamConnectionOutcome,
-    observe_stream_connection_closed,
-    observe_stream_connection_opened,
-    observe_stream_length_on_connect,
-    observe_stream_resume_gap,
-    origin_product_label,
-)
 from .models import (
     TASK_PRESENCE_TTL_SECONDS,
     CodeInvite,
@@ -2688,90 +2680,51 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
-        origin_product = origin_product_label(task_run)
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
-            connection_started_at = asyncio.get_running_loop().time()
-            # Default to client_disconnect: any exit that isn't an explicit
-            # completion/error/unavailable is the client (or proxy) going away.
-            outcome: StreamConnectionOutcome = "client_disconnect"
-            # Record opened inside the try so the closed counter only fires when
-            # the open succeeded — keeps opened/closed balanced for the
-            # active-connections gauge regardless of which increment fails.
-            opened = False
+            delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
+            wait_started_at = asyncio.get_running_loop().time()
+            last_keepalive_at = wait_started_at
+
+            while not await redis_stream.exists():
+                now = asyncio.get_running_loop().time()
+                if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
+                    yield format_sse_event({"error": "Stream not available"}, event_name="error")
+                    return
+
+                if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
+                    last_keepalive_at = now
+                    yield format_sse_event(
+                        TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                        event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                    )
+
+                await asyncio.sleep(delay)
+                delay = min(
+                    delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+                    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+                )
+
+            start_id = last_event_id or "0"
+            if not last_event_id and start_latest:
+                start_id = await redis_stream.get_latest_stream_id() or "0"
             try:
-                observe_stream_connection_opened(origin_product)
-                opened = True
-                delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
-                wait_started_at = asyncio.get_running_loop().time()
-                last_keepalive_at = wait_started_at
-
-                while not await redis_stream.exists():
-                    now = asyncio.get_running_loop().time()
-                    if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
-                        outcome = "unavailable"
-                        yield format_sse_event({"error": "Stream not available"}, event_name="error")
-                        return
-
-                    if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
-                        last_keepalive_at = now
+                async for stream_item in redis_stream.read_stream_entries(
+                    start_id=start_id,
+                    keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                ):
+                    if stream_item is None:
                         yield format_sse_event(
                             TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
                             event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
                         )
-
-                    await asyncio.sleep(delay)
-                    delay = min(
-                        delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
-                        TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
-                    )
-
-                # Only reconnects (Last-Event-ID set) can suffer a trimmed resume
-                # point, and that's the only case where stream depth vs the trim
-                # cap is interesting — so skip the extra Redis reads on fresh
-                # connects. Best-effort: never break the stream.
-                if last_event_id:
-                    try:
-                        observe_stream_length_on_connect(await redis_stream.get_length())
-                        if await redis_stream.resume_point_trimmed(last_event_id):
-                            observe_stream_resume_gap(origin_product)
-                            logger.warning(
-                                "task_run_stream_resume_gap",
-                                extra={"stream_key": stream_key, "last_event_id": last_event_id},
-                            )
-                    except Exception:
-                        logger.warning(
-                            "task_run_stream_attach_observe_failed",
-                            extra={"stream_key": stream_key},
-                            exc_info=True,
-                        )
-
-                start_id = last_event_id or "0"
-                if not last_event_id and start_latest:
-                    start_id = await redis_stream.get_latest_stream_id() or "0"
-                try:
-                    async for stream_item in redis_stream.read_stream_entries(
-                        start_id=start_id,
-                        keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
-                    ):
-                        if stream_item is None:
-                            yield format_sse_event(
-                                TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
-                                event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
-                            )
-                            continue
-                        event_id, event = stream_item
-                        yield format_sse_event(event, event_id=event_id)
-                    outcome = "completed"
-                except TaskRunStreamError as e:
-                    outcome = "stream_error"
-                    logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
-                    yield format_sse_event({"error": str(e)}, event_name="error")
-            finally:
-                if opened:
-                    duration = asyncio.get_running_loop().time() - connection_started_at
-                    observe_stream_connection_closed(origin_product, outcome, duration)
+                        continue
+                    event_id, event = stream_item
+                    yield format_sse_event(event, event_id=event_id)
+            except TaskRunStreamError as e:
+                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                yield format_sse_event({"error": str(e)}, event_name="error")
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),

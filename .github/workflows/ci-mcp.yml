@@ -13,10 +13,6 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -388,13 +384,6 @@ jobs:
 
             - name: Download MaxMind Database
               run: ./bin/download-mmdb
-
-            - name: Log in to Docker Hub
-              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
-              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
-              with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
               shell: bash

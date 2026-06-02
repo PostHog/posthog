@@ -39,7 +39,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
     run_aggregation_query,
@@ -270,12 +269,6 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
-class _HasSpansResponseSerializer(serializers.Serializer):
-    hasSpans = serializers.BooleanField(
-        help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
-    )
-
-
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -303,22 +296,6 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
-
-    @extend_schema(responses={200: _HasSpansResponseSerializer})
-    @action(detail=False, methods=["GET"], url_path="has_spans", required_scopes=["tracing:read"])
-    def has_spans(self, request: Request, *args, **kwargs) -> Response:
-        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        has_spans = team_has_spans(self.team)
-
-        report_user_action(
-            request.user,
-            "tracing has_spans checked",
-            {"has_spans": has_spans},
-            team=self.team,
-            request=request,
-        )
-
-        return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])

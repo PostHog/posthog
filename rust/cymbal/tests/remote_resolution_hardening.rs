@@ -145,7 +145,10 @@ async fn endpoint_refresh_closes_draining_mux_and_reroutes_in_flight_item() {
         .await
         .expect("build pool");
     wait_until_routable(&pool).await;
-    let ctx = RemoteResolutionContext::new(Arc::clone(&pool), config);
+    let ctx = RemoteResolutionContext {
+        pool: Arc::clone(&pool),
+        config,
+    };
 
     let task = tokio::spawn(process_one(remote_stage(ctx), build_event(1)));
     tokio::time::sleep(Duration::from_millis(75)).await;

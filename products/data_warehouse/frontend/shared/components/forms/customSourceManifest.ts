@@ -16,6 +16,7 @@ export const API_KEY_LOCATIONS = ['header', 'query', 'cookie'] as const
 export type ApiKeyLocation = (typeof API_KEY_LOCATIONS)[number]
 
 export const PAGINATOR_TYPES = [
+    'auto',
     'single_page',
     'json_response',
     'cursor',
@@ -26,6 +27,7 @@ export const PAGINATOR_TYPES = [
 export type PaginatorType = (typeof PAGINATOR_TYPES)[number]
 
 export type Paginator =
+    | { type: 'auto' }
     | { type: 'single_page' }
     | { type: 'json_response'; next_url_path?: string }
     | { type: 'cursor'; cursor_path?: string; cursor_param?: string }
@@ -239,6 +241,8 @@ export function extractAuthSecrets(state: ManifestState): AuthSecrets {
 
 function serializePaginator(paginator: Paginator): Record<string, unknown> {
     switch (paginator.type) {
+        case 'auto':
+            return { type: 'auto' }
         case 'json_response':
             return {
                 type: 'json_response',

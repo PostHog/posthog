@@ -1851,7 +1851,7 @@ const WORD_PLURALIZATION_RULES = [
 
 export function wordPluralize(word: string): string {
     if (!word) {
-        return word
+        return word ?? ''
     }
 
     let len = WORD_PLURALIZATION_RULES.length

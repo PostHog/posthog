@@ -74,6 +74,7 @@ from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import format_query_params_absolute_url, is_anonymous_id, refresh_requested_by_client
 
@@ -360,7 +361,16 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
 def get_funnel_actor_class(filter: Filter) -> Callable:
     funnel_actor_class: type[ActorBaseQuery]
 
-    if filter.funnel_viz_type == FunnelVizType.TRENDS:
+    if filter.correlation_person_entity and EE_AVAILABLE:
+        if EE_AVAILABLE:
+            from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
+
+            funnel_actor_class = FunnelCorrelationActors
+        else:
+            raise ValueError(
+                "Funnel Correlations is not available without an enterprise license and enterprise supported deployment"
+            )
+    elif filter.funnel_viz_type == FunnelVizType.TRENDS:
         funnel_actor_class = ClickhouseFunnelTrendsActors
     else:
         if filter.funnel_order_type == "unordered":

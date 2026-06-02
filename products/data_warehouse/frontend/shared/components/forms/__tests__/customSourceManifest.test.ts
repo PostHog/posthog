@@ -227,6 +227,13 @@ describe('buildManifest', () => {
         const desc = buildManifest(descState) as any
         expect(desc.resources[0].sort_mode).toBe('desc')
     })
+
+    it('serializes the auto paginator to type-only', () => {
+        const state = baseState()
+        state.streams[0].paginator = { type: 'auto' }
+        const manifest = buildManifest(state) as any
+        expect(manifest.resources[0].endpoint.paginator).toEqual({ type: 'auto' })
+    })
 })
 
 describe('parseManifestIntoState', () => {
@@ -328,16 +335,13 @@ describe('parseManifestIntoState', () => {
         expect(state.auth_api_key_location).toBe('query')
     })
 
-    it("folds a legacy 'auto' paginator to single_page on parse", () => {
-        // 'auto' was a no-op alias for single_page (it mapped to no paginator on
-        // the backend) and is no longer offered. Manifests authored before it was
-        // removed should still parse without surfacing the dead type.
+    it('parses the auto paginator type when the manifest declares it', () => {
         const manifestJson = JSON.stringify({
             client: { base_url: 'https://x' },
             resources: [{ name: 'r', endpoint: { path: '/r', paginator: { type: 'auto' } } }],
         })
         const state = parseManifestIntoState(manifestJson)
-        expect(state.streams[0].paginator.type).toBe('single_page')
+        expect(state.streams[0].paginator.type).toBe('auto')
     })
 
     it.each(['date', 'timestamp', 'integer'] as const)(
@@ -393,7 +397,7 @@ describe('parseManifestIntoState', () => {
                 method: 'GET',
                 data_selector: 'data',
                 primary_key: 'id',
-                paginator: { type: 'single_page' },
+                paginator: { type: 'auto' },
                 sort_mode: 'desc',
                 incremental_enabled: true,
                 cursor_path: 'updated_at',

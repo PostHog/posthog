@@ -12,7 +12,6 @@ import { InternalCaptureService } from '../../src/common/services/internal-captu
 import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub } from '../../src/types'
-import { PersonReadRepository } from '../../src/worker/ingestion/persons/repositories/person-repository'
 
 /**
  * Single shared kafkaProducer is enough for tests — point every CDP producer
@@ -31,17 +30,6 @@ function buildTestCdpProducerRegistry(
     })
 }
 
-/**
- * No-op PersonReadRepository for tests that don't exercise person lookups.
- * Tests that need person resolution should override via spread.
- */
-const noopPersonReadRepository: PersonReadRepository = {
-    fetchPerson: () => Promise.resolve(undefined),
-    fetchPersonsByDistinctIds: () => Promise.resolve([]),
-    fetchPersonsByPersonIds: () => Promise.resolve([]),
-    fetchDistinctIdsForPersons: () => Promise.resolve({}),
-}
-
 export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWrapper): CdpConsumerBaseDeps {
     return {
         postgres: hub.postgres,
@@ -51,7 +39,7 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         integrationManager: hub.integrationManager,
         cdpProducerRegistry: buildTestCdpProducerRegistry(kafkaProducer),
         internalCaptureService: new InternalCaptureService(hub),
-        personRepository: noopPersonReadRepository,
+        personRepository: hub.personRepository,
         geoipService: hub.geoipService,
         groupRepository: hub.groupRepository,
         quotaLimiting: hub.quotaLimiting,

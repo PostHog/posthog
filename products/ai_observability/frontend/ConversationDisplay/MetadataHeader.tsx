@@ -78,7 +78,7 @@ export function MetadataHeader({
                     tooltipContent="Prompt tokens written to the provider's cache for reuse on subsequent calls."
                 >{`${cacheWriteTokens} cache write tokens`}</MetadataTag>
             )}
-            {typeof model === 'string' && model && (
+            {model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                     {model}
                 </MetadataTag>

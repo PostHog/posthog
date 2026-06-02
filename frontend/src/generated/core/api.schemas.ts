@@ -2145,14 +2145,6 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
-}
-
 export interface SharePasswordApi {
     readonly id: number
     readonly created_at: string
@@ -2173,191 +2165,6 @@ export interface SharingConfigurationApi {
     settings?: unknown
     password_required?: boolean
     readonly share_passwords: readonly SharePasswordApi[]
-}
-
-export interface FileSystemApi {
-    readonly id: string
-    path: string
-    /** @nullable */
-    readonly depth: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at: string
-    /** @nullable */
-    readonly last_viewed_at: string | null
-}
-
-export interface PaginatedFileSystemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemApi[]
-}
-
-export interface PatchedFileSystemApi {
-    readonly id?: string
-    path?: string
-    /** @nullable */
-    readonly depth?: number | null
-    /** @maxLength 100 */
-    type?: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /** @nullable */
-    href?: string | null
-    meta?: unknown
-    /** @nullable */
-    shortcut?: boolean | null
-    readonly created_at?: string
-    /** @nullable */
-    readonly last_viewed_at?: string | null
-}
-
-export interface FileSystemShortcutApi {
-    readonly id: string
-    /** Display path of the shortcut in the sidebar. */
-    path: string
-    /**
-     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
-     * @maxLength 100
-     */
-    type?: string
-    /**
-     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /**
-     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
-     * @nullable
-     */
-    href?: string | null
-    /**
-     * Display order within the user's shortcut list, ascending.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    order?: number
-    readonly created_at: string
-}
-
-export interface PaginatedFileSystemShortcutListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: FileSystemShortcutApi[]
-}
-
-export interface PatchedFileSystemShortcutApi {
-    readonly id?: string
-    /** Display path of the shortcut in the sidebar. */
-    path?: string
-    /**
-     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
-     * @maxLength 100
-     */
-    type?: string
-    /**
-     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
-     * @nullable
-     */
-    ref?: string | null
-    /**
-     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
-     * @nullable
-     */
-    href?: string | null
-    /**
-     * Display order within the user's shortcut list, ascending.
-     * @minimum -2147483648
-     * @maximum 2147483647
-     */
-    order?: number
-    readonly created_at?: string
-}
-
-export interface FileSystemShortcutReorderApi {
-    /** IDs of the current user's shortcuts in the desired display order. */
-    ordered_ids: string[]
-}
-
-/**
- * * `home` - Home
- * `pinned` - Pinned
- * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-
-  * `home` - Home
-  * `pinned` - Pinned
-  * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-
-  * `home` - Home
-  * `pinned` - Pinned
-  * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 /**
@@ -2411,6 +2218,59 @@ export interface PaginatedExportedAssetListApi {
     /** @nullable */
     previous?: string | null
     results: ExportedAssetApi[]
+}
+
+export interface FileSystemApi {
+    readonly id: string
+    path: string
+    /** @nullable */
+    readonly depth: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly last_viewed_at: string | null
+}
+
+export interface PaginatedFileSystemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemApi[]
+}
+
+export interface PatchedFileSystemApi {
+    readonly id?: string
+    path?: string
+    /** @nullable */
+    readonly depth?: number | null
+    /** @maxLength 100 */
+    type?: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /** @nullable */
+    href?: string | null
+    meta?: unknown
+    /** @nullable */
+    shortcut?: boolean | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly last_viewed_at?: string | null
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -3537,43 +3397,6 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
-export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * A search term.
-     */
-    search?: string
-}
-
-export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3598,28 +3421,6 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
-}
-
-export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {

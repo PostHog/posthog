@@ -66,7 +66,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     })),
 
     actions({
-        toggleExpandSpan: (uuid: string) => ({ uuid }),
         openTraceModal: (traceId: string) => ({ traceId }),
         closeTraceModal: true,
         openCompareFlame: (spanName: string, serviceName: string) => ({ spanName, serviceName }),
@@ -76,22 +75,6 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
     }),
 
     reducers({
-        expandedSpanIds: [
-            {} as Record<string, boolean>,
-            {
-                toggleExpandSpan: (state, { uuid }) => {
-                    const next = { ...state }
-                    if (next[uuid]) {
-                        delete next[uuid]
-                    } else {
-                        next[uuid] = true
-                    }
-                    return next
-                },
-                // Drop stale expansion state whenever the span list is refetched.
-                runQuery: () => ({}),
-            },
-        ],
         selectedTraceId: [
             null as string | null,
             {

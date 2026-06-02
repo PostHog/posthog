@@ -67,7 +67,7 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
 ])
 
-export const HogFlowActionSchema = z.discriminatedUnion('type', [
+const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
@@ -118,14 +118,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: z.any(), // type this stronger
                 name: z.string().optional(), // Custom name for the condition
             }),
-            events: z
-                .array(
-                    z.object({
-                        filters: z.any(),
-                        name: z.string().optional(),
-                    })
-                )
-                .optional(),
             max_wait_duration: z.string(),
         }),
     }),
@@ -230,14 +222,6 @@ export const HogFlowSchema = z.object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
-            events: z
-                .array(
-                    z.object({
-                        filters: z.any(),
-                        name: z.string().optional(),
-                    })
-                )
-                .optional(),
         })
         .optional(),
     exit_condition: z.enum([

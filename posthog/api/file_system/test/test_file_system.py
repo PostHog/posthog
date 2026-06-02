@@ -1918,38 +1918,3 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
             "ref": str(feature.id),
             "path": fs_entry.path,
         }
-
-
-class TestDesktopFileSystemSurface(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.user.is_staff = True
-        self.user.save()
-        self.web_url = f"/api/projects/{self.team.id}/file_system/"
-        self.desktop_url = f"/api/projects/{self.team.id}/desktop_file_system/"
-
-    def test_routes_serve_isolated_trees(self):
-        self.client.post(self.web_url, {"path": "Web only", "type": "doc"})
-        self.client.post(self.desktop_url, {"path": "Desktop only", "type": "doc"})
-
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
-
-        self.assertEqual(web_paths, {"Web only"})
-        self.assertEqual(desktop_paths, {"Desktop only"})
-
-    def test_desktop_create_stamps_desktop_surface(self):
-        self.client.post(self.desktop_url, {"path": "Folder/Item", "type": "doc"})
-
-        surfaces = set(FileSystem.objects.filter(team=self.team).values_list("surface", flat=True))
-        # Both the leaf and the auto-created parent folder are stamped "desktop".
-        self.assertEqual(surfaces, {"desktop"})
-
-    def test_legacy_null_rows_appear_on_web_route_only(self):
-        FileSystem.objects.create(team=self.team, path="Legacy", type="doc", surface=None, created_by=self.user)
-
-        web_paths = {r["path"] for r in self.client.get(self.web_url).json()["results"]}
-        desktop_paths = {r["path"] for r in self.client.get(self.desktop_url).json()["results"]}
-
-        self.assertIn("Legacy", web_paths)
-        self.assertNotIn("Legacy", desktop_paths)

@@ -227,7 +227,6 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             ...insightFilter,
             showLegend: undefined,
             showPercentStackView: undefined,
-            stackBreakdownValues: undefined,
             showValuesOnSeries: undefined,
             aggregationAxisFormat: undefined,
             aggregationAxisPrefix: undefined,

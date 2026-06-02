@@ -1,6 +1,6 @@
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Accepted, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
-    Retry, SubscribeRequest,
+    resolve_outcome, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome, Retry,
+    SubscribeRequest,
 };
 use prost::Message;
 
@@ -50,10 +50,6 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
         },
         ResolveOutcome {
             id: 4,
-            result: Some(resolve_outcome::Result::Accepted(Accepted {})),
-        },
-        ResolveOutcome {
-            id: 5,
             result: Some(resolve_outcome::Result::Error(Error {
                 kind: ErrorKind::Overloaded as i32,
                 message: "server overloaded".to_string(),
@@ -84,10 +80,6 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
     ));
     assert!(matches!(
         decoded[3].result,
-        Some(resolve_outcome::Result::Accepted(_))
-    ));
-    assert!(matches!(
-        decoded[4].result,
         Some(resolve_outcome::Result::Error(Error {
             kind,
             ..
@@ -95,7 +87,7 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
     ));
     assert_eq!(
         decoded.iter().map(|outcome| outcome.id).collect::<Vec<_>>(),
-        vec![1, 2, 3, 4, 5]
+        vec![1, 2, 3, 4]
     );
 }
 

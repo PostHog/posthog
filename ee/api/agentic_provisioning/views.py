@@ -292,11 +292,10 @@ def account_requests(request: Request) -> Response:
     # --- Identify partner ---
     auth = ProvisioningAuthentication()
     partner = None
-    authenticated_user = None
     try:
         result = auth.authenticate(request)
         if result:
-            authenticated_user, partner = result
+            _, partner = result
     except AuthenticationFailed:
         return Response(
             {"type": "error", "error": {"code": "unauthorized", "message": "Authentication failed"}},
@@ -435,59 +434,11 @@ def account_requests(request: Request) -> Response:
             partner,
             code_challenge,
             code_challenge_method,
-            authenticated_user,
         )
 
     return _handle_new_user(
-        request_id,
-        data,
-        email,
-        scopes,
-        partner_account_id,
-        region,
-        partner,
-        code_challenge,
-        code_challenge_method,
-        authenticated_user,
+        request_id, data, email, scopes, partner_account_id, region, partner, code_challenge, code_challenge_method
     )
-
-
-def _user_has_existing_credentials_from_partner(user: User, partner: OAuthApplication) -> bool:
-    """True if the user has any live OAuth credential issued to this partner.
-
-    "Live" = unexpired access token or non-revoked refresh token. PersonalAPIKey has no
-    partner attribution today, so it's excluded from this check; in practice PATs are
-    minted alongside OAuth tokens at provisioning time, so the OAuth-only check matches.
-    """
-    now = timezone.now()
-    if OAuthAccessToken.objects.filter(user=user, application=partner, expires__gt=now).exists():
-        return True
-    if OAuthRefreshToken.objects.filter(user=user, application=partner, revoked__isnull=True).exists():
-        return True
-    return False
-
-
-def _caller_proved_existing_trust(partner: OAuthApplication, user: User, authenticated_user: User | None) -> bool:
-    """True only when the caller proved a prior trust relationship with this user.
-
-    This is what lets a skip-consent partner re-mint silently after the user has reviewed
-    their credentials. The proof differs by auth method:
-
-    - HMAC callers authenticate with a partner-level secret, so the partner already holding
-      a live OAuth credential for the user is sufficient proof of an existing relationship.
-    - Bearer callers present a single user-scoped access token. That token proves a
-      relationship only with its own user, so it qualifies only when it belongs to the user
-      being re-linked — otherwise any user of the partner could ride another user's live
-      credential to mint a code for that account.
-    - PKCE callers are public: the partner is identified solely by a client_id that anyone
-      can send, so the request carries no proof the caller controls the partner. The "user
-      already holds a live credential" signal proves nothing, so these never qualify.
-    """
-    if partner.provisioning_auth_method == "hmac":
-        return _user_has_existing_credentials_from_partner(user, partner)
-    if partner.provisioning_auth_method == "bearer":
-        return authenticated_user is not None and authenticated_user.id == user.id
-    return False
 
 
 def _handle_existing_user(
@@ -501,28 +452,8 @@ def _handle_existing_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
-    authenticated_user: User | None = None,
 ) -> Response:
-    # Pre-hijacking defense: once a user has reviewed their credentials, a partner with
-    # skip_existing_user_consent=True can only mint silently when the caller proved a prior
-    # trust relationship with this user (see _caller_proved_existing_trust). Otherwise we
-    # fall through to consent.
-    silent_blocked_post_review = (
-        partner is not None
-        and partner.provisioning_skip_existing_user_consent
-        and user.credentials_reviewed_at is not None
-        and not _caller_proved_existing_trust(partner, user, authenticated_user)
-    )
-
-    if silent_blocked_post_review:
-        assert partner is not None  # implied by silent_blocked_post_review
-        _capture_provisioning_event(
-            "account_request",
-            "silent_blocked_post_review",
-            partner_id=str(partner.id),
-        )
-
-    if partner and (not partner.provisioning_skip_existing_user_consent or silent_blocked_post_review):
+    if partner and not partner.provisioning_skip_existing_user_consent:
         if not code_challenge:
             return Response(
                 {
@@ -677,7 +608,6 @@ def _handle_new_user(
     partner: OAuthApplication | None = None,
     code_challenge: str = "",
     code_challenge_method: str = "S256",
-    authenticated_user: User | None = None,
 ) -> Response:
     name = data.get("name", "")
     first_name = name.split(" ")[0] if name else ""
@@ -711,7 +641,6 @@ def _handle_new_user(
                 partner,
                 code_challenge,
                 code_challenge_method,
-                authenticated_user,
             )
         _capture_provisioning_event("account_request", "creation_failed", region=region)
         return Response(

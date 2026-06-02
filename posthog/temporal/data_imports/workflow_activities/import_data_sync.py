@@ -26,7 +26,7 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.common.base import ResumableSource, SimpleSource
-from posthog.temporal.data_imports.sources.common.job_context import bind_job_context
+from posthog.temporal.data_imports.sources.common.http import bind_job_context
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 

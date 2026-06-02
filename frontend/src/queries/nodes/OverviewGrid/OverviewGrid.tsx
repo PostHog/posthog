@@ -1,6 +1,5 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import type React from 'react'
 
 import { IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -34,12 +33,6 @@ export interface OverviewItem {
     isIncreaseBad?: boolean
     warning?: string
     warningLink?: string
-    /** Optional human-readable description rendered under the value. Only shown when no trend is present. */
-    caption?: string
-    /** Click handler. When set, the cell renders as a button and shows a pointer cursor. */
-    onClick?: () => void
-    /** Render with the highlighted/active appearance — e.g. when this tile drives an active filter. */
-    selected?: boolean
 }
 
 export interface SamplingRate {
@@ -190,35 +183,12 @@ const OverviewItemCell = ({
                 ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
                 : 'No data'
 
-    const clickable = !!item.onClick
-    const handleClick = clickable
-        ? (event: React.MouseEvent) => {
-              event.stopPropagation()
-              item.onClick?.()
-          }
-        : undefined
-    const handleKeyDown = clickable
-        ? (event: React.KeyboardEvent) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  item.onClick?.()
-              }
-          }
-        : undefined
-
     return (
         <div
             className={clsx(
-                'flex-1 border bg-surface-primary rounded relative transition-colors',
-                compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30',
-                item.selected && 'border-accent ring-1 ring-accent',
-                clickable && 'cursor-pointer hover:border-accent'
+                'flex-1 border bg-surface-primary rounded relative',
+                compact ? 'min-w-[6rem] h-24' : 'min-w-[10rem] h-30'
             )}
-            onClick={handleClick}
-            onKeyDown={handleKeyDown}
-            role={clickable ? 'button' : undefined}
-            tabIndex={clickable ? 0 : undefined}
-            aria-pressed={clickable ? !!item.selected : undefined}
         >
             {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
                 does not also surface the cell's metric tooltip. */}
@@ -272,13 +242,6 @@ const OverviewItemCell = ({
                         </div>
                     ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
                         <div className="text-muted">-</div>
-                    ) : item.caption ? (
-                        <div
-                            className={clsx('text-secondary truncate max-w-full', compact ? 'text-[10px]' : 'text-xs')}
-                            title={item.caption}
-                        >
-                            {item.caption}
-                        </div>
                     ) : (
                         <div />
                     )}

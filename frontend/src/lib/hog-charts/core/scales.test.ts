@@ -6,7 +6,6 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
-    createBarScales,
     createScales,
     createXScale,
     createYScale,
@@ -700,54 +699,6 @@ describe('hog-charts scales', () => {
             const resolve = buildSegmentResolveValue(computePercentStackData([a, b], ['x', 'y']))!
             expect(resolve(a, 1)).toBeCloseTo(20 / 35, 5)
             expect(resolve(b, 1)).toBeCloseTo(15 / 35, 5)
-        })
-    })
-
-    describe('createBarScales — horizontal fitToHeight', () => {
-        // plotHeight 100 / minBandSize 24 => 4 rows fit.
-        const shortDims = { ...dimensions, plotTop: 0, plotHeight: 100 }
-        const labels = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']
-        const series = [makeSeries({ key: 's', data: labels.map((_, i) => 10 - i) })]
-
-        it('caps the band domain to the rows that fit at minBandSize, keeping the leading rows', () => {
-            const { band } = createBarScales(series, labels, shortDims, {
-                axisOrientation: 'horizontal',
-                fitToHeight: true,
-                minBandSize: 24,
-            })
-            expect(band.domain()).toEqual(['a', 'b', 'c', 'd'])
-            expect(band.bandwidth()).toBeGreaterThanOrEqual(20)
-        })
-
-        it('keeps every row when they all fit', () => {
-            const { band } = createBarScales(
-                series.map((s) => ({ ...s, data: [1, 2, 3] })),
-                ['a', 'b', 'c'],
-                shortDims,
-                {
-                    axisOrientation: 'horizontal',
-                    fitToHeight: true,
-                    minBandSize: 24,
-                }
-            )
-            expect(band.domain()).toEqual(['a', 'b', 'c'])
-        })
-
-        it('does not cap when fitToHeight is off (grow-to-fit-all behavior)', () => {
-            const { band } = createBarScales(series, labels, shortDims, {
-                axisOrientation: 'horizontal',
-                minBandSize: 24,
-            })
-            expect(band.domain()).toEqual(labels)
-        })
-
-        it('ignores fitToHeight for vertical charts', () => {
-            const { band } = createBarScales(series, labels, shortDims, {
-                axisOrientation: 'vertical',
-                fitToHeight: true,
-                minBandSize: 24,
-            })
-            expect(band.domain()).toEqual(labels)
         })
     })
 })

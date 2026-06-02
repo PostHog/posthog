@@ -41,7 +41,7 @@
     /* Variants */
     .quill-badge--variant-default {
         color: var(--foreground);
-        background-color: var(--fill-hover);
+        background-color: var(--muted);
     }
 
     .quill-badge--variant-info {

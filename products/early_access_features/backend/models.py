@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.db.models import QuerySet
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
@@ -56,9 +55,9 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     __repr__ = sane_repr("id", "name", "team_id", "stage")
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["EarlyAccessFeature"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["EarlyAccessFeature"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="early_access_feature", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

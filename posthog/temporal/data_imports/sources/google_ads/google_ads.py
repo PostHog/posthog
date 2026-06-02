@@ -1,5 +1,6 @@
 import typing
 import datetime as dt
+import dataclasses
 import collections.abc
 
 from django.conf import settings
@@ -19,22 +20,61 @@ from posthog.models.integration import Integration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.grpc import tracked_interceptors
+from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.configs import (
-    GoogleAdsResumeConfig,
-    GoogleAdsSourceConfigUnion,
-    clean_customer_id,
-)
 from posthog.temporal.data_imports.sources.google_ads.schemas import FIELD_ALIASES, RESOURCE_SCHEMAS
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-# Host used to label the tracked gRPC transport's logs/metrics. Matches
-# `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
-GOOGLE_ADS_HOST = "googleads.googleapis.com"
+
+@dataclasses.dataclass
+class GoogleAdsResumeConfig:
+    """Resumable state for the Google Ads source.
+
+    `page_token` is the opaque continuation token returned by
+    `GoogleAdsService.search` for the next page to fetch.
+    """
+
+    page_token: str
+
+
+def clean_customer_id(s: str | None) -> str | None:
+    """Clean customer IDs from Google Ads.
+
+    Customer IDs can contain dashes, but we need the ID without them.
+    """
+    if not s:
+        return s
+
+    return s.strip().replace("-", "")
+
+
+@config.config
+class GoogleAdsServiceAccountSourceConfig(config.Config):
+    """Google Ads source config using service account for authentication.
+
+    Old config for when we were using a service account instead of oauth.
+    ~100 sources still use this method for auth. We recommend using
+    `GoogleAdsSourceConfig` instead"""
+
+    customer_id: str = config.value(converter=clean_customer_id)
+
+    private_key: str = config.value(
+        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
+    )
+    private_key_id: str = config.value(
+        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
+    )
+    client_email: str = config.value(
+        default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
+    )
+    token_uri: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI"))
+    developer_token: str = config.value(default_factory=config.default_from_settings("GOOGLE_ADS_DEVELOPER_TOKEN"))
+
+
+GoogleAdsSourceConfigUnion = GoogleAdsServiceAccountSourceConfig | GoogleAdsSourceConfig
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -267,7 +307,7 @@ def get_schemas(config: GoogleAdsSourceConfigUnion, team_id: int) -> TableSchema
     Only selectable fields are, well, selected.
     """
     client = google_ads_client(config, team_id)
-    gaf_service = client.get_service("GoogleAdsFieldService", interceptors=tracked_interceptors(GOOGLE_ADS_HOST))
+    gaf_service = client.get_service("GoogleAdsFieldService")
     fields_query = gaf_service.search_google_ads_fields(
         query=f"select name, data_type, is_repeated, type_url where selectable = true"
     )
@@ -386,9 +426,7 @@ def google_ads_source(
             query += f" {'AND' if 'WHERE' in query else 'WHERE'} {table.extra_where}"
 
         client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version="v23", interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
-        )
+        service: GoogleAdsServiceClient = client.get_service("GoogleAdsService", version="v23")
         customer_id = clean_customer_id(config.customer_id)
 
         yield from _search_as_arrow_tables(

@@ -18,7 +18,6 @@ class AvailableFeature(StrEnum):
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = "access_control"
-    PROPERTY_ACCESS_CONTROL = "property_access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"

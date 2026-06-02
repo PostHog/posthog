@@ -34,6 +34,7 @@ class WorkOSSource(ResumableSource[WorkOSSourceConfig, WorkOSResumeConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.WORK_OS,
             label="WorkOS",
+            unreleasedSource=True,
             releaseStatus="alpha",
             caption="""Enter your WorkOS API key to sync your WorkOS data into the PostHog Data warehouse.
 

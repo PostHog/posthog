@@ -37,8 +37,8 @@ use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_server::{
     CymbalResolution, CymbalResolutionServer,
 };
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Accepted, Done, Error as ItemError, ErrorKind, LoadEvent, ResolveItem,
-    ResolveOutcome, Retry, SubscribeRequest,
+    resolve_outcome, Done, Error as ItemError, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
+    Retry, SubscribeRequest,
 };
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
@@ -73,9 +73,6 @@ pub enum ServerBehavior {
     /// Echo each item back as Done with the input exception unchanged but
     /// sleep `delay` before emitting each outcome.
     HappyDelayed { delay: Duration },
-    /// Emit Accepted immediately, then emit Done after `delay` without blocking
-    /// reads for subsequent items.
-    AcceptedThenDoneDelayed { delay: Duration },
     /// Fail the Resolve stream during setup with Status::Unavailable.
     AlwaysUnavailable,
     /// Fail the Resolve stream during setup with Status::InvalidArgument.
@@ -173,21 +170,11 @@ impl CymbalResolution for StubServer {
 
                         match behavior {
                             ServerBehavior::Happy => {
-                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
                             }
                             ServerBehavior::HappyDelayed { delay } => {
-                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 tokio::time::sleep(delay).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
-                            }
-                            ServerBehavior::AcceptedThenDoneDelayed { delay } => {
-                                send_outcome(&tx, accepted_outcome(&item)).await;
-                                let item_tx = tx.clone();
-                                tokio::spawn(async move {
-                                    tokio::time::sleep(delay).await;
-                                    send_outcome(&item_tx, done_outcome(&item)).await;
-                                });
                             }
                             ServerBehavior::Retry => {
                                 send_outcome(&tx, retry_outcome(&item)).await;
@@ -198,22 +185,18 @@ impl CymbalResolution for StubServer {
                             }
                             ServerBehavior::InterruptAfterFirst => {
                                 if seen == 1 {
-                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, done_outcome(&item)).await;
                                     let _ignored = tx
                                         .send(Err(Status::internal("simulated interruption")))
                                         .await;
                                     return;
                                 }
-                                send_outcome(&tx, accepted_outcome(&item)).await;
                                 send_outcome(&tx, done_outcome(&item)).await;
                             }
                             ServerBehavior::ErrorAfterFirst { kind } => {
                                 if seen == 1 {
-                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, done_outcome(&item)).await;
                                 } else {
-                                    send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, error_outcome(&item, kind)).await;
                                 }
                             }
@@ -233,13 +216,6 @@ impl CymbalResolution for StubServer {
 
 async fn send_outcome(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, outcome: ResolveOutcome) {
     let _ignored = tx.send(Ok(outcome)).await;
-}
-
-fn accepted_outcome(item: &ResolveItem) -> ResolveOutcome {
-    ResolveOutcome {
-        id: item.id,
-        result: Some(resolve_outcome::Result::Accepted(Accepted {})),
-    }
 }
 
 fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
@@ -345,11 +321,6 @@ pub fn make_config_with_sample_rate(
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
         sample_rate,
-        routing_jitter: 0.0,
-        routing_acceptance_concurrency: 10,
-        overload_ejection_initial: Duration::ZERO,
-        overload_ejection_max: Duration::ZERO,
-        overload_ejection_decay: Duration::from_secs(30),
         // Subscription cadence is irrelevant for tests that don't wire the
         // subscription client — kept short so tests that do consume it run
         // quickly when they opt in via a dedicated pool builder.
@@ -368,7 +339,7 @@ pub async fn make_ctx(
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
     }
-    RemoteResolutionContext::new(pool, config)
+    RemoteResolutionContext { pool, config }
 }
 
 pub async fn make_ctx_with_sample_rate(
@@ -382,7 +353,7 @@ pub async fn make_ctx_with_sample_rate(
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
     }
-    RemoteResolutionContext::new(pool, config)
+    RemoteResolutionContext { pool, config }
 }
 
 /// Wait until the pool has at least one routable endpoint (a fresh

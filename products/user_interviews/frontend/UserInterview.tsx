@@ -84,10 +84,6 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
     const pendingCount = totalTargeted - respondedCount
     const questionCount = topic.questions?.length || 0
     const allIdentifiers = [...(topic.interviewee_emails || []), ...(topic.interviewee_distinct_ids || [])]
-    // Responded interviewees first (grouped together), awaiting ones below — stable within each group.
-    const orderedIdentifiers = [...allIdentifiers].sort(
-        (a, b) => Number(respondedIdentifiers.has(b)) - Number(respondedIdentifiers.has(a))
-    )
 
     return (
         <SceneContent>
@@ -167,7 +163,7 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                     links.
                                 </div>
                             ) : (
-                                orderedIdentifiers.map((identifier) => (
+                                allIdentifiers.map((identifier) => (
                                     <PersonRow
                                         key={identifier}
                                         identifier={identifier}

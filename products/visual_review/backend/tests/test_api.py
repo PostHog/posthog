@@ -295,7 +295,7 @@ class TestApproveRunAPI:
         logic.finish_processing(create_result.run_id)
 
         # Per-snapshot approval is DB only — no run-level finalization
-        result = api.approve_snapshots(
+        result = api.approve_run(
             ApproveRunInput(
                 run_id=create_result.run_id,
                 user_id=user.id,

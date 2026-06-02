@@ -449,7 +449,7 @@ def test_scrub_body_handles_none():
 def test_scrub_string_fails_closed_when_scrubadub_fails():
     """A scrubadub crash must NOT leak the raw value — replace with a placeholder."""
     with patch(
-        "posthog.temporal.data_imports.sources.common.sample_scrub.get_scrubber",
+        "posthog.temporal.data_imports.sources.common.http.sampling._get_scrubber",
         side_effect=RuntimeError("scrubadub broken"),
     ):
         result = sampling._scrub_string("super-secret-token-123")

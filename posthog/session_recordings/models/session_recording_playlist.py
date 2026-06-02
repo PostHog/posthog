@@ -5,7 +5,6 @@ from django.db.models import QuerySet
 from django.db.models.indexes import Index
 from django.utils import timezone
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.utils import generate_short_id
@@ -59,13 +58,9 @@ class SessionRecordingPlaylist(FileSystemSyncMixin, models.Model):
         ]
 
     @classmethod
-    def get_file_system_unfiled(
-        cls, team: "Team", surface: str = DEFAULT_SURFACE
-    ) -> QuerySet["SessionRecordingPlaylist"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["SessionRecordingPlaylist"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(
-            base_qs, team, type="session_recording_playlist", ref_field="short_id", surface=surface
-        )
+        return cls._filter_unfiled_queryset(base_qs, team, type="session_recording_playlist", ref_field="short_id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         href = (

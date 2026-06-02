@@ -222,7 +222,7 @@ function ManagedSourceTabs({
     useAttachedLogic(settingsLogic, attachTo)
 
     const showSyncsTab = shouldShowManagedSourceSyncsTab(source)
-    const showWebhookTab = !!source?.supports_webhooks
+    const showWebhookTab = !!featureFlags[FEATURE_FLAGS.WAREHOUSE_SOURCE_WEBHOOKS] && !!source?.supports_webhooks
     const showMetricsTab = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
 
     useEffect(() => {

@@ -1,15 +1,10 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconBolt } from '@posthog/icons'
 import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { type ChartTheme, Metric } from 'lib/hog-charts'
-import { humanFriendlyDuration, humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import claudeLogo from './harness-logos/claude.svg'
 import cursorLogo from './harness-logos/cursor.svg'
@@ -42,21 +37,28 @@ export function HarnessPill({ category, title }: { category: string; title?: str
     )
 }
 
+type TileColor = 'blue' | 'red' | 'green'
+
 interface TileSpec {
     label: string
     metric: KPIMetric
     href: string
     format: (n: number) => string
-    /** Sparkline color, picked from the shared data-viz palette (theme.colors). */
-    color: string
+    color: TileColor
     loading: boolean
+}
+
+const COLOR_STROKE: Record<TileColor, string> = {
+    blue: '#185FA5',
+    red: '#A32D2D',
+    green: '#0F6E56',
 }
 
 function formatNumber(n: number): string {
     if (!isFinite(n)) {
         return '—'
     }
-    return humanFriendlyLargeNumber(n)
+    return humanFriendlyNumber(Math.round(n))
 }
 
 function formatPercent(n: number): string {
@@ -76,37 +78,65 @@ function formatMs(n: number): string {
     return humanFriendlyDuration(n / 1000, { secondsPrecision: 1 })
 }
 
-function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
-    const { metric } = tile
-    const hasSparkline = metric.sparkline.length > 0
-    const hasComparison = metric.deltaPct !== null
+function Sparkline({ values, stroke }: { values: number[]; stroke: string }): JSX.Element {
+    const width = 60
+    const height = 18
+    if (values.length === 0) {
+        return <svg width={width} height={height} aria-hidden />
+    }
+    const max = Math.max(...values, 1)
+    const min = Math.min(...values, 0)
+    const range = max - min || 1
+    const stepX = values.length > 1 ? width / (values.length - 1) : width
+    const points = values
+        .map((v, i) => {
+            const x = i * stepX
+            const y = height - ((v - min) / range) * height
+            return `${x.toFixed(1)},${y.toFixed(1)}`
+        })
+        .join(' ')
+    return (
+        <svg width={width} height={height} aria-hidden>
+            <polyline fill="none" stroke={stroke} strokeWidth="1.2" points={points} />
+        </svg>
+    )
+}
 
+function DeltaPill({ metric }: { metric: KPIMetric }): JSX.Element {
+    if (metric.deltaPct === null) {
+        return <span className="text-[11px] font-medium text-secondary">—</span>
+    }
+    const rounded = Math.round(metric.deltaPct)
+    if (rounded === 0) {
+        return <span className="text-[11px] font-medium text-secondary">0%</span>
+    }
+    const isUp = rounded > 0
+    const isGood = isUp ? metric.goodDirection === 'up' : metric.goodDirection === 'down'
+    const colorClass = isGood ? 'text-success' : 'text-danger'
+    const arrow = isUp ? '↑' : '↓'
+    return (
+        <span className={`text-[11px] font-medium ${colorClass}`}>
+            {arrow} {Math.abs(rounded)}%
+        </span>
+    )
+}
+
+function KPITile({ tile }: { tile: TileSpec }): JSX.Element {
     return (
         <Link
             to={tile.href}
-            subtle
-            className="flex flex-col rounded-lg border border-primary bg-surface-primary px-3.5 py-3 shadow-sm transition-all hover:border-secondary hover:shadow-md"
+            className="flex flex-col gap-1 rounded-md bg-surface-secondary px-3.5 py-3 transition-colors hover:bg-surface-tertiary"
         >
+            <div className="text-[11px] text-secondary">{tile.label}</div>
             {tile.loading ? (
-                <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-3 w-16" />
-                    <LemonSkeleton className="h-7 w-20" />
-                </div>
+                <LemonSkeleton className="h-5 w-16" />
             ) : (
-                <Metric
-                    className="text-primary"
-                    title={tile.label}
-                    value={metric.value}
-                    data={hasSparkline ? metric.sparkline : undefined}
-                    theme={theme}
-                    color={tile.color}
-                    goodDirection={metric.goodDirection}
-                    formatValue={tile.format}
-                    subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
-                    sparklineHeight={50}
-                    sparklineClassName="mt-3 -mx-3.5 -mb-3"
-                />
+                <div className="text-xl font-medium leading-tight">{tile.format(tile.metric.value)}</div>
             )}
+            <div className="mt-1 flex items-center justify-between">
+                <Sparkline values={tile.metric.sparkline} stroke={COLOR_STROKE[tile.color]} />
+                <DeltaPill metric={tile.metric} />
+            </div>
         </Link>
     )
 }
@@ -124,9 +154,6 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRawRowsLoading,
     } = useValues(mcpDashboardOverviewLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     const tiles: TileSpec[] = [
         {
@@ -134,7 +161,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.sessions,
             href: urls.mcpAnalyticsSessions(),
             format: formatNumber,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: 'blue',
             loading: kpisLoading,
         },
         {
@@ -142,7 +169,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.toolCalls,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatNumber,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: 'blue',
             loading: kpisLoading,
         },
         {
@@ -150,7 +177,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.errorRatePct,
             href: urls.mcpAnalyticsSessions(),
             format: formatPercent,
-            color: theme.colors[4], // --data-color-5 (red)
+            color: 'red',
             loading: kpisLoading,
         },
         {
@@ -158,7 +185,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.p95LatencyMs,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatMs,
-            color: theme.colors[0], // --data-color-1 (blue)
+            color: 'blue',
             loading: kpisLoading,
         },
         {
@@ -166,7 +193,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: intentClusterCount,
             href: urls.mcpAnalyticsIntentClustering(),
             format: formatNumber,
-            color: theme.colors[6], // --data-color-7 (green)
+            color: 'green',
             loading: false,
         },
     ]
@@ -177,7 +204,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             <Block kicker="Health" question="Is the MCP healthy right now?">
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     {tiles.map((tile) => (
-                        <KPITile key={tile.label} tile={tile} theme={theme} />
+                        <KPITile key={tile.label} tile={tile} />
                     ))}
                 </div>
             </Block>

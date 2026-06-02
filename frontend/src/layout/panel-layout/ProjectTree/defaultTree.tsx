@@ -7,6 +7,7 @@ import {
     IconBug,
     IconCircleDashed,
     IconClock,
+    IconCloud,
     IconCode,
     IconEndpoints,
     IconEye,
@@ -349,6 +350,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
+    },
+    deployments: {
+        icon: <IconCloud />,
+        iconColor: ['var(--color-product-deployments-light)', 'var(--color-product-deployments-dark)'],
     },
 }
 

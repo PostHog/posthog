@@ -484,10 +484,9 @@ def _launch_local_browser(p: Playwright) -> Browser:
     launch_args = [
         "--force-device-scale-factor=1",
         "--disable-dev-shm-usage",
+        "--no-sandbox",
         "--disable-gpu",
     ]
-    if settings.HEATMAP_CHROMIUM_NO_SANDBOX:
-        launch_args.append("--no-sandbox")
     proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
     proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
     return p.chromium.launch(

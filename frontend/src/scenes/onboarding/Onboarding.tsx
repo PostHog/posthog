@@ -16,9 +16,6 @@ export const scene: SceneExport = {
  * Reads the `ONBOARDING_FLOW_VARIANT` multivariate flag and renders the matching onboarding
  * variant from {@link onboardingVariantRegistry}. `control` (the default, and the fallback for
  * any unknown value) renders the current product-selection + step-host flow.
- *
- * `WizardProgressFab` is mounted globally in `AuthenticatedShell` so it persists after the
- * user leaves onboarding — the wizard CLI may still be running on their machine.
  */
 export function Onboarding(): JSX.Element | null {
     const { onboardingFlowVariant } = useValues(onboardingLogic)

@@ -715,14 +715,6 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
-}
-
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string

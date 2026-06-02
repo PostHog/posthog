@@ -40,12 +40,6 @@ declare module '*.sql?raw' {
     export default content
 }
 
-// This fixes TS errors when importing a .yaml file with ?raw suffix
-declare module '*.yaml?raw' {
-    const content: string
-    export default content
-}
-
 // This fixes TS2882 errors when side-effect importing .scss files
 declare module '*.scss'
 

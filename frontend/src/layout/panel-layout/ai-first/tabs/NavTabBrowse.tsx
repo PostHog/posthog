@@ -30,9 +30,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
-import { PromotedProductNavItem } from '~/layout/panel-layout/ai-first/PromotedProductNavItem'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -167,7 +165,6 @@ export function NavTabBrowse(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
-    const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -213,14 +210,7 @@ export function NavTabBrowse(): JSX.Element {
                         isCollapsed={isLayoutNavCollapsed}
                         data-attr="nav-item-home"
                         onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
-                        sideAction={{
-                            onClick: () => showConfigureHomeModal(),
-                            tooltip: 'Configure home',
-                            'data-attr': 'nav-configure-home',
-                        }}
                     />
-
-                    <PromotedProductNavItem isCollapsed={isLayoutNavCollapsed} />
 
                     {isProductAutonomyEnabled && (
                         <NavLink

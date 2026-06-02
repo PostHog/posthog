@@ -16,7 +16,6 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
     BrowserlessPermanentError,
     _browserless_screenshot,
     _build_browserless_screenshot_url,
-    _launch_local_browser,
     _redact_browserless_url,
     _resolve_widths,
     _sanitize_browserless_error,
@@ -575,23 +574,3 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "token=REDACTED" in sanitized
         # The real failure reason is preserved so the error is debuggable
         assert "401" in sanitized
-
-
-# Pure-function test for the local Chromium launcher — no DB, so it runs on SimpleTestCase.
-class TestLaunchLocalBrowser(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("sandbox_on_by_default", None, True),
-            ("no_sandbox_enabled", True, True),
-            ("no_sandbox_disabled", False, False),
-        ]
-    )
-    def test_no_sandbox_flag_respects_setting(
-        self, _name: str, setting_value: bool | None, should_include: bool
-    ) -> None:
-        overrides = {} if setting_value is None else {"HEATMAP_CHROMIUM_NO_SANDBOX": setting_value}
-        with override_settings(**overrides):
-            p = MagicMock()
-            _launch_local_browser(p)
-            launch_args = p.chromium.launch.call_args.kwargs["args"]
-            assert ("--no-sandbox" in launch_args) is should_include

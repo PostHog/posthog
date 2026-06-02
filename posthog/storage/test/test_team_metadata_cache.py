@@ -591,5 +591,4 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
 # unaffected by llm-gateway changes.
 class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
     def test_llm_gateway_fields_excluded_from_shared_metadata(self):
-        self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
         self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

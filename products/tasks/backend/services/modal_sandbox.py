@@ -62,7 +62,6 @@ from products.tasks.backend.temporal.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
-    SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
@@ -414,7 +413,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxNotRunningError(
+            raise SandboxExecutionError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -466,7 +465,7 @@ class ModalSandbox(SandboxBase):
         timeout_seconds: int | None = None,
     ) -> ExecutionStream:
         if not self.is_running():
-            raise SandboxNotRunningError(
+            raise SandboxExecutionError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -531,7 +530,7 @@ class ModalSandbox(SandboxBase):
 
     def write_file(self, path: str, payload: bytes) -> ExecutionResult:
         if not self.is_running():
-            raise SandboxNotRunningError(
+            raise SandboxExecutionError(
                 "Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
@@ -790,7 +789,7 @@ class ModalSandbox(SandboxBase):
 
     def create_snapshot(self) -> str:
         if not self.is_running():
-            raise SandboxNotRunningError(
+            raise SandboxExecutionError(
                 f"Sandbox not in running state.",
                 {"sandbox_id": self.id},
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),

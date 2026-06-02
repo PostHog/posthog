@@ -20,12 +20,12 @@ export type ConditionAnalysis = FeatureFlagConditionAnalysisApi
 export type TestResult = FeatureFlagTestEvaluationResponseApi
 
 export interface TestFormData {
-    distinct_id: string
+    person_id: string
     timestamp: string
     groups: string
 }
 
-const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
+const EMPTY_FORM: TestFormData = { person_id: '', timestamp: '', groups: '' }
 
 function validateAndParseGroups(groups: string): Record<string, any> {
     const trimmed = groups.trim()
@@ -60,7 +60,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         setTestError: (error: string | null) => ({ error }),
         setDatePickerOpen: (open: boolean) => ({ open }),
         setDatePickerValue: (value: Dayjs | null) => ({ value }),
-        setSelectedPerson: (person: Partial<PersonType> | null) => ({ person }),
+        setSelectedPerson: (person: PersonType | null) => ({ person }),
         setIncludeTime: (includeTime: boolean) => ({ includeTime }),
         clearTestForm: true,
     }),
@@ -71,8 +71,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
                     const data: FeatureFlagTestEvaluationRequestApi = {}
 
-                    if (formData.distinct_id?.trim()) {
-                        data.distinct_id = formData.distinct_id.trim()
+                    if (formData.person_id?.trim()) {
+                        data.person_id = formData.person_id.trim()
                     }
 
                     data.groups = validateAndParseGroups(formData.groups || '')
@@ -157,7 +157,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
             },
         ],
         selectedPerson: [
-            null as Partial<PersonType> | null,
+            null as PersonType | null,
             {
                 setSelectedPerson: (_, { person }) => person,
                 clearTestForm: () => null,
@@ -232,7 +232,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         // Check if form has valid person selected
         hasValidPerson: [
             (s) => [s.testFormData],
-            (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim()),
+            (formData: TestFormData): boolean => Boolean(formData.person_id?.trim()),
         ],
         // Get formatted error display information
         errorDisplay: [

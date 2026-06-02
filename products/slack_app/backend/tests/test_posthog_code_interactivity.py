@@ -78,7 +78,6 @@ class TestRepoPickerOptions(TestCase):
             "thread_ts": "1234.5678",
             "user_message_ts": "1234.5678",
             "mentioning_slack_user_id": "U123",
-            "mentioning_user_id": self.user.id,
             "event_text": "fix the bug",
             "created_at": int(time.time()),
         }

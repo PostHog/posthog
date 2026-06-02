@@ -92,7 +92,7 @@ async def minio_client(bucket_name):
 
 
 @pytest_asyncio.fixture
-async def s3_compatible_batch_export(
+async def s3_batch_export(
     ateam,
     s3_key_prefix,
     bucket_name,
@@ -100,10 +100,11 @@ async def s3_compatible_batch_export(
     interval,
     exclude_events,
     temporal_client,
+    encryption,
     file_format,
 ):
     destination_data = {
-        "type": "S3Compatible",
+        "type": "S3",
         "config": {
             "bucket_name": bucket_name,
             "region": "us-east-1",
@@ -113,6 +114,8 @@ async def s3_compatible_batch_export(
             "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             "compression": compression,
             "exclude_events": exclude_events,
+            "encryption": encryption,
+            "kms_key_id": None,
             "file_format": file_format,
         },
     }

@@ -15,6 +15,9 @@ tools:
     batch-exports-runs-logs-retrieve:
         operation: batch_exports_runs_logs_retrieve
         enabled: false
+    deployment-projects-deployments-logs-retrieve:
+        operation: deployment_projects_deployments_logs_retrieve
+        enabled: false
     domains-scim-logs-retrieve:
         operation: domains_scim_logs_retrieve
         enabled: false

@@ -5,8 +5,6 @@ import type { Schemas } from '@/api/generated'
 import {
     SignalsReportsListQueryParams,
     SignalsReportsRetrieveParams,
-    SignalsReportsStateCreateBody,
-    SignalsReportsStateCreateParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
@@ -88,37 +86,6 @@ const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, Wit
         const result = await context.api.request<Schemas.SignalReport>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/`,
-        })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
-    },
-})
-
-const InboxReportsSetStateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(
-    SignalsReportsStateCreateBody.shape
-)
-
-const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
-    name: 'inbox-reports-set-state',
-    schema: InboxReportsSetStateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportsSetStateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.state !== undefined) {
-            body['state'] = params.state
-        }
-        if (params.dismissal_reason !== undefined) {
-            body['dismissal_reason'] = params.dismissal_reason
-        }
-        if (params.dismissal_note !== undefined) {
-            body['dismissal_note'] = params.dismissal_note
-        }
-        if (params.snooze_for !== undefined) {
-            body['snooze_for'] = params.snooze_for
-        }
-        const result = await context.api.request<Schemas.SignalReport>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/state/`,
-            body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
     },
@@ -364,7 +331,6 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
-    'inbox-reports-set-state': inboxReportsSetState,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'signals-scout-emit-signal': signalsScoutEmitSignal,

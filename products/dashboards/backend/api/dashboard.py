@@ -1636,7 +1636,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             fs_data = insight.get_file_system_representation()
             try:
                 if fs_data.should_delete:
-                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref)
                 else:
                     create_or_update_file(
                         team=insight.team,
@@ -1648,7 +1648,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         meta=fs_data.meta,
                         created_at=fs_data.meta.get("created_at") or insight.created_at,
                         created_by_id=fs_data.meta.get("created_by") or insight.created_by_id,
-                        surface=fs_data.surface,
                     )
             except Exception as exc:
                 # Mirror the signal-handler stance: never raise from sync, but surface it.

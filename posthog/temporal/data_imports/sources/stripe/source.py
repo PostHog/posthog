@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 
 if TYPE_CHECKING:
     from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
@@ -43,7 +46,6 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 from posthog.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     ENDPOINTS as STRIPE_ENDPOINTS,
-    WEBHOOK_ONLY_ENDPOINTS as STRIPE_WEBHOOK_ONLY_ENDPOINTS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -273,14 +275,8 @@ If automatic creation failed due to a permissions error and you're using a restr
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
-                # Webhook-only endpoints (e.g. Discount) have no list API and therefore no
-                # incremental fields, but they must still expose webhook support so the
-                # warehouse pipeline can route events into the correct table.
-                supports_webhooks=(
-                    STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                    or endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS
-                ),
-                webhook_only=endpoint in STRIPE_WEBHOOK_ONLY_ENDPOINTS,
+                supports_webhooks=is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
                 supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),

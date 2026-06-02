@@ -3,7 +3,6 @@ from django.db import models
 from django.db.models import JSONField, QuerySet
 from django.utils import timezone
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
@@ -48,9 +47,9 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         db_table = "posthog_notebook"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Notebook"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Notebook"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="notebook", ref_field="short_id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

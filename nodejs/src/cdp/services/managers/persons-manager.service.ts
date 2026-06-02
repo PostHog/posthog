@@ -1,7 +1,7 @@
 import { LazyLoader } from '../../../utils/lazy-loader'
 import { logger } from '../../../utils/logger'
 import { TeamManager } from '../../../utils/team-manager'
-import { PersonReadRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
+import { PersonRepository } from '../../../worker/ingestion/persons/repositories/person-repository'
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
 
@@ -35,7 +35,7 @@ export class PersonsManagerService {
 
     constructor(
         private teamManager: TeamManager,
-        private personRepository: PersonReadRepository,
+        private personRepository: PersonRepository,
         private siteUrl: string
     ) {
         this.lazyLoaderByPersonId = new LazyLoader({
@@ -89,6 +89,7 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByDistinctIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, distinctId: id })),
+            undefined,
             'cdp/hogflow-person-enrichment'
         )
 
@@ -116,6 +117,7 @@ export class PersonsManagerService {
 
         const personRows = await this.personRepository.fetchPersonsByPersonIds(
             teamPersons.map(({ teamId, id }) => ({ teamId, personId: id })),
+            undefined,
             'cdp/hogflow-person-enrichment'
         )
 
@@ -131,12 +133,9 @@ export class PersonsManagerService {
 
         const distinctIdLookups = await Promise.all(
             [...intIdsByTeam].map(async ([teamId, intIds]) => {
-                const map = await this.personRepository.fetchDistinctIdsForPersons(
-                    teamId,
-                    intIds,
-                    { limitPerPerson: 1 },
-                    'cdp/hogflow-person-enrichment'
-                )
+                const map = await this.personRepository.fetchDistinctIdsForPersons(teamId, intIds, {
+                    limitPerPerson: 1,
+                })
                 return { teamId, map }
             })
         )

@@ -57,12 +57,6 @@ class SandboxExecutionError(ProcessTaskTransientError):
     pass
 
 
-class SandboxNotRunningError(SandboxExecutionError):
-    """Sandbox is not in a running state."""
-
-    pass
-
-
 class SandboxTimeoutError(ProcessTaskTransientError):
     """Sandbox operation timed out."""
 

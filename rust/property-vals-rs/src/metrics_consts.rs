@@ -1,6 +1,5 @@
 pub const EVENTS_RECEIVED: &str = "property_vals_rs_events_received_total";
 pub const EVENTS_FILTERED: &str = "property_vals_rs_events_filtered_total";
-pub const VALUES_DROPPED: &str = "property_vals_rs_values_dropped_total";
 pub const TUPLES_AGGREGATED: &str = "property_vals_rs_tuples_aggregated_total";
 pub const FLUSH_TUPLES: &str = "property_vals_rs_flush_tuples";
 pub const FLUSH_TUPLE_COUNT: &str = "property_vals_rs_flush_tuple_count";

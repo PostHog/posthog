@@ -29,17 +29,14 @@ export function getHogChartTooltip(): HTMLElement | null {
     return document.querySelector(HOG_CHARTS_TOOLTIP_SELECTOR)
 }
 
-/** Wait until a chart tooltip is present in the document and return it. `beforePoll`, if given,
- *  runs at the start of each poll attempt — used to re-dispatch a triggering event (e.g. a hover)
- *  that the chart may have dropped before it became interactive. */
-export async function waitForHogChartTooltip(timeout = 3000, beforePoll?: () => void): Promise<HTMLElement> {
+/** Wait until a chart tooltip is present in the document and return it. */
+export async function waitForHogChartTooltip(timeout = 3000): Promise<HTMLElement> {
     // Flush pending microtasks so React portal commits complete before polling.
     await new Promise((r) => setTimeout(r, 0))
 
     let tooltip!: HTMLElement
     await waitFor(
         () => {
-            beforePoll?.()
             const el = getHogChartTooltip()
             if (!el) {
                 throw new Error('tooltip not yet rendered')

@@ -73,7 +73,6 @@ import { FeedbackTag } from './components/FeedbackTag'
 import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
-import { TagsTabContent } from './components/TagsTabContent'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -1475,16 +1474,6 @@ const EventContent = React.memo(
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
-        const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
-
-        // If the user is viewing the Tags tab but it's no longer available (flag off or
-        // they moved off a generation event), fall back to the default view so the panel
-        // doesn't render blank.
-        useEffect(() => {
-            if (viewMode === TraceViewMode.Tags && !showTagsTab) {
-                setViewMode(TraceViewMode.Conversation)
-            }
-        }, [viewMode, showTagsTab, setViewMode])
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1790,16 +1779,6 @@ const EventContent = React.memo(
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
-                                          },
-                                      ]
-                                    : []),
-                                ...(showTagsTab
-                                    ? [
-                                          {
-                                              key: TraceViewMode.Tags,
-                                              label: 'Tags',
-                                              'data-attr': 'llma-trace-tags-tab',
-                                              content: <TagsTabContent generationEventId={event.id} />,
                                           },
                                       ]
                                     : []),

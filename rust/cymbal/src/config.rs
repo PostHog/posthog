@@ -236,30 +236,6 @@ pub struct Config {
     )]
     pub remote_resolution_retry_max_backoff_ms: u64,
 
-    /// Initial duration to temporarily remove an endpoint from routing after it
-    /// returns a per-item overload outcome. `0` keeps the legacy per-item-only
-    /// reroute behavior.
-    #[envconfig(
-        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS",
-        default = "100"
-    )]
-    pub remote_resolution_overload_ejection_ms: u64,
-
-    /// Maximum endpoint ejection duration after repeated overloads.
-    #[envconfig(
-        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS",
-        default = "5000"
-    )]
-    pub remote_resolution_overload_ejection_max_ms: u64,
-
-    /// Quiet window after which an endpoint's overload ejection duration resets
-    /// to the initial value.
-    #[envconfig(
-        from = "CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS",
-        default = "30000"
-    )]
-    pub remote_resolution_overload_ejection_decay_ms: u64,
-
     /// Deterministic event-level rollout sample for remote resolution.
     /// Defaults to `0.0` so flipping `CYMBAL_REMOTE_RESOLUTION_ENABLED=true`
     /// alone does not start sending traffic — the rollout has to be ramped
@@ -268,20 +244,6 @@ pub struct Config {
     /// by adjacent duration knobs.
     #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE", default = "0.0")]
     pub remote_resolution_sample_rate: f64,
-
-    /// Flattens remote resolution routing across the rendezvous-ranked candidate
-    /// list. `0.0` sends all traffic to the top-ranked endpoint, `1.0` is
-    /// uniform across all candidates, and intermediate values decay by rank.
-    #[envconfig(from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER", default = "0.0")]
-    pub remote_resolution_routing_jitter: f64,
-
-    /// Maximum number of remote resolution items that can concurrently wait
-    /// for a pod to accept routing ownership.
-    #[envconfig(
-        from = "CYMBAL_REMOTE_RESOLUTION_ROUTING_ACCEPTANCE_CONCURRENCY",
-        default = "10"
-    )]
-    pub remote_resolution_routing_acceptance_concurrency: usize,
 
     /// Tick cadence hint sent on `SubscribeRequest.tick_hint_ms` to the
     /// cymbal-resolution freshness/draining stream. The server clamps to its own bounds

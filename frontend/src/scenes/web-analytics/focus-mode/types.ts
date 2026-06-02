@@ -59,5 +59,3 @@ export const CONCERN_ICONS: Record<WebAnalyticsConcern, IconComponent<IconProps>
     [WebAnalyticsConcern.ENGAGEMENT]: IconPlay,
     [WebAnalyticsConcern.ERRORS]: IconWarning,
 }
-
-export const getFocusModeOnboardingSeenKey = (teamId: number): string => `web-analytics-focus-mode-${teamId}`

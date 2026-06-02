@@ -14,7 +14,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
-        "@storybook/react": "catalog:",
+        "@storybook/react": "*",
         "@types/react": "*",
         "react": "*"
     }

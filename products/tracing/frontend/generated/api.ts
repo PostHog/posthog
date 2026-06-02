@@ -12,7 +12,6 @@ import type {
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
-    _HasSpansResponseApi,
     _TracingAggregationRequestApi,
     _TracingQueryRequestApi,
     _TracingTraceRequestApi,
@@ -61,20 +60,6 @@ export const tracingSpansAttributesRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansAttributesRetrieveUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTracingSpansHasSpansRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/has_spans/`
-}
-
-export const tracingSpansHasSpansRetrieve = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<_HasSpansResponseApi> => {
-    return apiMutator<_HasSpansResponseApi>(getTracingSpansHasSpansRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

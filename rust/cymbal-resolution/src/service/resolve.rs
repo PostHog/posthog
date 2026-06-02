@@ -11,7 +11,7 @@ use cymbal::stages::resolution::frame::FrameResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
+    resolve_outcome, Done, Error as ItemError, ResolveItem, ResolveOutcome,
 };
 
 use super::codes;
@@ -19,8 +19,6 @@ use crate::load_monitor::LoadMonitor;
 
 const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
 const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
-const SERVER_ITEM_DURATION_MS: &str = "cymbal_remote_resolution_server_item_duration_ms";
-const SERVER_ITEMS_TOTAL: &str = "cymbal_remote_resolution_server_items_total";
 
 pub(super) async fn run_resolve(
     mut input: Streaming<ResolveItem>,
@@ -49,10 +47,7 @@ pub(super) async fn run_resolve(
             }
         };
 
-        let item_started_at = Instant::now();
-
         if item.deadline_ms == 0 {
-            record_item_metrics(item_started_at, "error", "timeout");
             if !send_overloaded(&tx, item.id, "item deadline expired", 0).await {
                 record_resolve_duration(started_at, "cancelled");
                 return;
@@ -61,7 +56,6 @@ pub(super) async fn run_resolve(
         }
 
         if !load_monitor.try_admit() {
-            record_item_metrics(item_started_at, "error", "overloaded");
             if !send_overloaded(&tx, item.id, "server overloaded", 0).await {
                 record_resolve_duration(started_at, "cancelled");
                 return;
@@ -71,11 +65,6 @@ pub(super) async fn run_resolve(
 
         let item_tx = tx.clone();
         let item_stage = stage.clone();
-        if !send_accepted(&tx, item.id).await {
-            load_monitor.decrement_in_flight();
-            record_resolve_duration(started_at, "cancelled");
-            return;
-        }
         let in_flight_guard = InFlightGuard::new(load_monitor.clone());
         tokio::spawn(async move {
             let processed = process_item(item_stage, item, in_flight_guard).await;
@@ -89,15 +78,6 @@ pub(super) async fn run_resolve(
     }
 
     record_resolve_duration(started_at, "completed");
-}
-
-async fn send_accepted(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, id: u64) -> bool {
-    tx.send(Ok(ResolveOutcome {
-        id,
-        result: Some(resolve_outcome::Result::Accepted(Accepted {})),
-    }))
-    .await
-    .is_ok()
 }
 
 async fn send_overloaded(
@@ -140,62 +120,39 @@ async fn process_item(
     item: ResolveItem,
     in_flight_guard: InFlightGuard,
 ) -> ProcessedItem {
-    let started_at = Instant::now();
     let id = item.id;
     let deadline = Duration::from_millis(item.deadline_ms as u64);
     let _in_flight_guard = in_flight_guard;
 
-    let (result, outcome, kind) =
-        match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
-            Ok(Ok(resolved)) => (
-                resolve_outcome::Result::Done(Done {
-                    resolved_exception_json: resolved,
-                }),
-                "done",
-                "ok",
-            ),
-            Ok(Err(ItemFailure::InvalidPayload(msg))) => {
-                debug!(
-                    id,
-                    error = %msg,
-                    "rejecting item with invalid payload",
-                );
-                (
-                    error_result(codes::ErrorKind::InvalidPayload, msg),
-                    "error",
-                    "invalid_payload",
-                )
-            }
-            Ok(Err(ItemFailure::Overloaded(msg))) => {
-                warn!(id, "limiter closed mid-request, asking caller to retry");
-                (
-                    error_result(codes::ErrorKind::Overloaded, msg),
-                    "error",
-                    "overloaded",
-                )
-            }
-            Ok(Err(ItemFailure::Unhandled(err))) => {
-                warn!(
-                    id,
-                    error = %err,
-                    "unhandled error during resolution",
-                );
-                (
-                    error_result(codes::ErrorKind::Unhandled, err),
-                    "error",
-                    "unhandled",
-                )
-            }
-            Err(_) => (
-                error_result(
-                    codes::ErrorKind::Overloaded,
-                    "item deadline expired".to_string(),
-                ),
-                "error",
-                "timeout",
-            ),
-        };
-    record_item_metrics(started_at, outcome, kind);
+    let result = match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
+        Ok(Ok(resolved)) => resolve_outcome::Result::Done(Done {
+            resolved_exception_json: resolved,
+        }),
+        Ok(Err(ItemFailure::InvalidPayload(msg))) => {
+            debug!(
+                id,
+                error = %msg,
+                "rejecting item with invalid payload",
+            );
+            error_result(codes::ErrorKind::InvalidPayload, msg)
+        }
+        Ok(Err(ItemFailure::Overloaded(msg))) => {
+            warn!(id, "limiter closed mid-request, asking caller to retry");
+            error_result(codes::ErrorKind::Overloaded, msg)
+        }
+        Ok(Err(ItemFailure::Unhandled(err))) => {
+            warn!(
+                id,
+                error = %err,
+                "unhandled error during resolution",
+            );
+            error_result(codes::ErrorKind::Unhandled, err)
+        }
+        Err(_) => error_result(
+            codes::ErrorKind::Overloaded,
+            "item deadline expired".to_string(),
+        ),
+    };
 
     ProcessedItem { id, result }
 }
@@ -221,12 +178,6 @@ fn error_kind_label(kind: codes::ErrorKind) -> &'static str {
 
 fn record_resolve_duration(started_at: Instant, outcome: &'static str) {
     metrics::histogram!(RESOLVE_REQUEST_DURATION_MS, "outcome" => outcome)
-        .record(started_at.elapsed().as_secs_f64() * 1000.0);
-}
-
-fn record_item_metrics(started_at: Instant, outcome: &'static str, kind: &'static str) {
-    metrics::counter!(SERVER_ITEMS_TOTAL, "outcome" => outcome, "kind" => kind).increment(1);
-    metrics::histogram!(SERVER_ITEM_DURATION_MS, "outcome" => outcome, "kind" => kind)
         .record(started_at.elapsed().as_secs_f64() * 1000.0);
 }
 

@@ -134,8 +134,6 @@ pub const REMOTE_RESOLUTION_REQUESTS: &str = "cymbal_remote_resolution_requests_
 pub const REMOTE_RESOLUTION_LATENCY: &str = "cymbal_remote_resolution_latency_ms";
 pub const REMOTE_RESOLUTION_SAMPLING: &str = "cymbal_remote_resolution_sampling_total";
 pub const REMOTE_RESOLUTION_POOL_SIZE: &str = "cymbal_remote_resolution_pool_size";
-pub const REMOTE_RESOLUTION_ENDPOINTS_BY_STATE: &str =
-    "cymbal_remote_resolution_endpoints_by_state";
 pub const REMOTE_RESOLUTION_ENDPOINT_IN_FLIGHT: &str =
     "cymbal_remote_resolution_endpoint_in_flight";
 pub const REMOTE_RESOLUTION_ENDPOINT_MUX_IN_FLIGHT: &str =

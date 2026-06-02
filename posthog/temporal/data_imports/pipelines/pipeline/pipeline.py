@@ -217,31 +217,30 @@ class PipelineNonDLT(Generic[ResumableData]):
                 py_table = None
 
                 self._batcher.batch(item)
+                if not self._batcher.should_yield():
+                    continue
 
-                # A single batched table may be split into several when a string/binary/list
-                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
-                while self._batcher.should_yield():
-                    py_table = self._batcher.get_table()
+                py_table = self._batcher.get_table()
 
-                    row_count += py_table.num_rows
+                row_count += py_table.num_rows
 
-                    await self._process_pa_table(
-                        pa_table=py_table,
-                        index=chunk_index,
-                        resuming_sync=should_resume,
-                        row_count=row_count,
-                        is_first_ever_sync=is_first_ever_sync,
-                    )
+                await self._process_pa_table(
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
+                )
 
-                    chunk_index += 1
+                chunk_index += 1
 
-                    cleanup_memory(pa_memory_pool, py_table)
-                    py_table = None
+                cleanup_memory(pa_memory_pool, py_table)
+                py_table = None
 
                 if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
-            while self._batcher.should_yield(include_incomplete_chunk=True):
+            if self._batcher.should_yield(include_incomplete_chunk=True):
                 py_table = self._batcher.get_table()
                 row_count += py_table.num_rows
                 await self._process_pa_table(
@@ -251,7 +250,6 @@ class PipelineNonDLT(Generic[ResumableData]):
                     row_count=row_count,
                     is_first_ever_sync=is_first_ever_sync,
                 )
-                chunk_index += 1
 
             await self._post_run_operations(row_count=row_count)
 

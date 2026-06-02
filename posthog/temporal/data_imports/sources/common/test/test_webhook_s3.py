@@ -110,6 +110,12 @@ class TestWebhookSourceManager:
         assert result.num_rows == 1
         assert result.column("event").to_pylist() == ["click"]
 
+    async def test_webhook_enabled_returns_false_when_flag_disabled(self):
+        manager = _make_manager()
+
+        with patch.object(manager, "_is_webhook_feature_flag_enabled", return_value=False):
+            assert await manager.webhook_enabled() is False
+
     @parameterized.expand(
         [
             ("no_hog_function", False, True, True, False, False),
@@ -143,9 +149,12 @@ class TestWebhookSourceManager:
                 return AsyncMock(return_value=mock_schema)
             return AsyncMock(return_value=has_webhook_function)
 
-        with patch(
-            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
-            side_effect=mock_db_sync_to_async,
+        with (
+            patch.object(manager, "_is_webhook_feature_flag_enabled", return_value=True),
+            patch(
+                "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+                side_effect=mock_db_sync_to_async,
+            ),
         ):
             assert await manager.webhook_enabled() is expected
 
@@ -335,6 +344,70 @@ class TestWebhookSourceManager:
             tables = [table async for table in manager.get_items()]
 
         assert tables == []
+
+    async def test_feature_flag_returns_false_when_team_not_found(self):
+        from posthog.models import Team
+
+        manager = _make_manager(team_id=999)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+            return_value=AsyncMock(side_effect=Team.DoesNotExist),
+        ):
+            result = await manager._is_webhook_feature_flag_enabled()
+
+        assert result is False
+
+    async def test_feature_flag_returns_false_on_analytics_exception(self):
+        manager = _make_manager()
+        mock_team = MagicMock()
+        mock_team.uuid = uuid.uuid4()
+        mock_team.organization_id = uuid.uuid4()
+        mock_team.id = 1
+
+        call_count = 0
+
+        async def mock_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_team
+            raise Exception("PostHog analytics error")
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+                return_value=mock_side_effect,
+            ),
+            patch("posthog.temporal.data_imports.sources.common.webhook_s3.capture_exception"),
+        ):
+            result = await manager._is_webhook_feature_flag_enabled()
+
+        assert result is False
+
+    async def test_feature_flag_returns_true_when_enabled(self):
+        manager = _make_manager()
+        mock_team = MagicMock()
+        mock_team.uuid = uuid.uuid4()
+        mock_team.organization_id = uuid.uuid4()
+        mock_team.id = 1
+
+        call_count = 0
+
+        async def mock_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_team
+            return True
+
+        with patch(
+            "posthog.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
+            return_value=mock_side_effect,
+        ):
+            result = await manager._is_webhook_feature_flag_enabled()
+
+        assert result is True
 
 
 # -- Integration tests using MinIO --

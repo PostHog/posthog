@@ -3,7 +3,6 @@ from django.db.models import QuerySet
 
 import structlog
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.team import Team
@@ -60,9 +59,9 @@ class Link(FileSystemSyncMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
         return cls.objects.filter(team_id=team_id).order_by("-created_at")[offset : offset + limit]
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Link"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Link"]:
         base_qs = cls.objects.filter(team=team)
-        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="link", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

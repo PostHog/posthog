@@ -452,14 +452,7 @@ export const InfiniteListRow = ({
     }
 
     const itemGroup = getItemGroup(item, taxonomicGroups, group)
-    // Recent items are stripped to { name, id? } — getValue on the source group
-    // (e.g. Persons expects distinct_ids) returns undefined. Use the canonical
-    // sourceValue recorded at first selection instead.
-    const itemValue = item
-        ? hasRecentContext(item)
-            ? (item._recentContext.sourceValue ?? itemGroup?.getValue?.(item))
-            : itemGroup?.getValue?.(item)
-        : null
+    const itemValue = item ? itemGroup?.getValue?.(item) : null
 
     const normalizedValue = typeof itemValue === 'number' && typeof value === 'string' ? Number(value) : value
 

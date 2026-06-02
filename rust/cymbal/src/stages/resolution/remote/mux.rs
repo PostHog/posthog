@@ -9,15 +9,16 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-#[cfg(test)]
 use std::time::Duration;
 
 use cymbal_proto::cymbal::resolution::v1::cymbal_resolution_client::CymbalResolutionClient;
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, Error, ErrorKind, ResolveItem, ResolveOutcome,
 };
+use futures::future::join_all;
 use futures::StreamExt;
-use tokio::sync::mpsc;
+use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::Channel;
@@ -46,13 +47,7 @@ struct ResolveMuxInner {
 
 struct Waiter {
     caller_id: u64,
-    tx: mpsc::Sender<Result<ResolveOutcome, RemoteCallError>>,
-}
-
-pub(super) struct ResolveItemSession {
-    pub(super) outcomes: mpsc::Receiver<Result<ResolveOutcome, RemoteCallError>>,
-    inner: Option<Arc<ResolveMuxInner>>,
-    stream_id: u64,
+    tx: oneshot::Sender<Result<ResolveOutcome, MuxItemError>>,
 }
 
 #[derive(Debug, Clone)]
@@ -94,27 +89,31 @@ impl StreamFailure {
     }
 }
 
-impl ResolveItemSession {
-    pub(super) fn cancel(&self) {
-        if let Some(inner) = &self.inner {
-            inner.remove_waiter(self.stream_id);
-        }
-    }
+#[derive(Debug, Error)]
+enum MuxItemError {
+    #[error("remote resolution stream queue is full")]
+    QueueFull { caller_id: u64 },
+    #[error("remote resolution stream is closed")]
+    Closed { caller_id: u64 },
+    #[error("remote resolution stream failed: {failure:?}")]
+    StreamFailed {
+        caller_id: u64,
+        failure: StreamFailure,
+    },
+    #[error("remote resolution waiter was dropped")]
+    WaiterDropped { caller_id: u64 },
+    #[error("remote resolution item deadline exceeded after {deadline:?}")]
+    Deadline { deadline: Duration },
+}
 
-    #[cfg(test)]
-    async fn wait_terminal(
-        mut self,
-        deadline: Duration,
-    ) -> Result<ResolveOutcome, RemoteCallError> {
-        match tokio::time::timeout(deadline, self.outcomes.recv()).await {
-            Ok(Some(result)) => result,
-            Ok(None) => Err(RemoteCallError::Retryable(Status::unavailable(
-                "remote resolution session was dropped",
-            ))),
-            Err(_) => {
-                self.cancel();
-                Err(RemoteCallError::Deadline(deadline))
-            }
+impl MuxItemError {
+    fn caller_id(&self) -> Option<u64> {
+        match self {
+            MuxItemError::QueueFull { caller_id }
+            | MuxItemError::Closed { caller_id }
+            | MuxItemError::StreamFailed { caller_id, .. }
+            | MuxItemError::WaiterDropped { caller_id } => Some(*caller_id),
+            MuxItemError::Deadline { .. } => None,
         }
     }
 }
@@ -143,48 +142,40 @@ impl ResolveMux {
         Self { inner }
     }
 
-    pub(super) fn submit_session(&self, mut item: ResolveItem) -> ResolveItemSession {
-        let caller_id = item.id;
-        if self.is_closed() {
-            self.inner.record_admission_rejection("closed");
-            return immediate_session(overloaded_outcome(
-                caller_id,
-                "remote resolution stream is closed".to_string(),
-            ));
-        }
-
-        let stream_id = self.inner.next_stream_id();
-        item.id = stream_id;
-        let (tx, rx) = mpsc::channel(2);
-        {
-            let mut waiters = self.inner.waiters.lock().expect("waiter map poisoned");
-            waiters.insert(stream_id, Waiter { caller_id, tx });
-            self.inner.record_waiter_count(waiters.len());
-        }
-
-        if let Err(err) = self.inner.outbound.try_send(item) {
-            self.inner.remove_waiter(stream_id);
-            let (reason, message) = match err {
-                mpsc::error::TrySendError::Full(_) => {
-                    self.inner.record_admission_rejection("queue_full");
-                    ("queue_full", "remote resolution stream queue is full")
+    /// Submit a group of logical items through this endpoint stream.
+    ///
+    /// Local admission failures and stream breaks become synthetic overloaded
+    /// item outcomes so the existing retry layer reroutes them through the same
+    /// overload path as server-side `ERROR_KIND_OVERLOADED` responses. A local
+    /// deadline still returns a retryable call error because the caller should
+    /// retry the whole logical chunk with its remaining retry budget.
+    pub async fn resolve_many(
+        &self,
+        items: Vec<ResolveItem>,
+        deadline: Duration,
+    ) -> Result<Vec<ResolveOutcome>, RemoteCallError> {
+        let results = join_all(items.into_iter().map(|item| self.submit(item, deadline))).await;
+        let mut outcomes = Vec::with_capacity(results.len());
+        for result in results {
+            match result {
+                Ok(outcome) => outcomes.push(outcome),
+                Err(MuxItemError::Deadline { deadline }) => {
+                    return Err(RemoteCallError::Deadline(deadline));
                 }
-                mpsc::error::TrySendError::Closed(_) => {
-                    self.inner.record_admission_rejection("closed");
-                    ("closed", "remote resolution stream is closed")
+                Err(MuxItemError::StreamFailed { failure, .. }) if !failure.retryable => {
+                    return Err(failure.to_remote_error());
                 }
-            };
-            return immediate_session(overloaded_outcome(
-                caller_id,
-                format!("{message} ({reason})"),
-            ));
+                Err(err) => {
+                    let Some(caller_id) = err.caller_id() else {
+                        return Err(RemoteCallError::Retryable(Status::unavailable(
+                            err.to_string(),
+                        )));
+                    };
+                    outcomes.push(overloaded_outcome(caller_id, err.to_string()));
+                }
+            }
         }
-
-        ResolveItemSession {
-            outcomes: rx,
-            inner: Some(self.inner.clone()),
-            stream_id,
-        }
+        Ok(outcomes)
     }
 
     pub fn close(&self) {
@@ -211,6 +202,50 @@ impl ResolveMux {
         self.inner.closed.load(Ordering::Acquire)
     }
 
+    async fn submit(
+        &self,
+        mut item: ResolveItem,
+        deadline: Duration,
+    ) -> Result<ResolveOutcome, MuxItemError> {
+        let caller_id = item.id;
+        if self.is_closed() {
+            self.inner.record_admission_rejection("closed");
+            return Err(MuxItemError::Closed { caller_id });
+        }
+
+        let stream_id = self.inner.next_stream_id();
+        item.id = stream_id;
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut waiters = self.inner.waiters.lock().expect("waiter map poisoned");
+            waiters.insert(stream_id, Waiter { caller_id, tx });
+            self.inner.record_waiter_count(waiters.len());
+        }
+
+        if let Err(err) = self.inner.outbound.try_send(item) {
+            self.inner.remove_waiter(stream_id);
+            return match err {
+                mpsc::error::TrySendError::Full(_) => {
+                    self.inner.record_admission_rejection("queue_full");
+                    Err(MuxItemError::QueueFull { caller_id })
+                }
+                mpsc::error::TrySendError::Closed(_) => {
+                    self.inner.record_admission_rejection("closed");
+                    Err(MuxItemError::Closed { caller_id })
+                }
+            };
+        }
+
+        match tokio::time::timeout(deadline, rx).await {
+            Ok(Ok(result)) => result,
+            Ok(Err(_)) => Err(MuxItemError::WaiterDropped { caller_id }),
+            Err(_) => {
+                self.inner.remove_waiter(stream_id);
+                Err(MuxItemError::Deadline { deadline })
+            }
+        }
+    }
+
     #[cfg(test)]
     fn waiter_count(&self) -> usize {
         self.inner
@@ -235,20 +270,10 @@ impl ResolveMuxInner {
     }
 
     fn complete(&self, mut outcome: ResolveOutcome) {
-        let is_terminal = !matches!(outcome.result, Some(resolve_outcome::Result::Accepted(_)));
         let waiter = {
             let mut waiters = self.waiters.lock().expect("waiter map poisoned");
-            let waiter = if is_terminal {
-                waiters.remove(&outcome.id)
-            } else {
-                waiters.get(&outcome.id).map(|waiter| Waiter {
-                    caller_id: waiter.caller_id,
-                    tx: waiter.tx.clone(),
-                })
-            };
-            if is_terminal {
-                self.record_waiter_count(waiters.len());
-            }
+            let waiter = waiters.remove(&outcome.id);
+            self.record_waiter_count(waiters.len());
             waiter
         };
         let Some(waiter) = waiter else {
@@ -260,7 +285,7 @@ impl ResolveMuxInner {
             return;
         };
         outcome.id = waiter.caller_id;
-        drop(waiter.tx.try_send(Ok(outcome)));
+        drop(waiter.tx.send(Ok(outcome)));
     }
 
     fn fail_all(&self, failure: StreamFailure) {
@@ -271,15 +296,10 @@ impl ResolveMuxInner {
             drained
         };
         for waiter in waiters {
-            let result = if failure.retryable {
-                Ok(overloaded_outcome(
-                    waiter.caller_id,
-                    failure.message.clone(),
-                ))
-            } else {
-                Err(failure.to_remote_error())
-            };
-            drop(waiter.tx.try_send(result));
+            drop(waiter.tx.send(Err(MuxItemError::StreamFailed {
+                caller_id: waiter.caller_id,
+                failure: failure.clone(),
+            })));
         }
     }
 
@@ -298,16 +318,6 @@ impl ResolveMuxInner {
             "reason" => reason,
         )
         .increment(1);
-    }
-}
-
-fn immediate_session(outcome: ResolveOutcome) -> ResolveItemSession {
-    let (tx, rx) = mpsc::channel(1);
-    drop(tx.try_send(Ok(outcome)));
-    ResolveItemSession {
-        outcomes: rx,
-        inner: None,
-        stream_id: 0,
     }
 }
 
@@ -480,14 +490,10 @@ mod tests {
         let (addr, channel) = spawn_test_channel(service).await;
         let mux = ResolveMux::new(addr, channel, "test-secret".to_string(), 8);
 
-        let outcomes = futures::future::join_all([item(101), item(102)].into_iter().map(|item| {
-            mux.submit_session(item)
-                .wait_terminal(Duration::from_secs(1))
-        }))
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-        .expect("resolve through mux");
+        let outcomes = mux
+            .resolve_many(vec![item(101), item(102)], Duration::from_secs(1))
+            .await
+            .expect("resolve through mux");
         assert_eq!(
             outcomes
                 .iter()
@@ -496,11 +502,10 @@ mod tests {
             vec![101, 102]
         );
 
-        let outcomes = [mux
-            .submit_session(item(103))
-            .wait_terminal(Duration::from_secs(1))
+        let outcomes = mux
+            .resolve_many(vec![item(103)], Duration::from_secs(1))
             .await
-            .expect("resolve through existing mux")];
+            .expect("resolve through existing mux");
         assert_eq!(outcomes[0].id, 103);
 
         assert_eq!(stream_count.load(Ordering::Acquire), 1);
@@ -518,11 +523,10 @@ mod tests {
         let mux = ResolveMux::new(addr, channel, "test-secret".to_string(), 1);
         mux.close();
 
-        let outcomes = [mux
-            .submit_session(item(7))
-            .wait_terminal(Duration::from_secs(1))
+        let outcomes = mux
+            .resolve_many(vec![item(7)], Duration::from_secs(1))
             .await
-            .expect("closed mux maps to overloaded item outcome")];
+            .expect("closed mux maps to overloaded item outcome");
         assert_eq!(outcomes[0].id, 7);
         assert!(matches!(
             outcomes[0].result,

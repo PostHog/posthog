@@ -232,10 +232,10 @@ describe('lib/utils', () => {
             expect(wordPluralize('knife')).toEqual('knives')
         })
 
-        it('returns falsy input unchanged instead of throwing', () => {
-            expect(wordPluralize(null as unknown as string)).toEqual(null)
-            expect(wordPluralize(undefined as unknown as string)).toEqual(undefined)
+        it('returns falsy input unchanged without throwing', () => {
             expect(wordPluralize('')).toEqual('')
+            expect(wordPluralize(null as unknown as string)).toEqual('')
+            expect(wordPluralize(undefined as unknown as string)).toEqual('')
         })
     })
 

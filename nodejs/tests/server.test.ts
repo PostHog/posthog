@@ -39,8 +39,6 @@ describe('server', () => {
         pluginsServer = new PluginServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.cdp_processed_events,
-            PERSONHOG_ENABLED: true,
-            PERSONHOG_ADDR: 'localhost:50052',
         })
         await pluginsServer.start()
     })

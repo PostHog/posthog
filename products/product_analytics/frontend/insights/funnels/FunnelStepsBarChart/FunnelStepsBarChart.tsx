@@ -17,24 +17,18 @@ import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
-const STEP_WIDTH_PX = 240
-const BAND_PADDING = 0.04
-const STEP_BAND_WIDTH_PX = STEP_WIDTH_PX * (1 - BAND_PADDING)
+// Per-step width — caps bars and legend column width together so few-step funnels don't
+// stretch across the whole chart with huge gaps. Gridlines still span the full width.
+const STEP_WIDTH_PX = 320
 
 const baseChartConfig: BarChartConfig = {
     barLayout: 'grouped',
     showGrid: true,
-    bars: {
-        cornerRadius: 10,
-        track: true,
-        shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
-        bandPadding: BAND_PADDING,
-    },
+    bars: { cornerRadius: 10, track: true, shadow: true },
     animateHover: true,
     hideXAxis: true,
     yTickFormatter: (value) => `${Math.round(value)}%`,
     tooltip: { placement: 'top' },
-    margins: { left: DEFAULT_MARGINS.left },
 }
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -75,7 +69,10 @@ export function FunnelStepsBarChart({
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
     const barsWidth = steps.length * STEP_WIDTH_PX
-    const chartWidth = DEFAULT_MARGINS.left + barsWidth + DEFAULT_MARGINS.right
+    const chartConfig = useMemo<BarChartConfig>(
+        () => ({ ...baseChartConfig, bars: { ...baseChartConfig.bars, maxBandRange: barsWidth } }),
+        [barsWidth]
+    )
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -110,39 +107,31 @@ export function FunnelStepsBarChart({
     return (
         <div className="flex w-full flex-1 flex-col overflow-x-auto" data-attr="funnel-steps-bar-chart">
             <div className="flex flex-1 flex-col">
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex min-h-[150px] flex-1" style={{ width: chartWidth }}>
+                <div className="flex min-h-[150px] flex-1">
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}
                         labels={labels}
                         theme={theme}
-                        config={baseChartConfig}
+                        config={chartConfig}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
                         onError={handleChartError}
                     />
                 </div>
+                {/* Legend padding matches the chart's left margin and bars-width so
+                    legend columns align with the bars above. */}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div
-                    className="flex shrink-0"
-                    style={{ paddingLeft: DEFAULT_MARGINS.left, paddingRight: DEFAULT_MARGINS.right }}
-                >
-                    <div className="flex shrink-0" style={{ width: barsWidth }}>
+                <div className="flex" style={{ paddingLeft: DEFAULT_MARGINS.left }}>
+                    <div className="flex" style={{ width: barsWidth }}>
                         {steps.map((step, stepIndex) => (
-                            <div
-                                key={stepIndex}
-                                className={`flex min-w-0 flex-1 ${stepIndex === 0 ? 'justify-start' : 'justify-center'}`}
-                            >
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <div className="min-w-0 overflow-hidden" style={{ width: STEP_BAND_WIDTH_PX }}>
-                                    <StepLegend
-                                        step={step}
-                                        stepIndex={stepIndex}
-                                        showTime={showTime}
-                                        showPersonsModal={showPersonsModal}
-                                        inCardView={inCardView}
-                                    />
-                                </div>
+                            <div key={stepIndex} className="min-w-0 flex-1 overflow-hidden">
+                                <StepLegend
+                                    step={step}
+                                    stepIndex={stepIndex}
+                                    showTime={showTime}
+                                    showPersonsModal={showPersonsModal}
+                                    inCardView={inCardView}
+                                />
                             </div>
                         ))}
                     </div>

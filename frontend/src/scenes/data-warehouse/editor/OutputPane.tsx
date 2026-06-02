@@ -28,13 +28,11 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { transformDataTableToDataTableRows } from 'lib/utils/dataTableTransformations'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
-import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -959,17 +957,7 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
             </div>
             <ul className="list-disc pl-5 space-y-1">
                 {warnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
+                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>{warning.message}</li>
                 ))}
             </ul>
         </LemonBanner>

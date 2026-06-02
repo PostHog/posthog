@@ -2,7 +2,6 @@ from posthog.test.base import APIBaseTest
 
 from rest_framework import status
 
-from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -15,12 +14,6 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         # Write operations require project admin privileges
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-
-        # Property access control management requires the PROPERTY_ACCESS_CONTROL entitlement.
-        self.organization.available_product_features = [
-            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
-        ]
-        self.organization.save()
 
         self.prop_def = PropertyDefinition.objects.create(
             team=self.team,
@@ -240,40 +233,3 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         # POST should be forbidden (write access requires admin)
         response = self._post({"access_level": PropertyAccessLevel.NONE.value})
         assert response.status_code == status.HTTP_403_FORBIDDEN
-
-    def test_create_forbidden_without_property_access_control_feature(self):
-        # Org lost (or never had) the PROPERTY_ACCESS_CONTROL entitlement — writes must be blocked
-        # so rules cannot be added or modified. Existing rules continue to affect query behavior.
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self._post({"access_level": PropertyAccessLevel.NONE.value})
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 0
-
-    def test_delete_forbidden_without_property_access_control_feature(self):
-        # Create a rule while the feature is available
-        self._post({"access_level": PropertyAccessLevel.NONE.value})
-        assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 1
-
-        # Remove the feature — the user should no longer be able to delete existing rules
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.delete(f"{self.url}?property_definition_id={self.prop_def.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert PropertyAccessControl.objects.filter(property_definition=self.prop_def).count() == 1
-
-    def test_list_allowed_without_property_access_control_feature(self):
-        # Create a rule while the feature is available
-        self._post({"access_level": PropertyAccessLevel.NONE.value})
-
-        # Remove the feature — reads must still work so users can inspect rules that are
-        # still being enforced at query time.
-        self.organization.available_product_features = []
-        self.organization.save()
-
-        response = self.client.get(self.list_url)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["default_access_level"] == PropertyAccessLevel.NONE.value
-        assert len(response.json()["access_controls"]) == 1

@@ -63,7 +63,6 @@ from products.data_modeling.backend.models.datawarehouse_managed_viewset import 
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
-    source_supports_column_selection,
 )
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
@@ -626,7 +625,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return False
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
-        return source_supports_column_selection(instance.source_type)
+        try:
+            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
+        except Exception as e:
+            capture_exception(e)
+            return False
+        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
+        return bool(source.supports_column_selection)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
@@ -1323,11 +1328,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
 
             is_cdc_schema = sync_type == "cdc"
-            # A CDC table the user isn't enabling hasn't been "set up" — leave its sync method
-            # blank so the schemas UI prompts the user to configure it before it can sync, rather
-            # than presetting `cdc` on every discovered table. Only tables the user actively
-            # enables get a concrete CDC method + config.
-            cdc_not_set_up = is_cdc_schema and not should_sync
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
                 # If the caller didn't provide primary_key_columns, fall back to whatever the
                 # source detected during schema discovery. Otherwise we rely on sync-time
@@ -1342,7 +1342,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     "schema_metadata": schema_metadata,
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
                 }
-            elif is_cdc_schema and not cdc_not_set_up:
+            elif is_cdc_schema:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
                 sync_type_config = {
                     "cdc_mode": "snapshot",
@@ -1357,7 +1357,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # and the value prop is near-real-time. Other sync types use the 6h default.
             schema_sync_frequency_interval = (
                 timedelta(minutes=5)
-                if is_cdc_schema and not cdc_not_set_up and new_source_model.supports_scheduled_sync
+                if is_cdc_schema and new_source_model.supports_scheduled_sync
                 else timedelta(hours=6)
             )
             schema_model = ExternalDataSchema.objects.create(
@@ -1365,7 +1365,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 team=self.team,
                 source=new_source_model,
                 should_sync=should_sync,
-                sync_type=(None if cdc_not_set_up else sync_type) if new_source_model.supports_scheduled_sync else None,
+                sync_type=sync_type if new_source_model.supports_scheduled_sync else None,
                 sync_time_of_day=sync_time_of_day if new_source_model.supports_scheduled_sync else None,
                 sync_type_config=sync_type_config,
                 description=source_schema.description if source_schema else None,
@@ -1831,7 +1831,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "sync_type": None,
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
-                "webhook_only": schema.webhook_only,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

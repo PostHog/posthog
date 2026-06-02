@@ -90,15 +90,6 @@ def _load_fingerprint(scanner_id: UUID) -> str | None:
     return compute_schedule_fingerprint(dict(row)) if row else None
 
 
-def load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
-    """Bulk variant for the reconciler: returns `{scanner_id: (team_id, fingerprint)}`."""
-    rows = ReplayScanner.objects.filter(enabled=True).values("id", "team_id", *_FINGERPRINT_FIELDS)
-    return {
-        row["id"]: (row["team_id"], compute_schedule_fingerprint({k: row[k] for k in _FINGERPRINT_FIELDS}))
-        for row in rows
-    }
-
-
 async def a_upsert_scanner_schedule(scanner_id: UUID, team_id: int) -> None:
     """Reflect current scanner state in Temporal: upsert when enabled, delete otherwise."""
     fingerprint = await database_sync_to_async(_load_fingerprint)(scanner_id)

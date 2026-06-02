@@ -19,7 +19,6 @@ from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOpe
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.cohort import Cohort, CohortOrEmpty
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.property import GroupTypeIndex
@@ -155,9 +154,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["FeatureFlag"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["FeatureFlag"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="feature_flag", ref_field="id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="feature_flag", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

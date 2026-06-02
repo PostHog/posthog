@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
+    environmentVisionQuotaRetrieve,
     visionScannersCreate,
     visionScannersDestroy,
     visionScannersList,
@@ -21,6 +22,7 @@ import {
     SCANNER_TYPE_OPTIONS,
     ScannerType,
     ReplayScanner,
+    VisionQuota,
     scannerFromApi,
     scannerToApiBody,
     scannersFromApi,
@@ -53,6 +55,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScanners: true,
         loadScannersSuccess: (scanners: ReplayScanner[]) => ({ scanners }),
         loadScannersFailure: (error: string) => ({ error }),
+        loadQuota: true,
+        loadQuotaSuccess: (quota: VisionQuota | null) => ({ quota }),
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         duplicateScanner: (id: string) => ({ id }),
@@ -82,6 +86,12 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
+            },
+        ],
+        quota: [
+            null as VisionQuota | null,
+            {
+                loadQuotaSuccess: (_, { quota }) => quota,
             },
         ],
         search: [
@@ -119,6 +129,19 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             } catch (error) {
                 lemonToast.error(`Failed to load scanners: ${String(error)}`)
                 actions.loadScannersFailure(String(error))
+            }
+        },
+
+        loadQuota: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await environmentVisionQuotaRetrieve(String(teamId))
+                actions.loadQuotaSuccess(response)
+            } catch {
+                actions.loadQuotaSuccess(null)
             }
         },
 
@@ -261,5 +284,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadScanners()
+        actions.loadQuota()
     }),
 ])

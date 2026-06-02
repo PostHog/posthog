@@ -31,12 +31,25 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, showFocusMode, useWebAnalyticsPrecompute } =
-        useValues(webAnalyticsLogic)
+    const {
+        hasSavedFocusMode,
+        hiddenTiles,
+        isFocusModeActive,
+        productTab,
+        shouldFilterTestAccounts,
+        showFocusMode,
+        useWebAnalyticsPrecompute,
+    } = useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
-        useActions(webAnalyticsLogic)
+    const {
+        enterFocusMode,
+        exitFocusMode,
+        openFocusModeModal,
+        setShouldFilterTestAccounts,
+        setUseWebAnalyticsPrecompute,
+        setTileVisibility,
+    } = useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
@@ -48,7 +61,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     <IconSearch /> Session Attribution Explorer
                 </Link>
                 {showFocusMode && (
-                    <ButtonPrimitive menuItem onClick={() => openFocusModeModal()}>
+                    <ButtonPrimitive menuItem onClick={openFocusModeModal}>
                         <IconGear />
                         Focus mode settings...
                     </ButtonPrimitive>
@@ -66,24 +79,31 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                         </ButtonPrimitive>
                     ) : null)}
             </ScenePanelActionsSection>
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
-                <>
-                    <ScenePanelDivider />
-                    <ScenePanelActionsSection>
-                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
-                            <ButtonPrimitive
-                                menuItem
-                                onClick={() => {
-                                    setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
-                                }}
-                            >
-                                <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
-                                Allow precompute
-                            </ButtonPrimitive>
-                        </Tooltip>
-                    </ScenePanelActionsSection>
-                </>
-            )}
+            <ScenePanelDivider />
+            <ScenePanelActionsSection>
+                <ButtonPrimitive
+                    menuItem
+                    onClick={() => {
+                        setShouldFilterTestAccounts(!shouldFilterTestAccounts)
+                    }}
+                >
+                    <LemonSwitch checked={shouldFilterTestAccounts} size="xsmall" />
+                    Filter out internal and test users
+                </ButtonPrimitive>
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+                    <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => {
+                                setUseWebAnalyticsPrecompute(!useWebAnalyticsPrecompute)
+                            }}
+                        >
+                            <LemonSwitch checked={useWebAnalyticsPrecompute} size="xsmall" />
+                            Allow precompute
+                        </ButtonPrimitive>
+                    </Tooltip>
+                )}
+            </ScenePanelActionsSection>
             {showTileToggles && availableTiles.length > 0 && (
                 <>
                     <ScenePanelDivider />

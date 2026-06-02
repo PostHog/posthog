@@ -123,7 +123,6 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
-    ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
@@ -541,11 +540,6 @@ export class ApiRequest {
     }
 
     // # File System
-    // These endpoints operate on the "web" surface — the tree shown in this app's sidebar.
-    // Surface is server-controlled per route (clients can't send it): the `file_system*`
-    // routes are pinned to "web" server-side, while the separate `desktop_file_system*` routes
-    // (used by a different app, not this frontend) serve the "desktop" surface. So every call
-    // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
     }
@@ -2846,13 +2840,6 @@ const api = {
     },
 
     tracing: {
-        async hasSpans(): Promise<boolean> {
-            return new ApiRequest()
-                .tracingSpans()
-                .withAction('has_spans')
-                .get()
-                .then((response) => Boolean(response.hasSpans))
-        },
         async listSpans(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
@@ -5774,9 +5761,6 @@ const api = {
     },
 
     externalDataSchemas: {
-        async get(schemaId: ExternalDataSourceSchema['id']): Promise<ExternalDataSchemaWithSource> {
-            return await new ApiRequest().externalDataSourceSchema(schemaId).get()
-        },
         async update(
             schemaId: ExternalDataSourceSchema['id'],
             data: Partial<ExternalDataSourceSchema>

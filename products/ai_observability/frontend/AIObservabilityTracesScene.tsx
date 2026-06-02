@@ -88,13 +88,12 @@ export function AIObservabilityTraces(): JSX.Element {
 
 function TracesOptionsMenu(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { showInputOutputColumns, showSentimentColumn } = useValues(aiObservabilityTracesTabLogic)
-    const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
+    const { showInputOutputColumns } = useValues(aiObservabilityTracesTabLogic)
+    const { setShowInputOutputColumns } = useActions(aiObservabilityTracesTabLogic)
 
     const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-    const showSentimentToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    if (!showInputOutputToggleEnabled && !showSentimentToggleEnabled) {
+    if (!showInputOutputToggleEnabled) {
         return null
     }
 
@@ -104,26 +103,14 @@ function TracesOptionsMenu(): JSX.Element | null {
             placement="bottom-end"
             overlay={
                 <div className="flex flex-col gap-2 py-1 px-2 min-w-64">
-                    {showInputOutputToggleEnabled && (
-                        <LemonSwitch
-                            checked={showInputOutputColumns}
-                            onChange={setShowInputOutputColumns}
-                            label="Show input/output"
-                            fullWidth
-                            tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
-                            data-attr="llm-traces-show-input-output-toggle"
-                        />
-                    )}
-                    {showSentimentToggleEnabled && (
-                        <LemonSwitch
-                            checked={showSentimentColumn}
-                            onChange={setShowSentimentColumn}
-                            label="Show sentiment"
-                            fullWidth
-                            tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
-                            data-attr="llm-traces-show-sentiment-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showInputOutputColumns}
+                        onChange={setShowInputOutputColumns}
+                        label="Show input/output"
+                        fullWidth
+                        tooltip="Preview each trace's first input and last output in the table. Turn off for a denser view."
+                        data-attr="llm-traces-show-input-output-toggle"
+                    />
                 </div>
             }
         >

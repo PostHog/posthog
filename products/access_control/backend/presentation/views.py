@@ -15,13 +15,12 @@ from typing import Any
 from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import AvailableFeature
 from posthog.permissions import TeamMemberStrictManagementPermission
 
 from ..facade import api
@@ -32,8 +31,6 @@ from .serializers import (
     PropertyAccessControlStateSerializer,
     PropertyAccessControlUpdateSerializer,
 )
-
-PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE = "Property access control feature is required"
 
 
 class _SingletonStateSchema(AutoSchema):
@@ -99,9 +96,6 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         description="Create or update a property access control rule.",
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
-            raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
-
         serializer = PropertyAccessControlUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -157,9 +151,6 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         ),
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not self.organization.is_feature_available(AvailableFeature.PROPERTY_ACCESS_CONTROL):
-            raise PermissionDenied(PROPERTY_ACCESS_CONTROL_FEATURE_REQUIRED_MESSAGE)
-
         serializer = PropertyAccessControlDeleteSerializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

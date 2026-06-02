@@ -109,11 +109,7 @@ pub struct CaptureComponents {
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
-pub async fn build_components(
-    config: Config,
-    sink_env: HashMap<String, String>,
-    handles: LifecycleHandles,
-) -> CaptureComponents {
+pub async fn build_components(config: Config, handles: LifecycleHandles) -> CaptureComponents {
     let LifecycleHandles {
         server,
         sink: sink_handle,
@@ -291,7 +287,7 @@ pub async fn build_components(
 
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
-            create_v1_sink_router(&config, &sink_env, v1_sink_handles)
+            create_v1_sink_router(&config, v1_sink_handles)
                 .unwrap_or_else(|e| panic!("fatal: v1 sink router creation failed: {e:#}")),
         )
     } else {
@@ -345,10 +341,9 @@ pub async fn build_components(
 
 fn create_v1_sink_router(
     config: &Config,
-    sink_env: &HashMap<String, String>,
     handles: HashMap<crate::v1::sinks::SinkName, lifecycle::Handle>,
 ) -> anyhow::Result<Arc<crate::v1::sinks::Router>> {
-    let sinks_cfg = crate::v1::sinks::load_sinks_from(&config.capture_v1_sinks, sink_env)
+    let sinks_cfg = crate::v1::sinks::load_sinks(&config.capture_v1_sinks)
         .context("failed to parse CAPTURE_V1_SINKS")?;
     sinks_cfg
         .validate()
@@ -543,7 +538,7 @@ mod tests {
                 })
                 .collect();
 
-        let err = create_v1_sink_router(&config, &HashMap::new(), handles)
+        let err = create_v1_sink_router(&config, handles)
             .err()
             .expect("should fail with invalid config");
         let msg = format!("{err:#}");

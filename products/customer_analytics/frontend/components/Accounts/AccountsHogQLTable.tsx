@@ -14,10 +14,10 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountRoleKey, accountsLogic } from './accountsLogic'
+import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -310,8 +310,7 @@ function AccountsHogQLSkeleton(): JSX.Element {
     )
 }
 
-export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
+function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
     const expandable = useExpandable()
@@ -321,7 +320,7 @@ export function AccountsHogQLTable(): JSX.Element {
     return (
         <DataTable
             uniqueKey="customer-analytics-accounts-hogql"
-            query={hogqlQuery}
+            query={query}
             setQuery={() => {
                 // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
             }}
@@ -334,5 +333,18 @@ export function AccountsHogQLTable(): JSX.Element {
             }}
             readOnly
         />
+    )
+}
+
+export function AccountsHogQLTable(): JSX.Element {
+    const { hogqlQuery } = useValues(accountsLogic)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
+                <AccountsColumnConfigurator />
+            </div>
+            <AccountsHogQLDataTable query={hogqlQuery} />
+        </div>
     )
 }

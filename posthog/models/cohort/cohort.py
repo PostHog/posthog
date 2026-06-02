@@ -21,7 +21,6 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.batch_iterators import ArrayBatchIterator, BatchIterator, FunctionBatchIterator
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
@@ -239,9 +238,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         return self.name or "Untitled cohort"
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Cohort"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="cohort", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

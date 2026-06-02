@@ -9,13 +9,47 @@ import orjson
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import posthoganalytics
 from structlog.types import FilteringBoundLogger
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 
 from products.data_warehouse.backend.s3 import aget_s3_client
+
+WAREHOUSE_WEBHOOK_FLAG = "warehouse-source-webhooks"
+
+
+def is_webhook_feature_flag_enabled(team_id: int) -> bool:
+    from posthog.models import Team
+
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+    except Team.DoesNotExist:
+        return False
+
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WAREHOUSE_WEBHOOK_FLAG,
+            str(team.uuid),
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+        return bool(enabled)
+    except Exception as e:
+        capture_exception(e)
+        return False
 
 
 class WebhookSourceManager:
@@ -35,6 +69,11 @@ class WebhookSourceManager:
     async def webhook_enabled(self, skip_initial_sync_complete_check: bool = False) -> bool:
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        flag_enabled = await self._is_webhook_feature_flag_enabled()
+
+        if not flag_enabled:
+            return False
 
         schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(
             id=self._inputs.schema_id, team_id=self._inputs.team_id
@@ -176,3 +215,39 @@ class WebhookSourceManager:
     def _transform_webhook_table(self, table: pa.Table) -> pa.Table:
         rows = [orjson.loads(str(s)) for s in table.column("payload_json").to_pylist()]
         return table_from_py_list(rows)
+
+    async def _is_webhook_feature_flag_enabled(self) -> bool:
+        from posthog.models import Team
+
+        try:
+            team = await database_sync_to_async_pool(Team.objects.only("uuid", "organization_id").get)(
+                id=self._inputs.team_id
+            )
+        except Team.DoesNotExist:
+            return False
+
+        try:
+            enabled = await database_sync_to_async_pool(posthoganalytics.feature_enabled)(
+                WAREHOUSE_WEBHOOK_FLAG,
+                str(team.uuid),
+                groups={
+                    "organization": str(team.organization_id),
+                    "project": str(team.id),
+                },
+                group_properties={
+                    "organization": {"id": str(team.organization_id)},
+                    "project": {"id": str(team.id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+
+            if enabled:
+                await self._logger.adebug(
+                    f"Feature flag '{WAREHOUSE_WEBHOOK_FLAG}' is enabled for team {self._inputs.team_id}"
+                )
+
+            return bool(enabled)
+        except Exception as e:
+            capture_exception(e)
+            return False

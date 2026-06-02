@@ -17,7 +17,7 @@ from products.tasks.backend.services.connection_token import (
     SANDBOX_EVENT_INGEST_TOKEN_TTL,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
-    reset_sandbox_jwt_key_cache,
+    get_sandbox_jwt_public_key,
 )
 from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
 from products.tasks.backend.stream.event_ingest import (
@@ -41,7 +41,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
     def setUp(self) -> None:
         super().setUp()
         TEST_clear_clients()
-        reset_sandbox_jwt_key_cache()
+        get_sandbox_jwt_public_key.cache_clear()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.task = Task.objects.create(
@@ -56,7 +56,7 @@ class TestTaskRunEventIngest(TransactionTestCase):
     def tearDown(self) -> None:
         self._delete_run_stream()
         TEST_clear_clients()
-        reset_sandbox_jwt_key_cache()
+        get_sandbox_jwt_public_key.cache_clear()
         super().tearDown()
 
     def _delete_run_stream(self) -> None:

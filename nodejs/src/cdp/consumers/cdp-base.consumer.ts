@@ -6,7 +6,7 @@ import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
 import { GeoIPService } from '../../utils/geoip'
 import { logger } from '../../utils/logger'
 import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
@@ -39,7 +39,7 @@ export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CdpConfig, 'CDP_OVERFLOW_QUEUE_ENABLED'>
 
 export interface CdpConsumerBaseDeps extends CdpCoreServicesDeps {
-    personRepository: PersonReadRepository
+    personRepository: PersonRepository
     geoipService: GeoIPService
     groupRepository: GroupRepository
     quotaLimiting: QuotaLimiting

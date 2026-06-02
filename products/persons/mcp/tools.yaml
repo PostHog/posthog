@@ -58,6 +58,12 @@ tools:
     persons-deletion-status-list:
         operation: persons_deletion_status_list
         enabled: false
+    persons-funnel-correlation-create:
+        operation: persons_funnel_correlation_create
+        enabled: false
+    persons-funnel-correlation-retrieve:
+        operation: persons_funnel_correlation_retrieve
+        enabled: false
     persons-funnel-create:
         operation: persons_funnel_create
         enabled: false

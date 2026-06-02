@@ -1,10 +1,7 @@
 from django.db import models
-from django.db.models import Value
 from django.db.models.expressions import F
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -37,26 +34,11 @@ class PersistedFolder(models.Model):
     protocol: models.CharField = models.CharField(max_length=64, default="products://")
     path: models.TextField = models.TextField(blank=True, default="")
 
-    # Product surface this folder belongs to (e.g. "web", "desktop"). NULL == DEFAULT_SURFACE.
-    # Unlike FileSystem items, a folder `type` (home, pinned, …) is NOT surface-exclusive — each
-    # surface has its own "home" — so surface is part of the uniqueness below. The constraint
-    # coalesces NULL to the default surface, matching the NULL == "web" rule used for reads, so a
-    # legacy NULL row and an explicit "web" row can never both exist for the same (team, user, type).
-    surface: models.CharField = models.CharField(max_length=100, null=True, blank=True)
-
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now, editable=False)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                F("team_id"),
-                F("user_id"),
-                F("type"),
-                Coalesce(F("surface"), Value(DEFAULT_SURFACE)),
-                name="posthog_pf_team_user_type_surface_uniq",
-            ),
-        ]
+        unique_together = (("team", "user", "type"),)
         indexes = [
             models.Index(F("team_id"), F("user_id"), name="posthog_pf_team_user"),
             models.Index(F("team_id"), F("user_id"), F("type"), name="posthog_pf_team_user_type"),

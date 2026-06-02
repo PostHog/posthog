@@ -26,7 +26,10 @@ from posthog.temporal.data_imports.sources.common.base import (
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from posthog.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookSourceManager,
+    is_webhook_feature_flag_enabled,
+)
 from posthog.temporal.data_imports.sources.generated_configs import RevenueCatSourceConfig
 from posthog.temporal.data_imports.sources.revenuecat import revenuecat as api_client
 from posthog.temporal.data_imports.sources.revenuecat.constants import (
@@ -209,6 +212,7 @@ class RevenueCatSource(
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
+        webhook_supported = is_webhook_feature_flag_enabled(team_id)
         # `events` is webhook-only — the v2 API doesn't expose a historical
         # backfill endpoint for webhook events, so the only way to populate
         # this table is via realtime webhook deliveries.
@@ -217,7 +221,7 @@ class RevenueCatSource(
                 name=name,
                 supports_incremental=False,
                 supports_append=False,
-                supports_webhooks=True,
+                supports_webhooks=webhook_supported,
                 incremental_fields=[],
             )
             for name in REVENUECAT_WEBHOOK_SCHEMA_NAMES

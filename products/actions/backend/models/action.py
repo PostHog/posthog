@@ -10,7 +10,6 @@ from django.utils import timezone
 from posthog.hogql.errors import BaseHogQLError
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
@@ -82,9 +81,9 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
         super().save(*args, **kwargs)
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Action"]:
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Action"]:
         base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="action", ref_field="id", surface=surface)
+        return cls._filter_unfiled_queryset(base_qs, team, type="action", ref_field="id")
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(

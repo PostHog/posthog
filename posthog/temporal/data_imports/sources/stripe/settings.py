@@ -8,12 +8,10 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
-    COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
-    DISCOUNT_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -41,8 +39,6 @@ ENDPOINTS = (
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
-    COUPON_RESOURCE_NAME,
-    DISCOUNT_RESOURCE_NAME,
 )
 
 
@@ -60,11 +56,7 @@ INCREMENTAL_ENDPOINTS = (
     REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
-    COUPON_RESOURCE_NAME,
 )
-
-# Endpoints that have no API list path — populated only via webhooks.
-WEBHOOK_ONLY_ENDPOINTS = (DISCOUNT_RESOURCE_NAME,)
 
 APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ACCOUNT_RESOURCE_NAME: [
@@ -164,14 +156,6 @@ APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         }
     ],
     CREDIT_NOTE_RESOURCE_NAME: [
-        {
-            "label": "created_at",
-            "type": IncrementalFieldType.DateTime,
-            "field": "created",
-            "field_type": IncrementalFieldType.Integer,
-        }
-    ],
-    COUPON_RESOURCE_NAME: [
         {
             "label": "created_at",
             "type": IncrementalFieldType.DateTime,

@@ -210,13 +210,7 @@ def s3_default_fields() -> list[BatchExportField]:
 
 @workflow.defn(name="s3-export", failure_exception_types=[workflow.NondeterminismError])
 class S3BatchExportWorkflow(PostHogWorkflow):
-    """A Temporal Workflow to export ClickHouse data into S3 or any S3-compatible bucket.
-
-    This Workflow is shared across every S3-family destination — `AwsS3`, `S3Compatible`,
-    and the legacy `S3` alias. The API surface validates per-destination input dataclasses
-    (`AwsS3BatchExportInputs`, `S3CompatibleBatchExportInputs`); Temporal's data converter
-    serializes them to JSON, and on deserialization fields not present on the narrower
-    input class fall through to their `S3BatchExportInputs` defaults.
+    """A Temporal Workflow to export ClickHouse data into S3.
 
     This Workflow is intended to be executed both manually and by a Temporal Schedule.
     When ran by a schedule, `data_interval_end` should be set to `None` so that we will fetch the
