@@ -525,7 +525,6 @@
         "summary": "Archive pipeline",
         "title": "Archive pipeline",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -540,7 +539,6 @@
         "summary": "Create a pipeline",
         "title": "Create a pipeline",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -555,7 +553,6 @@
         "summary": "List pipelines",
         "title": "List pipelines",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -570,7 +567,6 @@
         "summary": "Materialize training features to the sandbox",
         "title": "Materialize training features to the sandbox",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -585,7 +581,6 @@
         "summary": "List models for a pipeline",
         "title": "List models for a pipeline",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -600,7 +595,6 @@
         "summary": "Get model",
         "title": "Get model",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -615,7 +609,6 @@
         "summary": "Pause pipeline",
         "title": "Pause pipeline",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -630,7 +623,6 @@
         "summary": "Resolve a template",
         "title": "Resolve a template",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -645,7 +637,6 @@
         "summary": "Resume pipeline",
         "title": "Resume pipeline",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -660,7 +651,6 @@
         "summary": "Get pipeline",
         "title": "Get pipeline",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -675,7 +665,6 @@
         "summary": "List inference runs",
         "title": "List inference runs",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -690,7 +679,6 @@
         "summary": "Run inference (score users)",
         "title": "Run inference (score users)",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -705,7 +693,6 @@
         "summary": "Submit a suggestion",
         "title": "Submit a suggestion",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -720,7 +707,6 @@
         "summary": "List suggestions",
         "title": "List suggestions",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -735,7 +721,6 @@
         "summary": "Get suggestion",
         "title": "Get suggestion",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -750,7 +735,6 @@
         "summary": "List available templates",
         "title": "List available templates",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -765,7 +749,6 @@
         "summary": "Start training",
         "title": "Start training",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -780,7 +763,6 @@
         "summary": "Delete an artifact bundle file",
         "title": "Delete an artifact bundle file",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -795,7 +777,6 @@
         "summary": "Get an artifact bundle file",
         "title": "Get an artifact bundle file",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -810,7 +791,6 @@
         "summary": "List artifact bundle files",
         "title": "List artifact bundle files",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -825,7 +805,6 @@
         "summary": "Upload an artifact bundle file",
         "title": "Upload an artifact bundle file",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -840,7 +819,6 @@
         "summary": "Complete a training run",
         "title": "Complete a training run",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -855,7 +833,6 @@
         "summary": "Open a training run",
         "title": "Open a training run",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -870,7 +847,6 @@
         "summary": "Read prior training-run history",
         "title": "Read prior training-run history",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -885,7 +861,6 @@
         "summary": "Record a training iteration",
         "title": "Record a training iteration",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -900,7 +875,6 @@
         "summary": "List training runs",
         "title": "List training runs",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -915,7 +889,6 @@
         "summary": "Validate a pipeline definition",
         "title": "Validate a pipeline definition",
         "required_scopes": ["autoresearch:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -930,7 +903,6 @@
         "summary": "Run online validation",
         "title": "Run online validation",
         "required_scopes": ["autoresearch:write"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

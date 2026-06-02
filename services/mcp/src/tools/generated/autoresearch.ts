@@ -223,7 +223,6 @@ const autoresearchMaterializeFeatures = (): ToolBase<
 > => ({
     name: 'autoresearch-materialize-features',
     schema: AutoresearchMaterializeFeaturesSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchMaterializeFeaturesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -676,7 +675,6 @@ const autoresearchTrainingRunsArtifactsDeleteCreate = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-artifacts-delete-create',
     schema: AutoresearchTrainingRunsArtifactsDeleteCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsDeleteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -747,7 +745,6 @@ const autoresearchTrainingRunsArtifactsUploadCreate = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-artifacts-upload-create',
     schema: AutoresearchTrainingRunsArtifactsUploadCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsArtifactsUploadCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -776,7 +773,6 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-complete-create',
     schema: AutoresearchTrainingRunsCompleteCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsCompleteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -811,7 +807,6 @@ const autoresearchTrainingRunsCreate = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-create',
     schema: AutoresearchTrainingRunsCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
@@ -860,7 +855,6 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
 > => ({
     name: 'autoresearch-training-runs-iterations-create',
     schema: AutoresearchTrainingRunsIterationsCreateSchema,
-    mcpVersion: 2,
     handler: async (context: Context, params: z.infer<typeof AutoresearchTrainingRunsIterationsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}

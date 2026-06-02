@@ -315,6 +315,7 @@ export interface TaskApi {
   * `support_queue` - Support Queue
   * `session_summaries` - Session Summaries
   * `signal_report` - Signal Report
+  * `autoresearch` - Autoresearch
   * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**
@@ -397,6 +398,7 @@ export interface PatchedTaskApi {
   * `support_queue` - Support Queue
   * `session_summaries` - Session Summaries
   * `signal_report` - Signal Report
+  * `autoresearch` - Autoresearch
   * `signals_scout` - Signals Scout */
     origin_product?: OriginProductEnumApi
     /**

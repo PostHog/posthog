@@ -95,7 +95,6 @@ tools:
             the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
             returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
             whenever you change features.sql.
-        mcp_version: 2
     autoresearch-models-list:
         operation: autoresearch_models_list
         enabled: true
@@ -370,7 +369,6 @@ tools:
         title: Delete an artifact bundle file
         description: |
             Remove one file from a training run's artifact bundle. Idempotent — deleting a missing file is a no-op.
-        mcp_version: 2
     autoresearch-training-runs-artifacts-get-create:
         operation: autoresearch_training_runs_artifacts_get_create
         enabled: true
@@ -415,7 +413,6 @@ tools:
             train.py and predict.py (standalone sklearn scripts), features.sql (HogQL with the {anchors}/{lookback_days}
             contract), and recipe.yml (informational metadata), then upload each here. Do NOT use set_output or curl —
             the bundle you upload is what inference runs in a sandbox.
-        mcp_version: 2
     autoresearch-training-runs-complete-create:
         operation: autoresearch_training_runs_complete_create
         enabled: true
@@ -435,7 +432,6 @@ tools:
             Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run
             should try next) — these are stored in the run summary and read back by the next run during orientation; the
             backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.
-        mcp_version: 2
     autoresearch-training-runs-create:
         operation: autoresearch_training_runs_create
         enabled: true
@@ -451,7 +447,6 @@ tools:
             scheduled job) then records iterations against this run with autoresearch-training-runs-iterations-create
             and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally
             override the iteration_budget for this run.
-        mcp_version: 2
     autoresearch-training-runs-history:
         operation: autoresearch_training_runs_history_retrieve
         enabled: true
@@ -486,7 +481,6 @@ tools:
             the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on
             person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed'
             on failure. Iterations are picked up at completion time to choose the champion.
-        mcp_version: 2
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list
         enabled: true
