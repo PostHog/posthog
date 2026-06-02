@@ -70,6 +70,15 @@ case "$GO_SVC" in
     cd livestream
     ;;
 
+  prom-compat)
+    # Core settings
+    export HOST="0.0.0.0"
+    export PORT="9090"
+
+    # ensure we're in the prom-compat directory for air
+    cd services/prom-compat
+    ;;
+
   *)
     echo "ERROR unknown Go service '$GO_SVC' - please register in: $0" >&2
     exit 1
