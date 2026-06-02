@@ -108,10 +108,10 @@ class TestUsage(BaseTest):
             mock_region.return_value = region
             mock_sync_execute.return_value = [(42,)]
             if expected_region_url is not None:
-                mock_region_filter.return_value = (
-                    f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s",
-                    {"region_url": expected_region_url},
-                )
+                mock_region_filter.return_value = {
+                    "region_group_property": f"$group_{instance_group_index}",
+                    "region_url": expected_region_url,
+                }
 
             credits = get_ai_credits(team_id=133393, begin=begin, end=end, conversation_id=conversation_id)
 
@@ -125,9 +125,10 @@ class TestUsage(BaseTest):
                 mock_region_filter.assert_not_called()
             else:
                 self.assertEqual(params["region_url"], expected_region_url)
+                self.assertEqual(params["region_group_property"], f"$group_{instance_group_index}")
                 mock_region_filter.assert_called_once_with(expected_team_to_query, expected_region_url)
                 self.assertIn(
-                    f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s",
+                    "AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s",
                     query,
                 )
 

@@ -158,7 +158,8 @@ def get_ai_credits(
         region_filter = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region_value])
         if region_filter is None:
             return 0
-        region_filter_clause, region_filter_params = region_filter
+        region_filter_params = region_filter
+        region_filter_clause = "AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s"
 
     # Session filter expression for PREWHERE (must NOT use alias)
     session_filter_prewhere = (

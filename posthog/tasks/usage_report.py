@@ -1100,15 +1100,12 @@ def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
     return None
 
 
-def build_ai_billing_region_filter(team_id: int, region_url: str) -> tuple[str, dict[str, str]] | None:
+def build_ai_billing_region_filter(team_id: int, region_url: str) -> dict[str, str] | None:
     instance_group_index = get_ai_billing_instance_group_type_index(team_id)
     if instance_group_index is None:
         return None
 
-    return (
-        f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s",
-        {"region_url": region_url},
-    )
+    return {"region_group_property": f"$group_{instance_group_index}", "region_url": region_url}
 
 
 @timed_log()
@@ -1151,17 +1148,15 @@ def get_teams_with_ai_credits_used_in_period(
         return []
 
     team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
-    region_filter = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
-    if region_filter is None:
+    region_filter_params = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region])
+    if region_filter_params is None:
         return []
-
-    region_filter_clause, region_filter_params = region_filter
 
     with tags_context(
         product=Product.MAX_AI, feature=Feature.USAGE_REPORT, usage_report="ai_credits", kind="usage_report"
     ):
         results = sync_execute(
-            f"""
+            """
             WITH trace_analysis AS (
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
@@ -1212,7 +1207,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        {region_filter_clause}
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
@@ -1236,7 +1231,7 @@ def get_teams_with_ai_credits_used_in_period(
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
                         team_id = %(team_to_query)s
-                        {region_filter_clause}
+                        AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s
                         AND timestamp >= %(begin)s
                         AND timestamp < %(end)s
                         AND event = '$ai_generation'
