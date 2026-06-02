@@ -196,8 +196,12 @@ class QueryContext:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
+            # Feature flags are global (not per-event), so skip the eventproperty
+            # join — it would INNER JOIN away all results once $feature/* rows are
+            # no longer written to posthog_eventproperty.
             return dataclasses.replace(
                 self,
+                should_join_event_property=False,
                 is_feature_flag_filter="AND (name LIKE %(is_feature_flag_like)s)",
                 params={**self.params, "is_feature_flag_like": "$feature/%"},
             )
@@ -259,7 +263,7 @@ class QueryContext:
         if event_names:
             event_names = json.loads(event_names)
 
-        if event_names and len(event_names) > 0:
+        if event_names and len(event_names) > 0 and self.should_join_event_property:
             event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property IS NOT NULL"
             event_name_join_filter = "AND event = ANY(%(event_names)s)"
 

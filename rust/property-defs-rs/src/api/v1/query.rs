@@ -66,6 +66,7 @@ impl Manager {
             project_id,
             params.parent_type,
             &params.event_names,
+            &params.is_feature_flag,
         );
 
         // begin the WHERE clause
@@ -137,7 +138,10 @@ impl Manager {
         self.gen_prop_defs_select_clause(qb, params.use_enterprise_taxonomy);
 
         // append event_property_field clause to SELECT clause
-        let is_seen_resolved = if self.is_parent_type_event(params.parent_type) {
+        // Feature flags skip the eventproperty join, so force NULL for is_seen_on_filtered_events.
+        let is_seen_resolved = if self.is_parent_type_event(params.parent_type)
+            && !matches!(params.is_feature_flag, Some(true))
+        {
             format!("{EVENT_PROPERTY_TABLE_ALIAS}.\"property\"")
         } else {
             "NULL".to_string()
@@ -152,6 +156,7 @@ impl Manager {
             project_id,
             params.parent_type,
             &params.event_names,
+            &params.is_feature_flag,
         );
 
         // begin the WHERE clause
@@ -243,7 +248,14 @@ impl Manager {
         project_id: i32,
         parent_type: PropertyParentType,
         event_names: &'args [String],
+        is_feature_flag: &Option<bool>,
     ) {
+        // Feature flags are global — skip the eventproperty join when filtering
+        // for flags, since $feature/* rows are no longer written there.
+        if matches!(is_feature_flag, Some(true)) {
+            return;
+        }
+
         // conditionally join on event properties table
         // this join is only applied if the query is scoped to type "event"
         if self.is_parent_type_event(parent_type) {
