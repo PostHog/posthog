@@ -99,7 +99,14 @@ test.describe('Quick create survey from feature flag', () => {
     test.beforeEach(async ({ page, playwrightSetup }) => {
         // Dedicated empty workspace per test — no shared demo team, so the feature-flag
         // list only contains the flag this test creates (see playwright-test-base deprecation).
-        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+        // Seed a *recent* $autocapture event: the survey event picker (Events taxonomic list)
+        // sends exclude_stale=true, which drops definitions whose last_seen_at is >30 days old —
+        // so a fixed past timestamp never surfaced "Autocapture". `now` keeps it non-stale.
+        workspace = await playwrightSetup.createWorkspace({
+            skip_onboarding: true,
+            no_demo_data: true,
+            events: [{ event: '$autocapture', distinct_id: 'survey-seed-user', timestamp: new Date().toISOString() }],
+        })
         await playwrightSetup.login(page, workspace)
 
         name = randomString('ff')
@@ -161,18 +168,13 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, [])
     })
 
-    // TODO un-skip: needs a local repro. The survey event picker (TaxonomicFilter Events group,
-    // allowNonCapturedEvents) never surfaces an option with aria-label="Autocapture" on an empty
-    // no_demo_data workspace — neither seeding a $autocapture event nor typing it into the
-    // taxonomic search worked (both failed consistently across all retries). The rest of the
-    // detail-page survey flow is fine; only this event-picker selector needs the real DOM checked.
-    test.skip('launch survey with event', async ({ page }) => {
+    test('launch survey with event', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page)
 
-        // add event
+        // add event — the beforeEach seeds a recent $autocapture event, so its definition shows
+        // as "Autocapture" in the picker's Events list (no search needed).
         await page.locator('.LemonButton').getByText('Add event').click()
-        await page.locator('[data-attr="taxonomic-filter-searchfield"]').fill('$autocapture')
         const autocaptureOption = page.locator('span[aria-label="Autocapture"]').getByText('Autocapture')
         await expect(autocaptureOption).toBeVisible()
         await autocaptureOption.click()
