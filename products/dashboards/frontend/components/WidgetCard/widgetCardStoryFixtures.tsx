@@ -103,6 +103,7 @@ export function withErrorTrackingProjectState(configured: boolean): Decorator {
 export function withSessionReplayProjectState(enabled: boolean): Decorator {
     return (Story: React.ComponentType): JSX.Element => {
         teamLogic.mount()
+        filterTestAccountsDefaultsLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             session_recording_opt_in: enabled,
