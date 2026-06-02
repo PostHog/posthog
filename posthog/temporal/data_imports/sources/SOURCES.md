@@ -47,6 +47,7 @@ the row lists both.
 | attio         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| brevo         | HTTP                        | requests                                                        | ✅                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -119,7 +120,7 @@ These are registered in `__init__.py` with `unreleasedSource=True` and a stub `s
 sync logic yet — picking up any of them means following the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md).
 
 active_campaign, adjust, aircall, airtable, amazon_ads, amplitude, apple_search_ads, appsflyer, asana,
-ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, brevo, calendly, campaign_monitor,
+ashby, auth0, azure_blob, bamboohr, bigcommerce, box, braintree, braze, calendly, campaign_monitor,
 chartmogul, circleci, clickup, close, cockroachdb, confluence, convertkit, copper, datadog,
 drip, dynamodb, elasticsearch, eventbrite, facebook_pages, firebase, freshdesk, freshsales, front,
 fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, greenhouse, helpscout,
