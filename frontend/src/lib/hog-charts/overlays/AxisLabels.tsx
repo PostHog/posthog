@@ -65,6 +65,50 @@ export function computeVisibleXLabels(
     return visible
 }
 
+// Category tick labels are a fixed ~12px tall (see TICK_STYLE_BASE.fontSize); require this much
+// center-to-center spacing so stacked rows stay legible. The vertical x-axis uses LABEL_PADDING
+// for the same purpose on width — this is its band-axis analogue for horizontal charts.
+const Y_LABEL_LINE_HEIGHT = 12
+const Y_LABEL_PADDING = 4
+
+/** Horizontal-orientation analogue of `computeVisibleXLabels`: returns the subset of category
+ *  (band) labels that fit down the y-axis without overlapping. When the plot is tall enough every
+ *  label clears the previous one and all are kept; when bands are compressed (e.g. a small
+ *  dashboard tile with many breakdowns) it thins them out evenly instead of stacking them into an
+ *  unreadable band. Label height is constant, so no per-label text measurement is needed. */
+export function computeVisibleYLabels(
+    labels: string[],
+    yScale: (label: string) => number | undefined,
+    formatter?: (value: string, index: number) => string | null
+): { index: number; text: string; y: number }[] {
+    const candidates: { index: number; text: string; y: number }[] = []
+    for (let i = 0; i < labels.length; i++) {
+        const text = formatter ? formatter(labels[i], i) : labels[i]
+        if (text === null) {
+            continue
+        }
+        const y = yScale(labels[i])
+        if (y == null || !isFinite(y)) {
+            continue
+        }
+        candidates.push({ index: i, text, y })
+    }
+
+    // Greedy from the top: keep a label only when it clears the last kept label's bottom edge plus
+    // padding, so the rendered set never overlaps regardless of how many bands are packed in.
+    candidates.sort((a, b) => a.y - b.y)
+    const visible: { index: number; text: string; y: number }[] = []
+    let lastBottomEdge = -Infinity
+    const halfHeight = Y_LABEL_LINE_HEIGHT / 2
+    for (const candidate of candidates) {
+        if (candidate.y - halfHeight >= lastBottomEdge + Y_LABEL_PADDING) {
+            visible.push(candidate)
+            lastBottomEdge = candidate.y + halfHeight
+        }
+    }
+    return visible
+}
+
 const TICK_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     fontSize: 12,
@@ -164,36 +208,32 @@ export function AxisLabels({
         [hideXAxis, labels, scales.x, xTickFormatter, orientation]
     )
 
+    // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives on
+    // `scales.x` (or `labelToCoord` if explicitly overridden). Thin out overlapping category labels.
+    const visibleYLabels = useMemo(
+        () =>
+            hideYAxis || orientation !== 'horizontal'
+                ? []
+                : computeVisibleYLabels(labels, labelToCoord ?? scales.x, xTickFormatter),
+        [hideYAxis, orientation, labels, labelToCoord, scales.x, xTickFormatter]
+    )
+
     const rightFormatter = yRightTickFormatter ?? yTickFormatter
 
     if (orientation === 'horizontal') {
-        // In horizontal mode `scales.y` holds value→x-pixel and the label→y-pixel function lives
-        // on `scales.x` (or `labelToCoord` if explicitly overridden).
-        const labelToY = labelToCoord ?? scales.x
         return (
             <>
-                {!hideYAxis &&
-                    labels.map((labelText, i) => {
-                        const text = xTickFormatter ? xTickFormatter(labelText, i) : labelText
-                        if (text === null) {
-                            return null
-                        }
-                        const y = labelToY(labelText)
-                        if (y == null || !isFinite(y)) {
-                            return null
-                        }
-                        return (
-                            <YTickLabel
-                                key={`y-cat-${i}`}
-                                y={y}
-                                side="left"
-                                box={dimensions}
-                                text={text}
-                                color={axisColor}
-                                dataAttr="hog-chart-axis-tick-y"
-                            />
-                        )
-                    })}
+                {visibleYLabels.map(({ index, text, y }) => (
+                    <YTickLabel
+                        key={`y-cat-${index}`}
+                        y={y}
+                        side="left"
+                        box={dimensions}
+                        text={text}
+                        color={axisColor}
+                        dataAttr="hog-chart-axis-tick-y"
+                    />
+                ))}
                 {!hideXAxis &&
                     yTicks.map((tick: number) => {
                         const x = scales.y(tick)

@@ -453,3 +453,91 @@ const PERCENT_STACK_BREAKDOWN_INSIGHT = {
 export const PercentStackBreakdown: Story = {
     render: () => renderTrendsBarChart(PERCENT_STACK_BREAKDOWN_INSIGHT),
 }
+
+// Many breakdown values in a constrained dashboard-card-sized viz area: the category labels must
+// thin out instead of stacking into an unreadable overlapping band.
+const MANY_BREAKDOWN_VALUES = Array.from({ length: 40 }, (_, i) => `Category ${String(i + 1).padStart(2, '0')}`)
+
+const MANY_BREAKDOWN_INSIGHT = {
+    id: 203,
+    short_id: 'barValueMany',
+    name: 'Pageviews by category',
+    derived_name: 'Pageview count',
+    filters: {},
+    last_refresh: '2023-07-11T12:00:00Z',
+    refreshing: false,
+    saved: true,
+    is_sample: false,
+    description: 'Pageviews broken down by category',
+    tags: [],
+    favorited: false,
+    created_at: '2023-07-11T12:00:00Z',
+    updated_at: '2023-07-11T12:00:00Z',
+    last_modified_at: '2023-07-11T12:00:00Z',
+    dashboards: [],
+    dashboard_tiles: [],
+    result: MANY_BREAKDOWN_VALUES.map((value, i) => ({
+        action: ACTION,
+        label: value,
+        count: 0,
+        // Long-tailed: a couple of huge values, then a rapid decay to near-zero.
+        aggregated_value: Math.round(22000 / (i + 1)),
+        data: [],
+        labels: [],
+        days: [],
+        breakdown_value: value,
+        filter: {
+            date_from: '2023-07-04T00:00:00Z',
+            date_to: '2023-07-10T23:59:59Z',
+            display: 'ActionsBarValue',
+            insight: 'TRENDS',
+            interval: 'day',
+        },
+    })),
+    query: {
+        kind: 'InsightVizNode',
+        source: {
+            dateRange: { date_from: 'all' },
+            filterTestAccounts: false,
+            interval: 'day',
+            kind: 'TrendsQuery',
+            series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
+            trendsFilter: { display: 'ActionsBarValue' },
+            breakdownFilter: { breakdown: 'category', breakdown_type: 'event' },
+            version: 2,
+        },
+        full: true,
+    },
+}
+
+function renderInDashboardCard(insightFixture: any): JSX.Element {
+    const [dashboardItemId] = useState(() => `TrendsBarChartStory.${uniqueNode++}` as InsightShortId)
+    const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
+    const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query: cachedInsight.query.source,
+        key: insightVizDataNodeKey(insightProps),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
+        doNotLoad: true,
+    }
+    return (
+        <BindLogic logic={insightLogic} props={insightProps}>
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                {/* Mimic the dashboard InsightCard: fixed 30rem card, header, then an
+                    overflow:auto viz area — the same constraints the real card imposes. */}
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div style={{ height: '30rem', width: 460, display: 'flex', flexDirection: 'column' }}>
+                    {/* eslint-disable-next-line react/forbid-dom-props */}
+                    <div style={{ height: 56, flexShrink: 0 }} />
+                    <div className="InsightCard__viz">
+                        <TrendsBarChart />
+                    </div>
+                </div>
+            </BindLogic>
+        </BindLogic>
+    )
+}
+
+export const DashboardManyBreakdowns: Story = {
+    render: () => renderInDashboardCard(MANY_BREAKDOWN_INSIGHT),
+}
