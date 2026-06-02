@@ -222,6 +222,23 @@ class TestRemoteConfig(_RemoteConfigBase):
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
 
+    @parameterized.expand(
+        [
+            ("enabled", {"full_snapshot_on_navigation": True}, True),
+            ("disabled", {"full_snapshot_on_navigation": False}, None),
+            ("absent", {}, None),
+            ("not_a_dict", None, None),
+        ]
+    )
+    def test_session_recording_full_snapshot_on_navigation(self, _name, replay_config, expected) -> None:
+        self.team.session_recording_opt_in = True
+        self.team.session_replay_config = replay_config
+        self.team.save()
+        self.sync_remote_config()
+        session_recording = self.remote_config.config["sessionRecording"]
+        # omitted from the payload entirely when not enabled, to keep every team's config small
+        assert session_recording.get("fullSnapshotOnNavigation") == expected
+
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
         self.team.extra_settings = {"recorder_script": "custom-recorder"}

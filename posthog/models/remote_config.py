@@ -108,11 +108,13 @@ class RemoteConfig(UUIDTModel):
         record_canvas = False
         canvas_fps = None
         canvas_quality = None
+        full_snapshot_on_navigation = False
         if isinstance(team.session_replay_config, dict):
             record_canvas = team.session_replay_config.get("record_canvas", False)
             if record_canvas:
                 canvas_fps = 3
                 canvas_quality = "0.4"
+            full_snapshot_on_navigation = bool(team.session_replay_config.get("full_snapshot_on_navigation", False))
 
         base_config = {
             "endpoint": "/s/",
@@ -128,6 +130,11 @@ class RemoteConfig(UUIDTModel):
             "canvasFps": canvas_fps,
             "canvasQuality": canvas_quality,
         }
+
+        # Only emit when enabled so we don't grow every team's config payload with a default-false flag.
+        # The SDK reads `fullSnapshotOnNavigation ?? client config ?? false`, so omission means "off".
+        if full_snapshot_on_navigation:
+            base_config["fullSnapshotOnNavigation"] = True
 
         # Build V1 fields (for backward compatibility with old SDKs)
         sample_rate = (
