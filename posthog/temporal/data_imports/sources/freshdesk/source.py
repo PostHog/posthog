@@ -123,7 +123,14 @@ Your **API key** is on your Freshdesk profile settings page (click your profile 
         if status == 403 and schema_name is None:
             return True, None
 
-        if status in (401, 403):
+        # schema_name is set: a 403 means the key lacks permission for this specific resource.
+        if status == 403:
+            return (
+                False,
+                "Your Freshdesk API key does not have permission for this resource. Check the agent's role/scope.",
+            )
+
+        if status == 401:
             return False, "Freshdesk authentication failed. Please check your API key and domain."
 
         return False, "Could not connect to Freshdesk. Please check your domain and API key."

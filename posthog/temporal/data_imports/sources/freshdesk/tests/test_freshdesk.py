@@ -10,6 +10,7 @@ import structlog
 from posthog.temporal.data_imports.sources.freshdesk.freshdesk import (
     FreshdeskResumeConfig,
     _format_updated_since,
+    _parse_retry_after,
     build_initial_url,
     extract_items,
     get_rows,
@@ -25,20 +26,28 @@ PATCH_SESSION = "posthog.temporal.data_imports.sources.freshdesk.freshdesk.make_
 
 class FakeResponse:
     def __init__(
-        self, json_data: Any = None, status_code: int = 200, links: Optional[dict] = None, text: str = ""
+        self,
+        json_data: Any = None,
+        status_code: int = 200,
+        links: Optional[dict] = None,
+        text: str = "",
+        headers: Optional[dict] = None,
     ) -> None:
         self._json = json_data
         self.status_code = status_code
         self.ok = 200 <= status_code < 400
         self.links = links or {}
         self.text = text
+        self.headers = headers or {}
 
     def json(self) -> Any:
         return self._json
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            real_response = requests.Response()
+            real_response.status_code = self.status_code
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=real_response)
 
 
 class FakeResumableManager:
@@ -87,6 +96,21 @@ class TestFormatUpdatedSince:
 
     def test_no_offset_suffix(self) -> None:
         assert "+00:00" not in _format_updated_since(datetime(2026, 3, 4, tzinfo=UTC))
+
+
+class TestParseRetryAfter:
+    @pytest.mark.parametrize(
+        "value, expected",
+        [
+            ("30", 30.0),
+            ("0", 0.0),
+            (None, None),
+            ("", None),
+            ("not-a-number", None),
+        ],
+    )
+    def test_parse_retry_after(self, value: Optional[str], expected: Optional[float]) -> None:
+        assert _parse_retry_after(value) == expected
 
 
 class TestBuildInitialUrl:

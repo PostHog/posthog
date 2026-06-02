@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -21,10 +21,33 @@ from posthog.temporal.data_imports.sources.freshdesk.settings import (
 REQUEST_TIMEOUT = 60
 VALIDATE_TIMEOUT = 10
 MAX_RETRIES = 5
+MAX_RETRY_WAIT = 60.0
+
+_EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=MAX_RETRY_WAIT)
 
 
 class FreshdeskRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Parse a Retry-After header. Freshdesk sends an integer number of seconds."""
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    """Honor a server-provided Retry-After (capped); otherwise fall back to exponential jitter."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, FreshdeskRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_WAIT)
+    return _EXPONENTIAL_WAIT(retry_state)
 
 
 @dataclasses.dataclass
@@ -110,14 +133,21 @@ def get_rows(
     @retry(
         retry=retry_if_exception_type((FreshdeskRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
+        wait=_retry_wait,
         reraise=True,
     )
     def fetch_page(page_url: str) -> tuple[Any, Optional[str]]:
         response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT)
 
-        # Freshdesk throttles with 429 (+ Retry-After); transient upstream issues surface as 5xx.
-        if response.status_code == 429 or response.status_code >= 500:
+        # Freshdesk throttles with 429 and a Retry-After header; honor it when present.
+        if response.status_code == 429:
+            raise FreshdeskRetryableError(
+                f"Freshdesk API rate limited: url={page_url}",
+                retry_after=_parse_retry_after(response.headers.get("Retry-After")),
+            )
+
+        # Transient upstream issues surface as 5xx.
+        if response.status_code >= 500:
             raise FreshdeskRetryableError(
                 f"Freshdesk API error (retryable): status={response.status_code}, url={page_url}"
             )
@@ -173,7 +203,6 @@ def freshdesk_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
     )
 
 
