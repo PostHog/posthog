@@ -899,8 +899,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
         reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey) => ({ stepKey }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey) => ({ stepKey }),
+        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
+        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+            stepKey,
+            productKey,
+        }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
@@ -1083,6 +1089,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             itemCount,
             isAIFirst,
         }),
+        // MCP hints
+        reportMCPHintShown: (surfaceKey: string) => ({ surfaceKey }),
+        reportMCPHintDismissed: (dismissType: 'surface' | 'all', surfaceKey?: string) => ({
+            dismissType,
+            surfaceKey,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1228,6 +1240,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                         properties[key] += 1
                     }
                     properties.sample_items_count += item.insight.is_sample ? 1 : 0
+                } else if (item.widget) {
+                    if (!properties['widget_tiles_count']) {
+                        properties['widget_tiles_count'] = 1
+                    } else {
+                        properties['widget_tiles_count'] += 1
+                    }
                 } else {
                     if (!properties['text_tiles_count']) {
                         properties['text_tiles_count'] = 1
@@ -2123,14 +2141,18 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 entry_point: entrypoint,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
+                // Optional — only set when the caller knows which product owns the step.
+                // Lets dashboards split step funnels by product without joining elsewhere.
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
+                ...(productKey ? { product_key: productKey } : {}),
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
@@ -2476,6 +2498,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('navbar starred items reordered', {
                 item_count: itemCount,
                 is_ai_first: isAIFirst,
+            })
+        },
+        reportMCPHintShown: ({ surfaceKey }) => {
+            posthog.capture('mcp hint shown', {
+                surface_key: surfaceKey,
+            })
+        },
+        reportMCPHintDismissed: ({ dismissType, surfaceKey }) => {
+            posthog.capture('mcp hint dismissed', {
+                dismiss_type: dismissType,
+                surface_key: surfaceKey,
             })
         },
     })),

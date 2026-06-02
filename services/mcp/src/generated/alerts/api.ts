@@ -1477,11 +1477,13 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     calculation_interval: zod
-        .enum(['hourly', 'daily', 'weekly', 'monthly'])
-        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .describe(
+            '* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+        )
         .optional()
         .describe(
-            'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()
@@ -3136,11 +3138,13 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ])
         .optional(),
     calculation_interval: zod
-        .enum(['hourly', 'daily', 'weekly', 'monthly'])
-        .describe('* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly')
+        .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
+        .describe(
+            '* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+        )
         .optional()
         .describe(
-            'How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
+            'How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.\n\n* `every_15_minutes` - every_15_minutes\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly'
         ),
     snoozed_until: zod
         .string()

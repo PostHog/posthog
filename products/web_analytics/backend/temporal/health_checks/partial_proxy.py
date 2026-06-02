@@ -4,7 +4,7 @@ from collections import defaultdict
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
 
@@ -47,6 +47,16 @@ class PartialProxyCheck(HealthCheck):
     policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "45 6 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        unproxied = issue.payload.get("unproxied_hosts") or []
+        summary = (
+            f"{len(unproxied)} host(s) lack a reverse proxy: {', '.join(unproxied[:3])}"
+            if unproxied
+            else issue.payload.get("reason", "Reverse proxy is only configured on some hostnames")
+        )
+        return AlertContent(title="Partial reverse-proxy coverage", summary=summary, link="/web/health")
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(

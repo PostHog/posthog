@@ -33,11 +33,9 @@ import type {
     PaginatedLogsAlertEventListApi,
     PaginatedLogsSamplingRuleListApi,
     PaginatedLogsViewListApi,
-    PaginatedPluginLogEntryListApi,
     PatchedLogsAlertConfigurationApi,
     PatchedLogsSamplingRuleApi,
     PatchedLogsViewApi,
-    PluginConfigsLogsListParams,
     _LogsAttributesResponseApi,
     _LogsCountRangesRequestApi,
     _LogsCountRangesResponseApi,
@@ -68,149 +66,6 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
-
-export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/explainLogWithAI/`
-}
-
-/**
- * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
- */
-export const logsExplainLogWithAICreate = async (
-    projectId: string,
-    explainRequestApi: ExplainRequestApi,
-    options?: RequestInit
-): Promise<ExplainRequestApi> => {
-    return apiMutator<ExplainRequestApi>(getLogsExplainLogWithAICreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(explainRequestApi),
-    })
-}
-
-export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/logs/views/?${stringifiedParams}`
-        : `/api/environments/${projectId}/logs/views/`
-}
-
-export const logsViewsList = async (
-    projectId: string,
-    params?: LogsViewsListParams,
-    options?: RequestInit
-): Promise<PaginatedLogsViewListApi> => {
-    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsViewsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/logs/views/`
-}
-
-export const logsViewsCreate = async (
-    projectId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
-    })
-}
-
-export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsRetrieve = async (
-    projectId: string,
-    shortId: string,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsUpdate = async (
-    projectId: string,
-    shortId: string,
-    logsViewApi: NonReadonly<LogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(logsViewApi),
-    })
-}
-
-export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsPartialUpdate = async (
-    projectId: string,
-    shortId: string,
-    patchedLogsViewApi?: NonReadonly<PatchedLogsViewApi>,
-    options?: RequestInit
-): Promise<LogsViewApi> => {
-    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedLogsViewApi),
-    })
-}
-
-export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
-    return `/api/environments/${projectId}/logs/views/${shortId}/`
-}
-
-export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
-    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
-}
-
-export const domainsScimLogsRetrieve = async (
-    organizationId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
 
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -490,6 +345,28 @@ export const logsCountRangesCreate = async (
     })
 }
 
+export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/explainLogWithAI/`
+}
+
+/**
+ * Explain a log entry using AI.
+
+POST /api/environments/:id/logs/explainLogWithAI/
+ */
+export const logsExplainLogWithAICreate = async (
+    projectId: string,
+    explainRequestApi: ExplainRequestApi,
+    options?: RequestInit
+): Promise<ExplainRequestApi> => {
+    return apiMutator<ExplainRequestApi>(getLogsExplainLogWithAICreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(explainRequestApi),
+    })
+}
+
 export const getLogsExportCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/logs/export/`
 }
@@ -753,11 +630,7 @@ export const logsValuesRetrieve = async (
     })
 }
 
-export const getPluginConfigsLogsListUrl = (
-    projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams
-) => {
+export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -769,19 +642,97 @@ export const getPluginConfigsLogsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/plugin_configs/${pluginConfigId}/logs/`
+        ? `/api/projects/${projectId}/logs/views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/logs/views/`
 }
 
-export const pluginConfigsLogsList = async (
+export const logsViewsList = async (
     projectId: string,
-    pluginConfigId: number,
-    params?: PluginConfigsLogsListParams,
+    params?: LogsViewsListParams,
     options?: RequestInit
-): Promise<PaginatedPluginLogEntryListApi> => {
-    return apiMutator<PaginatedPluginLogEntryListApi>(getPluginConfigsLogsListUrl(projectId, pluginConfigId, params), {
+): Promise<PaginatedLogsViewListApi> => {
+    return apiMutator<PaginatedLogsViewListApi>(getLogsViewsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/views/`
+}
+
+export const logsViewsCreate = async (
+    projectId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsViewsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsUpdate = async (
+    projectId: string,
+    shortId: string,
+    logsViewApi: NonReadonly<LogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsViewApi),
+    })
+}
+
+export const getLogsViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedLogsViewApi?: NonReadonly<PatchedLogsViewApi>,
+    options?: RequestInit
+): Promise<LogsViewApi> => {
+    return apiMutator<LogsViewApi>(getLogsViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedLogsViewApi),
+    })
+}
+
+export const getLogsViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/logs/views/${shortId}/`
+}
+
+export const logsViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getLogsViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

@@ -144,6 +144,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `flags` - flags
  * `llm_analytics` - llm_analytics
  * `sandbox` - sandbox
+ * `user_interview` - user_interview
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -159,6 +160,7 @@ export const AgentModeEnumApi = {
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
     Sandbox: 'sandbox',
+    UserInterview: 'user_interview',
 } as const
 
 /**
@@ -277,31 +279,6 @@ export interface PatchedConversationApi {
   Combines metadata from conversation.approval_decisions with payload from checkpoint
   interrupts (single source of truth for payload data). */
     readonly pending_approvals?: readonly PatchedConversationApiPendingApprovalsItem[]
-}
-
-/**
- * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
- */
-export type TicketViewApiFilters = { [key: string]: unknown }
-
-export interface TicketViewApi {
-    readonly id: string
-    readonly short_id: string
-    /** @maxLength 400 */
-    name: string
-    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
-    filters?: TicketViewApiFilters
-    readonly created_at: string
-    readonly created_by: UserBasicApi
-}
-
-export interface PaginatedTicketViewListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TicketViewApi[]
 }
 
 /**
@@ -642,18 +619,32 @@ export interface ComposeTicketResponseApi {
     ticket_number: number
 }
 
-export type ConversationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+/**
+ * Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.
+ */
+export type TicketViewApiFilters = { [key: string]: unknown }
+
+export interface TicketViewApi {
+    readonly id: string
+    readonly short_id: string
+    /** @maxLength 400 */
+    name: string
+    /** Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys. */
+    filters?: TicketViewApiFilters
+    readonly created_at: string
+    readonly created_by: UserBasicApi
 }
 
-export type ConversationsViewsListParams = {
+export interface PaginatedTicketViewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TicketViewApi[]
+}
+
+export type ConversationsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -755,3 +746,14 @@ export const ConversationsTicketsListSla = {
     Breached: 'breached',
     OnTrack: 'on-track',
 } as const
+
+export type ConversationsViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}

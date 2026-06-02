@@ -21,6 +21,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -307,6 +308,8 @@ class Breakdown:
 
         is_numeric_breakdown = isinstance(histogram_bin_count, int)
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             left = strip_user_aliases(parse_expr(breakdown_value))
         else:
@@ -317,6 +320,13 @@ class Breakdown:
                     group_type_index=group_type_index,
                 )
             )
+
+        if is_numeric_breakdown:
+            # The bin bounds are numeric — coerce the property so the comparison
+            # matches the toFloat() column built in _get_breakdown_col_expr.
+            # HogQL toFloat maps to accurateCastOrNull, so non-numeric values
+            # become NULL and drop out of the comparison rather than throwing.
+            left = ast.Call(name="toFloat", args=[left])
 
         if lookup_value == BREAKDOWN_NULL_STRING_LABEL:
             none_expr = ast.CompareOperation(left=left, op=ast.CompareOperationOp.Eq, right=ast.Constant(value=None))
@@ -411,6 +421,8 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
+        if breakdown_type == "hogql":
+            tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             inner = strip_user_aliases(parse_expr(cast(str, value)))
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))
@@ -422,9 +434,14 @@ class Breakdown:
         )
 
         if histogram_bin_count is not None:
+            # Histogram bin math (max - min, divide, ...) requires a numeric column.
+            # The property is not always numeric-typed (so the property-type swapper
+            # would not coerce it), so coerce it here to avoid an illegal-type error.
+            # HogQL toFloat maps to accurateCastOrNull, so a stray non-numeric
+            # value buckets as NULL instead of throwing and failing the query.
             return ast.Alias(
                 alias=alias,
-                expr=ast.Field(chain=properties_chain),
+                expr=ast.Call(name="toFloat", args=[ast.Field(chain=properties_chain)]),
             )
 
         return ast.Alias(

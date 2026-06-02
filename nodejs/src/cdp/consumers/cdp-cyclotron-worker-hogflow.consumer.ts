@@ -2,6 +2,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { PluginsServerConfig } from '~/types'
 
 import { logger } from '../../utils/logger'
+import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
@@ -10,8 +11,8 @@ import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     protected override name = 'CdpCyclotronWorkerHogFlow'
 
-    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
-        super(config, deps, 'hogflow')
+    constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps, jobQueue: JobQueue) {
+        super(config, deps, jobQueue, 'hogflow')
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -76,6 +77,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         distinctId: hogFlowInvocationState.event?.distinct_id || hogFlowInvocationState.personId,
                         invocationId: item.id,
                     })
+                }
+
+                // Batch-triggered invocations arrive with an empty event.distinct_id because the
+                // blast-radius query returns UUIDs only. The person lookup above resolves one
+                // distinct_id for us (when the person has any), so backfill it here so templates
+                // defaulting to `{event.distinct_id}` resolve at hog runtime.
+                if (!hogFlowInvocationState.event.distinct_id && person?.distinct_id) {
+                    hogFlowInvocationState.event.distinct_id = person.distinct_id
                 }
 
                 const filterGlobals = convertToHogFunctionFilterGlobal({

@@ -5,6 +5,9 @@ import type { Schemas } from '@/api/generated'
 import {
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsActivityRetrieveQueryParams,
+    FeatureFlagsBulkDeleteCreateBody,
+    FeatureFlagsBulkKeysRetrieveBody,
+    FeatureFlagsBulkUpdateTagsCreateBody,
     FeatureFlagsCopyFlagsCreateBody,
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
@@ -175,6 +178,84 @@ const featureFlagsActivityRetrieve = (): ToolBase<
                 limit: params.limit,
                 page: params.page,
             },
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody
+
+const featureFlagsBulkDeleteCreate = (): ToolBase<
+    typeof FeatureFlagsBulkDeleteCreateSchema,
+    Schemas.BulkDeleteResponse
+> => ({
+    name: 'feature-flags-bulk-delete-create',
+    schema: FeatureFlagsBulkDeleteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkDeleteCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.BulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkKeysRetrieveSchema = FeatureFlagsBulkKeysRetrieveBody
+
+const featureFlagsBulkKeysRetrieve = (): ToolBase<
+    typeof FeatureFlagsBulkKeysRetrieveSchema,
+    Schemas.BulkKeysResponse
+> => ({
+    name: 'feature-flags-bulk-keys-retrieve',
+    schema: FeatureFlagsBulkKeysRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.BulkKeysResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_keys/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkUpdateTagsCreateSchema = FeatureFlagsBulkUpdateTagsCreateBody
+
+const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
+    typeof FeatureFlagsBulkUpdateTagsCreateSchema,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'feature-flags-bulk-update-tags-create',
+    schema: FeatureFlagsBulkUpdateTagsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkUpdateTagsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_update_tags/`,
+            body,
         })
         return result
     },
@@ -548,6 +629,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
+    'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
+    'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
+    'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
     'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
     'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,

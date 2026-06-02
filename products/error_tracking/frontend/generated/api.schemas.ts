@@ -489,6 +489,16 @@ export interface ErrorTrackingGroupingRuleCreateRequestApi {
     description?: string | null
 }
 
+export interface ErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
+export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
+    /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi | null
+}
+
 /**
  * @nullable
  */
@@ -1002,10 +1012,10 @@ export interface ErrorTrackingIssueEventsResponseApi {
  * `suppressed` - suppressed
  * `all` - all
  */
-export type ErrorTrackingIssuesListQueryRequestStatusEnumApi =
-    (typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi)[keyof typeof ErrorTrackingIssuesListQueryRequestStatusEnumApi]
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
 
-export const ErrorTrackingIssuesListQueryRequestStatusEnumApi = {
+export const ErrorTrackingIssueStatusEnumApi = {
     Archived: 'archived',
     Active: 'active',
     Resolved: 'resolved',
@@ -1053,7 +1063,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
   * `pending_release` - pending_release
   * `suppressed` - suppressed
   * `all` - all */
-    status?: ErrorTrackingIssuesListQueryRequestStatusEnumApi
+    status?: ErrorTrackingIssueStatusEnumApi
     /** Filter by issue assignee. Omit to include all assignees. */
     assignee?: ErrorTrackingAssigneeApi | null
     /** When true, exclude internal/test account data from results. Defaults to true. */
@@ -1233,6 +1243,35 @@ export interface PaginatedErrorTrackingRecommendationListApi {
     results: ErrorTrackingRecommendationApi[]
 }
 
+export interface ErrorTrackingReleaseApi {
+    readonly id: string
+    hash_id: string
+    readonly team_id: number
+    readonly created_at: string
+    metadata?: unknown
+    version: string
+    project: string
+}
+
+export interface PaginatedErrorTrackingReleaseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingReleaseApi[]
+}
+
+export interface PatchedErrorTrackingReleaseApi {
+    readonly id?: string
+    hash_id?: string
+    readonly team_id?: number
+    readonly created_at?: string
+    metadata?: unknown
+    version?: string
+    project?: string
+}
+
 export interface ErrorTrackingSettingsApi {
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -1348,16 +1387,6 @@ export interface PaginatedErrorTrackingSpikeEventListApi {
     results: ErrorTrackingSpikeEventApi[]
 }
 
-export interface ErrorTrackingReleaseApi {
-    readonly id: string
-    hash_id: string
-    readonly team_id: number
-    readonly created_at: string
-    metadata?: unknown
-    version: string
-    project: string
-}
-
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
     /** Raw frame ID in 'hash/part' format */
@@ -1406,7 +1435,29 @@ export interface ErrorTrackingSuppressionRuleCreateRequestApi {
     /** Optional property-group filters that define which incoming error events should be suppressed. Omit this field or provide an empty `values` array to create a match-all suppression rule. */
     filters?: PropertyGroupFilterValueApi
     /**
-     * Fraction of matching events to suppress. Use `1.0` to suppress all matching events.
+     * Probability that a matching event is dropped. `1.0` drops every match (default); `0.0` drops none; `0.5` drops half. Higher values suppress more.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface ErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
+     * @minimum 0
+     * @maximum 1
+     */
+    sampling_rate?: number
+}
+
+export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events should be suppressed. Provide an empty `values` array to convert the rule into a match-all suppression. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+    /**
+     * Probability that a matching event is dropped. `1.0` drops every match; `0.0` drops none; `0.5` drops half. Higher values suppress more. Omit to preserve the existing rate.
      * @minimum 0
      * @maximum 1
      */
@@ -1425,25 +1476,6 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     sampling_rate?: number
     readonly created_at?: string
     readonly updated_at?: string
-}
-
-export interface PaginatedErrorTrackingReleaseListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ErrorTrackingReleaseApi[]
-}
-
-export interface PatchedErrorTrackingReleaseApi {
-    readonly id?: string
-    hash_id?: string
-    readonly team_id?: number
-    readonly created_at?: string
-    metadata?: unknown
-    version?: string
-    project?: string
 }
 
 /**
@@ -1541,6 +1573,8 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
     symbol_sets?: ErrorTrackingSymbolSetUploadApi[]
     /** Whether to overwrite uploaded symbol sets whose content hash changed. */
     force?: boolean
+    /** Whether to skip uploaded symbol sets whose content hash changed instead of failing. */
+    skip_on_conflict?: boolean
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
@@ -1644,6 +1678,17 @@ export type ErrorTrackingRecommendationsListParams = {
     offset?: number
 }
 
+export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
@@ -1667,17 +1712,6 @@ export type ErrorTrackingStackFramesListParams = {
 }
 
 export type ErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
      */
