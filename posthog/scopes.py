@@ -36,7 +36,6 @@ APIScopeObject = Literal[
     "event_filter",
     "dashboard_template",
     "dataset",
-    "deployment",
     "desktop_recording",
     "early_access_feature",
     "endpoint",
