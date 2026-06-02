@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.calendly.calendly import (
     validate_credentials,
 )
 from posthog.temporal.data_imports.sources.calendly.settings import CALENDLY_ENDPOINTS, ENDPOINTS
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 ORG_URI = "https://api.calendly.com/organizations/ABC123"
 
@@ -50,7 +51,8 @@ class FakeSession:
         return self._responses.pop(0)
 
 
-class StubResumeManager:
+class StubResumeManager(ResumableSourceManager[CalendlyResumeConfig]):
+    # Overrides every method `get_rows` touches, so the Redis-bound base `__init__` is skipped.
     def __init__(self, resume_state: Optional[CalendlyResumeConfig] = None):
         self._resume_state = resume_state
         self.saved_states: list[CalendlyResumeConfig] = []
@@ -183,6 +185,18 @@ class TestGetRows:
         batches = self._run(session, StubResumeManager())
 
         assert batches == []
+
+    def test_empty_page_mid_pagination_does_not_terminate_early(self) -> None:
+        # An empty page that still advertises a next_page must not end the sync.
+        empty_page = FakeResponse(
+            200, {"collection": [], "pagination": {"next_page": f"{CALENDLY_BASE_URL}/event_types?page=2"}}
+        )
+        last_page = FakeResponse(200, {"collection": [{"uri": "a"}], "pagination": {"next_page": None}})
+        session = FakeSession([_users_me_response(), empty_page, last_page])
+
+        batches = self._run(session, StubResumeManager())
+
+        assert batches == [[{"uri": "a"}]]
 
     def test_resume_skips_users_me_and_starts_from_saved_url(self) -> None:
         resume_url = f"{CALENDLY_BASE_URL}/event_types?page=5"

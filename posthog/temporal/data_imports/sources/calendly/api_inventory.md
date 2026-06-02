@@ -13,13 +13,13 @@ Calendly REST API v2 — base URL `https://api.calendly.com`. Auth via a Persona
 
 ## Endpoints synced
 
-| Endpoint                   | Path                        | Incremental                         | Notes                                       |
-| -------------------------- | --------------------------- | ----------------------------------- | ------------------------------------------- |
-| `event_types`              | `/event_types`              | full refresh                        | no server-side time filter                  |
-| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`)  | `sort=start_time:asc`                       |
-| `groups`                   | `/groups`                   | full refresh                        | no server-side time filter                  |
-| `organization_memberships` | `/organization_memberships` | full refresh                        | no server-side time filter                  |
-| `routing_forms`            | `/routing_forms`            | full refresh                        | no server-side time filter                  |
+| Endpoint                   | Path                        | Incremental                        | Notes                      |
+| -------------------------- | --------------------------- | ---------------------------------- | -------------------------- |
+| `event_types`              | `/event_types`              | full refresh                       | no server-side time filter |
+| `scheduled_events`         | `/scheduled_events`         | `min_start_time` (on `start_time`) | `sort=start_time:asc`      |
+| `groups`                   | `/groups`                   | full refresh                       | no server-side time filter |
+| `organization_memberships` | `/organization_memberships` | full refresh                       | no server-side time filter |
+| `routing_forms`            | `/routing_forms`            | full refresh                       | no server-side time filter |
 
 ## Verification status & caveats
 

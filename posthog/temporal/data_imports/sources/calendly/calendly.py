@@ -52,16 +52,17 @@ def validate_credentials(token: str) -> bool:
         return False
 
 
-def get_current_organization(token: str) -> str | None:
+def get_current_organization(token: str) -> str:
     """Resolve the organization URI for the token via `/users/me`.
 
-    Every list endpoint we sync is scoped by this URI.
+    Every list endpoint we sync is scoped by this URI, so we access it directly and let a
+    malformed response surface immediately as a KeyError rather than degrading to None.
     """
     response = make_tracked_session().get(
         f"{CALENDLY_BASE_URL}/users/me", headers=_get_headers(token), timeout=REQUEST_TIMEOUT
     )
     response.raise_for_status()
-    return response.json().get("resource", {}).get("current_organization")
+    return response.json()["resource"]["current_organization"]
 
 
 def _build_initial_params(
@@ -102,9 +103,6 @@ def get_rows(
         logger.debug(f"Calendly: resuming from URL: {url}")
     else:
         organization = get_current_organization(token) if config.scope_param == "organization" else None
-        if config.scope_param == "organization" and not organization:
-            raise Exception("Could not determine the Calendly organization for the provided token")
-
         params = _build_initial_params(
             config, organization, should_use_incremental_field, db_incremental_field_last_value
         )
@@ -134,11 +132,11 @@ def get_rows(
         data = fetch_page(url)
 
         items = data.get("collection", [])
-        if not items:
-            break
+        if items:
+            yield items
 
-        yield items
-
+        # Keep paginating until the API signals completion with a null next_page, even if an
+        # individual page came back empty.
         next_url = data.get("pagination", {}).get("next_page")
         if not next_url:
             break
