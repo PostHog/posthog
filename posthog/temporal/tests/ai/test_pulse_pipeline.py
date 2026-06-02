@@ -1,10 +1,11 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from asgiref.sync import sync_to_async
 
 from posthog.models.pulse import PulseDigest, PulseDigestStatus, PulseFinding
 from posthog.models.scoping import team_scope
-from posthog.temporal.ai.pulse.delivery import persist_findings
+from posthog.temporal.ai.pulse.delivery import _emit_pulse_events_sync, persist_findings
 from posthog.temporal.ai.pulse.types import EnrichedFinding, MetricDescriptor
 from posthog.temporal.ai.pulse.workflow import create_or_get_digest_activity, set_workflow_run_id_activity
 
@@ -25,6 +26,83 @@ def _enriched(label: str = "$pageview", evidence: dict | None = None) -> Enriche
         evidence=evidence,
         narrative="Pageviews dropped by half.",
     )
+
+
+class TestEmitPulseEvents:
+    def _signup_finding(self) -> EnrichedFinding:
+        return EnrichedFinding(
+            descriptor=MetricDescriptor(
+                source="recent_insight",
+                source_id="abc",
+                label="signup_started",
+                query={"kind": "TrendsQuery"},
+                url="/insights/abc123",
+            ),
+            current_value=179.0,
+            baseline_value=85.0,
+            change_pct=1.11,
+            impact=12.0,
+            robust_z=4.0,
+            attribution_breakdown={"property": "$browser", "value": "Chrome"},
+            evidence=None,
+            narrative="Concentrated in Chrome.",
+        )
+
+    def test_emits_one_event_per_finding_into_team_project(self):
+        findings = [self._signup_finding(), _enriched(label="checkout_started")]
+        captured: list[dict] = []
+
+        def _fake_capture(**kwargs):
+            captured.append(kwargs)
+            return MagicMock()  # response.raise_for_status() is a no-op
+
+        with (
+            patch("posthog.api.capture.capture_internal", side_effect=_fake_capture) as mock_capture,
+            patch("posthog.temporal.ai.pulse.delivery.Team") as mock_team,
+        ):
+            mock_team.objects.filter.return_value.first.return_value = MagicMock(api_token="phc_x")
+            _emit_pulse_events_sync(team_id=7, digest_id="dig1", findings=findings)
+
+        assert mock_capture.call_count == 2
+        first = captured[0]
+        assert first["event_name"] == "pulse_finding_surfaced"
+        assert first["token"] == "phc_x"
+        assert first["event_source"] == "pulse"
+        assert first["process_person_profile"] is False
+        props = first["properties"]
+        assert props["pulse_digest_id"] == "dig1"
+        assert props["metric"] == "signup_started"
+        assert props["segment_property"] == "$browser"
+        assert props["segment_value"] == "Chrome"
+        assert props["absolute_change"] == 94.0
+        assert props["source_url"] == "/pulse?digest=dig1"
+        assert props["insight_url"] == "/insights/abc123"
+
+    def test_best_effort_on_capture_failure_does_not_raise(self):
+        findings = [_enriched(label="a"), _enriched(label="b")]
+        with (
+            patch("posthog.api.capture.capture_internal", side_effect=RuntimeError("capture down")) as mock_capture,
+            patch("posthog.temporal.ai.pulse.delivery.Team") as mock_team,
+        ):
+            mock_team.objects.filter.return_value.first.return_value = MagicMock(api_token="phc_x")
+            # Must not raise — a capture failure is best-effort and never blocks delivery.
+            _emit_pulse_events_sync(team_id=7, digest_id="dig1", findings=findings)
+        assert mock_capture.call_count == 2  # attempted every finding despite failures
+
+    def test_no_events_without_findings(self):
+        with patch("posthog.api.capture.capture_internal") as mock_capture:
+            _emit_pulse_events_sync(team_id=7, digest_id="dig1", findings=[])
+        mock_capture.assert_not_called()
+
+    def test_no_events_if_team_missing(self):
+        # Team deleted between scheduling and emit -> silently skip, never raise (best-effort).
+        with (
+            patch("posthog.api.capture.capture_internal") as mock_capture,
+            patch("posthog.temporal.ai.pulse.delivery.Team") as mock_team,
+        ):
+            mock_team.objects.filter.return_value.first.return_value = None
+            _emit_pulse_events_sync(team_id=7, digest_id="dig1", findings=[_enriched(label="a")])
+        mock_capture.assert_not_called()
 
 
 @pytest.mark.asyncio

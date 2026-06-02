@@ -12,7 +12,7 @@ from posthog.models.pulse import PulseDigestStatus, PulseSubscription
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse import metrics
-from posthog.temporal.ai.pulse.delivery import notify_digest, persist_findings
+from posthog.temporal.ai.pulse.delivery import emit_pulse_events, notify_digest, persist_findings
 from posthog.temporal.ai.pulse.detection import detect_changes
 from posthog.temporal.ai.pulse.narrative import enrich_findings, synthesize_digest
 from posthog.temporal.ai.pulse.selection import select_candidates
@@ -133,6 +133,18 @@ async def persist_findings_activity(inputs: DeliverDigestInputs) -> list[str]:
 async def notify_digest_activity(inputs: DeliverDigestInputs) -> None:
     """Fan out one in-app notification per team member. Idempotent across Temporal retries."""
     await notify_digest(
+        team_id=inputs.team_id,
+        digest_id=inputs.digest_id,
+        findings=inputs.findings,
+    )
+
+
+@activity.defn
+async def emit_pulse_events_activity(inputs: DeliverDigestInputs) -> None:
+    """Emit a ``pulse_finding_surfaced`` event per finding into the team's own project so customers can
+    trigger CDP destinations / workflows (Slack, webhook, ...) on Pulse findings. Best-effort and additive:
+    a single attempt, and a capture failure never blocks the digest."""
+    await emit_pulse_events(
         team_id=inputs.team_id,
         digest_id=inputs.digest_id,
         findings=inputs.findings,
@@ -360,6 +372,25 @@ class PulseScanWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=retry_policy,
             )
+
+            # Emit pulse_finding_surfaced events into the team's own project (a CDP/workflow trigger) as a
+            # best-effort side effect AFTER the digest is already DELIVERED — a slow or failed emit must
+            # never block delivery or flip a successful digest to FAILED, so swallow its errors here. (A
+            # manual re-scan of the same period may re-emit; consumers can dedupe on pulse_digest_id +
+            # pulse_finding_rank.)
+            try:
+                await workflow.execute_activity(
+                    emit_pulse_events_activity,
+                    DeliverDigestInputs(
+                        team_id=inputs.team_id,
+                        digest_id=digest_id,
+                        findings=enriched,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=60),
+                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                workflow.logger.warning("pulse_emit_events_activity_failed", extra={"digest_id": digest_id})
 
             metrics.increment_scan_outcome("delivered")
             metrics.record_finding_count(len(enriched))
