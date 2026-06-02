@@ -24,6 +24,7 @@
         "cf-typegen": "wrangler types",
         "inspector": "npx @modelcontextprotocol/inspector npx -y mcp-remote@latest http://localhost:8787/mcp",
         "build:hono": "tsx scripts/build-hono.ts",
+        "build:cli": "tsx scripts/build-cli.ts",
         "dev:hono": "tsx scripts/dev-hono.ts",
         "test": "vitest",
         "test:integration": "vitest run --config vitest.integration.config.mts",
