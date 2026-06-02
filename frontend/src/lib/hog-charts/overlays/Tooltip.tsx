@@ -1,4 +1,4 @@
-import { flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
+import { autoUpdate, flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
 import React, { useLayoutEffect, useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
@@ -67,6 +67,11 @@ export function Tooltip<Meta = unknown>({
         placement: placement === 'follow-data' ? 'right' : 'right-start',
         strategy: 'fixed',
         middleware: TOOLTIP_MIDDLEWARE,
+        // Re-run the middleware (notably `flip`/`shift`) once the portaled tooltip reaches its
+        // real `max-content` size and whenever the page scrolls/resizes — without this the first
+        // position is computed against a still-zero-width element, so `flip` never kicks in and
+        // the tooltip can stay clipped off the right edge (e.g. on the last bar of a chart).
+        whileElementsMounted: autoUpdate,
     })
 
     useLayoutEffect(() => {

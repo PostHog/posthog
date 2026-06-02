@@ -49,23 +49,24 @@ jobs:
                   SHAME_BODY="Hey @${PR_ACTOR}! 👋\nThis pull request seems to contain no description. Please add useful context, rationale, and/or any other information that will help make sense of this change now and in the distant Mars-based future."
                   gh pr comment "$PR_NUMBER" --body "$SHAME_BODY"
 
-    check-author-email:
-        name: Nudge org members using a non-PostHog git email
+    author-hygiene:
+        name: Assign PR author and nudge non-PostHog git email
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Only on the initial `opened` action (not `ready_for_review`), so it
-        # fires exactly once. Drafts are fine — we still want to nudge early.
+        # fires exactly once. Drafts are fine — we still assign + nudge early.
         if: github.event.action == 'opened'
 
         steps:
-            # GitHub App token is required because GITHUB_TOKEN can't read
-            # org-private memberships (a private member looks like a non-member).
-            # `owner`/`repositories` keep the token narrow while still scoping it at
-            # the org, so the org-level `Members: read` permission flows through —
-            # without `owner` the token is repo-scoped and that permission is dropped
-            # (see ci-backend.yml). On PRs from forks the secrets aren't available,
-            # so this step is allowed to fail — external contributors are never nudged.
-            - name: Get app token for org membership check
+            # Shared app token for both steps below. GITHUB_TOKEN can't read
+            # org-private memberships (a private member looks like a non-member),
+            # and we reuse it for assignment too. `owner`/`repositories` keep the
+            # token narrow while still scoping it at the org, so the org-level
+            # `Members: read` permission flows through — without `owner` the token
+            # is repo-scoped and that permission is dropped (see ci-backend.yml).
+            # On PRs from forks the secrets aren't available, so this step is
+            # allowed to fail — external contributors are never assigned or nudged.
+            - name: Get app token
               id: app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -100,6 +101,35 @@ jobs:
                               core.setOutput('is-member', 'false');
                           }
                       }
+
+            # The author is the PR's DRI, so assign them to their own PR: this is
+            # the field dashboards and "what's on my plate" filters key off, and it
+            # gives a single owner to poke. Only for confirmed org members, only
+            # when no assignee is set yet (don't clobber a deliberate one), and
+            # never for bot accounts — `[bot]` apps aren't org members, but machine
+            # users like `posthog-bot` are, so exclude them explicitly (matching the
+            # bot definition in ci-mcp.yml). Never fail the PR over it.
+            - name: Assign the author to their own PR
+              if: >-
+                  steps.membership.outputs.is-member == 'true' &&
+                  github.event.pull_request.assignees[0] == null &&
+                  !contains(github.event.pull_request.user.login, '[bot]') &&
+                  github.event.pull_request.user.login != 'posthog-bot' &&
+                  !contains(github.event.pull_request.user.login, 'github-actions')
+              continue-on-error: true
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              with:
+                  github-token: ${{ steps.app-token.outputs.token }}
+                  script: |
+                      await github.rest.issues.addAssignees({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: parseInt(process.env.PR_NUMBER, 10),
+                          assignees: [process.env.PR_AUTHOR],
+                      });
 
             - name: Nudge if commits use a non-PostHog email
               if: steps.membership.outputs.is-member == 'true'

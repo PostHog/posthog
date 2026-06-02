@@ -13,6 +13,7 @@ export enum SignalSourceProduct {
     ENDPOINTS = 'endpoints',
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
+    LOGS = 'logs',
 }
 
 export enum SignalSourceType {
@@ -27,6 +28,7 @@ export enum SignalSourceType {
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
+    ALERT_STATE_CHANGE = 'alert_state_change',
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -330,6 +332,30 @@ export interface SignalsScoutSignalInput {
     extra: SignalsScoutSignalExtra
 }
 
+// Logs alert notification (firing / broken)
+
+export interface LogsAlertStateChangeSignalExtra {
+    alert_id: string
+    alert_name: string
+    action: 'firing' | 'broken'
+    threshold_count: number
+    threshold_operator: 'above' | 'below'
+    window_minutes: number
+    result_count: number | null
+    consecutive_failures: number
+    filters: Record<string, unknown>
+    url: string
+}
+
+export interface LogsAlertStateChangeSignalInput {
+    source_type: 'alert_state_change'
+    source_product: 'logs'
+    source_id: string
+    description: string
+    weight: number
+    extra: LogsAlertStateChangeSignalExtra
+}
+
 // ── Report reviewer types ────────────────────────────────────────────────────────
 
 export interface RelevantCommit {
@@ -370,3 +396,4 @@ export type SignalInput =
     | EndpointExecutionFailedSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
+    | LogsAlertStateChangeSignalInput
