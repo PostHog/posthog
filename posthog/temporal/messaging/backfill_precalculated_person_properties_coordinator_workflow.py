@@ -20,6 +20,15 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
 from posthog.temporal.messaging.hogql_compile import compile_hogql_for_streaming
 
 
+def _combine_where(exprs: list[ast.Expr]) -> ast.Expr | None:
+    """Combine a list of WHERE expressions with AND, or return None for an empty list."""
+    if not exprs:
+        return None
+    if len(exprs) == 1:
+        return exprs[0]
+    return ast.And(exprs=exprs)
+
+
 @dataclasses.dataclass
 class PersonIdRangesPageInputs:
     """Inputs for fetching a page of person ID ranges."""
@@ -74,7 +83,7 @@ async def get_person_id_ranges_page_activity(inputs: PersonIdRangesPageInputs) -
     ranges_query_ast = ast.SelectQuery(
         select=[ast.Alias(alias="person_id", expr=ast.Field(chain=["id"]))],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
-        where=ast.And(exprs=where_exprs) if len(where_exprs) > 1 else (where_exprs[0] if where_exprs else None),
+        where=_combine_where(where_exprs),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
         limit=ast.Constant(value=query_limit),
     )

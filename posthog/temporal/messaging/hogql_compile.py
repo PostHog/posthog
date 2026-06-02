@@ -5,10 +5,10 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
 
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 
 
-@database_sync_to_async
+@database_sync_to_async_pool
 def compile_hogql_for_streaming(node: ast.SelectQuery, *, team_id: int) -> tuple[str, dict[str, Any]]:
     """Compile a HogQL ``SelectQuery`` to ClickHouse SQL for the streaming HTTP client.
 

@@ -532,6 +532,9 @@ async def backfill_precalculated_person_properties_activity(
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=ast.And(exprs=where_exprs),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["id"]), order="ASC")],
+            # No explicit limit: compile_hogql_for_streaming uses LimitContext.COHORT_CALCULATION,
+            # which injects LIMIT 1_000_000_000. ID ranges are bounded by batch_size (default
+            # 1000 persons), so this cap is never reached in practice.
         )
 
         persons_query, query_params = await compile_hogql_for_streaming(persons_query_ast, team_id=inputs.team_id)
