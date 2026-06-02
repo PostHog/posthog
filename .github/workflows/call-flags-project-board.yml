@@ -12,7 +12,7 @@ permissions:
 
 jobs:
     call-flags-project:
-        uses: PostHog/.github/.github/workflows/flags-project-board.yml@b6cef416551ce8e557d57e1bb4f6766da7389b4e
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@d8b55d05dc5150f05c24542a6397ff3ecfbfb56d
         # Only on PostHog/posthog, as there's no GitHub token on forks
         if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
         with:

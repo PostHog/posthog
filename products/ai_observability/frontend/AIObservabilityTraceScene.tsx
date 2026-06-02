@@ -39,7 +39,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -49,7 +48,7 @@ import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { identifierToHuman, pluralize } from 'lib/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -71,8 +70,10 @@ import { EvalResultBadges } from './components/EvalResultBadges'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { EventContentDisplayAsync, EventContentGeneration } from './components/EventContentWithAsyncData'
 import { FeedbackTag } from './components/FeedbackTag'
+import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
+import { TagsTabContent } from './components/TagsTabContent'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -1410,20 +1411,12 @@ function EventContentDisplay({
         <LLMInputOutput
             inputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
-                    {isObject(input) ? (
-                        <HighlightedJSONViewer src={input} collapsed={4} searchQuery={searchQuery} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={input} collapsed={4} searchQuery={searchQuery} />
                 </div>
             }
             outputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-success-tertiary)]">
-                    {isObject(output) ? (
-                        <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
-                    ) : (
-                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
-                    )}
+                    <JSONValueDisplay value={output} collapsed={4} searchQuery={searchQuery} />
                 </div>
             }
         />
@@ -1482,6 +1475,16 @@ const EventContent = React.memo(
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const showEvalsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
+        const showTagsTab = effectiveGenerationEvent && !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TAGS]
+
+        // If the user is viewing the Tags tab but it's no longer available (flag off or
+        // they moved off a generation event), fall back to the default view so the panel
+        // doesn't render blank.
+        useEffect(() => {
+            if (viewMode === TraceViewMode.Tags && !showTagsTab) {
+                setViewMode(TraceViewMode.Conversation)
+            }
+        }, [viewMode, showTagsTab, setViewMode])
 
         const showSummaryTab =
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
@@ -1787,6 +1790,16 @@ const EventContent = React.memo(
                                                       distinctId={trace.distinctId}
                                                   />
                                               ),
+                                          },
+                                      ]
+                                    : []),
+                                ...(showTagsTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Tags,
+                                              label: 'Tags',
+                                              'data-attr': 'llma-trace-tags-tab',
+                                              content: <TagsTabContent generationEventId={event.id} />,
                                           },
                                       ]
                                     : []),

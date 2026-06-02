@@ -53,6 +53,7 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.business_knowledge",
     "products.user_interviews",
     "products.warehouse_sources",
 ]
@@ -176,6 +177,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.ai_observability",
+    "products.error_tracking",
     "products.mcp_analytics",
     "products.product_analytics",
 ]
@@ -349,6 +351,7 @@ path = "products.logs"
 depends_on = [
     "posthog",
     "products.cdp",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -462,12 +465,6 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.query_performance_ai"
-depends_on = ["products.tasks",
-]
-layer = "modules"
-
-[[modules]]
 path = "products.replay"
 depends_on = [
     "ee",
@@ -478,6 +475,7 @@ layer = "modules"
 [[modules]]
 path = "products.replay_vision"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -495,9 +493,21 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.actions",
+    "products.ai_observability",
+    "products.alerts",
+    "products.cdp",
+    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks", "products.warehouse_sources",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.product_analytics",
+    "products.surveys",
+    "products.tasks",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 

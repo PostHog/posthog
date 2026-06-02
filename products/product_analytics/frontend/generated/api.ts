@@ -73,8 +73,8 @@ export const getColumnConfigurationsListUrl = (projectId: string, params?: Colum
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/column_configurations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/column_configurations/`
+        ? `/api/projects/${projectId}/column_configurations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/column_configurations/`
 }
 
 export const columnConfigurationsList = async (
@@ -89,7 +89,7 @@ export const columnConfigurationsList = async (
 }
 
 export const getColumnConfigurationsCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/column_configurations/`
+    return `/api/projects/${projectId}/column_configurations/`
 }
 
 export const columnConfigurationsCreate = async (
@@ -106,7 +106,7 @@ export const columnConfigurationsCreate = async (
 }
 
 export const getColumnConfigurationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsRetrieve = async (
@@ -121,7 +121,7 @@ export const columnConfigurationsRetrieve = async (
 }
 
 export const getColumnConfigurationsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsUpdate = async (
@@ -139,7 +139,7 @@ export const columnConfigurationsUpdate = async (
 }
 
 export const getColumnConfigurationsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsPartialUpdate = async (
@@ -157,7 +157,7 @@ export const columnConfigurationsPartialUpdate = async (
 }
 
 export const getColumnConfigurationsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/column_configurations/${id}/`
+    return `/api/projects/${projectId}/column_configurations/${id}/`
 }
 
 export const columnConfigurationsDestroy = async (

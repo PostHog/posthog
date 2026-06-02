@@ -120,6 +120,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
+    LogsAlertNotificationDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsAlertNotificationDetailScene/LogsAlertNotificationDetailScene'),
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
@@ -243,6 +245,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
+    '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
     '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
@@ -657,6 +660,12 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze your logs to understand and fix issues.',
     },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
+    LogsAlertNotificationDetail: {
+        projectBased: true,
+        name: 'Destination',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+    },
     LogsSamplingNew: {
         projectBased: true,
         name: 'New drop rule',
@@ -1051,6 +1060,8 @@ export const productUrls = {
     logs: (): string => '/logs',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
+    logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
+        `/logs/alerts/${alertId}/notifications/${hogFunctionId}`,
     logsSamplingNew: (): string => '/logs/drop-rules/new',
     logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     managedMigration: (): string => '/managed_migrations',
@@ -1800,7 +1811,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
-        sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
+        sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsAlertNotificationDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
         path: 'MCP analytics',
