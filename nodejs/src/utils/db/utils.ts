@@ -8,11 +8,7 @@ import { BasePerson, InternalPerson, RawPerson, TimestampFormat } from '../../ty
 import { logger } from '../../utils/logger'
 import { castTimestampOrNow } from '../../utils/utils'
 import { PersonMessage } from '../../worker/ingestion/persons/person-message'
-import {
-    DEVICE_CONTEXT_PROPERTIES,
-    eventToPersonProperties,
-    isServerSideLib,
-} from '../../worker/ingestion/persons/person-property-utils'
+import { eventToPersonProperties, isServerSideLib } from '../../worker/ingestion/persons/person-property-utils'
 import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
@@ -70,16 +66,15 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     let $set: Record<string, any> | undefined
     let $set_once: Record<string, any> | undefined
 
-    // Server-side SDKs report the host's device/runtime context, not the user's. Don't lift it
-    // onto the person, or a backend event seen first permanently poisons sticky $initial_*.
-    const skipDeviceContext = isServerSideLib(properties.$lib)
+    // Don't lift a server SDK's host $os/$os_version onto the person (poisons sticky $initial_os).
+    const skipServerHostOs = isServerSideLib(properties.$lib)
 
     for (const key of eventToPersonProperties) {
         if (!(key in properties)) {
             continue
         }
 
-        if (skipDeviceContext && DEVICE_CONTEXT_PROPERTIES.has(key)) {
+        if (skipServerHostOs && (key === '$os' || key === '$os_version')) {
             continue
         }
 
@@ -112,7 +107,7 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
     // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
     const osName = properties.$os_name
-    if (osName !== undefined && !skipDeviceContext) {
+    if (osName !== undefined && !skipServerHostOs) {
         if (!('$os' in properties)) {
             properties.$os = osName
         }
