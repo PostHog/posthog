@@ -35,6 +35,11 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+Expected client-side failures (`http_error` and `network_or_cors`) are how a misconfigured
+reverse-proxy install surfaces; they are tracked only via this event and are **not** reported
+to error tracking. `timeout` and `unknown` failures are also captured as exceptions, since
+those may indicate a genuine problem rather than a misconfiguration.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication
