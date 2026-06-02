@@ -10065,6 +10065,10 @@ class AccountsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -11465,6 +11469,10 @@ class CachedAccountsQueryResponse(BaseModel):
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -15467,6 +15475,10 @@ class Response27(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -19834,6 +19846,10 @@ class QueryResponseAlternative66(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -20620,6 +20636,10 @@ class QueryResponseAlternative91(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -21910,8 +21930,24 @@ class AccountsQuery(BaseModel):
     accountOwner: str | int | None = None
     allRolesUnassigned: bool | None = None
     csm: str | int | None = None
+    filterExpression: str | None = Field(
+        default=None,
+        description=(
+            "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by"
+            " the overview tile click-to-filter affordance."
+        ),
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
+    metrics: list[str] | None = Field(
+        default=None,
+        description=(
+            "Aggregation expressions evaluated against the filtered account set; one"
+            " value per metric is returned in `metricsResults`. When `metrics` is set"
+            " without a `select`, the runner skips the regular row fetch and returns"
+            " only the aggregated values."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
