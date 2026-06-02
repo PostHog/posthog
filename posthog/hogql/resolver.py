@@ -83,6 +83,20 @@ POSTGRES_KEYWORD_TYPES: dict[str, PostgresKeywordType] = {
     "localtimestamp": ast.DateTimeType,
 }
 
+_HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
+    {
+        "arrayall",
+        "arraycount",
+        "arrayexists",
+        "arrayfilter",
+        "arrayfirst",
+        "arrayfirstindex",
+        "arraylast",
+        "arraylastindex",
+        "arraymap",
+    }
+)
+
 # Lock the resolver's keyword catalog to `ast.Keyword.__post_init__`'s allowlist; drift in either direction is a silent injection vector or a construction-time crash, so the two sets must move together.
 assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
     "POSTGRES_KEYWORD_TYPES and ast.VALID_KEYWORD_NAMES are out of sync — update both."
@@ -1543,7 +1557,10 @@ class Resolver(CloningVisitor):
             if node.name == "__preview_getBotOperator":
                 return self.visit(get_bot_operator(node=node, args=node.args))
 
-        node = super().visit_call(node)
+        if self._is_higher_order_array_call(node):
+            node = self._visit_higher_order_array_call(node)
+        else:
+            node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []
         for arg in node.args:
             if arg.type:
@@ -1586,6 +1603,70 @@ class Resolver(CloningVisitor):
             return_type=return_type,
         )
         return node
+
+    @staticmethod
+    def _is_higher_order_array_call(node: ast.Call) -> bool:
+        return (
+            node.name.lower() in _HIGHER_ORDER_ARRAY_FUNCTIONS
+            and bool(node.args)
+            and isinstance(node.args[0], ast.Lambda)
+        )
+
+    def _visit_higher_order_array_call(self, node: ast.Call) -> ast.Call:
+        resolved_array_args = [self.visit(arg) for arg in node.args[1:]]
+        lambda_arg_types = self._lambda_argument_types_from_array_args(
+            resolved_array_args,
+            lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
+        )
+
+        return ast.Call(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            type=None if self.clear_types else node.type,
+            name=node.name,
+            args=[
+                self._visit_lambda_with_argument_types(cast(ast.Lambda, node.args[0]), lambda_arg_types),
+                *resolved_array_args,
+            ],
+            params=[self.visit(param) for param in node.params] if node.params is not None else None,
+            distinct=node.distinct,
+            within_group=[self.visit(order_by) for order_by in node.within_group] if node.within_group else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by is not None else None,
+            filter_expr=self.visit(node.filter_expr) if node.filter_expr is not None else None,
+        )
+
+    def _lambda_argument_types_from_array_args(
+        self, array_args: list[ast.Expr], lambda_arg_count: int
+    ) -> list[ast.ConstantType]:
+        arg_types: list[ast.ConstantType] = []
+        for index in range(lambda_arg_count):
+            if index >= len(array_args):
+                arg_types.append(ast.UnknownType())
+                continue
+
+            array_type = (array_args[index].type or ast.UnknownType()).resolve_constant_type(self.context)
+            arg_types.append(infer_array_access_constant_type(array_type))
+        return arg_types
+
+    def _visit_lambda_with_argument_types(self, node: ast.Lambda, arg_types: list[ast.ConstantType]) -> ast.Lambda:
+        node_type = ast.SelectQueryType(parent=self.scopes[-1] if len(self.scopes) > 0 else None, is_lambda_type=True)
+
+        for index, arg in enumerate(node.args):
+            constant_type = arg_types[index] if index < len(arg_types) else ast.UnknownType()
+            node_type.aliases[arg] = ast.FieldAliasType(
+                alias=arg,
+                type=ast.LambdaArgumentType(name=arg, constant_type=constant_type),
+            )
+
+        self.scopes.append(node_type)
+
+        new_node = cast(ast.Lambda, clone_expr(node))
+        new_node.type = node_type
+        new_node.expr = self.visit(new_node.expr)
+
+        self.scopes.pop()
+
+        return new_node
 
     def visit_expr_call(self, node: ast.ExprCall):
         raise QueryError("You can only call simple functions in HogQL, not expressions")

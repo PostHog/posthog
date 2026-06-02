@@ -159,7 +159,8 @@ Newly inferred function groups include:
 - conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`
 - common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
 - common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
-- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
+- JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
+- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - tuple functions: `tuple`, `tupleElement`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `groupArray`, `array_agg`
 
@@ -210,6 +211,12 @@ TupleAccess(tuple=Tuple(exprs=[Constant(1), Constant("two")]), index=2)
 Array slices preserve array element type.
 Array access resolves to the array element type.
 `StringArrayType` remains supported as a compatibility alias, but structured runtime adapters can represent it as `Array(String)`.
+
+Common higher-order array functions now bind lambda arguments from surrounding array element types.
+For example, `arrayMap(x -> x + 0.5, [1, 2])` resolves `x` as `Integer` and the call as `Array(Float)`.
+`arrayFilter(x -> x > 1, [1, 2])` keeps the input array element type while typing the predicate body.
+Multi-array lambdas bind arguments positionally from each array argument.
+When the array comes from `JSONExtract(..., 'Array(String)')`, the parsed JSON return type flows into the lambda argument as well.
 
 ## Set Query Output Typing
 
@@ -307,8 +314,8 @@ Function-catalog work:
 
 The foundation is real, but several TODOs remain intentionally incomplete.
 
-Higher-order array functions do not yet bind lambda argument types from surrounding array element types.
-`arrayMap` and `arrayFilter` have useful array-shape inference, but not full lambda return inference.
+Common lambda-first higher-order array functions now bind lambda argument types from surrounding array element types.
+Remaining higher-order gaps include `arrayReduce` aggregate-name binding, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
 
 Property-definition metadata is not yet part of planning.
 The type system can represent physical and semantic type facts, but the property materialization planner still needs a separate pass that combines property definitions, materialized column metadata, restricted-property access control, and printer behavior.

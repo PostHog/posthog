@@ -117,13 +117,13 @@ class RuntimeType:
                 return f"DateTime('{self.timezone}')"
             return "DateTime"
         if self.family == "array":
-            item_type = self.item_type.display() if self.item_type is not None else "Unknown"
-            return f"Array({item_type})"
+            item_display = self.item_type.display() if self.item_type is not None else "Unknown"
+            return f"Array({item_display})"
         if self.family == "tuple":
             parts = []
-            for index, item_type in enumerate(self.item_types):
+            for index, tuple_item_type in enumerate(self.item_types):
                 name = self.field_names[index] if index < len(self.field_names) else None
-                parts.append(f"{name} {item_type.display()}" if name else item_type.display())
+                parts.append(f"{name} {tuple_item_type.display()}" if name else tuple_item_type.display())
             return f"Tuple({', '.join(parts)})"
         if self.family == "map":
             key = self.key_type.display() if self.key_type is not None else "Unknown"
@@ -810,6 +810,9 @@ def _infer_generic_function_type(
     if normalized_name in _INTEGER_RESULT_FUNCTIONS:
         return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
+    if normalized_name == "jsonextract":
+        return _infer_json_extract_type(arg_types=arg_types, args=args, dialect=dialect)
+
     if (
         normalized_name in {"toint", "tointorzero"}
         or normalized_name.startswith("_toint")
@@ -860,16 +863,23 @@ def _infer_generic_function_type(
     ):
         return infer_array_slice_constant_type(arg_types[0])
 
-    if normalized_name in {"arrayelement", "arrayjoin", "arrayfirst", "arraylast"} and arg_types:
-        return infer_array_access_constant_type(
-            arg_types[-1] if normalized_name in {"arrayfirst", "arraylast"} else arg_types[0]
-        )
+    if normalized_name in {"arrayelement", "arrayjoin"} and arg_types:
+        return infer_array_access_constant_type(arg_types[0])
+
+    if normalized_name in {"arrayfirst", "arraylast"} and arg_types:
+        return infer_array_access_constant_type(arg_types[-1])
+
+    if normalized_name in {"arrayfirstindex", "arraylastindex", "arraycount"}:
+        return ast.IntegerType(nullable=False)
 
     if normalized_name in {"arrayenumerate", "arrayenumerateuniq", "arrayenumeratedense", "range"}:
         return ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))
 
-    if normalized_name in {"arraymap", "arrayfilter"}:
-        return _infer_higher_order_array_type(arg_types, args=args, dialect=dialect)
+    if normalized_name == "arraymap":
+        return _infer_higher_order_array_type(arg_types, args=args, dialect=dialect, use_lambda_return=True)
+
+    if normalized_name == "arrayfilter":
+        return _infer_higher_order_array_type(arg_types, args=args, dialect=dialect, use_lambda_return=False)
 
     if normalized_name in {"arrayexists", "arrayall"}:
         return ast.BooleanType(nullable=False)
@@ -976,12 +986,20 @@ def _infer_array_concat_type(arg_types: list[ast.ConstantType], dialect: HogQLDi
 
 
 def _infer_higher_order_array_type(
-    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect
+    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect, use_lambda_return: bool
 ) -> ast.ConstantType:
     array_arg_types = arg_types[1:] if args and args and isinstance(args[0], ast.Lambda) else arg_types
     if not array_arg_types:
         return ast.UnknownType()
     first_array_type = array_arg_types[0]
+    if use_lambda_return and args and isinstance(args[0], ast.Lambda):
+        lambda_expr_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        if lambda_expr_type is not None and not isinstance(lambda_expr_type, ast.UnknownType):
+            if isinstance(first_array_type, ast.ArrayType):
+                return ast.ArrayType(nullable=first_array_type.nullable, item_type=lambda_expr_type)
+            if isinstance(first_array_type, ast.StringArrayType):
+                return ast.ArrayType(nullable=first_array_type.nullable, item_type=lambda_expr_type)
+            return ast.ArrayType(nullable=True, item_type=lambda_expr_type)
     if isinstance(first_array_type, ast.ArrayType):
         return ast.ArrayType(
             nullable=first_array_type.nullable, item_type=dataclasses.replace(first_array_type.item_type)
@@ -989,6 +1007,36 @@ def _infer_higher_order_array_type(
     if isinstance(first_array_type, ast.StringArrayType):
         return ast.ArrayType(nullable=first_array_type.nullable, item_type=ast.StringType(nullable=False))
     return ast.ArrayType(nullable=True, item_type=least_common_supertype(array_arg_types, dialect=dialect))
+
+
+def _context_free_constant_type(type_: ast.Type) -> ast.ConstantType | None:
+    if isinstance(type_, ast.ConstantType):
+        return dataclasses.replace(type_)
+    if isinstance(type_, ast.CallType):
+        return dataclasses.replace(type_.return_type)
+    if isinstance(type_, ast.FieldAliasType):
+        return _context_free_constant_type(type_.type)
+    if isinstance(type_, ast.LambdaArgumentType):
+        return dataclasses.replace(type_.constant_type) if type_.constant_type is not None else ast.UnknownType()
+    return None
+
+
+def _infer_json_extract_type(
+    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]], dialect: HogQLDialect
+) -> ast.ConstantType | None:
+    if not args:
+        return None
+
+    type_arg = args[-1]
+    if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+        return None
+
+    runtime_type = parse_sql_runtime_type(type_arg.value, dialect=dialect)
+    if runtime_type.family == "unknown":
+        return None
+    result_type = constant_type_from_runtime_type(runtime_type)
+    result_type.nullable = result_type.nullable or any(arg_type.nullable for arg_type in arg_types)
+    return result_type
 
 
 def _constant_int(expr: ast.Expr) -> Optional[int]:

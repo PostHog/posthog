@@ -111,6 +111,81 @@ class TestHogQLTypeSystem:
         resolved = cast(ast.TupleAccess, resolve_types(node, self.context, dialect="clickhouse"))
         assert resolved.type == ast.StringType(nullable=False)
 
+    def test_resolver_binds_higher_order_array_lambda_argument_types(self) -> None:
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT arrayMap(x -> x + 0.5, [1, 2])"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+
+        call = cast(ast.Call, node.select[0])
+        lambda_node = cast(ast.Lambda, call.args[0])
+        lambda_type = cast(ast.SelectQueryType, lambda_node.type)
+        lambda_arg = cast(ast.FieldAliasType, lambda_type.aliases["x"])
+
+        assert lambda_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
+        assert lambda_node.expr.type is not None
+        assert lambda_node.expr.type.resolve_constant_type(self.context) == ast.FloatType(nullable=False)
+        assert call.type is not None
+        assert call.type.resolve_constant_type(self.context) == ast.ArrayType(
+            nullable=False,
+            item_type=ast.FloatType(nullable=False),
+        )
+
+    def test_resolver_keeps_array_filter_input_element_type(self) -> None:
+        self._assert_first_column_type(
+            "SELECT arrayFilter(x -> x > 1, [1, 2])",
+            ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+        )
+
+    def test_resolver_binds_multi_argument_higher_order_array_lambdas(self) -> None:
+        self._assert_first_column_type(
+            "SELECT arrayMap((x, y) -> concat(x, y), ['a'], ['b'])",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayMap((x, y) -> y, [1], ['b'])",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+
+    def test_resolver_infers_json_extract_type_literal(self) -> None:
+        self._assert_first_column_type(
+            "SELECT JSONExtract('{\"num\": 42}', 'num', 'Int32')",
+            ast.IntegerType(nullable=False),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtract('[\"ReferenceError\"]', 'Array(String)')",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT JSONExtract('{\"num\": 42}', 'not_a_type')",
+            ast.StringType(nullable=False),
+        )
+
+    def test_json_extract_array_type_binds_higher_order_lambda_argument(self) -> None:
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT arrayExists(v -> v = 'ReferenceError', JSONExtract('[\"ReferenceError\"]', 'Array(String)'))"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+
+        call = cast(ast.Call, node.select[0])
+        lambda_node = cast(ast.Lambda, call.args[0])
+        lambda_type = cast(ast.SelectQueryType, lambda_node.type)
+        lambda_arg = cast(ast.FieldAliasType, lambda_type.aliases["v"])
+
+        assert lambda_arg.resolve_constant_type(self.context) == ast.StringType(nullable=False)
+        assert call.type is not None
+        assert call.type.resolve_constant_type(self.context) == ast.BooleanType(nullable=False)
+
     def test_resolver_infers_conditional_and_aggregate_function_types(self) -> None:
         self._assert_first_column_type("SELECT if(true, 1, 2.0)", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT multiIf(true, 1, false, 2.0, 3)", ast.FloatType(nullable=False))

@@ -282,10 +282,10 @@ class TraversingVisitor(Visitor[None]):
             self.visit(expr3)
 
     def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
-        for type in node.types:
-            self.visit(type)
-        for type in node.columns.values():
-            self.visit(type)
+        for select_type in node.types:
+            self.visit(select_type)
+        for column_type in node.columns.values():
+            self.visit(column_type)
 
     def visit_table_type(self, node: ast.TableType):
         pass

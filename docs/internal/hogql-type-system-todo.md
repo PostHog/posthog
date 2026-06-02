@@ -33,13 +33,15 @@ Completed in this branch:
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
 - Added emitted-SQL coverage showing typed string and URL helpers such as `base64Encode(...)` and `protocol(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
+- Added resolver binding for common higher-order array lambdas, so lambda parameters inherit element types from surrounding array arguments and `arrayMap(...)` can infer its return element type from the lambda body.
+- Added parsed return-type inference for `JSONExtract(..., 'Type')`, including typed array results that feed higher-order lambda binding.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
 Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
-- True lambda argument binding for higher-order array functions.
+- Full higher-order array parity beyond common lambda-first functions, especially `arrayReduce` aggregate-name binding and strict lambda arity/return validation.
 - Property-definition planning metadata and materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
@@ -349,7 +351,7 @@ TODO:
   - [ ] `toTypeName(T) -> String`
   - [ ] `arrayElement(Array[T], Int) -> T`
   - [ ] `arrayMap(Lambda[A -> B], Array[A]) -> Array[B]`
-  - [ ] `JSONExtract(json, path..., 'Array(String)') -> Array[String]`
+  - [x] `JSONExtract(json, path..., 'Array(String)') -> Array[String]`
   - [ ] `if(Bool, T, U) -> least_common_supertype(T, U)`
   - [ ] `count(...) -> UInt64`
   - [ ] `sum(Int32) -> Int64` or the relevant ClickHouse promotion
@@ -389,13 +391,14 @@ TODO:
   - [ ] `reinterpretAs*`
   - [ ] `toNullable`, `assumeNotNull`, `ifNull`, `coalesce`, `nullIf`
 - [ ] Cover property and JSON functions:
-  - [ ] `JSONExtract*`
+  - [x] `JSONExtract(...)` parsed return-type literals
+  - [ ] remaining `JSONExtract*` family-specific precision
   - [ ] `JSON_VALUE`
   - [ ] `JSONHas`, `JSONType`, `JSONLength`
   - [ ] PostHog property extraction wrappers if any are introduced
 - [ ] Cover array functions:
   - [ ] constructors and element access
-  - [ ] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
+  - [x] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
   - [ ] `arrayReduce` with supported aggregate names
   - [ ] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
   - [ ] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
@@ -441,8 +444,8 @@ TODO:
 - [ ] Infer `TupleAccess(Tuple[..., T_i, ...], i) -> T_i`.
 - [ ] Infer named tuple access when the tuple has field names.
 - [ ] Infer dictionary/map construction and access types.
-- [ ] Type `Lambda` expressions with parameter and return types.
-- [ ] Make `LambdaArgumentType` resolve from surrounding higher-order function context instead of always `UnknownType`.
+- [x] Type common higher-order `Lambda` expressions with parameter and return types.
+- [x] Make `LambdaArgumentType` resolve from surrounding higher-order function context instead of always `UnknownType`.
 - [ ] Type `ColumnsExpr`/`AsteriskType` expansion boundaries more explicitly for projection optimizers.
 
 Acceptance criteria:
@@ -667,8 +670,8 @@ TODO:
 - [ ] Type common aggregate functions.
 - [x] Type common string helpers that unblock nullability-wrapper simplification in emitted SQL.
 - [x] Type common URL helpers that unblock nullability-wrapper simplification in emitted SQL.
-- [ ] Type array element access and common higher-order array functions.
-- [ ] Type JSON extraction functions with parsed return type literals.
+- [x] Type array element access and common higher-order array functions.
+- [x] Type JSON extraction functions with parsed return type literals.
 - [ ] Type core PostHog extension functions.
 
 This phase should reduce `UnknownType` rates enough to make selective optimizations viable.

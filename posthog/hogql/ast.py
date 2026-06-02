@@ -778,9 +778,12 @@ class PropertyType(Type):
 @dataclass(kw_only=True, slots=True)
 class LambdaArgumentType(Type):
     name: str
+    constant_type: Optional[ConstantType] = None
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        return UnknownType()
+        if self.constant_type is None:
+            return UnknownType()
+        return dataclasses.replace(self.constant_type)
 
 
 @dataclass(kw_only=True, slots=True)
