@@ -19,3 +19,21 @@ class TestEngineeringAnalyticsFacade(BaseTest):
 
         assert result == "sentinel"
         build.assert_called_once_with(team=self.team, pr_number=42, repo="PostHog/posthog")
+
+    def test_get_ci_cards_delegates(self) -> None:
+        with mock.patch(f"{_LOGIC}.build_ci_cards", return_value="sentinel") as build:
+            assert api.get_ci_cards(team=self.team) == "sentinel"
+
+        build.assert_called_once_with(team=self.team)
+
+    def test_list_pull_requests_forwards_date_from(self) -> None:
+        with mock.patch(f"{_LOGIC}.build_pull_request_list", return_value=[]) as build:
+            api.list_pull_requests(team=self.team, date_from="-7d")
+
+        build.assert_called_once_with(team=self.team, date_from="-7d")
+
+    def test_list_workflow_health_forwards_window(self) -> None:
+        with mock.patch(f"{_LOGIC}.build_workflow_health", return_value=[]) as build:
+            api.list_workflow_health(team=self.team, date_from="-7d", date_to="-1d")
+
+        build.assert_called_once_with(team=self.team, date_from="-7d", date_to="-1d")

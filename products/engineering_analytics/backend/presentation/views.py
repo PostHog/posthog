@@ -1,11 +1,13 @@
 """DRF views for engineering_analytics.
 
-The named deep tool over the curated read layer. ``pr_lifecycle`` assembles a
-single PR's header plus its ordered CI timeline — a genuine cross-view assembly
-that the generic SQL/MCP query surface can't express in one call. Aggregate
-questions (CI health, time to merge) are answered by SQL over the
-``engineering_analytics_*`` views, guided by the in-product skill, not by bespoke
-endpoints here.
+Named, typed read endpoints over the curated PR/CI query builders. Each action
+runs curated HogQL privately (no global view registration) and returns a typed
+contract. These same endpoints back both the MCP tools and the UI:
+
+- ``ci_cards`` — backlog headline counts.
+- ``pull_requests`` — PR list with head-SHA CI rollup.
+- ``workflow_health`` — per-workflow CI health over a window.
+- ``pr_lifecycle`` — a single PR's header plus its ordered CI timeline.
 """
 
 from drf_spectacular.types import OpenApiTypes
@@ -18,7 +20,12 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.presentation.serializers import PRLifecycleSerializer
+from products.engineering_analytics.backend.presentation.serializers import (
+    CICardSummarySerializer,
+    PRLifecycleSerializer,
+    PullRequestListItemSerializer,
+    WorkflowHealthItemSerializer,
+)
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
 
@@ -31,14 +38,94 @@ _REPO = OpenApiParameter(
     "connected repo.",
 )
 
+_DATE_FROM = OpenApiParameter(
+    name="date_from",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+)
+
+_DATE_TO = OpenApiParameter(
+    name="date_to",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Window end: relative or ISO8601. Defaults to now.",
+)
+
+
+def _invalid_date() -> Response:
+    return Response({"detail": "Invalid date_from or date_to"}, status=status.HTTP_400_BAD_REQUEST)
+
 
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
-    scope_object_read_actions = ["pr_lifecycle"]
+    scope_object_read_actions = ["ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
     scope_object_write_actions: list[str] = []
+
+    @extend_schema(
+        operation_id="engineering_analytics_ci_cards",
+        responses={200: CICardSummarySerializer},
+        description=(
+            "Headline counts for the open-PR backlog: open PRs, distinct repos, stuck PRs (open, non-draft, "
+            "non-bot, older than 7 days), and PRs with failing CI. The failing-CI count rests on the head-SHA "
+            "join and can lag until late CI completions settle."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def ci_cards(self, request: Request, **kwargs) -> Response:
+        result = api.get_ci_cards(team=self.team)
+        return Response(CICardSummarySerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_pull_requests",
+        parameters=[_DATE_FROM],
+        responses={
+            200: PullRequestListItemSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date_from."),
+        },
+        description=(
+            "Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with "
+            "its head-SHA CI rollup. open_to_merge_seconds is coarse — it fuses draft and ready-for-review time; "
+            "CI counts can lag until late completions settle."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def pull_requests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_pull_requests(team=self.team, date_from=request.query_params.get("date_from") or None)
+        except ValueError:
+            return _invalid_date()
+        return Response(PullRequestListItemSerializer(instance=result, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_health",
+        parameters=[_DATE_FROM, _DATE_TO],
+        responses={
+            200: WorkflowHealthItemSerializer(many=True),
+            400: OpenApiResponse(description="Invalid date_from or date_to."),
+        },
+        description=(
+            "Per-workflow CI health over a window (default last 30 days): run count, success rate, p50/p95 "
+            "duration over completed runs, and last failure time. Use this for 'is CI getting slower' and 'which "
+            "workflow is the long pole'; compare two windows to get a trend."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_health(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_workflow_health(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+            )
+        except ValueError:
+            return _invalid_date()
+        return Response(WorkflowHealthItemSerializer(instance=result, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_pr_lifecycle",

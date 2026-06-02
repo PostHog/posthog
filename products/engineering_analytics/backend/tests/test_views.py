@@ -9,7 +9,7 @@ import pandas as pd
 from posthog.hogql.query import execute_hogql_query
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
-from products.engineering_analytics.backend.logic.views.orchestrator import build_all_engineering_analytics_views
+from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
 
@@ -108,10 +108,9 @@ def _run_row(
 
 
 class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
-    """The curated read layer, queried by name over real warehouse tables.
-
-    Skips when object storage is unreachable so the suite still runs without the
-    dev stack."""
+    """The curated query builders, exercised as inline subqueries over real
+    warehouse tables. Skips when object storage is unreachable so the suite still
+    runs without the dev stack."""
 
     def _create_table(self, name: str, columns: dict, rows: list[dict[str, Any]]) -> None:
         df = pd.DataFrame(rows, columns=list(columns.keys()))
@@ -134,16 +133,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
 
     def _select(self, sql: str) -> list[tuple]:
         return execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
-
-    def test_gate_skips_views_when_source_absent(self) -> None:
-        assert build_all_engineering_analytics_views(self.team) == []
-
-    def test_gate_builds_only_present_views(self) -> None:
-        self._create_table(
-            "github_pull_requests", _PULL_REQUESTS_COLUMNS, [_pr_row(10, "alice", "open", 0, "2026-01-10 10:00:00")]
-        )
-        names = {view.name for view in build_all_engineering_analytics_views(self.team)}
-        assert names == {"engineering_analytics_pull_requests"}
 
     def test_pull_requests_view_maps_columns(self) -> None:
         self._create_table(
@@ -168,7 +157,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         rows = self._select(
             "SELECT number, author_handle, is_bot, repo_owner, repo_name, labels, state, is_draft, "
             "head_sha, open_to_merge_seconds "
-            "FROM engineering_analytics_pull_requests ORDER BY number"
+            f"FROM ({pull_requests.build_query()}) AS pr ORDER BY number"
         )
 
         by_number = {row[0]: row for row in rows}
@@ -204,7 +193,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
 
         rows = self._select(
             "SELECT workflow_name, status, conclusion, duration_seconds, repo_owner, repo_name "
-            "FROM engineering_analytics_workflow_runs ORDER BY id"
+            f"FROM ({workflow_runs.build_query()}) AS r ORDER BY id"
         )
 
         # completed runs carry a duration; in-progress run has null duration and null conclusion

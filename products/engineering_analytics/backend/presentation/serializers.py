@@ -11,10 +11,14 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
+    CICardSummary,
+    CIStatusRollup,
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
+    PullRequestListItem,
     RepoRef,
+    WorkflowHealthItem,
 )
 
 
@@ -79,5 +83,78 @@ class PRLifecycleSerializer(DataclassSerializer):
         extra_kwargs = {
             "metric_quality": {
                 "help_text": "Always 'partial' — CI events only; reviews and comments are not yet available.",
+            },
+        }
+
+
+class CIStatusRollupSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CIStatusRollup
+        extra_kwargs = {
+            "runs": {"help_text": "Distinct workflows run on the PR's head SHA."},
+            "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
+            "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
+            "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+        }
+
+
+class PullRequestListItemSerializer(DataclassSerializer):
+    author = AuthorSerializer(help_text="The pull request author.")
+    repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
+    ci = CIStatusRollupSerializer(help_text="CI status from the latest workflow runs on the head SHA.")
+
+    class Meta:
+        dataclass = PullRequestListItem
+        extra_kwargs = {
+            "number": {"help_text": "Pull request number within the repository."},
+            "title": {"help_text": "Pull request title."},
+            "state": {"help_text": "Derived state: 'open', 'closed', or 'merged'."},
+            "is_draft": {"help_text": "True if the pull request is a draft."},
+            "created_at": {"help_text": "When the pull request was opened."},
+            "merged_at": {"help_text": "When the pull request was merged, or null.", "allow_null": True},
+            "open_to_merge_seconds": {
+                "help_text": "Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and "
+                "ready-for-review time). Null until merged.",
+                "allow_null": True,
+            },
+            "labels": {"help_text": "GitHub label names on the pull request."},
+        }
+
+
+class CICardSummarySerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CICardSummary
+        extra_kwargs = {
+            "open_prs": {"help_text": "Count of open pull requests."},
+            "repos": {"help_text": "Distinct repositories with at least one open pull request."},
+            "stuck": {"help_text": "Open, non-draft, non-bot pull requests older than 7 days."},
+            "failing_ci": {
+                "help_text": "Open pull requests with at least one failing latest CI run. May lag until the "
+                "workflow_run webhook settles late completions.",
+            },
+        }
+
+
+class WorkflowHealthItemSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowHealthItem
+        extra_kwargs = {
+            "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "run_count": {"help_text": "Total runs started in the window."},
+            "success_rate": {
+                "help_text": "Fraction of completed runs that succeeded (0-1). Null if no completed runs.",
+                "allow_null": True,
+            },
+            "p50_seconds": {
+                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "last_failure_at": {
+                "help_text": "When the most recent run with conclusion 'failure' started, or null.",
+                "allow_null": True,
             },
         }

@@ -4,9 +4,12 @@ Framework-free frozen dataclasses that define the canonical data model this
 product exposes — Author, RepoRef, PullRequest, WorkflowRun — plus the
 ``pr_lifecycle`` deep-tool return types. No Django imports.
 
-These back the named deep tool (``pr_lifecycle``) and any cross-product use. The
-SQL/MCP query surface returns rows shaped by the read layer's columns, not these
-types; there, metric quality is carried by honest column naming and the skill.
+Every surface — the named MCP tools, the DRF read endpoints, and the UI — returns
+these typed contracts. The product runs its curated HogQL privately behind them;
+nothing is registered as a global view. Where a caveat is load-bearing on a deep
+tool it rides as a ``metric_quality`` field (``pr_lifecycle``); the aggregate
+endpoints carry their caveats in honest field names (``open_to_merge_seconds``)
+and serializer/tool docs.
 
 These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant: same
 ``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps working) but
@@ -117,3 +120,64 @@ class PRLifecycle:
     pull_request: PullRequest
     events: list[PRLifecycleEvent]
     metric_quality: MetricQuality = MetricQuality.PARTIAL
+
+
+@dataclass(frozen=True)
+class CIStatusRollup:
+    """A PR's CI, collapsed from the latest workflow run per workflow on its head
+    SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
+    completes after newer runs land (SPEC §9) — treat ``pending`` as unsettled.
+    """
+
+    runs: int
+    passing: int
+    failing: int
+    pending: int
+
+
+@dataclass(frozen=True)
+class PullRequestListItem:
+    """One row of the PR list: the PR plus its head-SHA CI rollup. No ``id`` or
+    ``head_sha`` — this is a display/triage row, not the full ``PullRequest``.
+    """
+
+    number: int
+    title: str
+    author: Author
+    repo: RepoRef
+    state: PRState
+    is_draft: bool
+    created_at: datetime
+    merged_at: datetime | None
+    # merged_at - created_at; coarse (fuses draft + ready-for-review time). None until merged.
+    open_to_merge_seconds: int | None
+    labels: list[str]
+    ci: CIStatusRollup
+
+
+@dataclass(frozen=True)
+class CICardSummary:
+    """Headline counts for the open-PR backlog. ``failing_ci`` rests on the
+    head-SHA CI join and can lag (see ``CIStatusRollup``).
+    """
+
+    open_prs: int
+    repos: int
+    # Open, non-draft, non-bot PRs older than 7 days.
+    stuck: int
+    # Open PRs with at least one failing latest CI run.
+    failing_ci: int
+
+
+@dataclass(frozen=True)
+class WorkflowHealthItem:
+    """Per-workflow CI health over a window. Rates and percentiles are over
+    completed runs only, so they are ``None`` when the window has none.
+    """
+
+    workflow_name: str
+    run_count: int
+    success_rate: float | None
+    p50_seconds: float | None
+    p95_seconds: float | None
+    last_failure_at: datetime | None

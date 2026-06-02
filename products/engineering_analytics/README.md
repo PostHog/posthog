@@ -75,7 +75,7 @@ The middle — what happens to code between "PR opened" and "running in producti
 - **Engineers** driving an agent (Claude Code, Cursor, PostHog AI) asking about their monorepo. We dogfood on `PostHog/posthog` from day one.
 - **PostHog Code** itself, autonomously, calling the same tools on its own PRs — to diagnose why a PR is stuck, decide whether to retry, and eventually see how a merged change behaved in production.
 
-Tool return shapes must be legible to an autonomous agent, not just renderable in chat: typed contracts with explicit `metric_quality` markers, never prose an LLM might paraphrase wrong.
+Tool return shapes must be legible to an autonomous agent, not just renderable in chat: typed contracts whose caveats ride in honest field names and a `metric_quality` marker where load-bearing, never free-form prose an LLM might paraphrase wrong.
 
 ## Goal: surface CI Signals for PostHog Code
 
@@ -92,7 +92,7 @@ The two read surfaces exist to serve that goal, in priority order:
    MCP, and agents (including PostHog Code) call the same tools. Detection of what
    counts as a valuable CI Signal lives in `logic/` over the read layer, so the same
    definitions back the MCP tools and the Signal emitter.
-2. **Read-only UI — a showcase** over the same read layer. Useful, but secondary.
+2. **Read-only UI — a showcase** over the same endpoints. Useful, but secondary.
 
 Shortening ready-for-review-to-merge is the headline _metric_ this serves; emitting
 actionable CI Signals to PostHog Code is the _goal_ that metric ladders up to.
@@ -116,8 +116,8 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Phase model: draft (experimentation, low rigor) vs ready-for-review (high stakes).
 - North star: surface actionable CI Signals for PostHog Code, emitted into the Signals product. Shortening ready-for-review-to-merge is the headline metric it serves, not the end in itself.
 - Wedge = end-to-end code visibility, served as MCP tools to PostHog Code (autonomous) and engineers using PostHog MCP (human-driven).
-- Surface = MCP is the official surface, over a curated HogQL read layer (the substrate). `metric_quality` is carried by honest column naming + the skill, with a typed return field on named deep tools where the caveat is load-bearing — never free-form prose an LLM might paraphrase wrong. See [SPEC.md](./SPEC.md) §3 / §7.
-- UI = read-only analytics surface on the **same** read layer (PR list, CI health, workflow report) — a real read surface, not only a design-system showcase. No saved views or stateful filters in this phase; persisted/stateful surfaces are a later, separate decision.
+- Surface = MCP is the official surface, delivered as named typed endpoints that run the curated read layer privately (no global HogQL view; off the per-query hot path; core imports only the viewset). `metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in honest field names + tool docs — never free-form prose an LLM might paraphrase wrong. See [SPEC.md](./SPEC.md) §3 / §7.
+- UI = read-only analytics surface on the **same** endpoints (PR list, CI health, workflow health) — a real read surface, not only a design-system showcase. No saved views or stateful filters in this phase; persisted/stateful surfaces are a later, separate decision.
 - v1 data path = HogQL on warehouse. Event ingestion deferred. Product Postgres DB stays empty.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping in v1.
 - Bots and drafts excluded by default in throughput / cycle-time tools; bots are first-class in bot-impact analysis (don't strip them everywhere).

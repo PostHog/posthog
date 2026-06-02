@@ -1,7 +1,8 @@
 """HogQL queries for engineering_analytics.
 
-These read the curated read layer (``engineering_analytics_pull_requests``,
-``engineering_analytics_workflow_runs``) by name — never the raw ``github_*``
-warehouse tables, which are named only in ``backend/logic/views``. Everything here
-works with canonical contract types.
+Each module embeds the curated query builders (``backend/logic/views``) as
+subqueries via ``_curated`` and runs them with ``execute_hogql_query`` — the
+product reads its data privately, never registering a global HogQL view. The raw
+``github_*`` warehouse tables are named only inside those curated builders;
+everything returned here is shaped into canonical contract types.
 """

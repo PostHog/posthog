@@ -5,7 +5,7 @@ Sibling doc: [README.md](./README.md) — read that first for the product pictur
 
 ## 1. Purpose
 
-Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) through a curated HogQL read layer. **MCP is the official surface**; a read-only UI is built on the same read layer. Consumers and motivations are in the README.
+Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) through **named, typed read endpoints** that run curated HogQL privately. **MCP is the official surface** (the endpoints are exposed as MCP tools); a read-only UI consumes the same endpoints. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path — core imports only the viewset, exactly like `visual_review`. Consumers and motivations are in the README.
 
 The **goal** is to surface these as **Signals** for PostHog Code: valuable CI conditions are emitted into PostHog's [Signals](../signals) product, grouped and researched against the repository, and acted on autonomously when a finding is actionable. The read substrate + MCP serve that goal directly — what counts as a valuable CI Signal is defined once in `logic/` over the read layer, reused by both the surface and the emitter — and the UI is a showcase over the same layer.
 
@@ -18,7 +18,7 @@ The **goal** is to surface these as **Signals** for PostHog Code: valuable CI co
 
 ## 3. Architecture
 
-One general **read substrate** that every surface composes. The substrate is the deep, reusable layer where all domain knowledge lives once; MCP, the UI, and any named tools are thin consumers above it. (APOSD: general-purpose lower layer, thin surfaces, domain rules defined once.)
+One general **curated read layer** that every surface composes. The curated query builders are the deep, reusable layer where all domain knowledge lives once; the named endpoints, MCP, and the UI are thin consumers above it. Crucially the product runs this layer **privately** — it is never registered as a global HogQL view, so core's HogQL layer never imports it and no per-team query pays for it. The only core→product edge is the viewset registration in `posthog/api/`, the standard product edge that every viewset has. (APOSD: general-purpose lower layer, thin surfaces, domain rules defined once.)
 
 ```mermaid
 graph TB
@@ -29,12 +29,11 @@ graph TB
     end
 
     subgraph "Surface (thin)"
-        Query["query / execute_sql tool<br/>+ in-product skill<br/>(primary, composable)"]
-        Deep["named deep tools<br/>pr_lifecycle, honesty-critical metrics<br/>DRF @extend_schema → OpenAPI → MCP"]
+        Endpoints["named typed DRF endpoints<br/>ci_cards / pull_requests / workflow_health / pr_lifecycle<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
     end
 
-    subgraph "Read substrate (domain rules defined ONCE)"
-        Sys["curated HogQL read layer<br/>engineering_analytics_pull_requests<br/>engineering_analytics_workflow_runs"]
+    subgraph "Curated read layer (domain rules defined ONCE)"
+        Sys["curated query builders — build_query()<br/>embedded as subqueries, run via execute_hogql_query<br/>NOT registered as global views"]
     end
 
     subgraph Storage
@@ -42,30 +41,27 @@ graph TB
         EV[(events — PR as group type<br/>destination, deferred)]
     end
 
-    MCP --> Query
-    MCP --> Deep
-    Other --> Query
-    Other --> Deep
-    UI --> Sys
-    Query --> Sys
-    Deep --> Sys
+    MCP --> Endpoints
+    UI --> Endpoints
+    Other --> Endpoints
+    Endpoints --> Sys
     Sys --> WH
     Sys -. future .-> EV
 ```
 
 Rules:
 
-- **Read substrate = a curated HogQL read layer** over the warehouse tables: two per-team `SavedQuery` views (`engineering_analytics_pull_requests`, `engineering_analytics_workflow_runs`) built in `backend/logic/views/` and registered in `Database.create_for`, following the `revenue_analytics` precedent (`build_all_*_views(team)` gated on the team having the `github_*` source tables). Repo identity (`base.repo.full_name`), labels, `is_bot`, and the PR↔CI head-SHA join are mapped here **from the JSON the source already lands — no new ingestion**. Domain rules (bot detection, default exclusions, the join, honest metric naming) are defined exactly **once**, here. The contract is "one named HogQL surface the query tool and the UI can both `SELECT` from".
-- **MCP is the official surface.** The generic `query` / `execute_sql` tool over the read layer, paired with the in-product skill, is the primary composable surface — the repo's prescribed analytics-MCP path (`docs/.../implementing-mcp-tools.md` step 3). A small set of **named deep tools** sits on top only for genuine assembly (`pr_lifecycle`) or where a metric caveat is load-bearing; these are DRF viewsets with `@extend_schema` that flow to MCP via OpenAPI codegen.
-- **The UI reads the same read layer** via HogQL query runners (kea) — not bespoke report endpoints. This is what makes a richer read-only scene reachable later without rearchitecting.
-- HogQL only. No raw ClickHouse `sync_execute()`. No product Postgres DB.
-- The curated read layer (and `logic/queries/`) is the only place that names warehouse tables or GitHub-shaped columns. Canonical types stay above it.
-- Every named-tool PR ships a matching `skills/<name>/SKILL.md`. The skill is also where composition recipes **and metric caveats for the SQL surface** live — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
-- Provider abstraction (`CodeHostProvider` Protocol) is **deferred**. GitHub-specific HogQL lives in the read layer; when a second provider lands, the Protocol is extracted then. See §7.
+- **Curated read layer = curated query builders** over the warehouse tables: `backend/logic/views/{pull_requests,workflow_runs}.py` each expose `build_query()` returning a curated `SELECT` over the raw `github_*` table. Query modules (`backend/logic/queries/`) embed those as parenthesised subqueries (via `_curated`) and run them with `execute_hogql_query`. Repo identity (`base.repo.full_name`), labels, `is_bot`, and the PR↔CI head-SHA join are mapped here **from the JSON the source already lands — no new ingestion**. Domain rules (bot detection, default exclusions, the join, honest metric naming) are defined exactly **once**, here. **Nothing is registered in `Database.create_for`** — the product is not a global-catalog citizen, which keeps it off the per-query hot path and means `posthog/hogql` never imports it (the viewset registration in `posthog/api/` is the normal product edge, loaded once at URL-conf time).
+- **MCP is the official surface, via named typed endpoints.** Each capability is a DRF action with `@extend_schema` that flows to an MCP tool through OpenAPI codegen (`ci_cards`, `pull_requests`, `workflow_health`, `pr_lifecycle`). This is the `visual_review` shape: core imports only the viewset; everything else stays in the product.
+- **The UI reads the same endpoints** via the generated typed API client (kea loaders) — not client-side HogQL, and not bespoke report endpoints distinct from the MCP ones. One endpoint set, two consumers.
+- HogQL only, via `execute_hogql_query`. No raw ClickHouse `sync_execute()`. No product Postgres DB.
+- The curated builders (and `logic/queries/`) are the only place that names warehouse tables or GitHub-shaped columns. Canonical types stay above them.
+- Every named-tool PR ships a matching `skills/<name>/SKILL.md` teaching tool selection and carrying the metric caveats — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
+- Provider abstraction (`CodeHostProvider` Protocol) is **deferred**. GitHub-specific HogQL lives in the curated builders; when a second provider lands, the Protocol is extracted then. See §7.
 
 ## 4. Canonical types
 
-Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)` — same `is_dataclass()` semantics as the stdlib variant (so `DataclassSerializer` works) but with runtime validation at construction. No Django imports. These back the **named deep tools** and any cross-product use; the SQL surface returns rows shaped by the read layer's columns.
+Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)` — same `is_dataclass()` semantics as the stdlib variant (so `DataclassSerializer` works) but with runtime validation at construction. No Django imports. These back **every endpoint** and any cross-product use — the named endpoints return these typed contracts (objects or lists), so there is no untyped row surface.
 
 ```mermaid
 classDiagram
@@ -124,29 +120,33 @@ classDiagram
 
 `is_bot` on `Author` is set inside the read layer: `is_bot = handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 
-Named deep tools return typed contracts (e.g. `PRLifecycle`) carrying a `metric_quality` field where the caveat is load-bearing. For the SQL surface, metric quality is carried by **honest column naming + the skill** (see §7).
+`pr_lifecycle` returns a `metric_quality` field where the caveat is load-bearing (`partial`). The aggregate endpoints carry their caveats in **honest field names** (`open_to_merge_seconds`) plus serializer/tool docs (see §7).
 
 Types named in the README but not yet modeled (reviewers, deploys, file paths) wait until the corresponding data lands.
 
-## 5. Read substrate & surface
+## 5. Curated read layer & surface
 
-### Read layer (the substrate)
+### Curated read layer
 
-Two curated HogQL tables over the existing warehouse data — columns mapped from JSON we already store, **no new ingestion**. Column names encode caveats so a misread is defined out of existence (`open_to_merge_seconds`, never `cycle_time`).
+Two curated `build_query()` SELECTs over the existing warehouse data — columns mapped from JSON we already store, **no new ingestion, no global view registration**. Column names encode caveats so a misread is defined out of existence (`open_to_merge_seconds`, never `cycle_time`).
 
-- `engineering_analytics_pull_requests` — `number`, `title`, `author_handle`, `is_bot`, `repo_owner` / `repo_name` (from `base.repo.full_name`), `labels`, `state`, `is_draft`, `created_at`, `merged_at`, `closed_at`, `head_sha`, `open_to_merge_seconds` (coarse — see §7).
-- `engineering_analytics_workflow_runs` — `workflow_name`, `head_sha`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
+- pull-requests builder — `number`, `title`, `author_handle`, `is_bot`, `repo_owner` / `repo_name` (from `base.repo.full_name`), `labels`, `state`, `is_draft`, `created_at`, `merged_at`, `closed_at`, `head_sha`, `open_to_merge_seconds` (coarse — see §7).
+- workflow-runs builder — `workflow_name`, `head_sha`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
 
-A PR's current CI status is the head-SHA join between the two; defined once in the read layer.
+A PR's current CI status is the head-SHA join between the two (the `ci_rollup` CTE in `_curated`); defined once.
 
 ### Surface
 
-- **MCP (official):** `query` / `execute_sql` over the two tables, guided by the skill — the primary, composable surface. Plus named deep tools where they earn their keep:
-  - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
-  - a typed time-to-merge tool **only if** the coarse caveat needs to be un-loseable in a typed return; otherwise it's a documented query recipe in the skill.
-- **UI:** a read-only scene built on HogQL over the read layer — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).
+**MCP (official):** named typed tools, each a DRF endpoint returning a typed contract:
 
-All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-7d` or ISO8601).
+- `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
+- `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window.
+- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window.
+- `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
+
+**UI:** a read-only scene on the same endpoints via the generated API client — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).
+
+All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-30d` or ISO8601).
 
 ## 6. Delivery shape
 
@@ -154,21 +154,21 @@ Vertical slices, each independently mergeable. The near-term path:
 
 1. scaffold — **done**.
 2. `github_workflow_runs` warehouse source — **done**.
-3. **read substrate** (the two curated HogQL tables, domain rules defined once) + the in-product skill + the `pr_lifecycle` deep tool.
-4. read-only UI scene on the substrate (PR list + cards + workflow health).
+3. **curated read layer + named endpoints** (`ci_cards` / `pull_requests` / `workflow_health` / `pr_lifecycle`), run privately — no global registration — plus the in-product skill.
+4. read-only UI scene on those endpoints (PR list + cards + workflow health).
 5. destination: GitHub webhooks → events (PR as group type) — unlocks the deferred columns (§9).
 
-The earlier "three report endpoints" approach (`workflow_report` / `time_to_merge` / `pr_lifecycle` as bespoke RPC tools) is **superseded** by the substrate-plus-SQL surface; `pr_lifecycle` survives as the one genuine deep tool. See §7 for why.
+The earlier explorations — three bespoke `*_report` RPC tools, then a generic `query` / `execute_sql` surface over globally-registered views — are **superseded** by named typed endpoints that run the curated builders privately. The named endpoints serve both MCP and the UI, keep domain rules defined once, and (unlike registered views) leave the product isolated and off the per-query hot path. See §7 for why.
 
-The goal these slices build toward: emit valuable CI Signals from the read substrate into the Signals product for PostHog Code. That emission rides on the read layer — it does not wait on the events destination — and reuses the `logic/` detection that backs the MCP surface.
+The goal these slices build toward: emit valuable CI Signals from the curated read layer into the Signals product for PostHog Code. That emission rides on the curated builders — it does not wait on the events destination — and reuses the `logic/` detection that backs the MCP surface.
 
 ## 7. Locked decisions
 
 Engineering-specific decisions. Product-level decisions live in README → Locked decisions. If you want to change one, do it in a separate PR with a written reason.
 
 - **Signals emission for PostHog Code is the goal; the substrate is shaped for it.** Valuable CI conditions are surfaced as Signals via the Signals product's `emit_signal()` for PostHog Code to act on. Detection of what counts as a valuable Signal is defined once in `logic/` over the read layer, so the emitter and the MCP/SQL surface share one definition — never re-derived in the UI. The emission contract (source taxonomy, thresholds, autonomy priority) is owned by the Signals product; nothing in the read substrate or surfaces may foreclose it.
-- **Read substrate = curated HogQL read layer; MCP is the official surface.** _(Changed — reason:)_ the repo's MCP convention is atomic capabilities composed by agents, with skills teaching composition (`implementing-mcp-tools.md`), and its prescribed analytics path is a HogQL system table + a `querying-posthog-data` reference. A SQL-over-substrate surface is also more APOSD-faithful (one deep general mechanism, thin surfaces, domain rules defined once — no information leakage across per-report endpoints) and is the only shape that lets the read-only UI consume the **same** data without a parallel read path. Bespoke `*_report` RPC tools are not the surface.
-- **`metric_quality` is carried by honest column naming + the skill, plus a typed field on named deep tools where load-bearing.** _(Changed — reason:)_ a SQL/substrate surface returns rows, not typed contracts, so the "typed `metric_quality` field on every tool" rule cannot hold there. Encoding the caveat in the column name (`open_to_merge_seconds`) makes the misread structurally impossible, and the skill carries the nuance for composition. The typed field stays on named deep tools (e.g. `pr_lifecycle`) where free composition can't be trusted to preserve it.
+- **Curated read layer, run privately; MCP is the official surface via named typed endpoints.** _(Changed — reason:)_ registering the curated views in the global HogQL catalog (`Database.create_for`, the `revenue_analytics` precedent) inverts the dependency — core imports the product — and runs on the per-query hot path for **every** team. Running the curated `build_query()` as subqueries from the product's own DRF endpoints keeps domain rules defined once while leaving the product isolated and off the hot path: core imports only the viewset, exactly like `visual_review`. The endpoints back both the MCP tools and the UI, so there is no parallel read path. (This restructure is the written reason for changing the prior "registered substrate + generic SQL surface" decision.)
+- **`metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in field names + docs.** _(Changed — reason:)_ the aggregate endpoints return typed lists, so the coarse/staleness caveats ride in honest field names (`open_to_merge_seconds`) and serializer/tool descriptions — structurally hard to misread. `pr_lifecycle` keeps the typed `metric_quality` field (`partial`) where the assembly's incompleteness is load-bearing.
 - **No new ingestion to support v1 UI.** Repo identity, labels, and `is_bot` are mapped from the warehouse JSON already landed; the PR↔CI status is a head-SHA join. All in the read layer.
 - **HogQL only for analytics data.** No raw ClickHouse.
 - **No product Postgres DB.** Tool calls are stateless; saved/stateful state is a later, separate decision. No `db_routing.yaml` entry — analytics data lives in the warehouse / ClickHouse. If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.
@@ -193,7 +193,7 @@ Use the current default; revisit when the relevant data lands (§9).
 
 ## 9. Data sources
 
-Available now (warehouse snapshots, queried via the curated HogQL read layer):
+Available now (warehouse snapshots, read via the curated query builders):
 
 - `github_pull_requests` — PR snapshot: number, title, author, state, created_at, merged_at, closed_at, draft flag, base/head refs, **labels and `base.repo.full_name` in the raw JSON** (mapped in the read layer, not new ingestion). Current state only — transitions are overwritten on update.
 - `github_workflow_runs` — CI runs: workflow name, status, conclusion, run_started_at, updated_at, head SHA. Each run is immutable, so durations and their trends are precise.
@@ -207,9 +207,8 @@ Beyond v1 the product needs lifecycle data the snapshots can't hold: PR state tr
 ## 10. Reference reading
 
 - [README.md](./README.md) — product picture, motivations, locked decisions, glossary (read this first)
-- `docs/published/handbook/engineering/ai/implementing-mcp-tools.md` — MCP tool design (atomic capabilities; query-over-tables + skill for analytics data)
-- `products/posthog_ai/skills/querying-posthog-data/` — the precedent for a query-over-tables + skill analytics surface
-- `products/revenue_analytics/backend/views/` (`RevenueAnalyticsBaseView(SavedQuery)` + `orchestrator.build_all_revenue_analytics_views`) — the precedent for code-shipped, per-team HogQL views over warehouse data
-- `posthog/hogql/database/models.py` (`SavedQuery`) and `posthog/hogql/database/database.py` (`Database.create_for` registration hook) — where the curated views are defined and registered
+- `docs/published/handbook/engineering/ai/implementing-mcp-tools.md` — MCP tool design (DRF endpoint → OpenAPI → MCP tool)
+- `products/visual_review/backend/presentation/` — the precedent for a facade product whose DRF endpoints back both MCP tools and the UI, with core importing only the viewset (no global-catalog registration)
+- `posthog/hogql/query.py` (`execute_hogql_query`) — how the product runs its curated HogQL privately, without a `Database.create_for` registration
 - `products/architecture.md` — folder structure, isolation rules, tach + import-linter
 - `posthog/models/scoping/README.md` — `TeamScopedRootMixin` contract (main-DB team-scoped model, for whenever the first config model lands)

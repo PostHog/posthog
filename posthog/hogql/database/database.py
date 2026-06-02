@@ -154,7 +154,6 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
 
 from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
-from products.engineering_analytics.backend.facade.read_layer import build_all_engineering_analytics_views
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -1151,14 +1150,6 @@ class Database(BaseModel):
                     except Exception as e:
                         capture_exception(e)
                         continue
-
-        with timings.measure("engineering_analytics_views", emit_span=True):
-            if not database._is_direct_query():
-                try:
-                    for view in build_all_engineering_analytics_views(team):
-                        views.add_child(TableNode(name=view.name, table=view), table_conflict_mode="ignore")
-                except Exception as e:
-                    capture_exception(e)
 
         with timings.measure("data_warehouse_tables", emit_span=True):
 

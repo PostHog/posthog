@@ -1,15 +1,14 @@
-"""HogQL assembly of a single PR's lifecycle over the curated read layer.
+"""HogQL assembly of a single PR's lifecycle over the curated query builders.
 
-Reads the ``engineering_analytics_pull_requests`` and
-``engineering_analytics_workflow_runs`` views — never the raw ``github_*``
-tables. The views already carry the derived columns (canonical ``state``,
-``is_bot``, repo identity, ``head_sha``), so this layer only shapes the rows into
-the ``PRLifecycle`` contract; no GitHub-isms or domain rules live here.
+Embeds the curated ``github_pull_requests`` / ``github_workflow_runs`` builders
+as subqueries (via ``_curated``) — the product runs this privately rather than
+registering a global view. The curated SELECTs already carry the derived columns
+(canonical ``state``, ``is_bot``, repo identity, ``head_sha``), so this layer only
+shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rules
+live here.
 """
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 
@@ -22,17 +21,17 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.queries import _curated
 
-# View names and the repo filter are filled with str.replace (trusted constants),
-# leaving the HogQL {value} placeholders untouched for parse_select.
+# The curated subqueries and the repo filter are filled with str.replace (trusted
+# constants), leaving the HogQL {value} placeholders untouched for parse_select.
 _HEADER = """
     SELECT
         id, number, title, state, is_draft,
         created_at, merged_at, closed_at,
         author_handle, author_avatar_url, is_bot,
         repo_owner, repo_name, head_sha
-    FROM __PR_VIEW__
+    FROM __PR_SOURCE__ AS pr
     WHERE number = {pr_number} __REPO_FILTER__
     ORDER BY created_at DESC
     LIMIT 1
@@ -40,7 +39,7 @@ _HEADER = """
 
 _RUNS = """
     SELECT workflow_name, status, conclusion, run_started_at, updated_at
-    FROM __RUNS_VIEW__
+    FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
 """
@@ -60,13 +59,14 @@ def query_pr_lifecycle(
         placeholders["repo_owner"] = ast.Constant(value=repo_owner)
         placeholders["repo_name"] = ast.Constant(value=repo_name)
 
-    header_sql = _HEADER.replace("__PR_VIEW__", pull_requests.VIEW_NAME).replace("__REPO_FILTER__", repo_filter)
-    header = execute_hogql_query(
-        query=parse_select(header_sql, placeholders=placeholders),
+    header_sql = _HEADER.replace("__PR_SOURCE__", _curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
+    header = _curated.run_query(
+        header_sql,
         team=team,
         query_type="engineering_analytics.pr_lifecycle.header",
+        placeholders=placeholders,
     )
-    if not header.results:
+    if header is None or not header.results:
         return None
 
     (
@@ -105,15 +105,17 @@ def query_pr_lifecycle(
     )
 
     events = [PRLifecycleEvent(kind=PRLifecycleEventKind.OPENED, at=created_at)]
-    if head_sha:
-        runs = execute_hogql_query(
-            query=parse_select(
-                _RUNS.replace("__RUNS_VIEW__", workflow_runs.VIEW_NAME),
-                placeholders={"head_sha": ast.Constant(value=head_sha)},
-            ),
+    runs = (
+        _curated.run_query(
+            _RUNS.replace("__RUNS_SOURCE__", _curated.run_source()),
             team=team,
             query_type="engineering_analytics.pr_lifecycle.runs",
+            placeholders={"head_sha": ast.Constant(value=head_sha)},
         )
+        if head_sha
+        else None
+    )
+    if runs is not None:
         for workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
             events.append(
                 PRLifecycleEvent(kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name)

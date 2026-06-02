@@ -1,24 +1,14 @@
-"""The ``engineering_analytics_pull_requests`` curated read layer.
+"""Curated ``github_pull_requests`` query builder.
 
-A per-team HogQL view that maps the raw ``github_pull_requests`` warehouse
-snapshot (GitHub's PR JSON, landed verbatim) into honest, query-able columns.
-This is the ONLY place PR domain rules live — bot detection, repo identity from
-``base.repo.full_name``, label extraction, the canonical PR state, and the
-coarse open-to-merge duration. Every surface (the SQL/MCP tool, ``pr_lifecycle``,
-the future UI) reads these columns instead of re-deriving them from JSON.
+Maps the raw ``github_pull_requests`` warehouse snapshot (GitHub's PR JSON,
+landed verbatim) into honest, query-able columns. This is the ONLY place PR
+domain rules live — bot detection, repo identity from ``base.repo.full_name``,
+label extraction, the canonical PR state, and the coarse open-to-merge duration.
+Every query module embeds this ``SELECT`` as a subquery (see ``_curated``) rather
+than re-deriving the columns from JSON; nothing registers it as a global HogQL
+view, so the product stays off the per-query catalog hot path.
 """
 
-from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DateTimeDatabaseField,
-    FieldOrTable,
-    IntegerDatabaseField,
-    SavedQuery,
-    StringArrayDatabaseField,
-    StringDatabaseField,
-)
-
-VIEW_NAME = "engineering_analytics_pull_requests"
 SOURCE_TABLE = "github_pull_requests"
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix. Kept
@@ -31,25 +21,6 @@ KNOWN_BOT_HANDLES: frozenset[str] = frozenset(
         "github-actions",
     }
 )
-
-FIELDS: dict[str, FieldOrTable] = {
-    "id": IntegerDatabaseField(name="id"),
-    "number": IntegerDatabaseField(name="number"),
-    "title": StringDatabaseField(name="title"),
-    "author_handle": StringDatabaseField(name="author_handle"),
-    "author_avatar_url": StringDatabaseField(name="author_avatar_url"),
-    "is_bot": BooleanDatabaseField(name="is_bot"),
-    "repo_owner": StringDatabaseField(name="repo_owner"),
-    "repo_name": StringDatabaseField(name="repo_name"),
-    "labels": StringArrayDatabaseField(name="labels"),
-    "state": StringDatabaseField(name="state"),
-    "is_draft": BooleanDatabaseField(name="is_draft"),
-    "created_at": DateTimeDatabaseField(name="created_at"),
-    "merged_at": DateTimeDatabaseField(name="merged_at", nullable=True),
-    "closed_at": DateTimeDatabaseField(name="closed_at", nullable=True),
-    "head_sha": StringDatabaseField(name="head_sha"),
-    "open_to_merge_seconds": IntegerDatabaseField(name="open_to_merge_seconds", nullable=True),
-}
 
 
 def _bot_handle_in_list() -> str:
@@ -80,7 +51,3 @@ def build_query() -> str:
             if(merged_at IS NOT NULL, dateDiff('second', created_at, merged_at), NULL) AS open_to_merge_seconds
         FROM {SOURCE_TABLE}
     """
-
-
-def build_view() -> SavedQuery:
-    return SavedQuery(id=VIEW_NAME, name=VIEW_NAME, query=build_query(), fields=FIELDS)

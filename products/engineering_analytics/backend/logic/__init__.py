@@ -1,23 +1,60 @@
 """Orchestration for engineering_analytics.
 
-Resolves caller inputs into the values the query layer needs and wraps the
-result into contract types. The curated read layer (``backend/logic/views``) owns all
-GitHub-shaped mapping and domain rules; this layer deals only in canonical types.
+Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) into
+the values the query layer needs and returns canonical contract types. The curated
+query builders (``backend/logic/views``) own all GitHub-shaped mapping and domain
+rules; this layer deals only in canonical types.
 """
 
-from posthog.models.team import Team
+from datetime import datetime
 
-from products.engineering_analytics.backend.facade.contracts import PRLifecycle
+from posthog.models.team import Team
+from posthog.utils import relative_date_parse
+
+from products.engineering_analytics.backend.facade.contracts import (
+    CICardSummary,
+    PRLifecycle,
+    PullRequestListItem,
+    WorkflowHealthItem,
+)
+from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
+from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
+from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
+
+# Default recency window when a caller omits date_from. Relative strings (-30d) and
+# ISO8601 are both accepted and resolved against the team's timezone.
+_DEFAULT_WINDOW = "-30d"
 
 
 def build_pr_lifecycle(*, team: Team, pr_number: int, repo: str | None) -> PRLifecycle | None:
-    # Deferred: at module load this package is imported by core's Database.create_for
-    # (via backend.logic.views). Importing the query layer here would pull
-    # posthog.hogql.query -> Database while database.py is still initializing — a cycle.
-    from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle  # noqa: PLC0415
-
     owner, name = _split_repo(repo)
     return query_pr_lifecycle(team=team, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
+def build_ci_cards(*, team: Team) -> CICardSummary:
+    return query_ci_cards(team=team)
+
+
+def build_pull_request_list(*, team: Team, date_from: str | None = None) -> list[PullRequestListItem]:
+    return query_pull_request_list(team=team, date_from=_parse_date(team, date_from or _DEFAULT_WINDOW))
+
+
+def build_workflow_health(
+    *,
+    team: Team,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[WorkflowHealthItem]:
+    return query_workflow_health(
+        team=team,
+        date_from=_parse_date(team, date_from or _DEFAULT_WINDOW),
+        date_to=_parse_date(team, date_to) if date_to else None,
+    )
+
+
+def _parse_date(team: Team, value: str) -> datetime:
+    return relative_date_parse(value, team.timezone_info)
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
