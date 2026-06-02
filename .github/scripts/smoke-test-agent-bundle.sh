@@ -44,7 +44,7 @@ docker run --rm \
     -e NODE_ENV='production' \
     --entrypoint sh \
     "$IMAGE_REF" \
-    -c "timeout 5 node dist/${ENTRYPOINT}.mjs; exit 0" 2>&1 | tee "$LOG" || true
+    -c "timeout 5 node services/agents/dist/${ENTRYPOINT}.mjs; exit 0" 2>&1 | tee "$LOG" || true
 
 # Bundle-load failures: build is busted. Fail loud.
 if grep -qE 'Cannot find (module|package)|SyntaxError|ReferenceError|TypeError: .* is not a function' "$LOG"; then
