@@ -287,8 +287,8 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
-              AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-              AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+              AND toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC')
+              AND toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')
               AND timestamp >= {date_from}
               AND timestamp < {date_to}
             GROUP BY service_name, name
@@ -350,8 +350,8 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 WHERE {where}
                   AND name = {span_name}
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC')
+                  AND toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             ),
@@ -362,8 +362,8 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 FROM posthog.trace_spans
                 WHERE trace_id IN (SELECT trace_id FROM matched_traces)
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC')
+                  AND toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             )
