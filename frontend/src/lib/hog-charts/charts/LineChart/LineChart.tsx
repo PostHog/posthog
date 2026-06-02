@@ -68,7 +68,7 @@ function LineChartInner<Meta = unknown>({
     dataAttr,
     children,
 }: LineChartProps<Meta>): React.ReactElement {
-    const { yScaleType = 'linear', percentStackView = false, showGrid = false } = config ?? {}
+    const { yScaleType = 'linear', percentStackView = false, showGrid = false, valueDomain } = config ?? {}
 
     const hasMultipleFilledSeries = useMemo(() => {
         const filledSeries = series.filter((s) => s.fill && !s.fill.lowerData)
@@ -113,6 +113,7 @@ function LineChartInner<Meta = unknown>({
             const d3Scales = createLineScales(seriesForScale, scaleLabels, dimensions, {
                 scaleType: yScaleType,
                 percentStack: percentStackView,
+                valueDomain,
             })
 
             const yTickCount = yTickCountForHeight(dimensions.plotHeight)
@@ -143,7 +144,7 @@ function LineChartInner<Meta = unknown>({
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData]
+        [yScaleType, percentStackView, stackedData, valueDomain]
     )
 
     const drawStatic = useCallback(

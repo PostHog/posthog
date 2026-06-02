@@ -321,6 +321,10 @@ pub fn make_config_with_sample_rate(
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
         sample_rate,
+        routing_jitter: 0.0,
+        overload_ejection_initial: Duration::ZERO,
+        overload_ejection_max: Duration::ZERO,
+        overload_ejection_decay: Duration::from_secs(30),
         // Subscription cadence is irrelevant for tests that don't wire the
         // subscription client — kept short so tests that do consume it run
         // quickly when they opt in via a dedicated pool builder.

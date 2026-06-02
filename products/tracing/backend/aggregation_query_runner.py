@@ -53,7 +53,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import translate_span_filter
+from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -287,8 +287,9 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
-              AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-              AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+              AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
               AND timestamp >= {date_from}
               AND timestamp < {date_to}
             GROUP BY service_name, name
@@ -350,8 +351,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 WHERE {where}
                   AND name = {span_name}
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             ),
@@ -362,8 +364,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 FROM posthog.trace_spans
                 WHERE trace_id IN (SELECT trace_id FROM matched_traces)
                   AND service_name = {service_name}
-                  AND toStartOfDay(time_bucket) >= toStartOfDay({date_from})
-                  AND toStartOfDay(time_bucket) <= toStartOfDay({date_to})
+                  AND """
+            + TIME_BUCKET_DATE_RANGE_WHERE
+            + """
                   AND timestamp >= {date_from}
                   AND timestamp < {date_to}
             )
