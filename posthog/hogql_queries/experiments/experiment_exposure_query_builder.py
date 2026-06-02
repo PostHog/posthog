@@ -114,22 +114,26 @@ class ExposureQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _build_precomputed_entity_id_expr(self) -> ast.Expr:
+        return (
+            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+    def _build_precomputed_variant_expr(self) -> ast.Expr:
+        if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr("argMin(t.variant, t.first_exposure_time)")
+        return parse_expr(
+            "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+            placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+        )
+
     def daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.
         Used by the Exposures tab in the experiment UI.
         """
-        entity_id_expr = (
-            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
-        )
-
-        if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
-            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
-        else:
-            variant_expr = parse_expr(
-                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
-                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
-            )
+        entity_id_expr = self._build_precomputed_entity_id_expr()
+        variant_expr = self._build_precomputed_variant_expr()
 
         query = parse_select(
             """
@@ -317,17 +321,8 @@ class ExposureQueryBuilder:
         """
         # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
         # Cast back to match the type expected by downstream JOINs.
-        entity_id_expr = (
-            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
-        )
-
-        if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
-            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
-        else:
-            variant_expr = parse_expr(
-                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
-                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
-            )
+        entity_id_expr = self._build_precomputed_entity_id_expr()
+        variant_expr = self._build_precomputed_variant_expr()
 
         query = parse_select(
             """
