@@ -3317,7 +3317,7 @@ class StripeIntegration:
 
     # These are the scopes we'll give Stripe when creating a local OAuth App
     # and sending them access
-    SCOPES = " ".join(
+    SCOPES: str = " ".join(
         [
             "customer_journey:read",
             "query:read",
