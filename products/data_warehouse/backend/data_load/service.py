@@ -539,6 +539,41 @@ def sync_discover_schemas_schedule(source: ExternalDataSource, create: bool = Fa
             raise
 
 
+@async_to_sync
+async def bulk_sync_discover_schemas_schedules(
+    sources: list[ExternalDataSource],
+) -> list[tuple[str, BaseException]]:
+    """Upsert discover-schemas schedules for many sources over a single shared connection.
+
+    `sync_discover_schemas_schedule` opens a fresh Temporal connection on every call, so
+    looping it over thousands of sources (e.g. a backfill) spends almost all of its time
+    reconnecting. This connects once and runs the upserts concurrently. Returns
+    ``(source_id, exception)`` pairs for any schedules that failed — a partial failure does
+    not abort the rest, so the caller can attribute each failure to a specific source.
+    """
+    if not sources:
+        return []
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _sync_one(source: ExternalDataSource) -> None:
+        async with semaphore:
+            schedule_id = _get_discover_schemas_schedule_id(str(source.id))
+            schedule = get_discover_schemas_schedule(source)
+            try:
+                await a_update_schedule(temporal, id=schedule_id, schedule=schedule)
+            except temporalio.service.RPCError as e:
+                if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                    await a_create_schedule(temporal, id=schedule_id, schedule=schedule, trigger_immediately=True)
+                else:
+                    raise
+
+    source_ids = [str(source.id) for source in sources]
+    results = await asyncio.gather(*(_sync_one(source) for source in sources), return_exceptions=True)
+    return [(source_id, result) for source_id, result in zip(source_ids, results) if isinstance(result, BaseException)]
+
+
 def delete_discover_schemas_schedule(source_id: str) -> None:
     schedule_id = _get_discover_schemas_schedule_id(source_id)
     try:
