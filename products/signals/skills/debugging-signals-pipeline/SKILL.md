@@ -40,7 +40,7 @@ emit_signals_from_fixture
 DEBUG=1 python manage.py emit_signals_from_fixture --type zendesk --team-id 1 --offset 26 --limit 1
 
 # Clean up all signal data before re-emitting (avoids stale matches)
-echo yes | DEBUG=1 python manage.py cleanup_signals --team-id 1
+DEBUG=1 python manage.py cleanup_signals --team-id 1 --yes
 
 # Check pipeline status
 python manage.py signal_pipeline_status --team-id 1 --wait --expected-signals 1 --poll-interval 10
@@ -117,11 +117,17 @@ print(content[-3000:])
 ```
 
 The log is JSONL with entries like:
+
 ```json
-{"type": "notification", "timestamp": "...", "notification": {"jsonrpc": "2.0", "method": "_posthog/console", "params": {"level": "debug", "message": "..."}}}
+{
+  "type": "notification",
+  "timestamp": "...",
+  "notification": { "jsonrpc": "2.0", "method": "_posthog/console", "params": { "level": "debug", "message": "..." } }
+}
 ```
 
 Key things to look for in the log tail:
+
 - **agentsh network events** — `DENY` entries show blocked network calls
 - **`_posthog/progress`** events — show which setup step the sandbox reached
 - **`_posthog/console`** debug messages — show sandbox provisioning, cloning, agent startup
@@ -156,12 +162,14 @@ live in the `posthog` database.
 **Fix:** Add `CLICKHOUSE_DATABASE=posthog` to `.env` and restart workers.
 
 **Manual cleanup of stale embeddings:**
+
 ```bash
 curl -s 'http://localhost:8123/' --data-binary \
   "ALTER TABLE posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536 DELETE WHERE product = 'signals' AND team_id = 1 SETTINGS mutations_sync = 1"
 ```
 
 **Verify embeddings are clean:**
+
 ```bash
 curl -s 'http://localhost:8123/' --data-binary \
   "SELECT count() FROM posthog.sharded_posthog_document_embeddings_text_embedding_3_small_1536 WHERE team_id = 1 AND product = 'signals'"
@@ -169,9 +177,11 @@ curl -s 'http://localhost:8123/' --data-binary \
 
 ### `Run timed out due to inactivity` on `select_repository_activity`
 
-The sandbox Claude agent went idle for longer than `TASKS_INACTIVITY_TIMEOUT_SECONDS` (default 30s in dev).
+The sandbox Claude agent went idle for longer than `TASKS_INACTIVITY_TIMEOUT_SECONDS`. When unset
+this falls back to a 2 hour timeout — set `TASKS_INACTIVITY_TIMEOUT_SECONDS=30` locally to force fast failures.
 
 **Diagnosing:** Read the agent log from object storage (see above). Check the tail for:
+
 1. **agentsh network denials** — `DENY host.docker.internal` means the MCP server URL is blocked
    by the sandbox network policy. The `SIGNALS_REPO_DISCOVERY` environment's domain allowlist
    doesn't include `host.docker.internal`.
@@ -198,14 +208,14 @@ grep CLICKHOUSE_DATABASE .env
 
 ## Useful management commands
 
-| Command | Purpose |
-|---------|---------|
-| `emit_signals_from_fixture` | Emit test signals from JSON fixtures |
-| `cleanup_signals --team-id N --yes` | Delete all signal data and terminate workflows |
-| `signal_pipeline_status --team-id N --wait` | Wait for pipeline to finish processing |
-| `list_signal_reports --team-id N --signals --json` | Inspect grouping results |
-| `ingest_signals_json <file> --team-id N` | Ingest pre-processed signals from JSON |
-| `ingest_report_json <file> --team-id N` | Seed a pre-researched report (skip sandbox) |
+| Command                                            | Purpose                                        |
+| -------------------------------------------------- | ---------------------------------------------- |
+| `emit_signals_from_fixture`                        | Emit test signals from JSON fixtures           |
+| `DEBUG=1 cleanup_signals --team-id N --yes`        | Delete all signal data and terminate workflows |
+| `signal_pipeline_status --team-id N --wait`        | Wait for pipeline to finish processing         |
+| `list_signal_reports --team-id N --signals --json` | Inspect grouping results                       |
+| `ingest_signals_json <file> --team-id N`           | Ingest pre-processed signals from JSON         |
+| `ingest_report_json <file> --team-id N`            | Seed a pre-researched report (skip sandbox)    |
 
 ## Key file locations
 
