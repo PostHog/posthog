@@ -28,11 +28,7 @@ export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Ele
 
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
-            <SpanAttributes
-                title="Attributes"
-                attributes={attributes}
-                emptyLabel="No attributes set on this span"
-            />
+            <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
             <SpanAttributes title="Span details" attributes={details} />
         </div>
     )
