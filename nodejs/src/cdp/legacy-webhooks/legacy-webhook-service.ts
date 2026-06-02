@@ -9,12 +9,9 @@ import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { GroupRepository } from '../../worker/ingestion/groups/repositories/group-repository.interface'
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { addGroupPropertiesToPostIngestionEventsBatch } from '../legacy-webhooks/utils'
 import { cdpTrackedFetch } from '../services/hog-executor.service'
 
 export class LegacyWebhookService {
@@ -24,8 +21,6 @@ export class LegacyWebhookService {
     constructor(
         private postgres: PostgresRouter,
         private teamManager: TeamManager,
-        private groupTypeManager: GroupTypeManager,
-        private groupRepository: GroupRepository,
         pubSub: PubSub
     ) {
         this.actionManager = new ActionManager(postgres, pubSub)
@@ -99,7 +94,7 @@ export class LegacyWebhookService {
     }
 
     public async processBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
-        const eventsWithoutGroups: PostIngestionEvent[] = []
+        const events: PostIngestionEvent[] = []
 
         await Promise.all(
             messages.map(async (message) => {
@@ -113,26 +108,13 @@ export class LegacyWebhookService {
                         return
                     }
 
-                    eventsWithoutGroups.push(convertToPostIngestionEvent(clickHouseEvent))
+                    events.push(convertToPostIngestionEvent(clickHouseEvent))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
                 }
             })
         )
-
-        let events: PostIngestionEvent[]
-        try {
-            events = await addGroupPropertiesToPostIngestionEventsBatch(
-                eventsWithoutGroups,
-                this.groupTypeManager,
-                this.teamManager,
-                this.groupRepository
-            )
-        } catch (e) {
-            logger.error('Batch group enrichment failed, processing events without group properties', e)
-            events = eventsWithoutGroups
-        }
 
         return { backgroundTask: Promise.all(events.map((event) => this.processEvent(event))) }
     }
