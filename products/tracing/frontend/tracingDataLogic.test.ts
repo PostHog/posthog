@@ -34,6 +34,7 @@ const createMockSpan = (uuid: string, timestamp: string): Span => ({
     duration_nano: 1000,
     is_root_span: true,
     matched_filter: true,
+    attributes: {},
 })
 
 const mockSpans: Span[] = [

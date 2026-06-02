@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::config::ExcludedPropertyKeys;
+use crate::metrics_consts::VALUES_DROPPED;
 use crate::types::{Event, GroupIdentify, PropertyType, PropertyValueMessage, TupleKey};
 
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
@@ -70,19 +71,31 @@ fn emit_from_blob(
 
     for (key, value) in obj {
         if value.is_null() {
+            metrics::counter!(VALUES_DROPPED, "reason" => "null_value").increment(1);
             continue;
         }
 
         if excluded.contains(key) {
+            metrics::counter!(VALUES_DROPPED, "reason" => "excluded_key").increment(1);
             continue;
         }
 
         let property_value = coerce_to_string(value);
 
-        if key.is_empty() || key.chars().count() > MAX_PROPERTY_KEY_LEN {
+        if key.is_empty() {
+            metrics::counter!(VALUES_DROPPED, "reason" => "empty_key").increment(1);
             continue;
         }
-        if property_value.is_empty() || property_value.chars().count() > MAX_PROPERTY_VALUE_LEN {
+        if key.chars().count() > MAX_PROPERTY_KEY_LEN {
+            metrics::counter!(VALUES_DROPPED, "reason" => "key_too_long").increment(1);
+            continue;
+        }
+        if property_value.is_empty() {
+            metrics::counter!(VALUES_DROPPED, "reason" => "empty_value").increment(1);
+            continue;
+        }
+        if property_value.chars().count() > MAX_PROPERTY_VALUE_LEN {
+            metrics::counter!(VALUES_DROPPED, "reason" => "value_too_long").increment(1);
             continue;
         }
 
