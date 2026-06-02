@@ -859,7 +859,8 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class WebflowSourceConfig(config.Config):
-    pass
+    api_token: str
+    site_id: str
 
 
 @config.config

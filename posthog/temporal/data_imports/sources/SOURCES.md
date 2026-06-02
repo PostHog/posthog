@@ -87,6 +87,7 @@ the row lists both.
 | tiktok_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | typeform      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| webflow       | HTTP                        | requests                                                        | ✅                          |
 | workos        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
@@ -127,7 +128,7 @@ instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mai
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
 recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
-square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
+square, surveymonkey, trello, twilio, twitter_ads, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 
 ---
