@@ -1,5 +1,4 @@
 import { useActions } from 'kea'
-import { useEffect } from 'react'
 
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -8,7 +7,6 @@ import {
     SessionRecordingPreview,
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
-import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
 import type { RecordingsQuery } from '~/queries/schema/schema-general'
@@ -16,7 +14,13 @@ import type { SessionRecordingType } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { getWidgetRecordingOrder, type SessionReplayWidgetResult } from './utils'
+import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
+
+type SessionReplayWidgetResult = {
+    results?: SessionRecordingType[]
+    hasMore?: boolean
+    limit?: number
+}
 
 function SessionReplayWidgetRecordingRow({
     recording,
@@ -42,17 +46,9 @@ function SessionReplayWidgetRecordingRow({
 }
 
 export function SessionReplayWidget({ result, loading, config }: DashboardWidgetComponentProps): JSX.Element {
-    const { maybeLoadPropertiesForSessions } = useActions(sessionRecordingsListPropertiesLogic)
-
     const payload = result as SessionReplayWidgetResult | null | undefined
     const recordings = payload?.results ?? []
-    const order = getWidgetRecordingOrder(config)
-
-    useEffect(() => {
-        if (recordings.length > 0) {
-            maybeLoadPropertiesForSessions(recordings)
-        }
-    }, [recordings, maybeLoadPropertiesForSessions])
+    const order = parseSessionReplayWidgetConfig(config).orderBy as RecordingsQuery['order']
 
     if (loading) {
         return (

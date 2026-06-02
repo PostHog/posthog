@@ -73,6 +73,29 @@ class TestWidgetRegistry(APIBaseTest):
         with self.assertRaises(Exception):
             validate_session_replay_list_config({"orderBy": "not_a_field"})
 
+    def test_validate_session_replay_list_config_rejects_invalid_filter_test_accounts(self) -> None:
+        with self.assertRaises(Exception):
+            validate_session_replay_list_config({"filterTestAccounts": "yes"})
+
+    def test_validate_session_replay_list_config_rejects_high_limit(self) -> None:
+        with self.assertRaises(Exception):
+            validate_session_replay_list_config({"limit": 100})
+
+    @parameterized.expand(["-1h", "-3h", "-24h"])
+    def test_validate_session_replay_list_config_accepts_short_date_ranges(self, date_from: str) -> None:
+        validated = validate_session_replay_list_config({"dateRange": {"date_from": date_from}})
+        assert validated["dateRange"] == {"date_from": date_from}
+
+    def test_validate_session_replay_list_config_rejects_unsupported_date_range(self) -> None:
+        with self.assertRaises(Exception):
+            validate_session_replay_list_config({"dateRange": {"date_from": "-48h"}})
+
+    def test_validate_session_replay_list_config_strips_unknown_date_range_keys(self) -> None:
+        validated = validate_session_replay_list_config(
+            {"dateRange": {"date_from": "-7d", "date_to": "ignored", "evil": 1}}
+        )
+        assert validated["dateRange"] == {"date_from": "-7d"}
+
     @parameterized.expand(sorted(SESSION_REPLAY_ORDER_BY))
     def test_validate_session_replay_list_config_accepts_order_by(self, order_by: str) -> None:
         validated = validate_session_replay_list_config({"orderBy": order_by})

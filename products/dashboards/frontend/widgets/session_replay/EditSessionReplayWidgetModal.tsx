@@ -6,10 +6,10 @@ import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
+import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
+import { EditWidgetModalFiltersSection } from '../EditWidgetModalFiltersSection'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editSessionReplayWidgetModalLogic } from './editSessionReplayWidgetModalLogic'
@@ -42,7 +42,6 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
     } = useActions(editSessionReplayWidgetModalLogic)
 
     const showTileDetails = !!onSaveMetadata
-    const catalogEntry = DASHBOARD_WIDGET_CATALOG.session_replay_list
 
     return (
         <LemonModal
@@ -80,24 +79,14 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
                     />
                 ) : null}
                 {showTileDetails ? <LemonDivider className="my-0" /> : null}
-                <section className="flex flex-col gap-3">
-                    <h5 className="text-sm font-semibold m-0">Filters</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div className="sm:col-span-2">
-                            <TestAccountFilter
-                                size="small"
-                                filters={{ filter_test_accounts: filterTestAccounts }}
-                                onChange={({ filter_test_accounts }) =>
-                                    setFilterTestAccounts(filter_test_accounts ?? false)
-                                }
-                                disabledReason={saving ? 'Saving…' : undefined}
-                            />
-                        </div>
-                    </div>
-                </section>
+                <EditWidgetModalFiltersSection
+                    filterTestAccounts={filterTestAccounts}
+                    saving={saving}
+                    setFilterTestAccounts={setFilterTestAccounts}
+                />
                 <LemonDivider className="my-0" />
                 <section className="flex flex-col gap-3">
-                    <h5 className="text-sm font-semibold m-0">{catalogEntry.groupLabel}</h5>
+                    <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('session_replay')}</h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <LemonField.Pure
                             label="Date range"

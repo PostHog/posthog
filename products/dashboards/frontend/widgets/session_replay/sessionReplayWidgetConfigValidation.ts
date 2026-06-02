@@ -4,28 +4,20 @@ import { ApiError } from 'lib/api-error'
 
 import {
     sessionReplayWidgetConfigSchema,
+    sessionReplayWidgetFormSchema,
     type SessionReplayWidgetConfig,
-    widgetDateFromSchema,
-    widgetLimitFieldSchema,
 } from '../../widget_types/configSchemas'
 
-export type SessionReplayWidgetFieldErrors = Partial<Record<keyof SessionReplayWidgetFormInput, string>>
+type SessionReplayWidgetFormField = keyof z.infer<typeof sessionReplayWidgetFormSchema>
 
-export const sessionReplayWidgetFormSchema = z.object({
-    limit: widgetLimitFieldSchema,
-    orderBy: sessionReplayWidgetConfigSchema.shape.orderBy,
-    dateFrom: widgetDateFromSchema,
-    filterTestAccounts: z.boolean(),
-})
-
-export type SessionReplayWidgetFormInput = z.infer<typeof sessionReplayWidgetFormSchema>
+export type SessionReplayWidgetFieldErrors = Partial<Record<SessionReplayWidgetFormField, string>>
 
 function fieldErrorsFromZodError(error: ZodError): SessionReplayWidgetFieldErrors {
     const { fieldErrors } = z.flattenError(error)
 
     return Object.fromEntries(
-        Object.entries(fieldErrors).flatMap(([field, messages]) =>
-            messages.length > 0 ? [[field, messages[0] as string]] : []
+        (Object.entries(fieldErrors) as [string, string[]][]).flatMap(([field, messages]) =>
+            messages.length > 0 ? [[field, messages[0]]] : []
         )
     )
 }
@@ -36,7 +28,7 @@ export function parseSessionReplayWidgetConfig(config: Record<string, unknown>):
 }
 
 export function buildSessionReplayWidgetConfig(
-    formInput: SessionReplayWidgetFormInput,
+    formInput: z.infer<typeof sessionReplayWidgetFormSchema>,
     baseConfig: SessionReplayWidgetConfig
 ): SessionReplayWidgetConfig {
     return sessionReplayWidgetConfigSchema.parse({
@@ -87,9 +79,9 @@ export function parseSessionReplayWidgetConfigApiError(
         return null
     }
 
-    const formInput: SessionReplayWidgetFormInput = {
+    const formInput = {
         limit: (config.limit as number) ?? 0,
-        orderBy: (config.orderBy as SessionReplayWidgetFormInput['orderBy']) ?? 'start_time',
+        orderBy: (config.orderBy as SessionReplayWidgetConfig['orderBy']) ?? 'start_time',
         dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
         filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
     }

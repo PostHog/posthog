@@ -93,3 +93,10 @@ export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
 
 export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>
 
+/** Form fields edited in the session replay widget settings modal. */
+export const sessionReplayWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: sessionReplayWidgetConfigSchema.shape.orderBy,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+})
