@@ -307,6 +307,7 @@ describe('createQueryWrapper actors dispatch', () => {
                     runQuery: vi.fn(),
                     trendsActors: vi.fn(),
                     lifecycleActors: vi.fn(),
+                    pathsActors: vi.fn(),
                 }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
