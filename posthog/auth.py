@@ -523,13 +523,6 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             if not site_url:
                 raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-            decode_options = {
-                "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
-                "verify_signature": True,
-                "verify_exp": True,
-                "verify_aud": True,
-                "verify_iss": True,
-            }
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
             # claim validation (expiry, audience, …) raises the real error to report.
@@ -543,7 +536,13 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         audience=site_url,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
-                        options=decode_options,
+                        options={
+                            "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                            "verify_signature": True,
+                            "verify_exp": True,
+                            "verify_aud": True,
+                            "verify_iss": True,
+                        },
                     )
                     break
                 except jwt.InvalidSignatureError:
