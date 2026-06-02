@@ -13,13 +13,15 @@
 import { Express, Request, Response } from 'express'
 import { z } from 'zod'
 
-import { Logger, TabularStore } from '@posthog/agent-shared'
+import { Logger, TableNameError, TabularStore } from '@posthog/agent-shared'
 
 import { asyncHandler } from '../http-utils'
 
+// application_id is interpolated into the S3 key (the tenancy boundary), so
+// require the UUID shape Django forwards — a non-empty string isn't enough.
 const ScopeParams = z.object({
     team_id: z.coerce.number().int().positive('missing_team_id'),
-    application_id: z.string().min(1, 'missing_application_id'),
+    application_id: z.string().uuid('application_id must be a UUID'),
 })
 
 const RowsQuery = z.object({ limit: z.coerce.number().int().min(1).max(5000).default(500) })
@@ -44,8 +46,9 @@ export function mountTableRoutes(app: Express, opts: MountTableRoutesOpts): void
     }
     function onError(res: Response, err: unknown): void {
         const message = (err as Error).message ?? 'tabular_error'
-        if (/invalid table name/i.test(message)) {
-            res.status(400).json({ error: 'invalid_table', message })
+        // Bad table name (typed) or a Zod params/query failure → 400.
+        if (err instanceof TableNameError || (err as { name?: string })?.name === 'ZodError') {
+            res.status(400).json({ error: 'invalid_request', message })
             return
         }
         opts.log.error({ err: message, stack: (err as Error).stack }, 'tables.unhandled')
@@ -78,8 +81,8 @@ export function mountTableRoutes(app: Express, opts: MountTableRoutesOpts): void
             try {
                 const { limit } = RowsQuery.parse(req.query)
                 const name = z.string().min(1).parse(req.params.name)
-                const rows = await store.query(scope(req), name, { limit })
-                const total = await store.count(scope(req), name)
+                // queryPage = rows + total from a single object read.
+                const { rows, total } = await store.queryPage(scope(req), name, { limit })
                 res.json({ name, total, returned: rows.length, limit, rows })
             } catch (err) {
                 onError(res, err)

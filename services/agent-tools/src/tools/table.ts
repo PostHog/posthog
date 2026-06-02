@@ -15,7 +15,14 @@
  *   { in: [...] } | { gt|gte|lt|lte: <number|string> }   (conditions AND together)
  */
 
-import { defineNativeTool, type TableQuery, type TabularStore, type ToolContext, Type } from '@posthog/agent-shared'
+import {
+    defineNativeTool,
+    TabularConflictError,
+    type TableQuery,
+    type TabularStore,
+    type ToolContext,
+    Type,
+} from '@posthog/agent-shared'
 
 // The TypeBox `where` schema infers as Record<string, unknown>; the store
 // evaluates each condition structurally at runtime (scalar or predicate), so we
@@ -25,12 +32,15 @@ type Where = TableQuery['where']
 const RESULT = Type.Object({
     ok: Type.Boolean(),
     error: Type.Optional(Type.String()),
+    /** Machine-readable failure class so the model can branch (e.g. retry on
+     *  `conflict`, give up on `unavailable`/`error`). */
+    code: Type.Optional(Type.String()),
     data: Type.Optional(Type.Unknown()),
 })
 
-type Result<T> = { ok: true; data: T } | { ok: false; error: string }
+type Result<T> = { ok: true; data: T } | { ok: false; error: string; code: string }
 const ok = <T>(data: T): Result<T> => ({ ok: true, data })
-const err = (error: string): Result<never> => ({ ok: false, error })
+const err = (error: string, code = 'error'): Result<never> => ({ ok: false, error, code })
 
 function scope(ctx: ToolContext): { teamId: number; applicationId: string } {
     return { teamId: ctx.teamId, applicationId: ctx.applicationId }
@@ -43,6 +53,10 @@ function storeOrError(ctx: ToolContext): TabularStore | { error: string } {
 }
 function asError(thrown: unknown): string {
     return (thrown as Error)?.message ?? 'unknown_error'
+}
+/** Classify a thrown store error for the result `code`. */
+function asCode(thrown: unknown): string {
+    return thrown instanceof TabularConflictError ? 'conflict' : 'error'
 }
 
 const TABLE = Type.String({ description: 'Table name (lowercase, digits, _ or -). Created on first append.' })
@@ -66,13 +80,13 @@ export const tableMembershipV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             const res = await s.membership(scope(ctx), args.table, args.key_column, args.values)
             return ok(res)
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })
@@ -91,13 +105,13 @@ export const tableAppendV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             const res = await s.append(scope(ctx), args.table, args.rows, { dedupeOn: args.dedupe_on })
             return ok(res)
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })
@@ -119,7 +133,7 @@ export const tableQueryV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             const rows = await s.query(scope(ctx), args.table, {
@@ -131,7 +145,7 @@ export const tableQueryV1 = defineNativeTool({
             })
             return ok({ count: rows.length, rows })
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })
@@ -145,12 +159,12 @@ export const tableCountV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             return ok({ count: await s.count(scope(ctx), args.table, args.where as Where) })
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })
@@ -164,12 +178,12 @@ export const tableDeleteV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             return ok(await s.delete(scope(ctx), args.table, args.where as Where))
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })
@@ -183,13 +197,13 @@ export const tableTruncateV1 = defineNativeTool({
     async run(args, ctx) {
         const s = storeOrError(ctx)
         if ('error' in s) {
-            return err(s.error)
+            return err(s.error, 'unavailable')
         }
         try {
             await s.truncate(scope(ctx), args.table)
             return ok({ truncated: args.table })
         } catch (e) {
-            return err(asError(e))
+            return err(asError(e), asCode(e))
         }
     },
 })

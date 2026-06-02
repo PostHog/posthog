@@ -26,6 +26,8 @@ import {
     TableScalar,
     TabularStore,
     TableQuery,
+    MAX_TABLE_BYTES,
+    TableTooLargeError,
 } from './tabular-store'
 
 export interface S3TabularStoreOpts {
@@ -107,12 +109,21 @@ export class S3JsonlTabularStore implements TabularStore {
                 appended++
             }
             return { rows, result: { appended, skipped } }
-        })
+        }, { checkCeiling: true })
     }
 
     async query(scope: MemoryScope, table: string, q: TableQuery = {}): Promise<TableRow[]> {
         const { rows } = await this.readRows(scope, table)
         return applyQuery(rows, q)
+    }
+
+    async queryPage(
+        scope: MemoryScope,
+        table: string,
+        q: TableQuery = {}
+    ): Promise<{ rows: TableRow[]; total: number }> {
+        const { rows } = await this.readRows(scope, table)
+        return { rows: applyQuery(rows, q), total: rows.length }
     }
 
     async count(scope: MemoryScope, table: string, where?: TableQuery['where']): Promise<number> {
@@ -157,18 +168,25 @@ export class S3JsonlTabularStore implements TabularStore {
     private async mutate<R>(
         scope: MemoryScope,
         table: string,
-        fn: (rows: TableRow[]) => { rows: TableRow[]; result: R }
+        fn: (rows: TableRow[]) => { rows: TableRow[]; result: R },
+        opts: { checkCeiling?: boolean } = {}
     ): Promise<R> {
         const Key = tableKeyFor(scope, table, this.bucketPrefix)
         for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
             const { rows, etag } = await this.readRows(scope, table)
             const { rows: nextRows, result } = fn(rows)
+            const body = serializeJsonl(nextRows)
+            // Ceiling enforced only on growth paths (append) so a delete can
+            // always shrink an over-size table back down.
+            if (opts.checkCeiling && Buffer.byteLength(body) > MAX_TABLE_BYTES) {
+                throw new TableTooLargeError(table)
+            }
             try {
                 await this.client.send(
                     new PutObjectCommand({
                         Bucket: this.bucket,
                         Key,
-                        Body: serializeJsonl(nextRows),
+                        Body: body,
                         ContentType: 'application/x-ndjson; charset=utf-8',
                         // Optimistic concurrency: only write if the object is
                         // unchanged since we read it (or still absent on create).
@@ -177,15 +195,14 @@ export class S3JsonlTabularStore implements TabularStore {
                 )
                 return result
             } catch (err) {
-                if (isPreconditionFailed(err) && attempt < this.maxRetries) {
-                    continue // someone else wrote; re-read and re-apply
+                // A real error aborts immediately; a precondition failure means
+                // someone else wrote — fall through and retry (re-read, re-apply).
+                if (!isPreconditionFailed(err)) {
+                    throw err
                 }
-                if (isPreconditionFailed(err)) {
-                    throw new TabularConflictError(table)
-                }
-                throw err
             }
         }
+        // Exhausted all retries while still conflicting.
         throw new TabularConflictError(table)
     }
 }

@@ -61,7 +61,11 @@ export interface TabularStore {
         keyColumn: string,
         values: TableScalar[]
     ): Promise<{ known: TableScalar[]; new: TableScalar[] }>
-    /** Append rows. With `dedupeOn`, rows whose key already exists are skipped. */
+    /**
+     * Append rows. With `dedupeOn`, rows whose key already exists in the table
+     * (or earlier in this same batch) are skipped. Rows missing the `dedupeOn`
+     * column can't be deduped and are always appended (counted in `appended`).
+     */
     append(
         scope: MemoryScope,
         table: string,
@@ -70,6 +74,11 @@ export interface TabularStore {
     ): Promise<{ appended: number; skipped: number }>
     /** Filter + project + order + limit. Simple predicates only. */
     query(scope: MemoryScope, table: string, q?: TableQuery): Promise<TableRow[]>
+    /**
+     * Like `query`, but also returns the table's total row count from the SAME
+     * read — one GET instead of query()+count(). For paged views ("N of M").
+     */
+    queryPage(scope: MemoryScope, table: string, q?: TableQuery): Promise<{ rows: TableRow[]; total: number }>
     /** Count rows matching `where` (or all rows). */
     count(scope: MemoryScope, table: string, where?: TableQuery['where']): Promise<number>
     /** Delete rows matching `where`. Returns how many were removed. */
@@ -80,9 +89,33 @@ export interface TabularStore {
 
 const TABLE_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/
 
+/**
+ * Per-table object ceiling. Whole-object read-modify-write is O(size) per op,
+ * so an unbounded table degrades to quadratic over a session — cap it (mirrors
+ * the memory store's per-file ceiling). Past this, the table should move to a
+ * real DB backend behind the same interface.
+ */
+export const MAX_TABLE_BYTES = 5 * 1024 * 1024
+
+/** Thrown by `validateTableName` on a bad name → callers map to 400. */
+export class TableNameError extends Error {
+    constructor(public readonly table: string) {
+        super(`invalid table name "${table}" — must match ${TABLE_NAME_RE} (≤128 chars)`)
+        this.name = 'TableNameError'
+    }
+}
+
+/** Thrown when an append would push a table past `MAX_TABLE_BYTES`. */
+export class TableTooLargeError extends Error {
+    constructor(public readonly table: string) {
+        super(`table "${table}" would exceed ${MAX_TABLE_BYTES} bytes — move it to a DB-backed store`)
+        this.name = 'TableTooLargeError'
+    }
+}
+
 export function validateTableName(name: string): string {
     if (!TABLE_NAME_RE.test(name) || name.length > 128) {
-        throw new Error(`invalid table name "${name}" — must match ${TABLE_NAME_RE} (≤128 chars)`)
+        throw new TableNameError(name)
     }
     return name
 }
@@ -120,14 +153,53 @@ export function serializeJsonl(rows: TableRow[]): string {
     return rows.map((r) => JSON.stringify(r)).join('\n') + (rows.length ? '\n' : '')
 }
 
-function cmp(a: unknown, b: number | string): number {
-    if (typeof a === 'number' && typeof b === 'number') {
-        return a - b
+/** Parse to a finite number, or null if it isn't numeric. */
+function toNum(v: unknown): number | null {
+    if (typeof v === 'number') {
+        return Number.isFinite(v) ? v : null
+    }
+    if (typeof v === 'string' && v.trim() !== '') {
+        const n = Number(v)
+        return Number.isFinite(n) ? n : null
+    }
+    return null
+}
+
+/**
+ * Order two values for SORTING (`order_by`). Compares numerically when both
+ * coerce to finite numbers, else lexicographically. Total order, never null —
+ * sorting can't drop rows.
+ */
+function cmp(a: unknown, b: unknown): number {
+    const na = toNum(a)
+    const nb = toNum(b)
+    if (na !== null && nb !== null) {
+        return na - nb
     }
     return String(a).localeCompare(String(b))
 }
 
-/** Evaluate one column condition against a row value. */
+/**
+ * Compare a row value against a range PREDICATE bound. Returns the sign, or
+ * `null` when the two aren't comparable — a numeric bound (incl. a numeric
+ * string like `"10"`) only compares against numeric values, so `{ gt: 9 }`
+ * matches `10`/`"11"` but NOT `"x"`; a non-numeric string bound compares
+ * lexicographically. `null` means "doesn't satisfy the predicate".
+ */
+function rangeCmp(value: unknown, bound: number | string): number | null {
+    const nb = toNum(bound)
+    if (nb !== null) {
+        const nv = toNum(value)
+        return nv === null ? null : nv - nb
+    }
+    return String(value).localeCompare(String(bound))
+}
+
+/**
+ * Evaluate one column condition against a row value. Predicates operate on
+ * scalars: `in` uses value equality (objects won't match), range ops compare
+ * via `cmp` (numeric when both sides are numeric, else lexicographic).
+ */
 function matchPredicate(value: unknown, cond: TableScalar | TablePredicate): boolean {
     if (cond === null || typeof cond !== 'object') {
         return value === cond
@@ -138,17 +210,20 @@ function matchPredicate(value: unknown, cond: TableScalar | TablePredicate): boo
     if (cond.in && !cond.in.includes(value as TableScalar)) {
         return false
     }
-    if (cond.gt !== undefined && !(cmp(value, cond.gt) > 0)) {
-        return false
-    }
-    if (cond.gte !== undefined && !(cmp(value, cond.gte) >= 0)) {
-        return false
-    }
-    if (cond.lt !== undefined && !(cmp(value, cond.lt) < 0)) {
-        return false
-    }
-    if (cond.lte !== undefined && !(cmp(value, cond.lte) <= 0)) {
-        return false
+    const ranges: [number | string | undefined, (c: number) => boolean][] = [
+        [cond.gt, (c) => c > 0],
+        [cond.gte, (c) => c >= 0],
+        [cond.lt, (c) => c < 0],
+        [cond.lte, (c) => c <= 0],
+    ]
+    for (const [bound, ok] of ranges) {
+        if (bound === undefined) {
+            continue
+        }
+        const c = rangeCmp(value, bound)
+        if (c === null || !ok(c)) {
+            return false
+        }
     }
     return true
 }
@@ -170,7 +245,7 @@ export function applyQuery(rows: TableRow[], q: TableQuery = {}): TableRow[] {
     let out = rows.filter((r) => matchRow(r, q.where))
     if (q.order_by) {
         const col = q.order_by
-        out = [...out].sort((a, b) => cmp(a[col], b[col] as number | string))
+        out = [...out].sort((a, b) => cmp(a[col], b[col]))
         if (q.desc) {
             out.reverse()
         }

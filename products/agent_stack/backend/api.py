@@ -2064,13 +2064,14 @@ class AgentMemoryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def table_rows(self, request: Request, name: str | None = None, **kwargs) -> Response:
         application = self._get_application()
         limit_raw = request.query_params.get("limit")
+        limit: int | None = None
+        if limit_raw:
+            try:
+                limit = int(limit_raw)
+            except ValueError:
+                raise ValidationError("limit must be an integer")
         try:
-            payload = _janitor().read_table(
-                int(self.team_id),
-                str(application.id),
-                str(name),
-                limit=int(limit_raw) if limit_raw else None,
-            )
+            payload = _janitor().read_table(int(self.team_id), str(application.id), str(name), limit=limit)
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)
