@@ -5,17 +5,20 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { ActionsLineGraph } from 'scenes/trends/viz/ActionsLineGraph'
-import { TrendsLineChart } from 'scenes/trends/viz/trends-line-chart/TrendsLineChart'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { ChartDisplayType } from '~/types'
 import type { InsightLogicProps } from '~/types'
+
+import { TrendsBarChart } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart'
+import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
 
 import { buildCachedInsight } from './buildCachedInsight'
 import type { BenchData } from './generateBenchData'
 
-type AdapterKind = 'adapter-hog' | 'adapter-chartjs'
+type AdapterKind = 'adapter-hog' | 'adapter-chartjs' | 'adapter-bar'
 
 interface RealAdaptersCellProps {
     kind: AdapterKind
@@ -37,7 +40,14 @@ interface RealAdaptersCellProps {
  * re-using a warm logic cache.
  */
 export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersCellProps): JSX.Element {
-    const built = useMemo(() => buildCachedInsight(data, { fillArea }), [data, fillArea])
+    const built = useMemo(
+        () =>
+            buildCachedInsight(data, {
+                fillArea,
+                display: kind === 'adapter-bar' ? ChartDisplayType.ActionsBar : undefined,
+            }),
+        [data, fillArea, kind]
+    )
 
     const insightProps: InsightLogicProps = useMemo(
         () => ({
@@ -67,7 +77,13 @@ export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersC
                 <BindLogic logic={insightDataLogic} props={insightProps}>
                     <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                         <BindLogic logic={insightVizDataLogic} props={insightProps}>
-                            {kind === 'adapter-hog' ? <TrendsLineChart /> : <ActionsLineGraph />}
+                            {kind === 'adapter-hog' ? (
+                                <TrendsLineChart />
+                            ) : kind === 'adapter-bar' ? (
+                                <TrendsBarChart />
+                            ) : (
+                                <ActionsLineGraph />
+                            )}
                         </BindLogic>
                     </BindLogic>
                 </BindLogic>

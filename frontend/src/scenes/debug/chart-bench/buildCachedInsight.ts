@@ -1,7 +1,7 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { EventsNode, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import type { QueryBasedInsightModel, TrendResult } from '~/types'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightType } from '~/types'
 
 import type { BenchData } from './generateBenchData'
 
@@ -26,10 +26,13 @@ export interface BuiltInsight {
 
 interface BuildOptions {
     fillArea?: boolean
+    /** Overrides the display type. When omitted, falls back to the line/area choice driven by `fillArea`. */
+    display?: ChartDisplayType
 }
 
 export function buildCachedInsight(data: BenchData, options: BuildOptions = {}): BuiltInsight {
-    const display = options.fillArea ? ChartDisplayType.ActionsAreaGraph : ChartDisplayType.ActionsLineGraph
+    const display =
+        options.display ?? (options.fillArea ? ChartDisplayType.ActionsAreaGraph : ChartDisplayType.ActionsLineGraph)
     const trendsQuery: TrendsQuery = {
         kind: NodeKind.TrendsQuery,
         dateRange: {
@@ -83,7 +86,7 @@ export function buildCachedInsight(data: BenchData, options: BuildOptions = {}):
         days: data.labels.slice(),
         aggregated_value: 0,
         filter: {
-            insight: 'TRENDS',
+            insight: InsightType.TRENDS,
             interval: 'day',
             display,
         },

@@ -16,6 +16,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ChartJsLineChart } from './ChartJsLineChart'
 import { generateBenchData } from './generateBenchData'
+import { HogChartsBarChart } from './HogChartsBarChart'
 import { HogChartsLineChart } from './HogChartsLineChart'
 import { RealAdaptersCell } from './RealAdaptersCell'
 import { SweepResultsChart } from './SweepResultsChart'
@@ -66,10 +67,12 @@ declare global {
 }
 
 const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
-    { label: 'hog-charts (raw)', value: 'hog' },
-    { label: 'chart.js (raw)', value: 'chartjs' },
+    { label: 'hog-charts line (raw)', value: 'hog' },
+    { label: 'chart.js line (raw)', value: 'chartjs' },
+    { label: 'hog-charts bar (raw)', value: 'hog-bar' },
     { label: 'hog-charts (TrendsLineChart adapter)', value: 'adapter-hog' },
     { label: 'chart.js (ActionsLineGraph adapter)', value: 'adapter-chartjs' },
+    { label: 'hog-charts (TrendsBarChart adapter)', value: 'adapter-bar' },
 ]
 
 const DEFAULT_SERIES = 10
@@ -138,7 +141,7 @@ function parseSeriesList(raw: string): number[] {
         .filter((n) => Number.isFinite(n) && n > 0)
 }
 
-const ALL_CHART_KINDS: ChartKind[] = ['hog', 'chartjs', 'adapter-hog', 'adapter-chartjs']
+const ALL_CHART_KINDS: ChartKind[] = ['hog', 'chartjs', 'hog-bar', 'adapter-hog', 'adapter-chartjs', 'adapter-bar']
 
 interface ChartCellProps {
     chart: ChartKind
@@ -157,6 +160,9 @@ function ChartCell({ chart, series, points, seed, fillArea, showGrid, runKey }: 
     }
     if (chart === 'chartjs') {
         return <ChartJsLineChart data={data} fillArea={fillArea} showGrid={showGrid} />
+    }
+    if (chart === 'hog-bar') {
+        return <HogChartsBarChart data={data} showGrid={showGrid} />
     }
     return <RealAdaptersCell kind={chart} data={data} runKey={runKey} fillArea={fillArea} />
 }
