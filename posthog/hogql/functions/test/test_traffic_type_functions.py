@@ -17,7 +17,7 @@ def _ua() -> ast.Field:
     return ast.Field(chain=["properties", "$user_agent"])
 
 
-def _unwrap_udf(call: ast.Call) -> tuple[str, ast.Expr]:
+def _unwrap_udf(call: ast.Expr) -> tuple[str, ast.Expr]:
     """Unpack (udf_name, ifNull(ua, '') inner expr) from a wrapped UDF call."""
     assert isinstance(call, ast.Call)
     assert len(call.args) == 1
