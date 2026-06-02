@@ -191,7 +191,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
         "Empty until the source has been refreshed via `refresh_schemas`.",
     )
-    source = serializers.SerializerMethodField(
+    # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
+    # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
+    source = serializers.SerializerMethodField(  # type: ignore[assignment]
         read_only=True,
         help_text="Lightweight parent-source summary (id, source_type, column-selection support, the requesting "
         "user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so "
@@ -284,8 +286,6 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if not self.context.get("include_source"):
             return None
         source = schema.source
-        if source is None:
-            return None
         user_access_level = None
         view = self.context.get("view")
         user_access_control = getattr(view, "user_access_control", None)

@@ -6001,7 +6001,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
-    user_access_level: AccessControlLevel
+    user_access_level: AccessControlLevel | null
 }
 
 export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {

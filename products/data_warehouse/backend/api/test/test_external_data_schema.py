@@ -1872,20 +1872,23 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
         return source, schema
 
-    def test_retrieve_includes_source_summary(self):
-        source, schema = self._create()
+    @parameterized.expand(
+        [
+            (ExternalDataSourceType.STRIPE, False),
+            (ExternalDataSourceType.POSTGRES, True),
+        ]
+    )
+    def test_retrieve_includes_source_summary(
+        self, source_type: ExternalDataSourceType, expected_supports_column_selection: bool
+    ):
+        source, schema = self._create(source_type=source_type)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
         assert summary["id"] == str(source.id)
-        assert summary["source_type"] == "Stripe"
-        assert summary["supports_column_selection"] is False
+        assert summary["source_type"] == source_type.value
+        assert summary["supports_column_selection"] is expected_supports_column_selection
         assert "user_access_level" in summary
-
-    def test_retrieve_source_summary_reflects_column_selection(self):
-        _, schema = self._create(source_type=ExternalDataSourceType.POSTGRES)
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
-        assert response.json()["source"]["supports_column_selection"] is True
 
     def test_list_omits_source_summary(self):
         self._create()
