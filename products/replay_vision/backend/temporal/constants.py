@@ -1,6 +1,35 @@
+import datetime as dt
 from uuid import UUID
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
+SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+
+SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
+
+# Children are ABANDONed and don't count against this budget.
+SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+
+SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
+# Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
+SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"
+
+
+def scanner_schedule_id(scanner_id: UUID) -> str:
+    return f"{SCANNER_SCHEDULE_ID_PREFIX}-{scanner_id}"
+
+
+RECONCILER_WORKFLOW_NAME = "replay-vision-reconcile-scanner-schedules"
+RECONCILER_WORKFLOW_ID = "replay-vision-scanner-reconciler"
+RECONCILER_SCHEDULE_ID = "replay-vision-scanner-reconciler-schedule"
+
+# Worst-case latency between a UI scanner edit and its first per-scanner tick.
+RECONCILER_INTERVAL = dt.timedelta(minutes=1)
+RECONCILER_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
+
+LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
+LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
+RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
+
 
 # Capped so `replay-vision-apply-scanner-{scanner_uuid:36}-{session_id}` fits the 255-char `ReplayObservation.workflow_id` column.
 MAX_SESSION_ID_LENGTH = 128

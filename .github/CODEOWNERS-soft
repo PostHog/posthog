@@ -195,8 +195,12 @@ AGENTS.md @PostHog/team-devex
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
 tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
+tools/query-performance-ai/ @PostHog/team-analytics-platform
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
+
+# User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
+products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 
 # OpenAPI / drf-spectacular tooling - owned by @PostHog/team-devex
 posthog/api/documentation.py @PostHog/team-devex

@@ -13,7 +13,6 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -39,7 +38,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
@@ -69,13 +68,6 @@ class ScannerResultSerializer(serializers.Serializer):
     signals_count = serializers.IntegerField(
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
-    )
-    event_id_mapping = serializers.DictField(
-        child=serializers.JSONField(),
-        help_text=(
-            "Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: "
-            "`{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited."
-        ),
     )
 
 
@@ -159,6 +151,15 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ]
 
 
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+
+
+def _ordering_enum(fields: tuple[str, ...]) -> list[str]:
+    """Ascending + descending (`-`-prefixed) variants of each field, matching OrderingFilter's accepted values."""
+    return [value for field in fields for value in (field, f"-{field}")]
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(
         field_name="status",
@@ -175,12 +176,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text="Filter to observations of a specific session recording.",
     )
     order_by = django_filters.OrderingFilter(
-        fields=(
-            ("created_at", "created_at"),
-            ("started_at", "started_at"),
-            ("completed_at", "completed_at"),
-            ("status", "status"),
-        ),
+        fields=tuple((field, field) for field in OBSERVATION_ORDER_FIELDS),
         help_text="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
     )
 
@@ -189,7 +185,22 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
-@extend_schema(tags=[VISION_TAG])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=_ordering_enum(OBSERVATION_ORDER_FIELDS),
+                description="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
+            )
+        ]
+    )
+)
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -225,7 +236,6 @@ class ReplayObservationViewSet(
         )
 
 
-@extend_schema(tags=[VISION_TAG])
 @extend_schema_view(
     list=extend_schema(
         parameters=[

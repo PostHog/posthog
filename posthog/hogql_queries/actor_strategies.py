@@ -1,6 +1,6 @@
 import uuid as uuid_mod
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal, Optional, cast
+from typing import Literal, Optional, cast
 
 from django.db import connections
 
@@ -18,18 +18,14 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
 from posthog.models import Team
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.util import (
+    PERSONHOG_BATCH_SIZE,
+    _batched_get_distinct_ids_for_persons,
+    _batched_get_persons_by_uuids,
+)
 from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
-from posthog.personhog_client.metrics import (
-    PERSONHOG_ROUTING_ERRORS_TOTAL,
-    PERSONHOG_ROUTING_TOTAL,
-    PERSONHOG_TEAM_MISMATCH_TOTAL,
-    get_client_name,
-)
-from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
-
-if TYPE_CHECKING:
-    from posthog.personhog_client.client import PersonHogClient
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -75,16 +71,13 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
-    # batching is needed to prevent timeouts when reading from Postgres
-    BATCH_SIZE = 1000
-
     def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
         from posthog.personhog_client.client import get_personhog_client
 
         client = get_personhog_client()
         if client is not None:
             try:
-                result = self._get_actors_via_personhog(client, actor_ids, sort_by_created_at_descending)
+                result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending)
                 PERSONHOG_ROUTING_TOTAL.labels(
                     operation="get_actors", source="personhog", client_name=get_client_name()
                 ).inc()
@@ -100,42 +93,19 @@ class PersonStrategy(ActorStrategy):
 
     def _get_actors_via_personhog(
         self,
-        client: "PersonHogClient",
         actor_ids,
         sort_by_created_at_descending: bool,
     ) -> dict[str, dict]:
         actor_ids_list = [str(uid) for uid in actor_ids]
         team_id = self.team.pk
 
-        all_persons = []
-        for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
-            batch = actor_ids_list[i : i + self.BATCH_SIZE]
-            resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=batch))
-
-            present = [p for p in resp.persons if p.id]
-            valid = [p for p in present if p.team_id == team_id]
-
-            mismatched = len(present) - len(valid)
-            if mismatched:
-                PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_actors", client_name=get_client_name()).inc(
-                    mismatched
-                )
-                logger.warning("personhog_team_mismatch", operation="get_actors", team_id=team_id, dropped=mismatched)
-
-            all_persons.extend(valid)
+        all_persons = _batched_get_persons_by_uuids(team_id, actor_ids_list, operation="get_actors")
 
         if sort_by_created_at_descending:
             all_persons.sort(key=lambda p: (-p.created_at, p.uuid))
 
         person_ids = [p.id for p in all_persons]
-        distinct_ids_by_person: dict[int, list[str]] = {}
-        for i in range(0, len(person_ids), self.BATCH_SIZE):
-            did_batch = person_ids[i : i + self.BATCH_SIZE]
-            did_resp = client.get_distinct_ids_for_persons(
-                GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=did_batch)
-            )
-            for pd in did_resp.person_distinct_ids:
-                distinct_ids_by_person[pd.person_id] = [d.distinct_id for d in pd.distinct_ids]
+        distinct_ids_by_person = _batched_get_distinct_ids_for_persons(team_id, person_ids)
 
         return {
             p.uuid: {
@@ -164,8 +134,8 @@ class PersonStrategy(ActorStrategy):
         all_distinct_ids: list = []
 
         with conn.cursor() as cursor:
-            for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
-                batch = actor_ids_list[i : i + self.BATCH_SIZE]
+            for i in range(0, len(actor_ids_list), PERSONHOG_BATCH_SIZE):
+                batch = actor_ids_list[i : i + PERSONHOG_BATCH_SIZE]
                 persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at, {person_table}.last_seen_at
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
@@ -180,8 +150,8 @@ class PersonStrategy(ActorStrategy):
                 all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
 
             person_ids = [x[0] for x in all_people]
-            for i in range(0, len(person_ids), self.BATCH_SIZE):
-                batch = person_ids[i : i + self.BATCH_SIZE]
+            for i in range(0, len(person_ids), PERSONHOG_BATCH_SIZE):
+                batch = person_ids[i : i + PERSONHOG_BATCH_SIZE]
                 cursor.execute(
                     f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
                     FROM {pdi_table}

@@ -201,8 +201,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if msg:
                 raise ValidationError({"subscription": [msg]})
 
-        if not self.initial_data:
-            # Create
+        if self.instance is None:
+            # Create: a subscription must export an insight or a dashboard.
             if not attrs.get("dashboard") and not attrs.get("insight"):
                 raise ValidationError("Either dashboard or insight is required for an export.")
 
@@ -643,7 +643,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         ],
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
@@ -905,7 +905,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()

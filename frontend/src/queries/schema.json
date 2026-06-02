@@ -33,12 +33,23 @@
                 "csm": {
                     "$ref": "#/definitions/AccountsRoleAssignmentFilter"
                 },
+                "filterExpression": {
+                    "$ref": "#/definitions/HogQLExpression",
+                    "description": "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance."
+                },
                 "kind": {
                     "const": "AccountsQuery",
                     "type": "string"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metrics": {
+                    "description": "Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -106,6 +117,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -1296,9 +1314,49 @@
         "AssistantDataVisualizationAxisDisplaySettings": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                    "type": "string"
+                },
+                "displayType": {
+                    "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                    "enum": ["auto", "line", "bar", "area"],
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                    "type": "string"
+                },
+                "trendLine": {
+                    "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "yAxisPosition": {
                     "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
                     "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "decimalPlaces": {
+                    "description": "Number of decimal places to display.",
+                    "type": "number"
+                },
+                "prefix": {
+                    "description": "Text prepended to each value (e.g. `$`).",
+                    "type": "string"
+                },
+                "style": {
+                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                    "enum": ["none", "number", "short", "percent"],
+                    "type": "string"
+                },
+                "suffix": {
+                    "description": "Text appended to each value (e.g. `%` or ` ms`).",
                     "type": "string"
                 }
             },
@@ -1310,6 +1368,10 @@
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
                     "description": "Display settings for a plotted Y series."
+                },
+                "formatting": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
+                    "description": "Number-formatting settings for the values on this axis or series."
                 }
             },
             "type": "object"
@@ -1342,6 +1404,10 @@
                 },
                 "showNullsAsZero": {
                     "description": "Replace null aggregation results with zero.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
                 },
                 "stackBars100": {
@@ -3746,7 +3812,8 @@
                 "marketing_list_data_sources",
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
-                "marketing_suggest_utm_mappings"
+                "marketing_suggest_utm_mappings",
+                "summarize_replay_vision_summaries"
             ],
             "type": "string"
         },
@@ -4838,6 +4905,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -14075,6 +14149,13 @@
                                 "limit": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "metricsResults": {
+                                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
@@ -14545,6 +14626,10 @@
                 "schema_name": {
                     "description": "Name of the ExternalDataSchema responsible for syncing the table",
                     "type": "string"
+                },
+                "source_id": {
+                    "description": "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables.",
+                    "type": ["string", "null"]
                 },
                 "source_type": {
                     "description": "Source type, e.g. \"Stripe\", \"Hubspot\"",
@@ -20005,7 +20090,9 @@
                 "ClickHouse",
                 "Plain",
                 "Resend",
-                "PgAnalyze"
+                "PgAnalyze",
+                "WorkOS",
+                "Custom"
             ],
             "type": "string"
         },
@@ -20287,8 +20374,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports",
-                "deployments"
+                "exports"
             ],
             "type": "string"
         },
@@ -24632,6 +24718,84 @@
             },
             "type": "object"
         },
+        "LogsAlertStateChangeSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["firing", "broken"],
+                    "type": "string"
+                },
+                "alert_id": {
+                    "type": "string"
+                },
+                "alert_name": {
+                    "type": "string"
+                },
+                "consecutive_failures": {
+                    "type": "number"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "result_count": {
+                    "type": ["number", "null"]
+                },
+                "threshold_count": {
+                    "type": "number"
+                },
+                "threshold_operator": {
+                    "enum": ["above", "below"],
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "window_minutes": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "alert_id",
+                "alert_name",
+                "action",
+                "threshold_count",
+                "threshold_operator",
+                "window_minutes",
+                "result_count",
+                "consecutive_failures",
+                "filters",
+                "url"
+            ],
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "logs",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "alert_state_change",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
+        },
         "LogsOrderBy": {
             "enum": ["latest", "earliest"],
             "title": "LogsOrderBy",
@@ -28807,7 +28971,8 @@
                 "vercel_integration",
                 "endpoint_created",
                 "endpoint_created_from_insight",
-                "endpoint_created_from_sql_editor"
+                "endpoint_created_from_sql_editor",
+                "tracing_docs_viewed"
             ],
             "type": "string"
         },
@@ -28871,7 +29036,6 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
-                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
@@ -33283,6 +33447,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -34528,6 +34699,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -35310,6 +35488,11 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "hide_viewed_recordings": {
+                    "description": "Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set.",
+                    "enum": ["current-user", "any-user", null],
+                    "type": ["string", "null"]
                 },
                 "kind": {
                     "const": "RecordingsQuery",
@@ -38268,6 +38451,12 @@
                 },
                 {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/SignalsScoutSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
         },
@@ -38303,7 +38492,9 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "pganalyze"
+                "pganalyze",
+                "signals_scout",
+                "logs"
             ],
             "type": "string"
         },
@@ -38318,9 +38509,118 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "cross_source_issue",
+                "alert_state_change"
             ],
             "type": "string"
+        },
+        "SignalsScoutEvidenceEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "entity_id": {
+                    "description": "Optional entity id within that product, e.g. an issue id or session id.",
+                    "type": "string"
+                },
+                "source_product": {
+                    "description": "The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary of the evidence the scout used.",
+                    "type": "string"
+                }
+            },
+            "required": ["source_product", "summary"],
+            "type": "object"
+        },
+        "SignalsScoutSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "type": "number"
+                },
+                "dedupe_keys": {
+                    "description": "Free-form short keys the harness can use for cross-run dedupe.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "evidence": {
+                    "items": {
+                        "$ref": "#/definitions/SignalsScoutEvidenceEntry"
+                    },
+                    "type": "array"
+                },
+                "finding_id": {
+                    "type": "string"
+                },
+                "hypothesis": {
+                    "type": "string"
+                },
+                "mcp_trace_id": {
+                    "description": "Trace id from the LLM analytics span for the scout run, when available.",
+                    "type": "string"
+                },
+                "scout_run_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "skill_version": {
+                    "type": "number"
+                },
+                "time_range": {
+                    "additionalProperties": false,
+                    "description": "Optional time window the finding refers to.",
+                    "properties": {
+                        "date_from": {
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                }
+            },
+            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "type": "object"
+        },
+        "SignalsScoutSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalsScoutSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "signals_scout",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "cross_source_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SimilarIssue": {
             "additionalProperties": false,
@@ -40870,6 +41170,11 @@
                     "$ref": "#/definitions/integer",
                     "default": 1
                 },
+                "stackBreakdownValues": {
+                    "default": false,
+                    "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
+                    "type": "boolean"
+                },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",
                     "type": "string"
@@ -41516,6 +41821,15 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"

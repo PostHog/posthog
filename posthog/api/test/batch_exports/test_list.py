@@ -159,7 +159,7 @@ def test_list_filters_workflows_destination(client: HttpClient, organization, te
     client.force_login(user)
 
     s3_destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -193,4 +193,4 @@ def test_list_filters_workflows_destination(client: HttpClient, organization, te
 
     response = list_batch_exports_ok(client, team.pk)
     assert len(response["results"]) == 1
-    assert response["results"][0]["destination"]["type"] == "S3"
+    assert response["results"][0]["destination"]["type"] == "AwsS3"
