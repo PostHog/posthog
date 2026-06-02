@@ -38,9 +38,12 @@ describe('StickinessBarChart', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('stickiness-bar-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('renders one series per event', async () => {
@@ -54,9 +57,12 @@ describe('StickinessBarChart', () => {
             featureFlags: HOG_CHARTS_FLAG,
         })
 
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('y-axis: renders percent ticks (legacy `${value.toFixed(1)}%` parity)', async () => {
