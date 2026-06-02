@@ -16748,6 +16748,18 @@ export namespace Schemas {
     };
 
     /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type ExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
+    /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
     * `append` - append
@@ -16894,6 +16906,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source: ExternalDataSchemaSource;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -28295,6 +28312,18 @@ export namespace Schemas {
       is_nullable?: boolean;
     };
 
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -28374,6 +28403,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source?: PatchedExternalDataSchemaSource;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {

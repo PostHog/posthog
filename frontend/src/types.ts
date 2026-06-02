@@ -5965,6 +5965,19 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
 }
 
+/** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
+export interface ExternalDataSchemaSourceSummary {
+    id: string
+    source_type: ExternalDataSourceType
+    supports_column_selection?: boolean
+    user_access_level: AccessControlLevel
+}
+
+export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
+    /** Populated only on the single-schema retrieve endpoint; `null` when serialized elsewhere. */
+    source: ExternalDataSchemaSourceSummary | null
+}
+
 export enum ExternalDataSchemaStatus {
     Running = 'Running',
     Completed = 'Completed',

@@ -58,6 +58,7 @@ from products.data_modeling.backend.models.datawarehouse_managed_viewset import 
 from products.data_warehouse.backend.api.external_data_schema import (
     ExternalDataSchemaSerializer,
     SimpleExternalDataSchemaSerializer,
+    source_supports_column_selection,
 )
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
@@ -603,13 +604,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return False
 
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
-        try:
-            source = SourceRegistry.get_source(ExternalDataSourceType(instance.source_type))
-        except Exception as e:
-            capture_exception(e)
-            return False
-        # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
-        return bool(source.supports_column_selection)
+        return source_supports_column_selection(instance.source_type)
 
     def get_status(self, instance: ExternalDataSource) -> str:
         active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore

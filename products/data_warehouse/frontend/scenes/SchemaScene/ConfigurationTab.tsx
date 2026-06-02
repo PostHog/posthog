@@ -42,8 +42,7 @@ import {
 
 import { syncMethodModalLogic } from '../SourceScene/syncMethodModalLogic'
 import { ColumnSelectionPicker } from '../SourceScene/tabs/ColumnSelectionModal'
-import { sourceSettingsLogic } from '../SourceScene/tabs/sourceSettingsLogic'
-import { SchemaConfigurationSection } from './schemaSceneLogic'
+import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
 // null means "all columns" on either side, so switching to null after a partial list flags
 // every previously-excluded column as added.
@@ -62,7 +61,7 @@ export interface ConfigurationTabProps {
 }
 
 export function ConfigurationTab({ sourceId, schema, source, section }: ConfigurationTabProps): JSX.Element {
-    const logic = sourceSettingsLogic({ id: sourceId })
+    const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
     const { isProjectTime, refreshingSchemas } = useValues(logic)
     const { setIsProjectTime, updateSchema, reloadSchema, resyncSchema, cancelSchema, deleteTable, refreshSchemas } =
         useActions(logic)
@@ -303,7 +302,7 @@ function SyncMethodSection({
     const logic = syncMethodModalLogic({ schema })
     const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
     const { loadSchemaIncrementalFields } = useActions(logic)
-    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
+    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
@@ -341,7 +340,7 @@ function SyncMethodSection({
                 ...(syncType === 'cdc' && cdcTableMode ? { cdc_table_mode: cdcTableMode } : {}),
             })
             lemonToast.success('Sync method saved')
-            loadSource()
+            loadSchema()
         } catch (e: any) {
             lemonToast.error(e?.message || "Can't save sync method at this time")
         } finally {
@@ -548,7 +547,7 @@ function ScheduleSection({
     isProjectTime: boolean
     setIsProjectTime: (v: boolean) => void
 }): JSX.Element {
-    const { loadSource } = useActions(sourceSettingsLogic({ id: sourceId }))
+    const { loadSchema } = useActions(schemaSceneLogic({ sourceId, schemaId: schema.id }))
     const isCdc = schema.sync_type === 'cdc'
     const makeOption = (value: DataWarehouseSyncInterval): LemonSelectOption<DataWarehouseSyncInterval> => ({
         value,
@@ -595,7 +594,7 @@ function ScheduleSection({
                 },
             ])
             lemonToast.success('Schedule saved')
-            loadSource()
+            loadSchema()
         } catch (e: any) {
             lemonToast.error(e?.message || "Can't save schedule at this time")
         } finally {
