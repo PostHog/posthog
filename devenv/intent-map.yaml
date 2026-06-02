@@ -130,6 +130,16 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    nodejs_optional:
+        description: 'Node.js Optional - data-warehouse events, person updates, legacy plugin onEvent, and the legacy HogFlow drain (being phased out)'
+        requires: [event_ingestion]
+        docker_profiles: []
+
+    nodejs_feature_flags:
+        description: 'Node.js Feature Flags - evaluation scheduler'
+        requires: [flag_evaluation]
+        docker_profiles: []
+
     nodejs_session_replay:
         description: 'Node.js Session Replay - recording ingestion'
         requires: [event_ingestion]
@@ -154,11 +164,6 @@ capabilities:
         description: 'OTEL logs, traces, and metrics capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
-
-    nodejs_feature_flags:
-        description: 'Node.js Feature Flags - evaluation scheduler'
-        requires: [flag_evaluation]
-        docker_profiles: []
 
     nodejs_error_tracking:
         description: 'Node.js Error Tracking - exception event ingestion'

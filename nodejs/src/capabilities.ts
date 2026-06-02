@@ -7,24 +7,24 @@ import { isDevEnv } from './utils/env-utils'
 // These can be combined via hogli dev:setup to reduce event loop contention and memory overhead
 // =============================================================================
 
-/** CDP - destinations, webhooks, and realtime alerts */
+/** CDP - destinations, webhooks, the events consumer, and the destination worker.
+ *  Always-on baseline. Produces work to both Kafka (`cdp_cyclotron_hog`) and Postgres V2
+ *  (`hogflow`) so the workflows group does not need its own events consumer. */
 export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpProcessedEvents: true,
-    cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
-    appManagementSingleton: true,
-    cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
-    cdpLegacyOnEvent: false, // most of the times not needed
     cdpRerunWorker: true,
+    appManagementSingleton: true,
 }
 
-/** CDP + Workflows - full CDP with HogFlow workflow automation */
+/** CDP Workflows - HogFlow worker and supporting services only.
+ *  No events consumer here on purpose: the CDP group's events consumer already
+ *  produces invocations into the Postgres V2 queue that this group drains. */
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
-    ...CAPABILITIES_CDP,
-    cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
+    cdpBatchHogFlow: true,
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
 }
@@ -35,14 +35,26 @@ export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
     cdpCohortMembership: true,
 }
 
+/** Optional - opt-in extras that don't belong to the always-on groups.
+ *  Data-warehouse and person-updates event consumers, the legacy onEvent plugin path,
+ *  and the legacy postgres-v1 HogFlow drain (being phased out). */
+export const CAPABILITIES_OPTIONAL: PluginServerCapabilities = {
+    cdpDataWarehouseEvents: true,
+    cdpPersonUpdates: true,
+    cdpLegacyOnEvent: true,
+    cdpCyclotronWorkerHogFlowLegacyPg: true,
+}
+
+/** Feature Flags - evaluation scheduler for flags and experiments.
+ *  Kept as a standalone single-capability group so the flags / experiments dev
+ *  presets don't drag in the rest of the optional bundle. */
+export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
+    evaluationScheduler: true,
+}
+
 /** Error Tracking - exception event ingestion */
 export const CAPABILITIES_ERROR_TRACKING: PluginServerCapabilities = {
     errorTrackingIngestion: true,
-}
-
-/** Feature Flags - evaluation scheduler for flags and experiments */
-export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
-    evaluationScheduler: true,
 }
 
 // =============================================================================
@@ -62,6 +74,7 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     cdp: CAPABILITIES_CDP,
     cdp_workflows: CAPABILITIES_CDP_WORKFLOWS,
     realtime_cohorts: CAPABILITIES_REALTIME_COHORTS,
+    optional: CAPABILITIES_OPTIONAL,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
@@ -92,17 +105,21 @@ export function getPluginServerCapabilities(
                 return mergeCapabilities(...capabilities)
             }
 
-            // Default local dev: run everything except ingestion, recordings, logs, and traces (they run in separate processes)
+            // Default local dev (single-process): run everything except ingestion, recordings,
+            // logs, and traces (they run in separate processes). The mprocs split-mode wires
+            // each of these groups into its own Node process via NODEJS_CAPABILITY_GROUPS.
             return mergeCapabilities(
+                CAPABILITIES_CDP,
                 CAPABILITIES_CDP_WORKFLOWS,
                 CAPABILITIES_REALTIME_COHORTS,
-                CAPABILITIES_ERROR_TRACKING,
-                CAPABILITIES_FEATURE_FLAGS
+                CAPABILITIES_OPTIONAL,
+                CAPABILITIES_FEATURE_FLAGS,
+                CAPABILITIES_ERROR_TRACKING
             )
 
         case PluginServerMode.local_cdp:
             // Local CDP development: CDP + workflows + realtime cohorts (ingestion runs separately)
-            return mergeCapabilities(CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
+            return mergeCapabilities(CAPABILITIES_CDP, CAPABILITIES_CDP_WORKFLOWS, CAPABILITIES_REALTIME_COHORTS)
 
         // Production modes - granular control for dedicated pods
         case PluginServerMode.cdp_processed_events:

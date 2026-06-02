@@ -58,17 +58,48 @@ procs:
             layer: Processing
             tech: Python
 
-    nodejs:
-        shell: 'bin/wait-for-docker && ./bin/posthog-node'
-        capability: event_ingestion
+    # Node.js services are split across multiple procs so each runs in its own event loop —
+    # reduces contention between the hog VM, Kafka consumers, and the HTTP API.
+
+    nodejs-cdp:
+        shell: 'bin/wait-for-docker && NODEJS_CAPABILITY_GROUPS=cdp HTTP_SERVER_PORT=6738 ./bin/posthog-node'
+        capability: nodejs_cdp
         ready_pattern: 'All systems go'
         groups:
             layer: Processing
             tech: Node
-        # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
-        # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, metrics, feature_flags
-        # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
+
+    nodejs-cdp-workflows:
+        shell: 'bin/wait-for-docker && NODEJS_CAPABILITY_GROUPS=cdp_workflows HTTP_SERVER_PORT=6748 ./bin/posthog-node'
+        capability: nodejs_cdp_workflows
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Processing
+            tech: Node
+
+    nodejs-realtime-cohorts:
+        shell: 'bin/wait-for-docker && NODEJS_CAPABILITY_GROUPS=realtime_cohorts HTTP_SERVER_PORT=6758 ./bin/posthog-node'
+        capability: nodejs_realtime_cohorts
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Processing
+            tech: Node
+
+    nodejs-optional:
+        shell: 'bin/wait-for-docker && NODEJS_CAPABILITY_GROUPS=optional HTTP_SERVER_PORT=6768 ./bin/posthog-node'
+        capability: nodejs_optional
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Processing
+            tech: Node
+
+    nodejs-feature-flags:
+        shell: 'bin/wait-for-docker && NODEJS_CAPABILITY_GROUPS=feature_flags HTTP_SERVER_PORT=6778 ./bin/posthog-node'
+        capability: nodejs_feature_flags
+        ready_pattern: 'All systems go'
+        groups:
+            layer: Processing
+            tech: Node
 
     ingestion-errortracking:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
