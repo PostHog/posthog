@@ -31,23 +31,12 @@ const ANALYTICS_TILES = [
 ]
 
 export const WebAnalyticsMenu = (): JSX.Element => {
-    const {
-        hasSavedFocusMode,
-        hiddenTiles,
-        isFocusModeActive,
-        productTab,
-        showFocusMode,
-        useWebAnalyticsPrecompute,
-    } = useValues(webAnalyticsLogic)
+    const { hasSavedFocusMode, hiddenTiles, isFocusModeActive, productTab, showFocusMode, useWebAnalyticsPrecompute } =
+        useValues(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        enterFocusMode,
-        exitFocusMode,
-        openFocusModeModal,
-        setUseWebAnalyticsPrecompute,
-        setTileVisibility,
-    } = useActions(webAnalyticsLogic)
+    const { enterFocusMode, exitFocusMode, openFocusModeModal, setUseWebAnalyticsPrecompute, setTileVisibility } =
+        useActions(webAnalyticsLogic)
 
     const showTileToggles = featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const availableTiles = productTab === ProductTab.ANALYTICS ? ANALYTICS_TILES : []
