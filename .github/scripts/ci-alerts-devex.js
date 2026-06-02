@@ -8,7 +8,7 @@
 // reconciles on the next tick.
 //
 // Two signals make master "unhealthy" (folded into one incident):
-//   1. any watched workflow with >= WORKFLOW_FAILURE_STREAK_THRESHOLD consecutive
+//   1. any gating workflow with >= WORKFLOW_FAILURE_STREAK_THRESHOLD consecutive
 //      failures on master — a single workflow broken run after run.
 //   2. >= COMMIT_FAILURE_STREAK_THRESHOLD consecutive red commits across the gating
 //      workflows — rotating-culprit breakage where no single workflow crosses its
@@ -111,9 +111,9 @@ async function fetchRecentCommits(github, owner, repo, perPage) {
     }))
 }
 
-// Classify each commit by the watched (merge-gating) workflow runs that share its
-// SHA: red if any failed, green if all reported and passed, unknown if none have
-// reported yet (CI still running / path-filtered).
+// Classify each commit by the gating workflow runs that share its SHA: red if any
+// failed, green if all reported and passed, unknown if none have reported yet
+// (CI still running / path-filtered).
 function classifyCommits(commits, allWorkflowRuns) {
     const runsBySha = new Map()
     for (const runs of allWorkflowRuns) {
@@ -216,11 +216,6 @@ function runsUrlFor(owner, repo, workflowFile) {
 // Read-boundary normalizer for persisted incident workflows: tolerate an older
 // bare-name format so a metadata schema change can't break the resolve/diff path.
 const normalizeWorkflows = (list) => (list || []).map((w) => (typeof w === 'string' ? { name: w } : w))
-
-// Longest failure streak first.
-function sortBlocking(blocking) {
-    return [...blocking].sort((a, b) => b.consecutive_failures - a.consecutive_failures)
-}
 
 // Bold, linked workflow name → its master run history.
 const workflowLink = (wf) => `*<${wf.runsUrl}|${slackEscape(wf.name)}>*`
@@ -336,9 +331,10 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     ])
 
     const failing = buildFailingMap(allWorkflowRuns)
-    const blocking = sortBlocking(
-        Object.values(failing).filter((f) => f.consecutive_failures >= workflowThreshold)
-    ).map((b) => ({ ...b, runsUrl: runsUrlFor(owner, repo, b.workflow_file) }))
+    const blocking = Object.values(failing)
+        .filter((f) => f.consecutive_failures >= workflowThreshold)
+        .sort((a, b) => b.consecutive_failures - a.consecutive_failures) // longest streak first
+        .map((b) => ({ ...b, runsUrl: runsUrlFor(owner, repo, b.workflow_file) }))
 
     const latestCommit = commits[0] || null
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
