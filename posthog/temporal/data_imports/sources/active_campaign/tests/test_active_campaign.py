@@ -126,14 +126,15 @@ class TestGetResource:
         assert resource["write_disposition"] == "replace"
         assert resource["table_format"] == "delta"
 
-        endpoint_def = resource["endpoint"]
+        endpoint_def = cast(dict[str, Any], resource["endpoint"])
         assert endpoint_def["path"] == config.path
         assert endpoint_def["path"].startswith("/")
         assert endpoint_def["data_selector"] == config.data_selector
 
     def test_contacts_orders_by_id_for_stable_pagination(self) -> None:
         resource = get_resource("contacts")
-        assert resource["endpoint"]["params"].get("orders[id]") == "ASC"
+        endpoint_def = cast(dict[str, Any], resource["endpoint"])
+        assert endpoint_def["params"].get("orders[id]") == "ASC"
 
 
 def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
@@ -272,3 +273,30 @@ class TestValidateCredentials:
             valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
             assert valid is False
             assert error == "boom"
+
+
+class TestSsrfProtection:
+    """The user-supplied api_url must not be usable to reach internal/metadata hosts."""
+
+    def test_validate_credentials_blocks_internal_host(self) -> None:
+        with patch("posthog.security.url_validation.is_dev_mode", return_value=False):
+            valid, error = validate_credentials("https://169.254.169.254", "test-key")
+        assert valid is False
+        assert error is not None and "not allowed" in error
+
+    def test_source_for_pipeline_blocks_internal_host(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            pytest.raises(ValueError, match="not allowed"),
+        ):
+            active_campaign_source(
+                api_url="https://169.254.169.254",
+                api_key="test-key",
+                endpoint="contacts",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+            )

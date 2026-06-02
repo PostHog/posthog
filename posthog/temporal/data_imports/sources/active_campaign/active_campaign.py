@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Any, Optional
 
+from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.active_campaign.settings import ACTIVE_CAMPAIGN_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -80,9 +81,17 @@ def active_campaign_source(
 ) -> SourceResponse:
     endpoint_config = ACTIVE_CAMPAIGN_ENDPOINTS[endpoint]
 
+    # Re-validate on every sync, not just at source creation: the stored api_url is
+    # user-supplied, so the pipeline path must also block internal/metadata hosts to
+    # avoid being used as an SSRF gadget.
+    base_url = _normalize_base_url(api_url)
+    allowed, reason = is_url_allowed(base_url)
+    if not allowed:
+        raise ValueError(f"ActiveCampaign API URL is not allowed: {reason}")
+
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": f"{_normalize_base_url(api_url)}/api/3",
+            "base_url": f"{base_url}/api/3",
             # ActiveCampaign authenticates via the account-wide `Api-Token` header.
             # Going through APIKeyAuth (rather than raw headers) registers the key
             # for value-based log redaction.
@@ -139,6 +148,12 @@ def validate_credentials(api_url: str, api_key: str) -> tuple[bool, str | None]:
     base_url = _normalize_base_url(api_url)
     if not base_url.startswith("https://"):
         return False, "ActiveCampaign API URL must start with https://"
+
+    # SSRF guard: block localhost, cloud-metadata hosts, internal domains, and private IPs
+    # before issuing any request to the user-supplied host.
+    allowed, reason = is_url_allowed(base_url)
+    if not allowed:
+        return False, f"ActiveCampaign API URL is not allowed: {reason}"
 
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(
