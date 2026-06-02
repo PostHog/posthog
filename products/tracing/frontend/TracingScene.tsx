@@ -92,6 +92,10 @@ function TracingSceneContents(): JSX.Element {
         })
     }
 
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID)
+    }
+
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
     // drags never shift the canvas underfoot. The sparkline only refetches when dateRange
     // changes (via the DateFilter), never via overlay interaction.
@@ -118,15 +122,20 @@ function TracingSceneContents(): JSX.Element {
                     type: 'tracing',
                 }}
                 actions={
-                    <LemonButton
-                        to={TRACING_DOCS_URL}
-                        onClick={onDocsLinkClick}
-                        type="secondary"
-                        size="small"
-                        targetBlank
-                    >
-                        Documentation
-                    </LemonButton>
+                    <>
+                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                            Feedback
+                        </LemonButton>
+                        <LemonButton
+                            to={TRACING_DOCS_URL}
+                            onClick={onDocsLinkClick}
+                            type="secondary"
+                            size="small"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                    </>
                 }
             />
             <LemonBanner
@@ -135,7 +144,7 @@ function TracingSceneContents(): JSX.Element {
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
-                    onClick: () => posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID),
+                    onClick: onFeedbackClick,
                 }}
             >
                 Tracing is in alpha. Expect bugs, missing features, and breaking changes.
