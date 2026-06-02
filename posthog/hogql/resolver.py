@@ -1763,10 +1763,12 @@ class Resolver(CloningVisitor):
             try:
                 loop_type = loop_type.get_child(str(next_chain), self.context)
             except NotImplementedError:
+                # `from None` breaks the exception chain so the internal NotImplementedError
+                # isn't surfaced to error tracking — this is an expected, user-facing query error.
                 raise QueryError(
                     f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "
                     f"This can happen when a column alias shadows a table field. Try renaming the alias."
-                )
+                ) from None
             resolved_chain.append(str(next_chain))
             # Note: get_child currently always raises rather than returning None,
             # but this guard is kept for safety in case that contract changes.
