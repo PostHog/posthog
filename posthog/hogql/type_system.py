@@ -254,6 +254,108 @@ _URL_STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
 )
 
 _INTEGER_RESULT_FUNCTIONS = frozenset({"port"})
+_DATE_PART_RESULT_FUNCTIONS = frozenset(
+    {
+        "toyear",
+        "toquarter",
+        "tomonth",
+        "todayofyear",
+        "todayofmonth",
+        "todayofweek",
+        "tohour",
+        "tominute",
+        "tosecond",
+        "tounixtimestamp",
+        "tounixtimestamp64milli",
+        "toyyyymm",
+        "toyyyymmdd",
+        "toyyyymmddhhmmss",
+        "toisoyear",
+        "toisoweek",
+        "toweek",
+        "toyearweek",
+        "timezoneoffset",
+        "datediff",
+        "date_diff",
+        "rownumberinblock",
+        "rownumberinallblocks",
+    }
+)
+_DATE_STRING_RESULT_FUNCTIONS = frozenset({"timezoneof", "formatdatetime", "datename", "monthname"})
+_DATE_ARITHMETIC_FIRST_ARG_RESULT_FUNCTIONS = frozenset(
+    {
+        "addnanoseconds",
+        "addmicroseconds",
+        "addmilliseconds",
+        "addseconds",
+        "addminutes",
+        "addhours",
+        "adddays",
+        "addweeks",
+        "addmonths",
+        "addquarters",
+        "addyears",
+        "subtractnanoseconds",
+        "subtractmicroseconds",
+        "subtractmilliseconds",
+        "subtractseconds",
+        "subtractminutes",
+        "subtracthours",
+        "subtractdays",
+        "subtractweeks",
+        "subtractmonths",
+        "subtractquarters",
+        "subtractyears",
+    }
+)
+_READABLE_STRING_RESULT_FUNCTIONS = frozenset(
+    {
+        "bar",
+        "formatreadabledecimalsize",
+        "formatreadablesize",
+        "formatreadablequantity",
+        "formatreadabletimedelta",
+    }
+)
+_BITMAP_INTEGER_RESULT_FUNCTIONS = frozenset(
+    {
+        "bitmapcardinality",
+        "bitmapmin",
+        "bitmapmax",
+        "bitmapandcardinality",
+        "bitmaporcardinality",
+        "bitmapxorcardinality",
+        "bitmapandnotcardinality",
+    }
+)
+_BITMAP_BOOLEAN_RESULT_FUNCTIONS = frozenset({"bitmapcontains", "bitmaphasany", "bitmaphasall"})
+_BITMAP_RESULT_FUNCTIONS = frozenset(
+    {
+        "bitmapbuild",
+        "bitmapsubsetinrange",
+        "bitmapsubsetlimit",
+        "subbitmap",
+        "bitmaptransform",
+        "bitmapand",
+        "bitmapor",
+        "bitmapxor",
+        "bitmapandnot",
+    }
+)
+_VECTOR_FLOAT_RESULT_FUNCTIONS = frozenset(
+    {
+        "l1norm",
+        "l2norm",
+        "linfnorm",
+        "lpnorm",
+        "l1distance",
+        "l2distance",
+        "linfdistance",
+        "lpdistance",
+        "cosinedistance",
+    }
+)
+_VECTOR_ARRAY_RESULT_FUNCTIONS = frozenset({"l1normalize", "l2normalize", "linfnormalize", "lpnormalize"})
 
 
 def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeType:
@@ -885,6 +987,64 @@ def _infer_generic_function_type(
     if normalized_name in _INTEGER_RESULT_FUNCTIONS:
         return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
+    if normalized_name in _DATE_PART_RESULT_FUNCTIONS:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _DATE_STRING_RESULT_FUNCTIONS or normalized_name in _READABLE_STRING_RESULT_FUNCTIONS:
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in {"fromunixtimestamp", "fromunixtimestamp64milli", "timeslot"}:
+        return ast.DateTimeType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name == "timeslots":
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=ast.DateTimeType(nullable=False),
+        )
+
+    if normalized_name in {"dateadd", "datesub"} and arg_types:
+        if len(arg_types) >= 3 and isinstance(arg_types[0], ast.StringType):
+            return dataclasses.replace(arg_types[2])
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name in {"date_add", "date_subtract"} and arg_types:
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name in _DATE_ARITHMETIC_FIRST_ARG_RESULT_FUNCTIONS and arg_types:
+        return dataclasses.replace(arg_types[0])
+
+    if normalized_name in {"rank", "dense_rank", "row_number"}:
+        return ast.IntegerType(nullable=False)
+
+    if normalized_name in {"first_value", "last_value", "nth_value", "lag", "lead", "laginframe", "leadinframe"}:
+        if arg_types:
+            result = dataclasses.replace(arg_types[0])
+            if normalized_name in {"lag", "lead", "laginframe", "leadinframe"}:
+                result.nullable = True
+            return result
+        return ast.UnknownType()
+
+    if normalized_name == "bitmaptoarray":
+        return ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False))
+
+    if normalized_name in _BITMAP_INTEGER_RESULT_FUNCTIONS:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _BITMAP_BOOLEAN_RESULT_FUNCTIONS:
+        return ast.BooleanType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _BITMAP_RESULT_FUNCTIONS:
+        return ast.UnknownType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name.startswith("bit"):
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _VECTOR_FLOAT_RESULT_FUNCTIONS:
+        return ast.FloatType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _VECTOR_ARRAY_RESULT_FUNCTIONS and arg_types:
+        return dataclasses.replace(arg_types[0])
+
     if normalized_name == "jsonextract":
         return _infer_json_extract_type(arg_types=arg_types, args=args, dialect=dialect)
 
@@ -967,6 +1127,16 @@ def _infer_generic_function_type(
     if normalized_name in {"mapkeys", "mapvalues"} and arg_types:
         return _infer_map_items_type(arg_types[0], keys=normalized_name == "mapkeys")
 
+    if normalized_name in {"mapadd", "mapsubtract", "mapupdate"} and arg_types:
+        map_types = [arg_type for arg_type in arg_types if isinstance(arg_type, ast.MapType)]
+        return least_common_supertype(map_types, dialect=dialect) if map_types else ast.UnknownType()
+
+    if normalized_name == "mapextractkeylike" and arg_types:
+        return _infer_map_filter_type(arg_types[0])
+
+    if normalized_name == "mappopulateseries" and arg_types:
+        return _infer_map_filter_type(arg_types[0])
+
     if normalized_name == "mapfilter" and len(arg_types) >= 2:
         return _infer_map_filter_type(arg_types[1])
 
@@ -988,8 +1158,6 @@ def _infer_generic_function_type(
             "arrayslice",
             "arrayreverse",
             "arraydistinct",
-            "arraysort",
-            "arrayreversesort",
             "arraypopback",
             "arraypopfront",
             "arraycompact",
@@ -997,6 +1165,22 @@ def _infer_generic_function_type(
         and arg_types
     ):
         return infer_array_slice_constant_type(arg_types[0])
+
+    if normalized_name in {"arraysort", "arrayreversesort", "arrayfill", "arrayreversefill"} and arg_types:
+        array_arg_types = _higher_order_array_arg_types(arg_types, args=args)
+        return infer_array_slice_constant_type(array_arg_types[0]) if array_arg_types else ast.UnknownType()
+
+    if normalized_name in {"arraysplit", "arrayreversesplit"} and arg_types:
+        array_arg_types = _higher_order_array_arg_types(arg_types, args=args)
+        if not array_arg_types:
+            return ast.UnknownType()
+        split_array_type = infer_array_slice_constant_type(array_arg_types[0])
+        if isinstance(split_array_type, ast.UnknownType):
+            return split_array_type
+        return ast.ArrayType(nullable=split_array_type.nullable, item_type=split_array_type)
+
+    if normalized_name == "arrayfold":
+        return _infer_array_fold_type(arg_types=arg_types, args=args)
 
     if normalized_name in {"arrayelement", "arrayjoin"} and arg_types:
         return infer_array_access_constant_type(arg_types[0])
@@ -1162,6 +1346,24 @@ def _infer_array_flatten_type(array_type: ast.ConstantType) -> ast.ConstantType:
         )
 
     return ast.ArrayType(nullable=nullable, item_type=dataclasses.replace(item_type))
+
+
+def _higher_order_array_arg_types(
+    arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]
+) -> list[ast.ConstantType]:
+    if args and isinstance(args[0], ast.Lambda):
+        return arg_types[1:]
+    return arg_types
+
+
+def _infer_array_fold_type(arg_types: list[ast.ConstantType], args: Optional[list[ast.Expr]]) -> ast.ConstantType:
+    if len(arg_types) < 3:
+        return ast.UnknownType()
+    if args and isinstance(args[0], ast.Lambda):
+        lambda_expr_type = _context_free_constant_type(args[0].expr.type) if args[0].expr.type is not None else None
+        if lambda_expr_type is not None and not isinstance(lambda_expr_type, ast.UnknownType):
+            return lambda_expr_type
+    return dataclasses.replace(arg_types[-1])
 
 
 def _array_element_type(array_type: ast.ConstantType) -> ast.ConstantType:

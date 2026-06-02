@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities that are now implemented on this branch.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing and what each top-level select expression resolves to, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, and an opt-in internal simplifier for conservative type-aware rewrites and numeric literal arithmetic folding.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, window-function typing, set-query type unification, diagnostics that can explain where type information is still missing and what each top-level select expression resolves to, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, type-aware nullability wins in generated SQL, and an opt-in internal simplifier for conservative type-aware rewrites, constant conversions, literal JSON paths, and numeric literal arithmetic folding.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -161,11 +161,14 @@ Newly inferred function groups include:
 - conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`, `accurateCast`, `accurateCastOrNull`, and `reinterpretAs*`
 - common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
 - common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
+- date/time helpers: date-part extractors such as `toYear`, `toMonth`, and `dateDiff`, formatting/readability helpers such as `formatDateTime` and `formatReadableSize`, `fromUnixTimestamp`, `timeSlot`, `timeSlots`, and explicit `dateAdd`/`dateSub`/`addDays`/`subtractDays`-style families
 - JSON extraction: `JSONExtract(..., 'Type')` parses the return-type literal, including `Array(...)`, tuple, numeric, date, datetime, boolean, UUID, and nullable wrappers supported by the runtime type parser
 - JSON helpers: `JSONExtractInt`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtractString`, `JSONExtractRaw`, `JSONExtractKeys`, `JSONExtractArrayRaw`, `JSONExtractKeysAndValues`, `JSON_VALUE`, `JSONHas`, `JSONType`, and `JSONLength`
-- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReduce`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
-- tuple and map functions: `tuple`, positional and named `tupleElement`, `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapFilter`, and `mapApply`
+- array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayFirstIndex`, `arrayLastIndex`, `arrayCount`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReverseSort`, `arrayFill`, `arrayReverseFill`, `arraySplit`, `arrayReverseSplit`, `arrayFold`, `arrayReduce`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
+- tuple and map functions: `tuple`, positional and named `tupleElement`, `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapFilter`, `mapApply`, `mapAdd`, `mapSubtract`, `mapUpdate`, `mapExtractKeyLike`, and `mapPopulateSeries`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `argMin`, `argMax`, `quantile*`, `median*`, `groupArray`, `array_agg`, and common aggregate state/merge pairs
+- window functions: ranking helpers such as `row_number`, `rank`, and `dense_rank`, plus value helpers such as `lag`, `lead`, `first_value`, `last_value`, and `nth_value`
+- bitmap and vector helpers: common bitmap cardinality/predicate/result helpers and vector distance/norm helpers now have optimizer-relevant result families instead of crossing the function boundary as unknowns
 
 This is not full ClickHouse function parity.
 It is enough to stop losing types at many common function boundaries and to make the remaining unknowns measurable.
@@ -220,7 +223,9 @@ Array access resolves to the array element type.
 `StringArrayType` remains supported as a compatibility alias, but structured runtime adapters can represent it as `Array(String)`.
 `arrayZip(...)` now returns an array of tuples using the element type of each input array.
 `arrayFlatten(...)` preserves the flattened item type across nested arrays.
-Array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)` keep their input element type.
+Array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, `arrayReverseSort(...)`, `arrayFill(...)`, and `arrayReverse(...)` keep their input element type.
+`arraySplit(...)` and `arrayReverseSplit(...)` return nested arrays using the input element type.
+`arrayFold(...)` binds the accumulator argument from the explicit accumulator expression and returns the typed lambda body when available, falling back to the accumulator type.
 `arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)` resolve to scalar numeric element types.
 `arrayReduce(...)` now reads supported aggregate names from the first constant argument and infers the result from the reduced array element types.
 
@@ -290,7 +295,7 @@ Each entry records the select index, alias, printable expression text, resolver-
 Example:
 
 ```python
-diagnostics = resolve_with_type_diagnostics(parse_select("SELECT formatReadableSize(1024)"), context)
+diagnostics = resolve_with_type_diagnostics(parse_select("SELECT throwIf(0, 'not reached')"), context)
 diagnostics.report.unknowns_by_source()
 # {"missing_function_signature": 1}
 diagnostics.report.optimizer_blockers_by_source()
@@ -364,12 +369,16 @@ Nullability simplification:
 - known nullable expressions can preserve current wrapper behavior
 - unknown expressions remain barriers
 - common non-null string and URL helper calls such as `base64Encode('test')` and `protocol('https://posthog.com')` now stay non-null through resolution, so emitted comparisons no longer need manual `assumeNotNull(...)` to avoid nullable boolean wrappers
+- typed aggregate and tuple expressions in generated person joins can avoid defensive `ifNull(...)` wrappers when the resolver proves both comparison sides are non-nullable
+- the opt-in simplifier can remove literal `NULL` fallbacks in `ifNull(...)` and `coalesce(...)` when the remaining expression is unchanged
 
 Constant folding:
 
 - finite integer/float literal arithmetic can fold inside the opt-in simplifier, for example `1 + 2 * 3` becomes `7`
+- safe constant conversions can fold inside the opt-in simplifier, for example `accurateCast('42', 'Int64')`, `toFloat(1)`, and `toBool('true')`
+- exact-present literal JSON paths can fold inside the opt-in simplifier for `JSONExtract(...)`, `JSONExtractRaw(...)`, `JSONExtractString(...)`, `JSONHas(...)`, `JSONLength(...)`, and related literal-only helpers
 - division and modulo by zero remain untouched
-- date interval constants, casted constants, and literal JSON-path folding are still follow-up work
+- date interval constants and broad materialized JSON-path rewrites are still follow-up work
 
 Set-query planning:
 
@@ -387,9 +396,9 @@ Function-catalog work:
 
 The foundation is real, but several TODOs remain intentionally incomplete.
 
-Common lambda-first higher-order array functions now bind lambda argument types from surrounding array element types.
-`arrayReduce(...)` infers result types for supported aggregate names.
-Remaining higher-order gaps include broader aggregate-name coverage, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
+Common lambda-first higher-order array functions now bind lambda argument types from surrounding array element types, including sorting, fill/split, and fold helpers.
+`arrayReduce(...)` infers result types for supported aggregate names, and `arrayFold(...)` can type both accumulator and element lambda arguments.
+Remaining higher-order gaps include broader aggregate-name coverage, aggregate combinator return typing, less-used ClickHouse variants, and strict validation of lambda arity and predicate return types.
 
 Property-definition metadata is now part of property comparison planning.
 `posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, materialized-column index metadata, restricted-property access control, and comparison compatibility.
@@ -428,7 +437,8 @@ That is intentional until catalog coverage and compatibility baselines are stron
 No broad AST rewrite is enabled by default.
 The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind `HogQLContext.enable_type_aware_cast_simplification`.
 It remains disabled by default.
-One practical printer payoff is now live: when generic function inference proves a string or URL helper returns a non-null value, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
+Practical printer payoffs are now live: when generic function inference proves a helper returns a non-null value, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
+This now covers typed string/URL helpers and generated aggregate/tuple comparison shapes in person joins.
 Moving conversions across comparisons or simplifying generated property wrappers should still be done in separate guarded changes with emitted-SQL tests and ClickHouse integration tests where planner behavior matters.
 
 ## How To Extend The New System
@@ -469,17 +479,22 @@ The simplifier currently removes conservative no-op operations:
 - `toNullable(already_nullable_expr)`
 - `ifNull(non_nullable_expr, fallback)`
 - `coalesce(non_nullable_expr, ...)`
+- literal `NULL` fallbacks in `ifNull(...)` and `coalesce(...)`
 - repeated compatible casts in those safe families
 - finite numeric literal arithmetic for typed integer and float constants
+- safe constant conversion calls
+- exact-present literal JSON paths
 
 It deliberately does not remove casts for families where the current compatibility type model lacks enough precision:
 
 - datetime casts that change timezone or precision
-- numeric casts, because signedness and width can matter
+- numeric `TypeCast` nodes, because signedness and width can matter
 - decimal casts, because precision and scale can matter
 - unknown expressions, which remain optimizer barriers
 
 It also does not fold arithmetic when either side is nullable, non-literal, non-numeric, non-finite, or would require division/modulo by zero.
+Literal JSON-path folding only applies to constant JSON documents and exact present paths.
+Missing paths, dynamic paths, JSON null ambiguity, and materialized-column/property equivalence remain barriers.
 
 This gives internal callers a safe way to compare emitted SQL before and after simplification without changing user-authored HogQL behavior.
 
@@ -497,3 +512,4 @@ Good first targets:
 - decide when property materialization should create typed physical columns instead of string-backed columns
 - extend JSON/materialized extraction rewrites beyond exact-type `JSONExtract(...)` only where semantic-equivalence tests prove they are safe
 - extend aggregate state typing to map/forEach variants and validate compatible state/merge pairs
+- record a representative query-corpus unknown-type baseline before enabling strict resolver mode for internal tests

@@ -88,12 +88,19 @@ _HIGHER_ORDER_ARRAY_FUNCTIONS = frozenset(
         "arrayall",
         "arraycount",
         "arrayexists",
+        "arrayfill",
         "arrayfilter",
+        "arrayfold",
         "arrayfirst",
         "arrayfirstindex",
         "arraylast",
         "arraylastindex",
         "arraymap",
+        "arrayreversefill",
+        "arrayreversesort",
+        "arrayreversesplit",
+        "arraysort",
+        "arraysplit",
     }
 )
 _HIGHER_ORDER_MAP_FUNCTIONS = frozenset({"mapapply", "mapfilter"})
@@ -1618,6 +1625,7 @@ class Resolver(CloningVisitor):
     def _visit_higher_order_array_call(self, node: ast.Call) -> ast.Call:
         resolved_array_args = [self.visit(arg) for arg in node.args[1:]]
         lambda_arg_types = self._lambda_argument_types_from_array_args(
+            node.name,
             resolved_array_args,
             lambda_arg_count=len(cast(ast.Lambda, node.args[0]).args),
         )
@@ -1670,8 +1678,11 @@ class Resolver(CloningVisitor):
         )
 
     def _lambda_argument_types_from_array_args(
-        self, array_args: list[ast.Expr], lambda_arg_count: int
+        self, function_name: str, array_args: list[ast.Expr], lambda_arg_count: int
     ) -> list[ast.ConstantType]:
+        if function_name.lower() == "arrayfold":
+            return self._lambda_argument_types_from_array_fold_args(array_args, lambda_arg_count)
+
         arg_types: list[ast.ConstantType] = []
         for index in range(lambda_arg_count):
             if index >= len(array_args):
@@ -1681,6 +1692,23 @@ class Resolver(CloningVisitor):
             array_type = (array_args[index].type or ast.UnknownType()).resolve_constant_type(self.context)
             arg_types.append(infer_array_access_constant_type(array_type))
         return arg_types
+
+    def _lambda_argument_types_from_array_fold_args(
+        self, array_args: list[ast.Expr], lambda_arg_count: int
+    ) -> list[ast.ConstantType]:
+        if not array_args:
+            return [ast.UnknownType() for _ in range(lambda_arg_count)]
+
+        accumulator_type = (array_args[-1].type or ast.UnknownType()).resolve_constant_type(self.context)
+        item_types = [
+            infer_array_access_constant_type((array_arg.type or ast.UnknownType()).resolve_constant_type(self.context))
+            for array_arg in array_args[:-1]
+        ]
+        available_types = [accumulator_type, *item_types]
+        return [
+            available_types[index] if index < len(available_types) else ast.UnknownType()
+            for index in range(lambda_arg_count)
+        ]
 
     def _lambda_argument_types_from_map_arg(self, map_arg: ast.Expr, lambda_arg_count: int) -> list[ast.ConstantType]:
         map_type = (map_arg.type or ast.UnknownType()).resolve_constant_type(self.context)
@@ -1738,6 +1766,21 @@ class Resolver(CloningVisitor):
         self.scopes.pop()
 
         return new_node
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        node = cast(ast.WindowFunction, super().visit_window_function(node))
+        value_exprs = [*(node.exprs or []), *(node.args or [])]
+        arg_types = [(expr.type or ast.UnknownType()).resolve_constant_type(self.context) for expr in value_exprs]
+        func_meta = HOGQL_CLICKHOUSE_FUNCTIONS.get(node.name, None)
+        inference = infer_function_return_type(
+            node.name,
+            arg_types,
+            args=value_exprs,
+            meta=func_meta,
+            dialect=self.dialect,
+        )
+        node.type = inference.return_type
+        return node
 
     def visit_try_cast(self, node: ast.TryCast):
         if self.dialect not in _POSTGRES_FAMILY:

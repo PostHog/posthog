@@ -30,6 +30,7 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -68,6 +69,11 @@ COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
     "$ai_session_id",
     "$ai_is_error",
 }
+
+
+def _is_physical_materialized_column_name(name: str) -> bool:
+    name = name.strip("`\"'")
+    return name.startswith(("mat_", "pmat_", "dmat_string_"))
 
 
 class ClickHousePrinter(BasePrinter):
@@ -172,10 +178,18 @@ class ClickHousePrinter(BasePrinter):
             # transform (e.g. the property-type swapper) rewrites its inner
             # expression, so resolve the overload against the real expression.
             first_arg = node.args[0] if len(node.args) > 0 else None
+            first_arg_was_alias = False
             while isinstance(first_arg, ast.Alias):
+                first_arg_was_alias = True
                 first_arg = first_arg.expr
             first_arg_constant_type = None
-            if isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
+            if (
+                first_arg is not None
+                and first_arg.type is not None
+                and (first_arg_was_alias or isinstance(first_arg, ast.Call))
+            ):
+                first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
                 first_arg_constant_type = node.type.arg_types[0]
             elif first_arg is not None and first_arg.type is not None:
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
@@ -626,6 +640,7 @@ class ClickHousePrinter(BasePrinter):
         ast.CompareOperationOp.Gt: "greater",
         ast.CompareOperationOp.GtEq: "greaterOrEquals",
     }
+    _RANGE_CH_NAMES = frozenset(_RANGE_OP_TO_CH_NAME.values())
 
     def _get_optimized_materialized_column_range_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite property ranges on materialized columns so minmax can fire.
@@ -639,19 +654,35 @@ class ClickHousePrinter(BasePrinter):
 
         comparison_plan = plan_property_comparison(node, self.context)
         if (
-            comparison_plan is None
-            or comparison_plan.property_side != "left"
-            or not comparison_plan.can_compare_physical_source_directly
-            or comparison_plan.access.source.kind != PropertySourceKind.MATERIALIZED_COLUMN
+            comparison_plan is not None
+            and comparison_plan.property_side == "left"
+            and comparison_plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
         ):
-            return None
+            physical_type = comparison_plan.access.source.physical_type
+            if not comparison_plan.source_matches_semantics:
+                return None
+            if not comparison_plan.can_compare_physical_source_directly and not isinstance(
+                physical_type, ast.StringType
+            ):
+                return None
+
+            property_source = self._get_materialized_property_source_for_property_type(
+                comparison_plan.access.property_type
+            )
+            if not isinstance(property_source, PrintableMaterializedColumn):
+                return None
+
+            constant_sql = self._print_property_range_value(node.right, comparison_plan.literal_conversion)
+        else:
+            fallback = self._get_physical_materialized_column_source(node.left)
+            if fallback is None:
+                return None
+
+            property_source, physical_type = fallback
+            constant_sql = self.visit(node.right)
 
         right_constant = node.right if isinstance(node.right, ast.Constant) else None
         if right_constant is not None and right_constant.value is None:
-            return None
-
-        property_source = self._get_materialized_property_source_for_property_type(comparison_plan.access.property_type)
-        if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
         if property_source.column.strip("`\"'") in COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING:
@@ -659,8 +690,7 @@ class ClickHousePrinter(BasePrinter):
 
         op_name = self._RANGE_OP_TO_CH_NAME[node.op]
         materialized_column_sql = str(property_source)
-        constant_sql = self._print_property_range_value(node.right, comparison_plan.literal_conversion)
-        is_string_source = isinstance(comparison_plan.access.source.physical_type, ast.StringType)
+        is_string_source = isinstance(physical_type, ast.StringType)
         if is_string_source and right_constant is None:
             return None
 
@@ -675,6 +705,127 @@ class ClickHousePrinter(BasePrinter):
             f"notEquals({materialized_column_sql}, {self._print_escaped_string(s)})" for s in MAT_COL_NULL_SENTINELS
         )
         return f"({op_name}({materialized_column_sql}, {constant_sql}) AND {sentinel_exclusions})"
+
+    def _get_optimized_materialized_range_if_null_call(self, node: ast.Call) -> str | None:
+        if node.name.lower() != "ifnull" or len(node.args) != 2:
+            return None
+
+        fallback = node.args[1]
+        if not isinstance(fallback, ast.Constant) or fallback.value not in (0, False):
+            return None
+
+        range_call = node.args[0]
+        if not isinstance(range_call, ast.Call) or range_call.name not in self._RANGE_CH_NAMES:
+            return None
+        if len(range_call.args) != 2:
+            return None
+
+        source = self._get_materialized_range_source(range_call.args[0])
+        if source is None:
+            return None
+
+        property_source, is_string_source = source
+        if not property_source.is_nullable:
+            return None
+
+        right_constant = range_call.args[1] if isinstance(range_call.args[1], ast.Constant) else None
+        if right_constant is not None and right_constant.value is None:
+            return None
+        if is_string_source and right_constant is None:
+            return None
+
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(range_call.args[1])
+        return (
+            f"({range_call.name}({materialized_column_sql}, {constant_sql}) "
+            f"AND ({materialized_column_sql} IS NOT NULL))"
+        )
+
+    def _get_optimized_nullable_materialized_range_operation(self, node: ast.CompareOperation) -> str | None:
+        if node.op not in self._RANGE_OP_TO_CH_NAME:
+            return None
+
+        source = self._get_materialized_range_source(node.left)
+        if source is None:
+            return None
+
+        property_source, is_string_source = source
+        if not property_source.is_nullable:
+            return None
+
+        right_constant = node.right if isinstance(node.right, ast.Constant) else None
+        if right_constant is None or right_constant.value is None:
+            return None
+
+        if is_string_source and not isinstance(right_constant.type, ast.StringType):
+            return None
+
+        materialized_column_sql = str(property_source)
+        constant_sql = self.visit(node.right)
+        op_name = self._RANGE_OP_TO_CH_NAME[node.op]
+        return f"({op_name}({materialized_column_sql}, {constant_sql}) AND ({materialized_column_sql} IS NOT NULL))"
+
+    def _get_materialized_range_source(self, expr: ast.Expr) -> tuple[PrintableMaterializedColumn, bool] | None:
+        physical_source = self._get_physical_materialized_column_source(expr)
+        if physical_source is not None:
+            property_source, physical_type = physical_source
+            return property_source, isinstance(physical_type, ast.StringType)
+
+        expr_type = resolve_field_type(expr)
+        if not isinstance(expr_type, ast.PropertyType) or len(expr_type.chain) != 1:
+            return None
+
+        semantic_type = expr_type.resolve_constant_type(self.context)
+        if not isinstance(semantic_type, ast.StringType):
+            return None
+
+        property_source = self._get_materialized_property_source_for_property_type(expr_type)
+        if not isinstance(property_source, PrintableMaterializedColumn):
+            return None
+
+        materialized_column_type = property_source.type or ""
+        return property_source, "String" in materialized_column_type
+
+    def _get_physical_materialized_column_source(
+        self, expr: ast.Expr
+    ) -> tuple[PrintableMaterializedColumn, ast.ConstantType] | None:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+
+        field_type = resolve_field_type(expr)
+        if not isinstance(field_type, ast.FieldType):
+            return None
+
+        field = field_type.resolve_database_field(self.context)
+        if not isinstance(field, DatabaseField):
+            return None
+
+        if not _is_physical_materialized_column_name(field.name):
+            return None
+
+        table = field_type.table_type
+        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+            table = table.table_type
+
+        if not isinstance(table, ast.TableType):
+            return None
+
+        if table.resolve_database_table(self.context).to_printed_hogql() not in MATERIALIZATION_VALID_TABLES:
+            return None
+
+        return (
+            PrintableMaterializedColumn(
+                self.visit(field_type.table_type),
+                self._print_identifier(field.name),
+                is_nullable=field.is_nullable(),
+                type=None,
+                has_minmax_index=False,
+                has_bloom_filter_index=False,
+                has_ngram_lower_index=False,
+                has_bloom_filter_lower_index=False,
+            ),
+            field.get_constant_type(),
+        )
 
     def _print_property_range_value(self, expr: ast.Expr, literal_conversion: PropertyLiteralConversion) -> str:
         if literal_conversion == PropertyLiteralConversion.DATETIME and isinstance(expr, ast.Constant):
@@ -1339,6 +1490,9 @@ class ClickHousePrinter(BasePrinter):
         if in_join_constraint or not_nullable or in_index_hint:
             return op
 
+        if optimized_nullable_materialized_range := self._get_optimized_nullable_materialized_range_operation(node):
+            return optimized_nullable_materialized_range
+
         # Special optimization for "Eq" operator
         if (
             node.op == ast.CompareOperationOp.Eq
@@ -1400,6 +1554,9 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         # If the argument(s) are part of a property group, special optimizations may apply here to ensure that data
         # skipping indexes can be used when possible.
+        if optimized_materialized_range_if_null := self._get_optimized_materialized_range_if_null_call(node):
+            return optimized_materialized_range_if_null
+
         if optimized_property_group_call := self._get_optimized_property_group_call(node):
             return optimized_property_group_call
 

@@ -174,6 +174,29 @@ class TestHogQLTypeSystem:
             "SELECT arrayReverse([1, 2.0])",
             ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
         )
+        self._assert_first_column_type(
+            "SELECT arraySort(x -> x + 1, [1, 2])",
+            ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayReverseSort(x -> x + 1, [1, 2])",
+            ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayFill(x -> x > 0, [1, 2])",
+            ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arraySplit(x -> x = 0, [1, 0, 2])",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.ArrayType(nullable=False, item_type=ast.IntegerType(nullable=False)),
+            ),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayFold((acc, x) -> acc + x, [1, 2], 0)",
+            ast.IntegerType(nullable=False),
+        )
         self._assert_first_column_type("SELECT arraySum([1, 2])", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT arrayAvg([1, 2])", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT arrayMin([1, 2.0])", ast.FloatType(nullable=False))
@@ -274,6 +297,51 @@ class TestHogQLTypeSystem:
             nullable=False,
             item_type=ast.FloatType(nullable=False),
         )
+
+    def test_resolver_binds_lambda_first_array_helper_argument_types(self) -> None:
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT arraySort((x, y) -> y, [1], ['b'])"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+
+        call = cast(ast.Call, node.select[0])
+        lambda_node = cast(ast.Lambda, call.args[0])
+        lambda_type = cast(ast.SelectQueryType, lambda_node.type)
+        first_arg = cast(ast.FieldAliasType, lambda_type.aliases["x"])
+        second_arg = cast(ast.FieldAliasType, lambda_type.aliases["y"])
+
+        assert first_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
+        assert second_arg.resolve_constant_type(self.context) == ast.StringType(nullable=False)
+        assert call.type is not None
+        assert call.type.resolve_constant_type(self.context) == ast.ArrayType(
+            nullable=False,
+            item_type=ast.IntegerType(nullable=False),
+        )
+
+    def test_resolver_binds_array_fold_accumulator_and_element_types(self) -> None:
+        node = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT arrayFold((acc, x) -> acc + x, [1, 2], 0)"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+
+        call = cast(ast.Call, node.select[0])
+        lambda_node = cast(ast.Lambda, call.args[0])
+        lambda_type = cast(ast.SelectQueryType, lambda_node.type)
+        accumulator_arg = cast(ast.FieldAliasType, lambda_type.aliases["acc"])
+        element_arg = cast(ast.FieldAliasType, lambda_type.aliases["x"])
+
+        assert accumulator_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
+        assert element_arg.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
+        assert call.type is not None
+        assert call.type.resolve_constant_type(self.context) == ast.IntegerType(nullable=False)
 
     def test_resolver_keeps_array_filter_input_element_type(self) -> None:
         self._assert_first_column_type(
@@ -444,6 +512,27 @@ class TestHogQLTypeSystem:
         )
         self._assert_first_column_type("SELECT port('https://posthog.com:443')", ast.IntegerType(nullable=False))
 
+    def test_resolver_infers_more_optimizer_relevant_function_types(self) -> None:
+        self._assert_first_column_type("SELECT formatReadableSize(1024)", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT formatDateTime(toDateTime('2024-01-01'), '%F')",
+            ast.StringType(nullable=False),
+        )
+        self._assert_first_column_type("SELECT toYear(toDate('2024-01-01'))", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT row_number() OVER () FROM events", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT lag(event) OVER () FROM events", ast.StringType(nullable=True))
+        self._assert_first_column_type("SELECT bitmapCardinality(bitmapBuild([1, 2]))", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT bitmapContains(bitmapBuild([1, 2]), 1)", ast.BooleanType(nullable=False))
+        self._assert_first_column_type("SELECT bitmapBuild([1, 2])", ast.UnknownType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT mapUpdate(map('a', 1), map('b', 2.0))",
+            ast.MapType(
+                nullable=False,
+                key_type=ast.StringType(nullable=False),
+                value_type=ast.FloatType(nullable=False),
+            ),
+        )
+
     def test_select_set_query_unifies_output_column_types(self) -> None:
         node = cast(
             ast.SelectSetQuery,
@@ -457,17 +546,17 @@ class TestHogQLTypeSystem:
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
-            self._select("SELECT formatReadableSize(1024)"),
+            self._select("SELECT throwIf(0, 'not reached')"),
             self.context,
             dialect="clickhouse",
         )
 
         assert diagnostics.report.unknown_count == 1
         assert diagnostics.report.unknowns_by_source() == {"missing_function_signature": 1}
-        assert diagnostics.report.unknowns_by_detail() == {"formatReadableSize": 1}
+        assert diagnostics.report.unknowns_by_detail() == {"throwIf": 1}
         assert diagnostics.report.optimizer_blocker_count == 1
         assert diagnostics.report.optimizer_blockers_by_source() == {"missing_function_signature": 1}
-        assert diagnostics.report.unknowns[0].detail == "formatReadableSize"
+        assert diagnostics.report.unknowns[0].detail == "throwIf"
 
     def test_type_diagnostics_reports_select_expression_types(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
@@ -556,13 +645,16 @@ class TestHogQLTypeSystem:
             (
                 "SELECT "
                 "if(equals(protocol('https://posthog.com'), 'https'), toFloat(1), 2.0), "
-                "coalesce(JSONExtractString('{\"name\": \"Ada\"}', 'name'), 'unknown')"
+                "coalesce(JSONExtractString('{\"name\": \"Ada\"}', 'name'), 'unknown'), "
+                "formatReadableSize(1024)"
             ),
             (
                 "SELECT "
                 "arrayMap(x -> x + 0.5, JSONExtract('[1, 2]', 'Array(Int64)')), "
                 "arrayReduce('sum', [1, 2.0]), "
-                "arrayZip([1], ['a'])"
+                "arrayZip([1], ['a']), "
+                "arraySort(x -> x + 1, [1, 2]), "
+                "arrayFold((acc, x) -> acc + x, [1, 2], 0)"
             ),
             ("SELECT mapApply((k, v) -> tuple(k, v + 0.5), map('a', 1)), mapFilter((k, v) -> v > 0, map('a', 1))"),
             ("SELECT count(), sum(toFloat(1)), argMax('a', 1), quantiles(0.5, 0.9)(1) FROM events"),
@@ -585,7 +677,8 @@ class TestHogQLTypeSystem:
         assert "base64Encode" in inventory.functions_without_signatures
         assert "base64Encode" not in inventory.functions_without_type_inference
         assert "protocol" not in inventory.functions_without_type_inference
-        assert "formatReadableSize" in inventory.functions_without_type_inference
+        assert "formatReadableSize" not in inventory.functions_without_type_inference
+        assert "throwIf" in inventory.functions_without_type_inference
 
     def test_type_aware_simplification_is_opt_in(self) -> None:
         resolved = cast(
@@ -644,6 +737,51 @@ class TestHogQLTypeSystem:
         assert ratio_alias.expr.value == 2.0
         assert ratio_alias.expr.type == ast.FloatType(nullable=False)
         assert isinstance(unsafe_alias.expr, ast.ArithmeticOperation)
+
+    def test_type_aware_simplification_folds_safe_constant_casts_nulls_and_json_paths(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT "
+                    "accurateCast('42', 'Int64') AS number, "
+                    "toFloat(1) AS score, "
+                    "toBool('true') AS flag, "
+                    "ifNull(NULL, 4) AS if_null, "
+                    "ifNull(5, NULL) AS if_not_null, "
+                    "coalesce(NULL, NULL, 6) AS coalesced, "
+                    "JSONExtract('{\"score\": 2.5}', 'score', 'Float64') AS json_score, "
+                    "JSONHas('{\"score\": 2.5}', 'score') AS json_has, "
+                    "JSONExtractRaw('{\"props\": {\"a\": 1}}', 'props') AS json_raw"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = cast(
+            ast.SelectQuery,
+            simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse"),
+        )
+
+        values = [cast(ast.Constant, cast(ast.Alias, select_expr).expr).value for select_expr in simplified.select]
+        assert values == [42, 1.0, True, 4, 5, 6, 2.5, 1, '{"a":1}']
+
+        types = [
+            cast(ast.Alias, select_expr).expr.type.resolve_constant_type(self.context)
+            for select_expr in simplified.select
+            if cast(ast.Alias, select_expr).expr.type is not None
+        ]
+        assert types == [
+            ast.IntegerType(nullable=False),
+            ast.FloatType(nullable=False),
+            ast.BooleanType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.FloatType(nullable=False),
+            ast.IntegerType(nullable=False),
+            ast.StringType(nullable=False),
+        ]
 
     def test_type_aware_simplification_keeps_unsafe_casts(self) -> None:
         resolved = cast(

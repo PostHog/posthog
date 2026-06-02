@@ -663,7 +663,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -680,7 +680,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), and(has(['2', '5'], where_optimization.pmat_test_prop), where_optimization.pmat_test_prop IS NOT NULL)))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE in(persons.properties___test_prop,
            tuple('2', '5'))
   LIMIT 50000
@@ -699,7 +699,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (less(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(less(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -717,7 +717,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -735,7 +735,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (less(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(less(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -753,7 +753,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (greater(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(greater(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''
@@ -770,7 +770,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), and(ilike(where_optimization.pmat_test_prop, '%5%'), where_optimization.pmat_test_prop IS NOT NULL)))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___test_prop), '%5%'), 0)
   LIMIT 50000
   '''
@@ -787,7 +787,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), and(like(lower(coalesce(where_optimization.pmat_test_prop, '')), lower('%value_that_is_long_enough%')), where_optimization.pmat_test_prop IS NOT NULL)))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(ilike(toString(persons.properties___test_prop), '%value_that_is_long_enough%'), 0)
   LIMIT 50000
   '''
@@ -805,7 +805,7 @@
                                                     WHERE and(equals(where_optimization.team_id, 99999), (equals(where_optimization.pmat_test_prop, '5')
                                                                                                           AND (where_optimization.pmat_test_prop IS NOT NULL))))))
      GROUP BY person.id
-     HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))) AS persons
+     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE ifNull(equals(persons.properties___test_prop, '5'), 0)
   LIMIT 50000
   '''

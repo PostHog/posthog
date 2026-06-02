@@ -63,14 +63,20 @@ Completed in this branch:
 - `TypeDiagnosticReport` now includes typed top-level select-expression diagnostics, including alias, printable expression text, resolver `ConstantType`, and structured runtime type details.
 - Added a `toTypeName(...)` companion-query builder and comparison helper so inferred select-expression families/nullability can be checked against ClickHouse type-name output.
 - Extended the opt-in type-aware simplifier to fold finite numeric literal arithmetic for typed integer and float constants while preserving divide-by-zero and other unsafe cases.
+- Added lambda-aware inference for more common lambda-first array helpers, including `arraySort(...)`, `arrayReverseSort(...)`, `arrayFill(...)`, `arrayReverseFill(...)`, `arraySplit(...)`, `arrayReverseSplit(...)`, and `arrayFold(...)`.
+- Added resolver typing for window functions such as `row_number()`, `rank()`, `lag(...)`, `lead(...)`, `first_value(...)`, and `last_value(...)`.
+- Expanded generic function inference for date/time part and formatting helpers, readable string helpers, ClickHouse bitmap helpers, vector distance/norm helpers, more map helpers, and explicit date-add/subtract helper families.
+- Extended the opt-in type-aware simplifier to fold safe constant conversion calls, simplify literal `NULL` fallbacks in `ifNull(...)`/`coalesce(...)`, and fold exact-present literal JSON-path reads.
+- Fixed ClickHouse overload selection to prefer transformed first-argument types over stale call metadata, so typed DateTime property expressions do not re-enter best-effort parsing.
+- Added emitted-SQL coverage for type-aware nullability wins in generated person joins, where typed aggregate/tuple expressions no longer need defensive `ifNull(...)` wrappers.
 
 Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
-- Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
+- Full higher-order array parity beyond common lambda-first functions, especially strict lambda arity/return validation and less-used ClickHouse variants.
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
 - Production rollout policy for when property materialization should create typed physical columns instead of string-backed columns.
-- Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
+- Broader rollout of cast, constant, literal JSON, and nullability wrapper simplification beyond the internal opt-in flag.
 - Broader aggregate-state/combinator coverage, especially map/forEach variants and validation of compatible state/merge pairs.
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and broader ClickHouse integration tests for inferred result types, nullability, timezone-sensitive behavior, and planner/index wins beyond the typed materialized-property cases already covered.
@@ -226,7 +232,7 @@ The remaining gaps are more specific:
 
 - Aggregate state/merge functions and aggregate combinators.
 - Deeper date/time function families beyond the high-use conversion and parsing paths.
-- Bitmap helpers and specialized ClickHouse families that are not common optimizer inputs yet.
+- Specialized ClickHouse families that are not common optimizer inputs yet.
 - Strict lambda arity and return validation for higher-order array/map functions.
 - UDFs.
 
@@ -383,6 +389,7 @@ TODO:
   - [x] `toTypeName(T) -> String`
   - [x] `arrayElement(Array[T], Int) -> T`
   - [x] `arrayMap(Lambda[A -> B], Array[A]) -> Array[B]`
+  - [x] lambda-first array helpers such as `arraySort(Lambda, Array[T]) -> Array[T]` and `arrayFold(Lambda, Array[T], Acc) -> Acc`
   - [x] `JSONExtract(json, path..., 'Array(String)') -> Array[String]`
   - [x] `if(Bool, T, U) -> least_common_supertype(T, U)`
   - [x] `count(...) -> UInt64` compatibility type
@@ -432,13 +439,13 @@ TODO:
   - [x] constructors and element access
   - [x] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
   - [x] `arrayReduce` with supported aggregate names
-  - [x] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
+  - [x] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`, `arrayReverseSort`, `arrayFill`, `arrayReverseFill`, `arraySplit`, `arrayReverseSplit`, `arrayFold`
   - [x] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - [ ] Cover tuple and map functions:
   - [x] tuple construction and access
   - [x] named tuple access
   - [x] `map`, `mapFromArrays`, `mapKeys`, `mapValues`, `mapContains`
-  - [x] `mapFilter`, `mapApply`
+  - [x] `mapFilter`, `mapApply`, `mapAdd`, `mapSubtract`, `mapUpdate`, `mapExtractKeyLike`, `mapPopulateSeries`
 - [ ] Cover aggregate functions:
   - [x] `count`, `countIf`
   - [x] `countState`, `countMerge`
@@ -453,7 +460,9 @@ TODO:
   - [ ] remaining quantile/median state and merge variants
   - [ ] map/forEach aggregate variants
 - [x] Cover high-use string and URL functions that unblock emitted-SQL nullability simplification.
-- [ ] Cover high-use date functions after the above.
+- [x] Cover high-use date/time formatting, date-part, and explicit date-add/subtract helper functions that unblock optimizer/nullability decisions.
+- [x] Cover high-use bitmap and vector helper families that previously crossed function boundaries as unknowns.
+- [x] Cover common window function return types.
 - [ ] Cover Postgres and DuckDB functions that HogQL passes through or rewrites, especially casts, date/time functions, string functions, comparisons, and aggregations.
 - [ ] Decide how UDFs should be typed:
   - [ ] typed manually
@@ -561,6 +570,7 @@ TODO:
   - [x] remove redundant `assumeNotNull(non_nullable_expr)`
   - [x] collapse repeated compatible casts
   - [x] avoid removing casts that change timezone, precision, parsing semantics, or nullability
+  - [x] fold safe constant conversions such as `accurateCast('42', 'Int64')`, `toFloat(1)`, `toBool('true')`, and `toUUID('...')`
 - [x] Add literal-side conversion rewrites:
   - [x] compare typed column to typed literal without wrapping the column
   - [x] move datetime timezone conversion from column side to constant side where safe
@@ -573,6 +583,7 @@ TODO:
   - [x] avoid selected `ifNull(compare(...), default)` wrappers when both sides are non-nullable
   - [ ] preserve SQL three-valued logic where needed
   - [x] avoid redundant `ifNull`/`coalesce` around functions known to be non-nullable in the opt-in simplifier
+  - [x] remove literal `NULL` fallbacks in opt-in `ifNull(...)`/`coalesce(...)` when the remaining expression is unchanged
 - [ ] Add aggregate-state typing:
   - [x] allow state/merge transformations to know intermediate and final types for common typed state pairs
   - [ ] validate compatible state/merge pairs
@@ -584,8 +595,8 @@ TODO:
 - [ ] Add constant folding for typed literals where low-risk:
   - [x] simple arithmetic
   - [ ] date interval constants
-  - [ ] casted constants
-  - [ ] literal JSON paths
+  - [x] safe casted constants and conversion calls
+  - [x] exact-present literal JSON paths
 
 Acceptance criteria:
 
@@ -811,6 +822,6 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, physically typed materialized property columns can now use direct numeric/datetime range comparisons, and ClickHouse planner tests now prove those shapes use minmax skip indexes.
-The diagnostics hook now also explains top-level select expression types and can build `toTypeName(...)` companion queries, and the guarded simplifier can fold simple numeric literal arithmetic.
-The next concrete task should be deciding when production property materialization should create typed physical columns instead of string columns, plus expanding semantic-equivalence tests for remaining JSON/materialized extraction rewrites and the next low-risk constant-folding families.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, physically typed materialized property columns can now use direct numeric/datetime range comparisons, and ClickHouse planner tests now prove those shapes use minmax skip indexes.
+The diagnostics hook now also explains top-level select expression types and can build `toTypeName(...)` companion queries, and the guarded simplifier can fold simple numeric literal arithmetic, safe constant conversions, literal `NULL` fallbacks, and exact-present literal JSON paths.
+The next concrete task should be deciding when production property materialization should create typed physical columns instead of string columns, plus expanding semantic-equivalence tests for remaining JSON/materialized extraction rewrites and recording a query-corpus unknown-type baseline before strict resolver mode.
