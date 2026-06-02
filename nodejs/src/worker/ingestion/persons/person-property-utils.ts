@@ -143,6 +143,7 @@ export const SERVER_SIDE_LIBS = new Set([
     'posthog-python',
     'posthog-node',
     'posthog-edge',
+    'posthog-server',
     'posthog-go',
     'posthog-ruby',
     'posthog-php',
