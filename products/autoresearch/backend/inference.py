@@ -216,11 +216,22 @@ def _score_and_emit(
         else django_timezone.now()
     )
 
+    # Live runs attach each prediction to the real person — emit with a real distinct_id,
+    # process the person profile, and $set the output property so it lands on the person.
+    # Backfills stay person-less (they exist only for online validation, which keys on the
+    # $autoresearch_person_id property) so past-dated $set values can't clobber live scores.
+    distinct_id_by_person = (
+        {} if is_backfill else _resolve_distinct_ids(team, pipeline, [str(s["distinct_id"]) for s in scored])
+    )
+    output_property = pipeline.output_person_property
+
     emitted = 0
     errors = 0
     for row in scored:
         # Every row is keyed on person_id (the feature/score SQL aliases it "distinct_id").
         person_id = str(row["distinct_id"])
+        real_distinct_id = distinct_id_by_person.get(person_id)
+        attach_to_person = bool(real_distinct_id)  # only when we found a real distinct_id (live only)
         try:
             features_hash = hashlib.sha256(
                 json.dumps({k: v for k, v in row.items() if k != "p_y"}, sort_keys=True).encode()
@@ -237,14 +248,16 @@ def _score_and_emit(
                 "$autoresearch_features_hash": features_hash,
                 "$autoresearch_person_id": person_id,
             }
+            if attach_to_person and output_property:
+                props["$set"] = {output_property: row["p_y"]}
             response = capture_internal(
                 token=token,
                 event_name=PREDICTION_EVENT_NAME,
                 event_source=EVENT_SOURCE,
-                distinct_id=person_id,
+                distinct_id=real_distinct_id if attach_to_person else person_id,
                 timestamp=emit_timestamp,
                 properties=props,
-                process_person_profile=False,
+                process_person_profile=attach_to_person,
             )
             response.raise_for_status()
             emitted += 1
@@ -422,6 +435,33 @@ def _fetch_label_distinct_ids(
     except Exception:
         logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
         return frozenset()
+
+
+def _resolve_distinct_ids(team: Team, pipeline: AutoresearchPipeline, person_ids: list[str]) -> dict[str, str]:
+    """
+    Map each person_id to a real, most-recent distinct_id for that person.
+
+    The pipeline keys every row on person_id (a user may have many distinct_ids), but
+    events associate to a person via distinct_id. To attach a live prediction to the real
+    person we emit with one of their real distinct_ids, not the person UUID. Persons with
+    no resolvable distinct_id are omitted (caller falls back to person-less emission).
+    """
+    if not person_ids:
+        return {}
+    sql = (
+        "SELECT person_id, argMax(distinct_id, timestamp) AS did"
+        " FROM events"
+        " WHERE person_id IN {person_ids} AND distinct_id != toString(person_id)"
+        " GROUP BY person_id"
+    )
+    try:
+        tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
+        runner = HogQLQueryRunner(query=HogQLQuery(query=sql, values={"person_ids": person_ids}), team=team)
+        result = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        return {str(row[0]): str(row[1]) for row in (result.results or []) if row[0] and row[1]}
+    except Exception:
+        logger.exception("autoresearch_distinct_id_resolution_failed", pipeline_id=str(pipeline.pk))
+        return {}
 
 
 def _score_via_anchors(
