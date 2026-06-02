@@ -40,8 +40,8 @@ overloads double the endpoint cooldown up to
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it.
 `LoadEvent` is only a freshness/draining signal for endpoint routing, not an
 overload or dynamic batch-size control plane. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER`
-can probabilistically blend strict sticky routing (`0.0`) with fully random routing (`1.0`)
-when hot-key distribution needs extra spread.
+flattens traffic across the rendezvous-ranked candidate list: `0.0` sends all traffic to
+the top-ranked endpoint, `1.0` is uniform across candidates, and intermediate values decay by rank.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`../cymbal-resolution/README.md`](../cymbal-resolution/README.md)

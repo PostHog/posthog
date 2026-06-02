@@ -31,8 +31,8 @@ pub struct RemoteResolutionConfig {
     /// cymbal-resolution. Defaults to 0.0 in [`Config`] so enabling remote mode
     /// alone does not start sending traffic until rollout is ramped explicitly.
     pub sample_rate: f64,
-    /// Probability of selecting a random endpoint instead of the sticky
-    /// rendezvous endpoint for a routing key.
+    /// Rank-distribution factor for selecting among rendezvous-ranked candidates.
+    /// `0.0` is fully sticky to rank 0; `1.0` is uniform across candidates.
     pub routing_jitter: f64,
     /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
     /// clamp this; the caller relies on whatever cadence the server settles on.
