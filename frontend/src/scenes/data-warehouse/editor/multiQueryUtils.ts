@@ -195,13 +195,22 @@ function collectSelectNodesAtOffset(node: unknown, targetOffset: number, results
  * @param cursorOffset - Cursor position in the full editor text
  * @param queryStartOffset - Where this query starts in the full editor text
  */
+
+let astCache: { query: string; ast: ASTNode } | null = null
+
 export async function findInnermostSelectAtOffset(
     query: string,
     cursorOffset: number,
     queryStartOffset: number
 ): Promise<QueryRange | null> {
     try {
-        const ast: ASTNode = JSON.parse(await parseSelect(query))
+        let ast: ASTNode
+        if (astCache && astCache.query === query) {
+            ast = astCache.ast
+        } else {
+            ast = JSON.parse(await parseSelect(query))
+            astCache = { query, ast }
+        }
         if (ast.error || (ast.node !== 'SelectQuery' && ast.node !== 'SelectSetQuery')) {
             return null
         }
