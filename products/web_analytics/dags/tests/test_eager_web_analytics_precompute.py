@@ -273,8 +273,7 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
         get_runner.assert_not_called()
 
-    @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_forces_synchronous_flag_load_before_resolving_audience(self, get_runner, defs, load_flags, _is_cloud):
+    def test_forces_synchronous_flag_load_before_resolving_audience(self, defs, load_flags, _is_cloud):
         # The SDK's background poller runs on a 90s interval; this op
         # subprocess finishes in seconds, so we must force a sync load
         # or `feature_flag_definitions()` returns empty.
@@ -282,8 +281,7 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         warm_eager_baseline_op(self._op_context())
         load_flags.assert_called_once_with()
 
-    @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    def test_load_failure_does_not_abort_the_run(self, get_runner, defs, load_flags, _is_cloud):
+    def test_load_failure_does_not_abort_the_run(self, defs, load_flags, _is_cloud):
         # A flaky local-evaluation endpoint should not crash the op —
         # the run continues with whatever the SDK already has cached.
         load_flags.side_effect = RuntimeError("network blip")
