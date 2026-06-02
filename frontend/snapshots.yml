@@ -169,9 +169,9 @@ snapshots:
     components-cards-insight-card--access-control-viewer-access--light:
         hash: v1.k794b7964.719f09cfc81ad85b29436e014a28bce58cb2d92cb52f3985452a7f244946a942.7-kQKnzPLEwmt0ASeD0jP3gHwn1l_knVYROrs7w-8G4
     components-cards-insight-card--insight-card--dark:
-        hash: v1.k794b7964.97755d7fca22f3942f89a50c02f0f41bbf2f5c763dd33787f621eb062460c55c.ADvZW4swP53ETNMa02JIB1RPsR6EVh8ZY5VxW6WX-bs
+        hash: v1.k794b7964.5d05028af1ff628487ea3b1c41a754ef8d7f7b42838693e2ea7894140b7ba8c8.QBkx4kg4HVbuulD8XBwdQGCt4zYT1NL_NAAjj7Y4ovU
     components-cards-insight-card--insight-card--light:
-        hash: v1.k794b7964.a6b77f47b6e4cc39efa9c66431b96af31370648584027677c641cd986fc7ae7c.-A8bZ2qkxD6XSfG4xGYs_THwgEJR8G-mpUHYpP0BbzI
+        hash: v1.k794b7964.83906dc2d8e2d09c97a705a7b84dee0ec3521ce2f1cf09ffab8d1a62b26641c9.8mq8WaMYFIJ_fHM2lS-YMZmJFrN3Y_pljpXTCpj9GjI
     components-cards-insight-details--data-table-events-query--dark:
         hash: v1.k794b7964.6956ffc51d0a9527e5d9a47c8ed61d34c47c7b15cfa171c634057d0eabda0dd2.pxLvJTrPbgP0Y-yg7R_SZHFQbAIrPtI5-fGMsReGRAs
     components-cards-insight-details--data-table-events-query--light:
@@ -2296,10 +2296,6 @@ snapshots:
         hash: v1.k794b7964.e7737908a949e73a007af83339c44460f6b0d604ee608ccc4a2f79c73708a3d8.uwmtA6uiZy0YfVjo5n2I7LbfdQGl1Krgq3wg5bkPrrs
     lemon-ui-emoji-picker-popover--open--light:
         hash: v1.k794b7964.15a1eec98a39dc0692e4390e29c8a69c97cd508840c7468b6f3a30701dd60ab1.2GdP6zfGgJqyqKVae2yYhQJ0XEzFsitbQW0QcyNrEpg
-    lemon-ui-icons-property-icon--favicon-size-comparison--dark:
-        hash: v1.k794b7964.f0504fc06d2e3a4345f5fa486d9784036e64b7b6f6631911b523bfca808f42fb.NW9p2zhj6Ydh8Vfjo3euarZLWDUKcvntRk3aYFD5ul0
-    lemon-ui-icons-property-icon--favicon-size-comparison--light:
-        hash: v1.k794b7964.88b8a79aa35ef6d349770413a1a0c86bc6b46b25e3d122ccd24c83e33847ee79.oL7OSKMKE5kyT1NRwaLSNuWfW-eEPb97AA5zi2QWu5Q
     lemon-ui-icons1--shelf-a--dark:
         hash: v1.k794b7964.059a3e0d205f27927b6037c33b05c47fa0eec0817de7c07aa14773fe097268db.nqslF68LuigncD6yaS6PUYTijYpQ7e2-d4KJ4w2NvT0
     lemon-ui-icons1--shelf-a--light:
@@ -4525,7 +4521,7 @@ snapshots:
     scenes-app-data-management-revenue-analytics--settings--dark:
         hash: v1.k794b7964.af7b4af65f1a02e4704d8a504e1f0a526ea837b660fbc4b7eeb3cd1a62938b69.yOM3gobKxCwCESw8TYK5hnoXSbzpSXMQ2ByYOYySqNc
     scenes-app-data-management-revenue-analytics--settings--light:
-        hash: v1.k794b7964.0b1638c3e2f42c9c70c948e86955f50d56329941e804d58043b9ff018381c205.8LOgOKLT49SlpOzddq7nLE1I0rRGMRWPmN5DGrmhwlY
+        hash: v1.k794b7964.92744727e7b7849654eb381f1bf8b387dbd374c57da84a58d83415acc23e2a0e.ISqtTzKFoU0EVs7DGMm4AvRwQFPJwb3x_hM5Riv760o
     scenes-app-data-management-revenue-analytics-event-configuration-modal--default--dark:
         hash: v1.k794b7964.b7da818440cce605dcb07bb5f9148080c85cdad96b7546781450122607abd5a2.fnqTch61d1nE8VWTmjOT215WNlzEypscmrtWJ9uxgFo
     scenes-app-data-management-revenue-analytics-event-configuration-modal--default--light:

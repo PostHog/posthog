@@ -31,6 +31,10 @@ Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is th
 
 If the required events, properties, or tables do not exist, say so — do not run queries that will return empty results.
 
+### Format SQL for readability
+
+Write SQL a human can scan: multi-line with indentation, one column/CTE per line, and inline `--` comments for non-obvious logic. This matters most for queries you save via `view-create` / `view-update` — the SQL editor stores and renders the string verbatim, so a minified one-liner stays unreadable for whoever opens the view later.
+
 ### Handling large results
 
 Large JSON values in results (notably full `properties` objects) are truncated by default. If you anticipate a large result set, or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), dump the results to a file and process them with bash rather than returning them inline. Alternatively, cherry-pick specific keys (`properties.$browser`) instead of the whole object.
