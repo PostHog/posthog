@@ -32,9 +32,16 @@ resolvers and then rejoin the same properties/grouping/linking pipeline.
 
 Backpressure is result-only on the `Resolve` stream: overload is surfaced as
 `ResolveOutcome.Error { kind: ERROR_KIND_OVERLOADED }`, which the cymbal client
-reroutes with overload-specific backoff. `LoadEvent` is only a
-freshness/draining signal for endpoint routing, not an overload or dynamic
-batch-size control plane.
+reroutes with overload-specific backoff. When
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MS` is non-zero, the overloaded
+endpoint is also excluded from new routing in that cymbal process. Repeated
+overloads double the endpoint cooldown up to
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet
+`CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it.
+`LoadEvent` is only a freshness/draining signal for endpoint routing, not an
+overload or dynamic batch-size control plane. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER`
+flattens traffic across the rendezvous-ranked candidate list: `0.0` sends all traffic to
+the top-ranked endpoint, `1.0` is uniform across candidates, and intermediate values decay by rank.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`../cymbal-resolution/README.md`](../cymbal-resolution/README.md)

@@ -1008,6 +1008,20 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-delete-tile": {
+        "description": "Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, or ButtonTile object is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard tile",
+        "title": "Delete dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-get": {
         "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params; on this endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same query params to dashboard-insights-run.",
         "category": "Dashboards",
@@ -2184,7 +2198,7 @@
             "readOnlyHint": false
         }
     },
-    "feature-flags-bulk-keys-create": {
+    "feature-flags-bulk-keys-retrieve": {
         "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
         "category": "Feature flags",
         "feature": "flags",
@@ -2406,6 +2420,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-reports-set-state": {
+        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze a signal report",
+        "title": "Dismiss or snooze a signal report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "inbox-source-configs-list": {
@@ -3919,6 +3947,22 @@
             "readOnlyHint": false
         }
     },
+    "promoted-product-intent-get": {
+        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get the team's promoted product.",
+        "title": "Get the team's promoted product.",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "promoted-product",
+        "feature_flag_variant": "intent_plus"
+    },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
         "category": "Reverse proxy",
@@ -4804,6 +4848,81 @@
             "readOnlyHint": true
         }
     },
+    "tasks-list": {
+        "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List tasks",
+        "title": "List tasks",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-retrieve": {
+        "description": "Get a specific task by ID, including its description, repository, origin product, current stage, and latest run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task",
+        "title": "Get task",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-list": {
+        "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "List task runs",
+        "title": "List task runs",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-retrieve": {
+        "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`, `state.sandbox_url`) and the presigned `log_url` are omitted from the response.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task run",
+        "title": "Get task run",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-runs-session-logs-retrieve": {
+        "description": "Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`, `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming endpoint when invoking from an MCP client.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Get task run session logs",
+        "title": "Get task run session logs",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
     "update-feature-flag": {
         "description": "Update a feature flag by ID in the current project.",
         "category": "Feature flags",
@@ -5479,15 +5598,15 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Approve visual changes for snapshots in a run. With `approve_all: true`, approves every changed and new snapshot in the run. Otherwise pass an explicit `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. Approval updates the baseline YAML in the repo; `commit_to_github` (default true) also pushes a commit to the PR branch. Confirm with the user before approving — this is the action that ships the visual change.",
+        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`.",
         "category": "Visual review",
         "feature": "visual_review",
-        "summary": "Approve visual review snapshots",
-        "title": "Approve visual review snapshots",
+        "summary": "Mark visual review snapshots reviewed",
+        "title": "Mark visual review snapshots reviewed",
         "required_scopes": ["visual_review:write"],
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -5505,6 +5624,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-finalize-create": {
+        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Finalize a visual review run",
+        "title": "Finalize a visual review run",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "visual-review"
     },

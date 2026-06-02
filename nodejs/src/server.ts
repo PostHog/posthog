@@ -12,8 +12,9 @@ import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
+import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
@@ -39,7 +40,6 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
@@ -94,6 +94,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
+            capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
         )
         // 1. Shared infrastructure (always needed)
@@ -184,12 +185,8 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpLegacyOnEvent) {
-            const legacyDeps: CdpLegacyEventsConsumerDeps = {
-                ...cdpDeps!,
-                groupTypeManager: new GroupTypeManager(cdpServices!.groupRepository, teamManager),
-            }
             serviceLoaders.push(async () => {
-                const consumer = new CdpLegacyEventsConsumer(this.config, legacyDeps)
+                const consumer = new CdpLegacyEventsConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })
@@ -308,6 +305,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpBatchHogFlow) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpBatchHogFlowRequestsConsumer(this.config, cdpDeps!, postgresV2Queue)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpHogflowSubscriptionMatcher) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpHogflowSubscriptionMatcherConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })
