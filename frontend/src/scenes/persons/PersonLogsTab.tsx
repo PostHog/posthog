@@ -51,7 +51,7 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
                 <LemonButton
                     size="xsmall"
                     icon={<IconGear />}
-                    tooltip="Change the log attribute used to pivot logs onto a person"
+                    tooltip="Change the log attribute used to link logs to a person"
                     to={urls.settings('environment-logs', 'logs-distinct-id-attribute-key')}
                 />
             </p>
