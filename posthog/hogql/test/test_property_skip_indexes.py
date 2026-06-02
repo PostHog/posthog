@@ -247,6 +247,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
         self,
         *,
         is_nullable: bool,
+        column_type: str | None = None,
         create_minmax_index: bool = False,
         create_bloom_filter_index: bool = False,
         create_ngram_lower_index: bool = False,
@@ -256,6 +257,7 @@ class _PropertySkipIndexTestBase(ClickhouseTestMixin, APIBaseTest):
             self._mat_property_key,
             table_column=self._mat_table_column,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_minmax_index=create_minmax_index,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
@@ -479,6 +481,102 @@ class TestEventPropertySkipIndexes(_PropertySkipIndexTestBase):
             },
             expected_used=set(),
             expected_not_used={index},
+        )
+
+    def test_typed_numeric_mat_col_uses_minmax_index(self) -> None:
+        property_key = "typed_numeric_prop"
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                distinct_id=f"d{i}",
+                event="test_event",
+                properties={property_key: i + 0.5},
+            )
+        flush_persons_and_events()
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=property_key,
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = materialize(
+            "events",
+            property_key,
+            table_column="properties",
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+            create_minmax_index=True,
+        )
+        index = get_minmax_index_name(mat_col.name)
+
+        query, _ = self._filter_to_sql(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": 5,
+            }
+        )
+        assert f"less(events.{mat_col.name}, 5)" in query
+        assert "accurateCastOrNull" not in query
+        self._assert_indexes(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": 5,
+            },
+            expected_used={index},
+        )
+
+    def test_typed_datetime_mat_col_uses_minmax_index(self) -> None:
+        property_key = "typed_datetime_prop"
+        for i in range(10):
+            _create_event(
+                team=self.team,
+                distinct_id=f"d{i}",
+                event="test_event",
+                properties={property_key: f"2024-01-{i + 1:02d} 10:30:00"},
+            )
+        flush_persons_and_events()
+
+        PropertyDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name=property_key,
+            property_type=PropertyType.Datetime,
+            type=PropertyDefinition.Type.EVENT,
+        )
+        mat_col = materialize(
+            "events",
+            property_key,
+            table_column="properties",
+            is_nullable=True,
+            column_type="Nullable(DateTime64(6, 'UTC'))",
+            create_minmax_index=True,
+        )
+        index = get_minmax_index_name(mat_col.name)
+
+        query, _ = self._filter_to_sql(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": "2024-01-05 00:00:00",
+            }
+        )
+        assert f"less(events.{mat_col.name}, toDateTime64(" in query
+        assert "parseDateTime64BestEffortOrNull" not in query
+        self._assert_indexes(
+            {
+                "type": "event",
+                "key": property_key,
+                "operator": PropertyOperator.LT.value,
+                "value": "2024-01-05 00:00:00",
+            },
+            expected_used={index},
         )
 
     # ----- mat col, NULLABLE, bloom_filter index ----------------------------

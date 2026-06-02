@@ -467,6 +467,27 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
         printed = self._print_select(query)
         assert "mat_" not in printed, f"Expected no mat_ column in output, got: {printed}"
 
+    def test_typed_jsonextract_rewritten_to_matching_typed_mat_column(self):
+        with materialized(
+            "events",
+            "typed_json_float",
+            is_nullable=True,
+            column_type="Nullable(Float64)",
+        ):
+            printed = self._print_select(
+                "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
+            )
+            assert "mat_typed_json_float" in printed, printed
+            assert "JSONExtract(events.properties" not in printed, printed
+
+    def test_typed_jsonextract_not_rewritten_for_mismatched_mat_column_type(self):
+        with materialized("events", "typed_json_float", is_nullable=True):
+            printed = self._print_select(
+                "select JSONExtract(properties, 'typed_json_float', 'Nullable(Float64)') from events"
+            )
+            assert "mat_typed_json_float" not in printed, printed
+            assert "JSONExtract(events.properties" in printed, printed
+
     def test_jsonextractint_not_rewritten_even_with_mat_column(self):
         with materialized("events", "$browser"):
             printed = self._print_select("select JSONExtractInt(properties, '$browser') from events")

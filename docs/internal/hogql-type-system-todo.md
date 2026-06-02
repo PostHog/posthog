@@ -50,6 +50,9 @@ Completed in this branch:
 - Wired the ClickHouse materialized-column range rewrite through that property comparison plan, so the existing string minmax-friendly rewrite only uses direct physical-source comparisons when the planner says the source type matches the property semantics.
 - Materialized-column introspection now carries the ClickHouse physical type reported by `system.columns`, so property planning can distinguish string-backed property materialization from typed physical sources.
 - Added typed materialized-property comparison rewrites for physically typed numeric and datetime materialized sources whose physical source columns can support semantic ordering.
+- Added a typed materialized-column storage hook for tests and future rollout work, so `materialize(..., column_type=...)` can create physical columns such as `Nullable(Float64)` and `Nullable(DateTime64(6, 'UTC'))` while preserving the default string-backed behavior.
+- Added ClickHouse planner integration tests proving minmax skip-index usage for typed numeric and datetime materialized property comparisons.
+- Added safe typed `JSONExtract(properties, 'key', 'Type')` materialized-column rewrites when the requested parsed type exactly matches the physical materialized column type.
 - `PropertySwapper` now gives generated Float, DateTime, and Boolean property conversion calls explicit return metadata, so aliases and outer calls see the rewritten expression type rather than stale property-source types.
 - `PropertyType.resolve_constant_type()` now resolves simple property paths through loaded property-definition metadata when available.
 - Property debug notices now derive source/materialization status from the same property access plan used by the optimizer.
@@ -63,7 +66,7 @@ Still intentionally left as follow-up work:
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - Full higher-order array parity beyond common lambda-first functions, especially lambda-aware array sorting and strict lambda arity/return validation.
 - Full higher-order map parity beyond key/value binding, especially strict lambda arity and return validation.
-- ClickHouse planner/index integration tests for typed materialized-property minmax wins and a storage decision for typed physical materialized columns.
+- Production rollout policy for when property materialization should create typed physical columns instead of string-backed columns.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Broader aggregate-state/combinator coverage, especially map/forEach variants and validation of compatible state/merge pairs.
 - Strict resolver mode.
@@ -526,6 +529,7 @@ TODO:
 - [x] Use the property comparison planner to guard the existing ClickHouse materialized string-column range rewrite.
 - [x] Add a type-aware rule for numeric property comparisons that can use minmax indexes when safe.
 - [x] Add a type-aware rule for datetime property comparisons that can use minmax indexes when safe.
+- [x] Add a typed physical materialized-column path for tests and future rollout decisions.
 - [x] Preserve property group and dynamic materialized column behavior.
 - [x] Preserve restricted-property behavior; materialized shortcuts must not bypass access control.
 - [x] Make `PropertyType.resolve_constant_type()` more precise for JSON paths when metadata exists.
@@ -556,7 +560,7 @@ TODO:
   - [x] move datetime timezone conversion from column side to constant side where safe
   - [x] preserve existing `toTimeZone` range optimization behavior
 - [ ] Add JSON/materialized property extraction rewrites:
-  - [ ] use materialized columns for typed JSON extraction where safe
+  - [x] use materialized columns for typed JSON extraction where safe
   - [x] avoid decompressing full JSON blobs when a simple string property column is available
   - [ ] avoid `JSONExtractRaw` fallback when all required properties are materialized
 - [ ] Add broader nullability simplification:
@@ -632,7 +636,7 @@ TODO:
 - [x] Add printer tests for the first optimized SQL shapes.
 - [ ] Add ClickHouse integration tests for:
   - [ ] inferred type vs returned column type
-  - [ ] skip-index usage on typed materialized property comparisons
+  - [x] skip-index usage on typed materialized property comparisons
   - [ ] nullability behavior
   - [ ] timezone-sensitive datetime behavior
 - [ ] Add Postgres/DuckDB smoke tests for type-aware printing where those dialects are supported.
@@ -641,7 +645,7 @@ TODO:
   - [x] aliases rewritten by `PropertySwapper` do not keep stale return types
   - [x] typed string helpers such as `base64Encode(...)` avoid unnecessary comparison wrapping
   - [x] typed URL helpers such as `protocol(...)` avoid unnecessary comparison wrapping
-  - [ ] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
+  - [x] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
   - [x] property access control does not leak materialized property values in property comparison planning
 
 Acceptance criteria:
@@ -781,7 +785,7 @@ It should not become the default behavior for user-authored HogQL unless there i
 - [x] Add cast simplification with tests and a guarded rollout.
 - [x] Guard the existing materialized string range rewrite with property comparison planning.
 - [x] Add typed materialized property comparison optimization for typed physical sources.
-- [ ] Add skip-index integration tests for typed materialized property comparisons.
+- [x] Add skip-index integration tests for typed materialized property comparisons.
 - [ ] Add strict mode for internal tests after coverage is high.
 - [ ] Remove obsolete ad hoc workarounds and document the new workflow.
 
@@ -799,5 +803,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, and physically typed materialized property columns can now use direct numeric/datetime range comparisons.
-The next concrete task should be ClickHouse planner coverage for typed materialized-property minmax usage, plus a decision on whether/when property materialization should create typed physical columns instead of string columns.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`, property comparison planning metadata exists in `posthog/hogql/property_planner.py`, the existing materialized string-column range rewrite now consumes that planner, physically typed materialized property columns can now use direct numeric/datetime range comparisons, and ClickHouse planner tests now prove those shapes use minmax skip indexes.
+The next concrete task should be deciding when production property materialization should create typed physical columns instead of string columns, plus expanding semantic-equivalence tests for remaining JSON/materialized extraction rewrites.

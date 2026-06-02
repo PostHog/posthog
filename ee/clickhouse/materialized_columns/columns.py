@@ -84,7 +84,7 @@ class MaterializedColumn:
             return "String"
 
     def get_expression_and_parameters(self) -> tuple[str, dict[str, Any]]:
-        if self.is_nullable:
+        if self.column_type is not None or self.is_nullable:
             return (
                 f"JSONExtract({self.details.table_column}, %(property_name)s, %(property_type)s)",
                 {"property_name": self.details.property_name, "property_type": self.type},
@@ -441,6 +441,7 @@ def materialize(
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
     create_minmax_index=not TEST,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
@@ -465,6 +466,7 @@ def materialize(
             is_disabled=False,
         ),
         is_nullable=is_nullable,
+        column_type=column_type,
     )
 
     table_info.map_data_nodes(

@@ -506,6 +506,24 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_typed_datetime_mat_col_uses_minmax_index
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_typed_datetime_prop, toDateTime64('2024-01-05 00:00:00', 6, 'UTC'))
+                                            AND (events.mat_typed_datetime_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_typed_numeric_mat_col_uses_minmax_index
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), (less(events.mat_typed_numeric_prop, 5)
+                                            AND (events.mat_typed_numeric_prop IS NOT NULL)))
+  LIMIT 50000
+  '''
+# ---
 # name: TestPersonOnEventsPropertySkipIndexes.test_mat_col_nullable_bloom_filter_0_eq
   '''
   SELECT count() AS `count()`

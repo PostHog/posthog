@@ -18,6 +18,7 @@ from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.materialized_columns import (
@@ -281,22 +282,20 @@ class PropertySwapper(CloningVisitor):
             self._inside_call_depth -= 1
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
-        """Rewrite JSONExtractString(properties, '$foo') to use a materialized column.
+        """Rewrite safe direct JSON property extraction to use a materialized column.
 
         When users write raw JSONExtractString(properties, '$foo') in HogQL,
         ClickHouse decompresses the full properties JSON blob. If '$foo' has a
         materialized column (mat_$foo), this is unnecessary I/O. We rewrite the
         call to a property access node that the printer resolves to the mat_ column.
-        """
-        if node.name != "JSONExtractString":
-            return None
-        if len(node.args) != 2:
-            return None
 
-        prop_name_arg = node.args[1]
-        if not isinstance(prop_name_arg, ast.Constant) or not isinstance(prop_name_arg.value, str):
+        Typed JSONExtract(...) calls are only rewritten when the physical column type
+        exactly matches the requested ClickHouse type, because JSON helper semantics
+        for missing keys and type mismatches differ by function family.
+        """
+        property_name = self._simple_json_extract_property_name(node)
+        if property_name is None:
             return None
-        property_name: str = prop_name_arg.value
 
         # Unwrap Alias if present (resolver wraps fields in Alias nodes)
         field_arg = node.args[0]
@@ -335,12 +334,44 @@ class PropertySwapper(CloningVisitor):
         if mat_col is None:
             return None
 
+        if not self._json_extract_matches_materialized_column_type(node, mat_col):
+            return None
+
         return ast.Field(
             start=node.start,
             end=node.end,
             chain=[*field_arg.chain, property_name],
             type=ast.PropertyType(chain=[property_name], field_type=field_type),
         )
+
+    @staticmethod
+    def _simple_json_extract_property_name(node: ast.Call) -> str | None:
+        if node.name == "JSONExtractString" and len(node.args) == 2:
+            prop_name_arg = node.args[1]
+        elif node.name == "JSONExtract" and len(node.args) == 3:
+            prop_name_arg = node.args[1]
+        else:
+            return None
+
+        if isinstance(prop_name_arg, ast.Constant) and isinstance(prop_name_arg.value, str):
+            return prop_name_arg.value
+        return None
+
+    @staticmethod
+    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
+        if node.name == "JSONExtractString":
+            return True
+
+        if node.name != "JSONExtract" or len(node.args) != 3:
+            return False
+
+        type_arg = node.args[2]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            return False
+
+        requested_type = parse_sql_runtime_type(type_arg.value)
+        materialized_type = parse_sql_runtime_type(mat_col.type)
+        return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         result = super().visit_compare_operation(node)

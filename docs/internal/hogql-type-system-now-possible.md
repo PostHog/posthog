@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities added by the first real implementation slice of the HogQL type-system project.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, and an opt-in internal simplifier for conservative type-aware rewrites.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, typed property expressions, materialized-column physical-type facts, property comparison planning, typed materialized-property range rewrites for physically typed sources, safe typed `JSONExtract(...)` materialized-column rewrites, and an opt-in internal simplifier for conservative type-aware rewrites.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -342,6 +342,8 @@ Property and materialized-source planning:
 - string-backed materialized properties keep the existing direct-column minmax rewrite only for semantic string comparisons where lexical ordering is correct
 - physically typed materialized numeric and datetime properties can use direct physical-column range comparisons when the planner proves the source type matches the semantic property type and the comparison value is source-compatible
 - string datetime constants can move to the literal side as `toDateTime64(..., 6, timezone)`, avoiding `parseDateTime64BestEffortOrNull(materialized_column, ...)` around a typed DateTime materialized source
+- ClickHouse integration tests now prove minmax skip-index use for typed numeric and datetime materialized property comparisons, not only emitted-SQL string shape
+- the materialized-column helper can create typed physical test columns with `column_type=...`; the production default remains string-backed until rollout policy is decided
 - property debug notices now derive materialized, dynamic materialized, property-group, restricted, and JSON source facts from the same access plan used by the optimizer
 
 Nullability simplification:
@@ -376,6 +378,7 @@ Property-definition metadata is now part of property comparison planning.
 The ClickHouse materialized range rewrite now consumes that plan before using direct physical-source comparisons.
 
 Current individually materialized property columns are still generally physically strings.
+The test materialization helper can now create typed physical columns, but that is a storage hook and proof path rather than a production policy change.
 For those columns, numeric and datetime direct range rewrites remain blocked because replacing `toFloat(col) < 5` or `parseDateTime64BestEffortOrNull(col) < ts` with a bare string comparison would change ordering semantics.
 The planner treats that source/semantic mismatch as an optimizer barrier.
 
@@ -383,9 +386,12 @@ If ClickHouse introspection reports a typed physical materialized source, such a
 The printer then skips the column-side conversion and emits a direct range comparison against the materialized column.
 For typed DateTime materialized sources compared with a string constant, the conversion moves to the literal side as `toDateTime64(..., 6, timezone)`.
 
-Typed JSON extraction rewrites remain blocked.
-`JSONExtractInt`, `JSONExtractFloat`, and `JSONExtractBool` do not have the same missing-key, JSON null, empty-string, and type-mismatch behavior as the current property access and conversion path.
-Those rewrites need separate equivalence tests before they can replace the existing JSON/property expressions.
+Typed JSON extraction rewrites are now partially enabled.
+`JSONExtract(properties, 'key', 'Type')` can use a materialized column when the parsed requested type exactly matches the physical materialized column type.
+For example, a `Nullable(Float64)` extraction can read a `Nullable(Float64)` materialized column instead of decompressing the full JSON blob.
+
+`JSONExtractInt`, `JSONExtractFloat`, and `JSONExtractBool` remain blocked.
+Those helpers do not have the same missing-key, JSON null, empty-string, and type-mismatch behavior as the current property access and conversion path, so they still need separate equivalence tests before they can replace existing JSON/property expressions.
 
 Aggregate states are represented structurally in both the runtime model and the resolver-facing compatibility layer.
 Common state/merge pairs now preserve enough metadata for typed intermediate and final values:
@@ -463,10 +469,10 @@ It separates semantic property-definition type facts from physical source type f
 
 The ClickHouse materialized range rewrite now uses that plan as its guard.
 That means lexical string range comparisons can keep their minmax-friendly direct-column shape, typed numeric and datetime materialized sources can use bare physical-column comparisons, and numeric/datetime properties backed by string materialized columns keep their semantic conversion wrappers.
+The integration tests now prove that `Nullable(Float64)` and `Nullable(DateTime64(6, 'UTC'))` materialized property comparisons are visible to ClickHouse's minmax skip indexes.
 
 Good first targets:
 
-- add ClickHouse planner tests proving minmax skip-index use for typed physical materialized property sources
 - decide when property materialization should create typed physical columns instead of string-backed columns
-- prove any typed JSON extraction rewrite is semantic-preserving before enabling it
+- extend JSON/materialized extraction rewrites beyond exact-type `JSONExtract(...)` only where semantic-equivalence tests prove they are safe
 - extend aggregate state typing to map/forEach variants and validate compatible state/merge pairs
