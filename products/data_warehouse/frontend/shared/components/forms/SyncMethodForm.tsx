@@ -110,16 +110,6 @@ const getSaveDisabledReason = (
     }
 }
 
-// Show the option matching the schema's persisted sync type even when that mode is no longer
-// "available" for new selection. `supports_webhooks` / `cdc_available` are recomputed per-request
-// and feature-flag gated, so they can flip to false/null while a schema is already on that mode —
-// without this, an existing webhook/CDC schema would render no matching radio option at all.
-export const shouldShowWebhookOption = (schema: ExternalDataSourceSyncSchema): boolean =>
-    schema.supports_webhooks || schema.sync_type === 'webhook'
-
-export const shouldShowCdcOption = (schema: ExternalDataSourceSyncSchema): boolean =>
-    !!schema.cdc_available || schema.sync_type === 'cdc'
-
 const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
@@ -162,9 +152,6 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
 
-    const showWebhookOption = shouldShowWebhookOption(schema)
-    const showCdcOption = shouldShowCdcOption(schema)
-
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
 
@@ -201,14 +188,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         label: JSX.Element
     }[] = []
 
-    if (showWebhookOption) {
+    if (schema.supports_webhooks) {
         radioOptions.push({
             value: 'webhook',
             label: (
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">Webhook</h4>
-                        {schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
+                        <LemonTag type="success">Recommended</LemonTag>
                     </div>
                     <p className="mb-2">
                         When using webhook sync, we'll receive updates from your source via webhooks. This provides the
@@ -224,7 +211,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    if (showCdcOption) {
+    if (schema.cdc_available) {
         radioOptions.push({
             value: 'cdc',
             disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,
@@ -232,9 +219,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 <div className="mb-4 font-normal rounded border border-success/40 bg-success-highlight/40 p-3">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
                         <h4 className="mb-0 mr-2 text-base font-semibold">CDC (change data capture)</h4>
-                        {schema.cdc_available && !schema.supports_webhooks && (
-                            <LemonTag type="success">Recommended</LemonTag>
-                        )}
+                        {!schema.supports_webhooks && <LemonTag type="success">Recommended</LemonTag>}
                     </div>
                     <p className="mb-2">
                         Capture inserts, updates, and deletes in real-time via logical replication. Keeps PostHog in
