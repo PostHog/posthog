@@ -182,6 +182,23 @@ class TestResume:
         assert saved.offset == 3
         assert saved.endpoint == "contact"
 
+    @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
+    def test_state_saved_only_after_yield(self, mock_session: MagicMock) -> None:
+        # Three full pages (each == page_size) with chunk threshold 2000: the batcher yields a
+        # 2000-row chunk after page 2 and flushes the remaining 1000 at the end. State must only
+        # advance to offsets that have actually been yielded — never to a page still buffered.
+        limit = MAILJET_ENDPOINTS["contact"].page_size
+        pages = [{"Data": [{"ID": i} for i in range(p * limit, (p + 1) * limit)], "Total": 3 * limit} for p in range(3)]
+        mock_session.return_value.get.side_effect = [_mock_response(json_payload=p) for p in pages]
+
+        manager = _mock_manager()
+        tables = list(get_rows("key", "secret", "contact", MagicMock(), manager))
+
+        assert sum(t.num_rows for t in tables) == 3 * limit
+        saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
+        # Buffered-but-unyielded offset `limit` must never be persisted.
+        assert saved_offsets == [2 * limit, 3 * limit]
+
 
 class TestIncremental:
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")

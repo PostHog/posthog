@@ -143,10 +143,11 @@ def get_rows(
 
             if batcher.should_yield():
                 yield batcher.get_table()
-
-            # Save AFTER batching the page so a crash resumes at the next un-yielded page
-            # rather than skipping rows (merge dedupes any re-yielded rows on primary key).
-            resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
+                # The batcher flushes its whole buffer into the yielded table, so once we've
+                # yielded, `offset` covers exactly the rows emitted to the pipeline. Persisting
+                # state only after a yield avoids skipping buffered-but-unyielded rows if the
+                # process stops mid-sync (a re-yielded row is deduped on merge).
+                resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
 
         # Terminate on a short/empty page, or once Total is reached (guards the
         # exact-multiple-of-Limit case so we issue at most one extra empty request).
@@ -157,6 +158,7 @@ def get_rows(
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
+        resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
 
 
 def mailjet_source(
