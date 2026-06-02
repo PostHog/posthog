@@ -211,7 +211,7 @@ def _fetch_predictions_by_model(
         "SELECT"
         " distinct_id,"
         " properties['$autoresearch_model_id'] AS model_id,"
-        " toFloat64OrNull(properties['$autoresearch_p_y']) AS p_y"
+        " toFloat(properties['$autoresearch_p_y']) AS p_y"
         " FROM events"
         " WHERE event = {event_name}"
         " AND properties['$autoresearch_pipeline_id'] = {pipeline_id}"
