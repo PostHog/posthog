@@ -316,10 +316,6 @@ export type CohortsListParams = {
      */
     basic?: boolean
     /**
-     * Opt into the optimised list query path (gated otherwise by the `cohorts-list-fast-path` feature flag). Returns the same rows in the same order; only the underlying query shape differs.
-     */
-    fast_list?: boolean
-    /**
      * Number of results to return per page.
      */
     limit?: number

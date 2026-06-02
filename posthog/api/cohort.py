@@ -11,7 +11,6 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
@@ -1142,54 +1141,9 @@ class CohortSerializer(serializers.ModelSerializer):
         return representation
 
 
-# Server-side rollout flag for the cohort list fast path. The query optimisations
-# it gates are output-identical, so this can be flipped on broadly to derisk before
-# making them the default. `?fast_list=true` forces it on per-request for testing.
-COHORTS_LIST_FAST_PATH_FLAG = "cohorts-list-fast-path"
-
-
-def _cohort_list_fast_path_enabled(request) -> bool:
-    """Whether to use the optimised cohort list queryset for this request.
-
-    Enabled by an explicit `?fast_list=true` argument (short-circuits so direct
-    API testing needs no flag evaluation) or the `cohorts-list-fast-path`
-    feature flag. The fast path returns the same rows in the same order; only
-    the query shape differs, so it's safe to gate broadly.
-    """
-    if str_to_bool(request.query_params.get("fast_list", "0")):
-        return True
-    try:
-        user = getattr(request, "user", None)
-        if user is None or user.is_anonymous:
-            return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                COHORTS_LIST_FAST_PATH_FLAG,
-                user.distinct_id,
-                groups={"organization": str(user.organization.id)},
-                group_properties={"organization": {"id": str(user.organization.id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        return False
-
-
 @extend_schema_view(
     list=extend_schema(
         parameters=[
-            OpenApiParameter(
-                name="fast_list",
-                type=bool,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Opt into the optimised list query path (gated otherwise by the "
-                    "`cohorts-list-fast-path` feature flag). Returns the same rows in the "
-                    "same order; only the underlying query shape differs."
-                ),
-            ),
             OpenApiParameter(
                 name="basic",
                 type=bool,
@@ -1234,8 +1188,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        fast_path = self.action == "list" and _cohort_list_fast_path_enabled(self.request)
-
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1247,23 +1199,25 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                # The dependency graph only reads these columns; on the fast path
-                # defer the heavy `query`/`groups`/etc. JSON so we don't haul full
-                # rows for every cohort in the team just to compute the exclusion set.
-                graph_source = (
-                    queryset.only("id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at")
-                    if fast_path
-                    else queryset
+                # The dependency graph only needs these columns; defer the heavy
+                # `query`/`groups`/etc. JSON so we don't haul full rows for every
+                # cohort in the team just to compute the exclusion set.
+                graph_source = queryset.only(
+                    "id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at"
                 )
                 all_cohorts = {cohort.id: cohort for cohort in graph_source.all()}
-                find_behavioral = self._find_behavioral_cohorts_fast if fast_path else self._find_behavioral_cohorts
-                behavioral_cohort_ids = find_behavioral(
+                behavioral_cohort_ids = self._find_behavioral_cohorts(
                     all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
                 )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
+
+            # `?basic=true` callers never read these columns, so skip reading them
+            # off disk (the serializer drops them too — see CohortSerializer.__init__).
+            if str_to_bool(self.request.query_params.get("basic", "0")):
+                queryset = queryset.defer("filters", "query", "groups")
 
         last_error_code_subquery = Subquery(
             CohortCalculationHistory.objects.filter(
@@ -1275,61 +1229,28 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .values("error_code")[:1]
         )
 
-        queryset = queryset.annotate(last_error_code=last_error_code_subquery)
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
         # `experiment_set` is a reverse relation, so it stays prefetched.
-        if fast_path:
-            return (
-                queryset.select_related("created_by", "team").prefetch_related("experiment_set").order_by("-created_at")
-            )
-        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
+        return (
+            queryset.annotate(last_error_code=last_error_code_subquery)
+            .select_related("created_by", "team")
+            .prefetch_related("experiment_set")
+            .order_by("-created_at")
+        )
 
     def _find_behavioral_cohorts(
         self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
     ) -> set[int]:
-        """
-        Find all cohorts that have behavioral filters or reference cohorts with behavioral filters
-        using a graph-based approach.
+        """Find cohorts that are behavioral, or reference (transitively) a behavioral cohort.
 
-        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled are
-        excluded from the result because they can be evaluated via the cohort_membership table
-        during flag evaluation.
-        """
-        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
+        A cohort is affected if it's a behavioral seed, or references one through the
+        dependency graph. We walk the *reverse* graph once from the seeds (O(V+E)) —
+        every node that can reach a seed via forward edges is affected.
 
-        # When the feature is enabled, realtime+backfilled cohorts are flag-compatible
-        flag_compatible: set[int] = set()
-        if allow_realtime_backfilled:
-            flag_compatible = {
-                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
-            }
-        affected_cohorts = behavioral_cohorts - flag_compatible
-
-        def find_affected_cohorts() -> None:
-            changed = True
-            while changed:
-                changed = False
-                for source_id in list(graph.keys()):
-                    if source_id not in affected_cohorts:
-                        # NB: If this cohort points to any affected cohort, it's also affected
-                        if any(target_id in affected_cohorts for target_id in graph[source_id]):
-                            affected_cohorts.add(source_id)
-                            changed = True
-
-        find_affected_cohorts()
-        return affected_cohorts
-
-    def _find_behavioral_cohorts_fast(
-        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
-    ) -> set[int]:
-        """Linear equivalent of `_find_behavioral_cohorts`.
-
-        A cohort is affected if it's behavioral, or references (transitively) an
-        affected cohort. The original does this with an O(V²·E) fixed-point loop
-        that re-scans every node each pass. This walks the *reverse* dependency
-        graph once from the behavioral seeds (O(V+E)); every node that can reach
-        a seed via forward edges is exactly the set the loop converges to.
+        When allow_realtime_backfilled is True, realtime cohorts that have been backfilled
+        are not seeds: they can be evaluated via the cohort_membership table during flag
+        evaluation. (They can still be pulled in if they reference another seed.)
         """
         graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
 

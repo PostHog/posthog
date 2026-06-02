@@ -23,12 +23,6 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.'
         ),
-    fast_list: zod
-        .boolean()
-        .optional()
-        .describe(
-            'Opt into the optimised list query path (gated otherwise by the `cohorts-list-fast-path` feature flag). Returns the same rows in the same order; only the underlying query shape differs.'
-        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })

@@ -179,12 +179,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
     } = ctx
     const { id: teamId } = currentTeam
     const { excludedProperties, propertyAllowList } = propertyFilters
-    // Opt the cohort picker into the server-side optimised list query (`fast_list`)
-    // and the trimmed payload (`basic`, which drops filters/query/groups the picker
-    // never reads). Gated by a flag so it can be rolled out independently.
-    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_FAST_LIST]
-        ? { fast_list: true, basic: true }
-        : undefined
+    // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
+    // filters/query/groups JSON the picker never reads). Gated by a flag so the
+    // smaller response shape can be rolled out and rolled back independently.
+    const cohortsEndpointParams = featureFlags[FEATURE_FLAGS.COHORTS_TAXONOMIC_BASIC_LIST] ? { basic: true } : undefined
     const groups: TaxonomicFilterGroup[] = [
         {
             name: 'Events',

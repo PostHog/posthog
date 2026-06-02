@@ -23,6 +23,7 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
+from posthog.api.cohort import CohortViewSet
 from posthog.api.test.test_exports import TestExportMixin
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
@@ -313,7 +314,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -328,7 +329,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(13):
+        with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -1654,45 +1655,41 @@ email@example.org,
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
-    @patch("posthog.api.cohort.report_user_action")
-    def test_fast_list_path_returns_identical_results(self, patch_capture):
-        # Regular + behavioral cohort so both the plain and hide_behavioral paths are exercised.
-        Cohort.objects.create(
-            team=self.team,
-            name="regular cohort",
-            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
-        )
-        Cohort.objects.create(
-            team=self.team,
-            name="behavioral cohort",
-            filters={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "behavioral",
-                            "key": "$pageview",
-                            "value": "performed_event",
-                            "event_type": "events",
-                            "time_value": 30,
-                            "time_interval": "day",
-                        }
-                    ],
-                }
-            },
-        )
+    def test_find_behavioral_cohorts_propagates_through_references(self):
+        # Build an in-memory dependency graph (no DB needed): 1 is behavioral, 2->1,
+        # 3->2 (both transitively affected), 4 unrelated. 5 is a behavioral realtime
+        # cohort that has been backfilled, 6->5.
+        def make(cid: int, *, behavioral: bool = False, refs: tuple[int, ...] = (), realtime_backfilled: bool = False):
+            values: list[dict] = []
+            if behavioral:
+                values.append({"type": "behavioral"})
+            values += [{"type": "cohort", "value": str(ref)} for ref in refs]
+            return Cohort(
+                id=cid,
+                team=self.team,
+                is_static=False,
+                filters={"properties": {"type": "OR", "values": values}},
+                cohort_type=CohortType.REALTIME if realtime_backfilled else None,
+                last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+            )
 
-        def ids(query: str) -> list[int]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts{query}")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            return [row["id"] for row in response.json()["results"]]
+        cohorts = {
+            c.id: c
+            for c in [
+                make(1, behavioral=True),
+                make(2, refs=(1,)),
+                make(3, refs=(2,)),
+                make(4),
+                make(5, behavioral=True, realtime_backfilled=True),
+                make(6, refs=(5,)),
+            ]
+        }
+        viewset = CohortViewSet()
 
-        # The fast path is a query-shape optimisation only — same rows, same order.
-        self.assertEqual(ids(""), ids("?fast_list=true"))
-        self.assertEqual(
-            ids("?hide_behavioral_cohorts=true"),
-            ids("?hide_behavioral_cohorts=true&fast_list=true"),
-        )
+        # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
+        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6})
+        # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
+        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3})
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_list_omits_heavy_fields(self, patch_capture):
