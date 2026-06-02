@@ -96,16 +96,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                     const distinctId = typeof value === 'string' ? value : ''
                                     if (distinctId) {
                                         setSelectedPerson((person as Partial<PersonType>) ?? null)
-                                        setTestFormData({
-                                            distinct_id: distinctId,
-                                            person_id: (person as Partial<PersonType>)?.uuid || '',
-                                        })
+                                        setTestFormData({ distinct_id: distinctId })
                                     } else {
                                         setSelectedPerson(null)
-                                        setTestFormData({
-                                            distinct_id: '',
-                                            person_id: '',
-                                        })
+                                        setTestFormData({ distinct_id: '' })
                                     }
                                 }}
                                 groupTypes={[TaxonomicFilterGroupType.Persons]}
@@ -133,11 +127,6 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
 
                         {formData.distinct_id && (
                             <div className="text-xs text-muted space-y-1 p-2 bg-bg-3000 rounded">
-                                {formData.person_id && (
-                                    <div>
-                                        <strong>Person ID:</strong> {formData.person_id}
-                                    </div>
-                                )}
                                 <div>
                                     <strong>Distinct ID:</strong> {formData.distinct_id}
                                 </div>

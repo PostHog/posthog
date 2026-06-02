@@ -222,17 +222,8 @@ describe('featureFlagTestingLogic', () => {
 
     describe('hasValidPerson selector', () => {
         it.each([
-            {
-                description: 'is true when distinct_id is set (e.g. selected from the recent tab)',
-                formData: { distinct_id: 'user-123' },
-                expected: true,
-            },
-            { description: 'is true when only person_id is set', formData: { person_id: 'uuid-abc' }, expected: true },
-            {
-                description: 'is false when neither distinct_id nor person_id is set',
-                formData: {},
-                expected: false,
-            },
+            { description: 'is true when distinct_id is set', formData: { distinct_id: 'user-123' }, expected: true },
+            { description: 'is false when distinct_id is empty', formData: {}, expected: false },
         ])('$description', async ({ formData, expected }) => {
             await expectLogic(logic, () => {
                 logic.actions.setTestFormData(formData)
@@ -297,28 +288,19 @@ describe('featureFlagTestingLogic', () => {
         })
     })
 
-    describe('testFlagEvaluation person identifier selection', () => {
+    describe('testFlagEvaluation person identifier', () => {
         it.each([
             {
-                description:
-                    'sends distinct_id (not person_id) when only distinct_id is set — simulates recent-tab selection',
-                formData: { distinct_id: 'user-from-recent-tab', person_id: '', timestamp: '', groups: '' },
-                expectedBody: { distinct_id: 'user-from-recent-tab' },
-                notExpectedKey: 'person_id',
+                description: 'sends distinct_id when set',
+                formData: { distinct_id: 'user-123', timestamp: '', groups: '' },
+                expectedBody: { distinct_id: 'user-123' },
             },
             {
-                description: 'falls back to person_id when distinct_id is empty',
-                formData: { distinct_id: '', person_id: 'uuid-abc', timestamp: '', groups: '' },
-                expectedBody: { person_id: 'uuid-abc' },
-                notExpectedKey: 'distinct_id',
+                description: 'omits distinct_id when empty',
+                formData: { distinct_id: '', timestamp: '', groups: '' },
+                expectedBody: {},
             },
-            {
-                description: 'prefers distinct_id over person_id when both are set',
-                formData: { distinct_id: 'did-123', person_id: 'uuid-abc', timestamp: '', groups: '' },
-                expectedBody: { distinct_id: 'did-123' },
-                notExpectedKey: 'person_id',
-            },
-        ])('$description', async ({ formData, expectedBody, notExpectedKey }) => {
+        ])('$description', async ({ formData, expectedBody }) => {
             let capturedBody: Record<string, any> = {}
             useMocks({
                 post: {
@@ -334,7 +316,7 @@ describe('featureFlagTestingLogic', () => {
             }).toFinishAllListeners()
 
             expect(capturedBody).toMatchObject(expectedBody)
-            expect(capturedBody).not.toHaveProperty(notExpectedKey)
+            expect(capturedBody).not.toHaveProperty('person_id')
         })
     })
 
@@ -359,7 +341,7 @@ describe('featureFlagTestingLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.testFlagEvaluation({
                     flagId: 1,
-                    formData: { person_id: 'p1', distinct_id: '', timestamp: '', groups },
+                    formData: { distinct_id: 'p1', timestamp: '', groups },
                 })
             }).toFinishAllListeners()
 

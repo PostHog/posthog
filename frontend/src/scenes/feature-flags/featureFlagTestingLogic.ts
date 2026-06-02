@@ -20,13 +20,12 @@ export type ConditionAnalysis = FeatureFlagConditionAnalysisApi
 export type TestResult = FeatureFlagTestEvaluationResponseApi
 
 export interface TestFormData {
-    person_id: string
     distinct_id: string
     timestamp: string
     groups: string
 }
 
-const EMPTY_FORM: TestFormData = { person_id: '', distinct_id: '', timestamp: '', groups: '' }
+const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
 
 function validateAndParseGroups(groups: string): Record<string, any> {
     const trimmed = groups.trim()
@@ -72,14 +71,8 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 testFlagEvaluation: async ({ flagId, formData }: { flagId: number; formData: TestFormData }) => {
                     const data: FeatureFlagTestEvaluationRequestApi = {}
 
-                    // distinct_id and person_id are mutually exclusive server-side. Prefer
-                    // distinct_id when available — it preserves the exact rollout/variant
-                    // bucketing and is always present regardless of how the person was selected
-                    // (the recent tab only carries a distinct_id, not the person UUID).
                     if (formData.distinct_id?.trim()) {
                         data.distinct_id = formData.distinct_id.trim()
-                    } else if (formData.person_id?.trim()) {
-                        data.person_id = formData.person_id.trim()
                     }
 
                     data.groups = validateAndParseGroups(formData.groups || '')
@@ -239,7 +232,7 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
         // Check if form has valid person selected
         hasValidPerson: [
             (s) => [s.testFormData],
-            (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim() || formData.person_id?.trim()),
+            (formData: TestFormData): boolean => Boolean(formData.distinct_id?.trim()),
         ],
         // Get formatted error display information
         errorDisplay: [
