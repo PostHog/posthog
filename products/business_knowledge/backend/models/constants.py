@@ -82,8 +82,9 @@ class SafetyVerdict(models.TextChoices):
     """
     Content-safety classification of a document, set by the background
     classifier. New / content-changed docs start `unknown` and are
-    classified on the next coordinator pass. Only `unsafe` docs are
-    excluded from agent search (fail-open: `unknown` stays searchable).
+    classified on the next coordinator pass. Only `safe` docs are
+    included in agent search (fail-closed: `unknown` is excluded until
+    the classifier runs).
     """
 
     UNKNOWN = "unknown", "Unknown"

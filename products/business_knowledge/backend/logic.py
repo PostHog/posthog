@@ -349,6 +349,7 @@ def create_text_source(
         title=name,
         content=text,
         metadata={"source_type": SourceType.TEXT},
+        safety_verdict=SafetyVerdict.SAFE,
     )
 
     chunks = chunk_text(text)
@@ -420,6 +421,7 @@ def update_text_source(
             title=name if name is not None else source.name,
             content=text,
             metadata={"source_type": SourceType.TEXT},
+            safety_verdict=SafetyVerdict.SAFE,
         )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
         source.status = SourceStatus.READY
@@ -579,6 +581,7 @@ def create_file_source(
             content=text,
             metadata=parsed.metadata,
             content_hash=content_hash,
+            safety_verdict=SafetyVerdict.SAFE,
         )
 
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
@@ -1488,8 +1491,8 @@ def search_knowledge(
             team_id=team_id,
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
+            document__safety_verdict=SafetyVerdict.SAFE,
         )
-        .exclude(document__safety_verdict=SafetyVerdict.UNSAFE)
         .only("id", "document_id", "ordinal", "char_count")
         .order_by("char_count")[:limit]
     )
@@ -1517,8 +1520,8 @@ def search_knowledge(
             team_id=team_id,
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
+            document__safety_verdict=SafetyVerdict.SAFE,
         )
-        .exclude(document__safety_verdict=SafetyVerdict.UNSAFE)
         .select_related("source", "document")
         .only(
             "id",
