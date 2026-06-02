@@ -5,9 +5,11 @@ import type { BenchResult } from '~/scenes/debug/chart-bench/ChartBenchScene'
 import { test } from '../utils/playwright-test-base'
 
 /**
- * Line-chart benchmark runner. Walks a matrix of {chart, series, points},
- * runs the in-scene benchmark harness at `/debug/chart-bench`, and prints a
- * comparison table to stdout + attaches it to the Playwright report.
+ * Chart benchmark runner. Walks a matrix of {chart, series, points}, runs the
+ * in-scene benchmark harness at `/debug/chart-bench`, and prints a comparison
+ * table to stdout + attaches it to the Playwright report. The harness sweeps
+ * hover vertically for horizontal bar layouts and horizontally otherwise, so no
+ * per-orientation logic is needed here — selecting the chart kind is enough.
  *
  * Skipped by default because benchmark numbers are noisy and we don't want
  * CI to fail on them. Run locally with:
@@ -29,7 +31,16 @@ const MATRIX: { series: number; points: number }[] = [
     { series: 50, points: 2000 },
 ]
 
-const CHARTS: ChartKind[] = ['hog', 'chartjs', 'adapter-hog', 'adapter-chartjs']
+const CHARTS: ChartKind[] = [
+    'hog',
+    'chartjs',
+    'hog-bar',
+    'hog-bar-horizontal',
+    'adapter-hog',
+    'adapter-chartjs',
+    'adapter-bar',
+    'adapter-bar-horizontal',
+]
 const RUNS = 5
 const SEED = 42
 

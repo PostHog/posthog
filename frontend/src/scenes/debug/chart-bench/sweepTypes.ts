@@ -1,4 +1,12 @@
-export type ChartKind = 'hog' | 'chartjs' | 'hog-bar' | 'adapter-hog' | 'adapter-chartjs' | 'adapter-bar'
+export type ChartKind =
+    | 'hog'
+    | 'chartjs'
+    | 'hog-bar'
+    | 'hog-bar-horizontal'
+    | 'adapter-hog'
+    | 'adapter-chartjs'
+    | 'adapter-bar'
+    | 'adapter-bar-horizontal'
 
 export interface SweepResult {
     chart: ChartKind

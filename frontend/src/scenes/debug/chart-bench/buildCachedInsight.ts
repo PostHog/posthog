@@ -64,33 +64,38 @@ export function buildCachedInsight(data: BenchData, options: BuildOptions = {}):
         full: false,
     }
 
-    const trendResults: TrendResult[] = data.series.map((s, idx) => ({
-        action: {
-            id: s.key,
-            type: 'events',
-            order: idx,
-            name: s.label,
-            custom_name: s.label,
-            math: 'total',
-            math_property: null,
-            math_group_type_index: null,
-            properties: [],
-        },
-        label: s.label,
-        count: s.data.reduce((a, b) => a + b, 0),
-        data: s.data,
-        // TrendResult's `labels` are human-readable (e.g. "4-Mar-2022") while
-        // `days` are ISO — the chart uses `days` for x-axis positioning and
-        // `labels` only for tooltip titles. We reuse the ISO strings for both.
-        labels: s.data.map((_, i) => data.labels[i] ?? ''),
-        days: data.labels.slice(),
-        aggregated_value: 0,
-        filter: {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display,
-        },
-    }))
+    const trendResults: TrendResult[] = data.series.map((s, idx) => {
+        const total = s.data.reduce((a, b) => a + b, 0)
+        return {
+            action: {
+                id: s.key,
+                type: 'events',
+                order: idx,
+                name: s.label,
+                custom_name: s.label,
+                math: 'total',
+                math_property: null,
+                math_group_type_index: null,
+                properties: [],
+            },
+            label: s.label,
+            count: total,
+            data: s.data,
+            // TrendResult's `labels` are human-readable (e.g. "4-Mar-2022") while
+            // `days` are ISO — the chart uses `days` for x-axis positioning and
+            // `labels` only for tooltip titles. We reuse the ISO strings for both.
+            labels: s.data.map((_, i) => data.labels[i] ?? ''),
+            days: data.labels.slice(),
+            // Aggregated (horizontal `ActionsBarValue`) layouts drop series whose
+            // aggregated_value is 0, so carry the series total here too.
+            aggregated_value: total,
+            filter: {
+                insight: InsightType.TRENDS,
+                interval: 'day',
+                display,
+            },
+        }
+    })
 
     const cachedInsight: Partial<QueryBasedInsightModel> = {
         id: 0,

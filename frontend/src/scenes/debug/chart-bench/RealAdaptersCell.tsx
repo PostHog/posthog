@@ -18,7 +18,13 @@ import { TrendsLineChart } from 'products/product_analytics/frontend/insights/tr
 import { buildCachedInsight } from './buildCachedInsight'
 import type { BenchData } from './generateBenchData'
 
-type AdapterKind = 'adapter-hog' | 'adapter-chartjs' | 'adapter-bar'
+type AdapterKind = 'adapter-hog' | 'adapter-chartjs' | 'adapter-bar' | 'adapter-bar-horizontal'
+
+/** Display type each bar adapter kind drives the insight with. */
+const ADAPTER_BAR_DISPLAY: Partial<Record<AdapterKind, ChartDisplayType>> = {
+    'adapter-bar': ChartDisplayType.ActionsBar,
+    'adapter-bar-horizontal': ChartDisplayType.ActionsBarValue,
+}
 
 interface RealAdaptersCellProps {
     kind: AdapterKind
@@ -44,7 +50,7 @@ export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersC
         () =>
             buildCachedInsight(data, {
                 fillArea,
-                display: kind === 'adapter-bar' ? ChartDisplayType.ActionsBar : undefined,
+                display: ADAPTER_BAR_DISPLAY[kind],
             }),
         [data, fillArea, kind]
     )
@@ -79,7 +85,7 @@ export function RealAdaptersCell({ kind, data, runKey, fillArea }: RealAdaptersC
                         <BindLogic logic={insightVizDataLogic} props={insightProps}>
                             {kind === 'adapter-hog' ? (
                                 <TrendsLineChart />
-                            ) : kind === 'adapter-bar' ? (
+                            ) : kind === 'adapter-bar' || kind === 'adapter-bar-horizontal' ? (
                                 <TrendsBarChart />
                             ) : (
                                 <ActionsLineGraph />

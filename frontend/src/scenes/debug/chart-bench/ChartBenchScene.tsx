@@ -23,19 +23,30 @@ import { SweepResultsChart } from './SweepResultsChart'
 import type { ChartKind as SweepChartKind, SweepResult } from './sweepTypes'
 
 /**
- * Line-chart benchmark harness. Four chart "kinds":
+ * Chart benchmark harness. Chart "kinds":
  *
- *   - `hog`            — raw `lib/hog-charts` LineChart, synthetic data
- *   - `chartjs`        — raw chart.js Chart, synthetic data
- *   - `adapter-hog`    — real `TrendsLineChart` adapter fed through the
- *                        full insight kea logic tree (insight + data +
- *                        insightViz + trendsData) with cached results
- *   - `adapter-chartjs`— real `ActionsLineGraph` adapter (same logic tree,
- *                        chart.js under the hood)
+ *   - `hog`                  — raw `lib/hog-charts` LineChart, synthetic data
+ *   - `chartjs`              — raw chart.js Chart, synthetic data
+ *   - `hog-bar`              — raw `TimeSeriesBarChart`, vertical bars
+ *   - `hog-bar-horizontal`   — raw `TimeSeriesBarChart`, horizontal bars
+ *                              (same data, rotated)
+ *   - `adapter-hog`          — real `TrendsLineChart` adapter fed through the
+ *                              full insight kea logic tree (insight + data +
+ *                              insightViz + trendsData) with cached results
+ *   - `adapter-chartjs`      — real `ActionsLineGraph` adapter (same logic
+ *                              tree, chart.js under the hood)
+ *   - `adapter-bar`          — real `TrendsBarChart` adapter, vertical
+ *                              time-series bars (`ActionsBar`)
+ *   - `adapter-bar-horizontal`— real `TrendsBarChart` adapter, aggregated
+ *                              horizontal bars (`ActionsBarValue`)
  *
  * The raw cells isolate engine cost. The adapter cells include kea overhead,
  * the real PostHog tooltip (`TrendsTooltip` / `InsightTooltip`), and any
  * per-render selector/memoization cost — which is what actually ships.
+ *
+ * Horizontal layouts lay categories down the y-axis, so the hover sweep runs
+ * top-to-bottom for them and left-to-right for everything else (see
+ * `sweepHover` / `isHorizontalChart`).
  *
  * Results are exposed on `window.__chartBench` so a Playwright test can
  * iterate a matrix and compare.
@@ -70,10 +81,23 @@ const CHART_OPTIONS: { label: string; value: ChartKind }[] = [
     { label: 'hog-charts line (raw)', value: 'hog' },
     { label: 'chart.js line (raw)', value: 'chartjs' },
     { label: 'hog-charts bar (raw)', value: 'hog-bar' },
+    { label: 'hog-charts bar horizontal (raw)', value: 'hog-bar-horizontal' },
     { label: 'hog-charts (TrendsLineChart adapter)', value: 'adapter-hog' },
     { label: 'chart.js (ActionsLineGraph adapter)', value: 'adapter-chartjs' },
     { label: 'hog-charts (TrendsBarChart adapter)', value: 'adapter-bar' },
+    { label: 'hog-charts (TrendsBarChart horizontal adapter)', value: 'adapter-bar-horizontal' },
 ]
+
+/** Bar layouts whose categories run down the y-axis — the hover sweep must
+ * travel vertically to cross successive bars instead of horizontally. */
+const HORIZONTAL_CHART_KINDS: ReadonlySet<ChartKind> = new Set<ChartKind>([
+    'hog-bar-horizontal',
+    'adapter-bar-horizontal',
+])
+
+function isHorizontalChart(chart: ChartKind): boolean {
+    return HORIZONTAL_CHART_KINDS.has(chart)
+}
 
 const DEFAULT_SERIES = 10
 const DEFAULT_POINTS = 500
@@ -141,7 +165,16 @@ function parseSeriesList(raw: string): number[] {
         .filter((n) => Number.isFinite(n) && n > 0)
 }
 
-const ALL_CHART_KINDS: ChartKind[] = ['hog', 'chartjs', 'hog-bar', 'adapter-hog', 'adapter-chartjs', 'adapter-bar']
+const ALL_CHART_KINDS: ChartKind[] = [
+    'hog',
+    'chartjs',
+    'hog-bar',
+    'hog-bar-horizontal',
+    'adapter-hog',
+    'adapter-chartjs',
+    'adapter-bar',
+    'adapter-bar-horizontal',
+]
 
 interface ChartCellProps {
     chart: ChartKind
@@ -161,8 +194,8 @@ function ChartCell({ chart, series, points, seed, fillArea, showGrid, runKey }: 
     if (chart === 'chartjs') {
         return <ChartJsLineChart data={data} fillArea={fillArea} showGrid={showGrid} />
     }
-    if (chart === 'hog-bar') {
-        return <HogChartsBarChart data={data} showGrid={showGrid} />
+    if (chart === 'hog-bar' || chart === 'hog-bar-horizontal') {
+        return <HogChartsBarChart data={data} showGrid={showGrid} horizontal={chart === 'hog-bar-horizontal'} />
     }
     return <RealAdaptersCell kind={chart} data={data} runKey={runKey} fillArea={fillArea} />
 }
@@ -210,42 +243,50 @@ export function ChartBenchScene(): JSX.Element {
      * possible to tell whether a slow cell is bottlenecked in JS or in paint.
      * Both `pointermove` and `mousemove` are dispatched — chart.js listens on
      * pointer events, hog-charts on mouse events. Sync/frame are NaN if the
-     * canvas wasn't actually sized when the run started. */
-    const sweepHover = useCallback(async (): Promise<{ total: number; sync: number; frame: number }> => {
-        const canvas = findCanvas()
-        if (!canvas) {
-            return { total: NaN, sync: NaN, frame: NaN }
-        }
-        const rect = canvas.getBoundingClientRect()
-        if (rect.width < 10 || rect.height < 10) {
-            return { total: NaN, sync: NaN, frame: NaN }
-        }
-        const steps = 30
-        let totalSync = 0
-        let totalFrame = 0
-        for (let i = 0; i < steps; i++) {
-            const x = rect.left + (rect.width * (i + 0.5)) / steps
-            const y = rect.top + rect.height / 2
-            const init: PointerEventInit = {
-                bubbles: true,
-                cancelable: true,
-                clientX: x,
-                clientY: y,
-                view: window,
-                pointerType: 'mouse',
+     * canvas wasn't actually sized when the run started.
+     *
+     * `horizontal` charts lay their categories down the y-axis, so the sweep
+     * travels top-to-bottom (x fixed at center) to cross successive bars;
+     * upright charts sweep left-to-right (y fixed at center). */
+    const sweepHover = useCallback(
+        async (horizontal = false): Promise<{ total: number; sync: number; frame: number }> => {
+            const canvas = findCanvas()
+            if (!canvas) {
+                return { total: NaN, sync: NaN, frame: NaN }
             }
-            const dispatchStart = performance.now()
-            canvas.dispatchEvent(new PointerEvent('pointermove', init))
-            canvas.dispatchEvent(new MouseEvent('mousemove', init))
-            totalSync += performance.now() - dispatchStart
-            totalFrame += await nextFrame()
-        }
-        canvas.dispatchEvent(
-            new PointerEvent('pointerleave', { bubbles: true, cancelable: true, pointerType: 'mouse' })
-        )
-        canvas.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, cancelable: true }))
-        return { total: totalSync + totalFrame, sync: totalSync, frame: totalFrame }
-    }, [findCanvas])
+            const rect = canvas.getBoundingClientRect()
+            if (rect.width < 10 || rect.height < 10) {
+                return { total: NaN, sync: NaN, frame: NaN }
+            }
+            const steps = 30
+            let totalSync = 0
+            let totalFrame = 0
+            for (let i = 0; i < steps; i++) {
+                const fraction = (i + 0.5) / steps
+                const x = horizontal ? rect.left + rect.width / 2 : rect.left + rect.width * fraction
+                const y = horizontal ? rect.top + rect.height * fraction : rect.top + rect.height / 2
+                const init: PointerEventInit = {
+                    bubbles: true,
+                    cancelable: true,
+                    clientX: x,
+                    clientY: y,
+                    view: window,
+                    pointerType: 'mouse',
+                }
+                const dispatchStart = performance.now()
+                canvas.dispatchEvent(new PointerEvent('pointermove', init))
+                canvas.dispatchEvent(new MouseEvent('mousemove', init))
+                totalSync += performance.now() - dispatchStart
+                totalFrame += await nextFrame()
+            }
+            canvas.dispatchEvent(
+                new PointerEvent('pointerleave', { bubbles: true, cancelable: true, pointerType: 'mouse' })
+            )
+            canvas.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true, cancelable: true }))
+            return { total: totalSync + totalFrame, sync: totalSync, frame: totalFrame }
+        },
+        [findCanvas]
+    )
 
     const runBenchmark = useCallback(async () => {
         setBusy(true)
@@ -265,7 +306,7 @@ export function ChartBenchScene(): JSX.Element {
             await nextFrame()
             readySamples.push(performance.now() - t0)
 
-            const hover = await sweepHover()
+            const hover = await sweepHover(isHorizontalChart(chart))
             hoverSamples.push(hover.total)
             hoverSyncSamples.push(hover.sync)
             hoverFrameSamples.push(hover.frame)
@@ -349,7 +390,7 @@ export function ChartBenchScene(): JSX.Element {
                 flushSync(() => setRunKey((k) => k + 1))
                 await nextFrame()
                 readySamples.push(performance.now() - t0)
-                const hover = await sweepHover()
+                const hover = await sweepHover(isHorizontalChart(cell.chart))
                 hoverSamples.push(hover.total)
                 hoverSyncSamples.push(hover.sync)
                 hoverFrameSamples.push(hover.frame)
