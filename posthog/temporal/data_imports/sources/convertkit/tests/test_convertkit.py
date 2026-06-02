@@ -185,6 +185,13 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
+    def test_unknown_endpoint_returns_error_without_request(self) -> None:
+        with patch("posthog.temporal.data_imports.sources.convertkit.convertkit.make_tracked_session") as session_cls:
+            is_valid, error = validate_credentials("key", "not_a_real_endpoint")
+        assert is_valid is False
+        assert error is not None
+        session_cls.assert_not_called()
+
 
 class TestConvertKitSource:
     @parameterized.expand(

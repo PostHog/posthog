@@ -78,6 +78,8 @@ def validate_credentials(api_key: str, endpoint: str | None = None) -> tuple[boo
     A 403 at source-create time (``endpoint is None``) is treated as valid — the key
     works but may lack scope for a specific endpoint, which the user can grant later.
     """
+    if endpoint and endpoint not in CONVERTKIT_ENDPOINTS:
+        return False, f"Unknown Kit endpoint: {endpoint}"
     config = CONVERTKIT_ENDPOINTS[endpoint] if endpoint else CONVERTKIT_ENDPOINTS["subscribers"]
     url = f"{CONVERTKIT_BASE_URL}{config.path}?{urlencode({'per_page': 1})}"
     try:
@@ -116,6 +118,9 @@ def get_rows(
     if cursor:
         logger.debug(f"ConvertKit: resuming {endpoint} from cursor: {cursor}")
 
+    # One tracked session for the whole sync — keeps urllib3's TLS connection warm across pages.
+    session = make_tracked_session(redact_values=(api_key,))
+
     @retry(
         retry=retry_if_exception_type((ConvertKitRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(5),
@@ -128,7 +133,7 @@ def get_rows(
             params["after"] = page_cursor
         url = f"{CONVERTKIT_BASE_URL}{config.path}?{urlencode(params)}"
 
-        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise ConvertKitRetryableError(
