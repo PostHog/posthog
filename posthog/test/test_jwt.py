@@ -105,6 +105,24 @@ class TestJwt(SimpleTestCase):
         with self.assertRaises(expected):
             decode_jwt(token_factory(), AUD)
 
+    @parameterized.expand(
+        [
+            ("expired", lambda: _raw_token(PRIMARY, expiry=timedelta(seconds=-1)), jwt.ExpiredSignatureError),
+            (
+                "wrong audience",
+                lambda: _raw_token(PRIMARY, audience=PosthogJwtAudience.UNSUBSCRIBE),
+                jwt.InvalidAudienceError,
+            ),
+        ]
+    )
+    @override_settings(JWT_SIGNING_KEY=ROTATED, JWT_SIGNING_KEY_FALLBACKS=[PRIMARY])
+    def test_claim_errors_from_fallback_key_are_not_masked(self, _name: str, token_factory, expected: type[Exception]):
+        # A token signed by the fallback key (PRIMARY) fails the InvalidSignatureError check against
+        # the active key (ROTATED) first; the loop must keep going and surface the claim error raised
+        # once PRIMARY matches the signature — not the earlier mismatch.
+        with self.assertRaises(expected):
+            decode_jwt(token_factory(), AUD)
+
     @parameterized.expand([("audience value", AUD.value), ("none", None), ("int", 5)])
     def test_encode_rejects_non_audience(self, _name: str, bad_audience):
         with self.assertRaises(Exception):
