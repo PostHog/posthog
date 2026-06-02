@@ -93,17 +93,14 @@ const inboxReportsRetrieve = (): ToolBase<typeof InboxReportsRetrieveSchema, Wit
     },
 })
 
-const InboxReportsStateCreateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(
+const InboxReportsSetStateSchema = SignalsReportsStateCreateParams.omit({ project_id: true }).extend(
     SignalsReportsStateCreateBody.shape
 )
 
-const inboxReportsStateCreate = (): ToolBase<
-    typeof InboxReportsStateCreateSchema,
-    WithPostHogUrl<Schemas.SignalReport>
-> => ({
-    name: 'inbox-reports-state-create',
-    schema: InboxReportsStateCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportsStateCreateSchema>) => {
+const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, WithPostHogUrl<Schemas.SignalReport>> => ({
+    name: 'inbox-reports-set-state',
+    schema: InboxReportsSetStateSchema,
+    handler: async (context: Context, params: z.infer<typeof InboxReportsSetStateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.state !== undefined) {
@@ -367,7 +364,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
-    'inbox-reports-state-create': inboxReportsStateCreate,
+    'inbox-reports-set-state': inboxReportsSetState,
     'inbox-source-configs-list': inboxSourceConfigsList,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'signals-scout-emit-signal': signalsScoutEmitSignal,

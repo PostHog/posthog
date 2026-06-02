@@ -69,7 +69,7 @@ tools:
             actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
             if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
             query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
-    inbox-reports-state-create:
+    inbox-reports-set-state:
         operation: signals_reports_state_create
         enabled: true
         scopes:
