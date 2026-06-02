@@ -141,18 +141,6 @@ pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
-// Synchronous-path billing increment timing.
-// Labeled by `outcome` ("ok" | "timeout" | "error") to isolate the happy
-// path from Redis timeouts.
-pub const FLAG_BILLING_INCREMENT_TIME: &str = "flags_billing_increment_time_ms";
-
-// Counter for Redis errors observed during the synchronous billing
-// increment. Labeled by `error_type` ("timeout" | "transport" | "not_found"
-// | "parse" | "config") — same classification the billing flusher uses, so
-// breakdowns line up across both paths. The raw error message is never used
-// as a label (cardinality risk).
-pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
-
 // Billing aggregator metrics
 // See `src/billing/aggregator.rs`. The accounting identity
 //   flags_billing_records_total ≈ flags_billing_entries_flushed_total

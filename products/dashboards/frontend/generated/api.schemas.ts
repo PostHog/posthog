@@ -121,6 +121,42 @@ export interface PaginatedDashboardTemplateListApi {
     results: DashboardTemplateApi[]
 }
 
+export interface PatchedDashboardTemplateApi {
+    readonly id?: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    template_name?: string | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    dashboard_description?: string | null
+    dashboard_filters?: unknown
+    /** @nullable */
+    tags?: string[] | null
+    tiles?: unknown
+    variables?: unknown
+    /** @nullable */
+    deleted?: boolean | null
+    /** @nullable */
+    readonly created_at?: string | null
+    readonly created_by?: UserBasicApi
+    /**
+     * @maxLength 8201
+     * @nullable
+     */
+    image_url?: string | null
+    /** @nullable */
+    readonly team_id?: number | null
+    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
+    /** @nullable */
+    availability_contexts?: string[] | null
+    /** Manually curated; used to highlight templates in the UI. */
+    is_featured?: boolean
+}
+
 export interface CopyDashboardTemplateApi {
     /** UUID of a team-scoped template in the same organization. Global and feature-flag templates cannot be copied with this endpoint. */
     source_template_id: string
@@ -305,28 +341,6 @@ export interface DashboardCollaboratorApi {
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
-}
-
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -1081,6 +1095,8 @@ export interface DataWarehouseSyncWarningApi {
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
     schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -7404,22 +7420,145 @@ export interface ButtonTileApi {
     team: number
 }
 
-export interface NestedApi {
+/**
+ * * `last_seen` - last_seen
+ * `first_seen` - first_seen
+ * `occurrences` - occurrences
+ * `users` - users
+ * `sessions` - sessions
+ */
+export type ErrorTrackingIssueOrderByEnumApi =
+    (typeof ErrorTrackingIssueOrderByEnumApi)[keyof typeof ErrorTrackingIssueOrderByEnumApi]
+
+export const ErrorTrackingIssueOrderByEnumApi = {
+    LastSeen: 'last_seen',
+    FirstSeen: 'first_seen',
+    Occurrences: 'occurrences',
+    Users: 'users',
+    Sessions: 'sessions',
+} as const
+
+/**
+ * * `ASC` - ASC
+ * `DESC` - DESC
+ */
+export type OrderDirectionEnumApi = (typeof OrderDirectionEnumApi)[keyof typeof OrderDirectionEnumApi]
+
+export const OrderDirectionEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+/**
+ * * `archived` - archived
+ * `active` - active
+ * `resolved` - resolved
+ * `pending_release` - pending_release
+ * `suppressed` - suppressed
+ * `all` - all
+ */
+export type ErrorTrackingIssueStatusEnumApi =
+    (typeof ErrorTrackingIssueStatusEnumApi)[keyof typeof ErrorTrackingIssueStatusEnumApi]
+
+export const ErrorTrackingIssueStatusEnumApi = {
+    Archived: 'archived',
+    Active: 'active',
+    Resolved: 'resolved',
+    PendingRelease: 'pending_release',
+    Suppressed: 'suppressed',
+    All: 'all',
+} as const
+
+/**
+ * * `-14d` - -14d
+ * `-1h` - -1h
+ * `-24h` - -24h
+ * `-30d` - -30d
+ * `-3h` - -3h
+ * `-7d` - -7d
+ * `-90d` - -90d
+ */
+export type DateFromEnumApi = (typeof DateFromEnumApi)[keyof typeof DateFromEnumApi]
+
+export const DateFromEnumApi = {
+    '14d': '-14d',
+    '1h': '-1h',
+    '24h': '-24h',
+    '30d': '-30d',
+    '3h': '-3h',
+    '7d': '-7d',
+    '90d': '-90d',
+} as const
+
+export interface WidgetDateRangeApi {
+    /** Relative lookback window (for example '-7d'). Omit to use the project default range.
+
+  * `-14d` - -14d
+  * `-1h` - -1h
+  * `-24h` - -24h
+  * `-30d` - -30d
+  * `-3h` - -3h
+  * `-7d` - -7d
+  * `-90d` - -90d */
+    date_from?: DateFromEnumApi | null
+}
+
+export interface ErrorTrackingListWidgetConfigApi {
+    /**
+     * Maximum number of issues to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** Issue ranking column.
+
+  * `first_seen` - first_seen
+  * `last_seen` - last_seen
+  * `occurrences` - occurrences
+  * `sessions` - sessions
+  * `users` - users */
+    orderBy?: ErrorTrackingIssueOrderByEnumApi
+    /** Sort direction for orderBy.
+
+  * `ASC` - ASC
+  * `DESC` - DESC */
+    orderDirection?: OrderDirectionEnumApi
+    /** Issue status filter.
+
+  * `archived` - archived
+  * `active` - active
+  * `resolved` - resolved
+  * `pending_release` - pending_release
+  * `suppressed` - suppressed
+  * `all` - all */
+    status?: ErrorTrackingIssueStatusEnumApi
+    /** Optional relative date range override. */
+    dateRange?: WidgetDateRangeApi | null
+    /** When omitted, follows the project default for filtering test accounts. */
+    filterTestAccounts?: boolean
+}
+
+export interface DashboardWidgetApi {
     readonly id: string
-    /** @maxLength 64 */
+    readonly created_by: UserBasicApi
+    readonly last_modified_by: UserBasicApi
+    /**
+     * Widget type identifier from the dashboard widget catalog.
+     * @maxLength 64
+     */
     widget_type: string
     /**
+     * Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.
      * @maxLength 400
      * @nullable
      */
     name?: string | null
+    /** Optional markdown description shown on the dashboard tile when enabled. */
     description?: string
-    config?: unknown
-    last_modified_at?: string
-    /** @nullable */
-    created_by?: number | null
-    /** @nullable */
-    last_modified_by?: number | null
+    /** Widget-specific configuration JSON for this widget type. */
+    config?: ErrorTrackingListWidgetConfigApi
+    readonly dashboard_tiles: readonly DashboardTileBasicApi[]
+    readonly last_modified_at: string
     team: number
 }
 
@@ -7428,6 +7567,7 @@ export interface DashboardTileApi {
     insight: InsightApi
     text: TextApi
     button_tile: ButtonTileApi
+    widget?: DashboardWidgetApi | null
     layouts?: unknown
     /**
      * @maxLength 400
@@ -7439,7 +7579,23 @@ export interface DashboardTileApi {
     show_description?: boolean | null
     /** @nullable */
     transparent_background?: boolean | null
-    readonly widget: NestedApi
+}
+
+export interface DeleteTileRequestApi {
+    /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
+    tile_id: number
+}
+
+export interface MoveTileTileApi {
+    /** Dashboard tile ID to move. */
+    id: number
+}
+
+export interface PatchedMoveTileRequestApi {
+    /** Destination dashboard ID. */
+    to_dashboard?: number
+    /** Tile to move, identified by its dashboard tile ID. */
+    tile?: MoveTileTileApi
 }
 
 /**
@@ -7495,6 +7651,28 @@ export interface RunInsightsResponseApi {
     results: DashboardTileResultApi[]
 }
 
+export interface DashboardWidgetRunResultApi {
+    /** Dashboard tile ID for this widget result. */
+    tile_id: number
+    /**
+     * Widget type identifier, or null when the tile was not found.
+     * @nullable
+     */
+    widget_type: string | null
+    /** Live widget query result payload. */
+    result: unknown
+    /**
+     * Error message when the widget could not be run.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface RunWidgetsResponseApi {
+    /** Per-tile widget run results. */
+    results: DashboardWidgetRunResultApi[]
+}
+
 export interface UpdateTextTileRequestApi {
     /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
     tile_id: number
@@ -7512,6 +7690,42 @@ export interface UpdateTextTileRequestApi {
      * @nullable
      */
     color?: string | null
+}
+
+export interface AddDashboardWidgetRequestApi {
+    /**
+     * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+     * @maxLength 64
+     */
+    widget_type: string
+    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
+    config: ErrorTrackingListWidgetConfigApi
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: TileLayoutsApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+}
+
+export interface AddDashboardWidgetsBatchRequestApi {
+    /**
+     * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+     * @minItems 1
+     * @maxItems 10
+     */
+    widgets: AddDashboardWidgetRequestApi[]
+}
+
+export interface AddDashboardWidgetsBatchResponseApi {
+    /** Created dashboard widget tiles in request order. */
+    tiles: DashboardTileApi[]
 }
 
 /**
@@ -7556,6 +7770,31 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface WidgetCatalogEntryApi {
+    /** Stable widget type identifier used in API requests. */
+    widget_type: string
+    /** Product area key for grouping related widget variants. */
+    group_id: string
+    /** Human-readable product area label. */
+    group_label: string
+    /** Widget variant label within the product area. */
+    label: string
+    /** Short description of what the widget shows. */
+    description: string
+    /** JSON schema hints for config fields (types, choices, bounds). Not a strict validator. */
+    config_schema_hints: unknown
+    /**
+     * Product access resource required to view or run this widget, if any.
+     * @nullable
+     */
+    required_product_access?: string | null
+}
+
+export interface WidgetCatalogResponseApi {
+    /** Registered dashboard widget types available when dashboard-widgets is enabled. */
+    results: WidgetCatalogEntryApi[]
 }
 
 export interface DataColorThemeApi {
@@ -7743,6 +7982,17 @@ export const DashboardsCreateTextTileCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsDeleteTileParams = {
+    format?: DashboardsDeleteTileFormat
+}
+
+export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
+
+export const DashboardsDeleteTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat
 }
@@ -7812,6 +8062,22 @@ export const DashboardsRunInsightsRetrieveRefresh = {
     ForceCache: 'force_cache',
 } as const
 
+export type DashboardsRunWidgetsRetrieveParams = {
+    format?: DashboardsRunWidgetsRetrieveFormat
+    /**
+     * Comma-separated dashboard tile IDs to run widgets for.
+     */
+    tile_ids: string
+}
+
+export type DashboardsRunWidgetsRetrieveFormat =
+    (typeof DashboardsRunWidgetsRetrieveFormat)[keyof typeof DashboardsRunWidgetsRetrieveFormat]
+
+export const DashboardsRunWidgetsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsSnapshotCreateParams = {
     format?: DashboardsSnapshotCreateFormat
 }
@@ -7868,6 +8134,18 @@ export const DashboardsUpdateTextTileCreateFormat = {
     Txt: 'txt',
 } as const
 
+export type DashboardsWidgetsBatchCreateParams = {
+    format?: DashboardsWidgetsBatchCreateFormat
+}
+
+export type DashboardsWidgetsBatchCreateFormat =
+    (typeof DashboardsWidgetsBatchCreateFormat)[keyof typeof DashboardsWidgetsBatchCreateFormat]
+
+export const DashboardsWidgetsBatchCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
 export type DashboardsBulkUpdateTagsCreateParams = {
     format?: DashboardsBulkUpdateTagsCreateFormat
 }
@@ -7900,6 +8178,18 @@ export type DashboardsCreateUnlistedDashboardCreateFormat =
     (typeof DashboardsCreateUnlistedDashboardCreateFormat)[keyof typeof DashboardsCreateUnlistedDashboardCreateFormat]
 
 export const DashboardsCreateUnlistedDashboardCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsWidgetCatalogRetrieveParams = {
+    format?: DashboardsWidgetCatalogRetrieveFormat
+}
+
+export type DashboardsWidgetCatalogRetrieveFormat =
+    (typeof DashboardsWidgetCatalogRetrieveFormat)[keyof typeof DashboardsWidgetCatalogRetrieveFormat]
+
+export const DashboardsWidgetCatalogRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
