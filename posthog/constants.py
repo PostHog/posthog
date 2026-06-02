@@ -46,6 +46,8 @@ class AvailableFeature(StrEnum):
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
+    LOGS_RETENTION_30D = "logs_retention_30d"
+    LOGS_RETENTION_90D = "logs_retention_90d"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
 

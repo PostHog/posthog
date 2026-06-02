@@ -2102,7 +2102,18 @@ def team_api_test_factory():
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
+        def _grant_logs_retention_features(self, *features: AvailableFeature) -> None:
+            self.organization.available_product_features = [
+                {"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features
+            ]
+            self.organization.save()
+
         def test_logs_settings_retention_24_hour_restriction(self):
+            self._grant_logs_retention_features(
+                AvailableFeature.LOGS_RETENTION_30D,
+                AvailableFeature.LOGS_RETENTION_90D,
+            )
+
             # Set initial retention - first update doesn't set retention_last_updated
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -2149,7 +2160,54 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        def test_logs_settings_retention_requires_matching_feature(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "30 days" in response.json()["detail"]
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
+
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "90 days" in response.json()["detail"]
+
+        def test_logs_settings_retention_downgrade_allowed_after_feature_removed(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_90D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 90}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self._grant_logs_retention_features()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 14}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
         def test_logs_settings_non_retention_changes_not_restricted(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
