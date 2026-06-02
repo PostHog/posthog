@@ -784,7 +784,7 @@ class ArtifactUploadSerializer(serializers.Serializer):
         max_length=500,
         help_text=(
             "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', "
-            "'recipe.yml', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; "
+            "or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; "
             "absolute paths and '..' traversal are rejected."
         ),
     )

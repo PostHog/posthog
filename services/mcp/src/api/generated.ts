@@ -7640,7 +7640,7 @@ export namespace Schemas {
      */
     export interface ArtifactUpload {
       /**
-         * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', 'recipe.yml', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
+         * Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected.
          * @maxLength 500
          */
       path: string;

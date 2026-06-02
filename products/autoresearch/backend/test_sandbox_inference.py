@@ -255,9 +255,7 @@ class TestScoreViaSandbox(BaseTest):
         return pipeline, model
 
     def _bundle(self) -> ArtifactBundle:
-        return ArtifactBundle(
-            train_py="# train", predict_py="# predict", features_sql="SELECT 1 FROM {anchors}", recipe_yml="x: 1"
-        )
+        return ArtifactBundle(train_py="# train", predict_py="# predict", features_sql="SELECT 1 FROM {anchors}")
 
     def test_predict_run_uses_persisted_model_and_does_not_train(self):
         pipeline, model = self._pipeline_and_model()

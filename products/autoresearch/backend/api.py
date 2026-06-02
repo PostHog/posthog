@@ -816,7 +816,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         summary="List artifact bundle files",
         description=(
             "List the files an agent has uploaded for this training run's artifact bundle "
-            "(train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks)."
+            "(train.py, predict.py, features.sql, and any eda/ notebooks)."
         ),
     )
     @action(detail=True, methods=["get"], url_path="artifacts")
@@ -838,7 +838,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         description=(
             "Upload one file of this training run's artifact bundle. Send the file contents "
             "base64-encoded in content_base64. Re-uploading the same path overwrites it. "
-            "Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml."
+            "Use this — not curl/set_output — to author train.py, predict.py, and features.sql."
         ),
     )
     @action(detail=True, methods=["post"], url_path="artifacts/upload")

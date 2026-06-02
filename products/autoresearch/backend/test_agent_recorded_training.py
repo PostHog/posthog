@@ -253,7 +253,6 @@ class TestAgentRecordedTraining(APIBaseTest):
                     train_py="print('train')",
                     predict_py="print('predict')",
                     features_sql="SELECT a.person_id AS distinct_id FROM {anchors} a",
-                    recipe_yml="model_class: sklearn.ensemble.GradientBoostingClassifier\nagent:\n  iteration_count: 1\n",
                 ),
             )
 
@@ -263,8 +262,8 @@ class TestAgentRecordedTraining(APIBaseTest):
         champion = AutoresearchModel.objects.get(pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION)
         assert champion.artifact_prefix == prefix
         assert champion.metrics["artifact_bundle"] is True
-        # recipe.yml metadata is folded into model_recipe for the model card.
-        assert champion.model_recipe["model_class"] == "sklearn.ensemble.GradientBoostingClassifier"
+        # model_recipe is derived from the winning iteration's recorded model_spec.
+        assert champion.model_recipe["model_class"] == "sklearn.linear_model.LogisticRegression"
 
     def test_complete_without_bundle_leaves_artifact_prefix_empty(self):
         run_id = self._open_run()

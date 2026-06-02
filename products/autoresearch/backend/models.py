@@ -86,9 +86,9 @@ class AutoresearchModel(UUIDModel):
     model_recipe = models.JSONField(
         help_text="Portable recipe: feature_sql, feature_transforms, model_class, model_params, etc."
     )
-    # Object-storage key prefix for the artifact bundle (train.py, predict.py, features.sql,
-    # recipe.yml). When set, inference runs the bundle in a sandbox instead of the in-process
-    # recipe path. Empty for legacy recipe-only models.
+    # Object-storage key prefix for the artifact bundle (train.py, predict.py, features.sql).
+    # When set, inference runs the bundle in a sandbox instead of the in-process recipe path.
+    # Empty for legacy recipe-only models.
     artifact_prefix = models.CharField(max_length=500, blank=True, default="")
     model_explanation = models.JSONField(
         default=dict,

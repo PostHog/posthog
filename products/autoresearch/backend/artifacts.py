@@ -2,7 +2,7 @@
 Artifact bundle storage for autoresearch models.
 
 Each model is backed by a runnable bundle of agent-authored files in object
-storage: ``train.py``, ``predict.py``, ``features.sql``, ``recipe.yml``.
+storage: ``train.py``, ``predict.py``, ``features.sql``.
 Inference downloads the bundle and runs it in a sandbox (see
 ``sandbox_inference.py``); the in-process recipe path is the legacy fallback.
 
@@ -26,12 +26,11 @@ from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
 
-# The four files that make up a runnable model bundle.
+# The files that make up a runnable model bundle.
 TRAIN_PY = "train.py"
 PREDICT_PY = "predict.py"
 FEATURES_SQL = "features.sql"
-RECIPE_YML = "recipe.yml"
-BUNDLE_FILES: tuple[str, ...] = (TRAIN_PY, PREDICT_PY, FEATURES_SQL, RECIPE_YML)
+BUNDLE_FILES: tuple[str, ...] = (TRAIN_PY, PREDICT_PY, FEATURES_SQL)
 
 # The fitted champion model, produced by the training run (train.py against the
 # training population) and persisted alongside the bundle so predict runs are pure
@@ -74,14 +73,12 @@ class ArtifactBundle:
     train_py: str
     predict_py: str
     features_sql: str
-    recipe_yml: str
 
     def as_files(self) -> dict[str, str]:
         return {
             TRAIN_PY: self.train_py,
             PREDICT_PY: self.predict_py,
             FEATURES_SQL: self.features_sql,
-            RECIPE_YML: self.recipe_yml,
         }
 
     @classmethod
@@ -93,7 +90,6 @@ class ArtifactBundle:
             train_py=files[TRAIN_PY].decode("utf-8"),
             predict_py=files[PREDICT_PY].decode("utf-8"),
             features_sql=files[FEATURES_SQL].decode("utf-8"),
-            recipe_yml=files[RECIPE_YML].decode("utf-8"),
         )
 
     @classmethod
@@ -115,14 +111,14 @@ def bundle_prefix(*, team_id: int, pipeline_id: str, training_run_id: str) -> st
 
 
 def write_bundle(prefix: str, bundle: ArtifactBundle) -> None:
-    """Write all four bundle files under ``prefix``."""
+    """Write all bundle files under ``prefix``."""
     for name, content in bundle.as_files().items():
         object_storage.write(f"{prefix}/{name}", content)
     logger.info("autoresearch_bundle_written", prefix=prefix, files=len(BUNDLE_FILES))
 
 
 def read_bundle(prefix: str) -> ArtifactBundle:
-    """Read all four bundle files from ``prefix``. Raises ``BundleNotFound`` if any is absent."""
+    """Read all bundle files from ``prefix``. Raises ``BundleNotFound`` if any is absent."""
     files: dict[str, bytes] = {}
     for name in BUNDLE_FILES:
         content = object_storage.read_bytes(f"{prefix}/{name}", missing_ok=True)

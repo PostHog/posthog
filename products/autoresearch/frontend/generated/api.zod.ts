@@ -173,7 +173,7 @@ export const AutoresearchTrainingRunsArtifactsGetCreateBody = /* @__PURE__ */ zo
     .describe('Input for fetching or deleting one bundle file by path.')
 
 /**
- * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml.
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql.
  * @summary Upload an artifact bundle file
  */
 export const autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax = 500
@@ -184,7 +184,7 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
             .string()
             .max(autoresearchTrainingRunsArtifactsUploadCreateBodyPathMax)
             .describe(
-                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', 'recipe.yml', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
+                "Relative path within the bundle, e.g. 'train.py', 'predict.py', 'features.sql', or 'eda\/iter-3-gbm.ipynb'. Segments are limited to [A-Za-z0-9_.-]; absolute paths and '..' traversal are rejected."
             ),
         content_base64: zod
             .string()

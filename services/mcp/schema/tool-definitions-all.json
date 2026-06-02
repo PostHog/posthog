@@ -801,7 +801,7 @@
         }
     },
     "autoresearch-training-runs-artifacts-retrieve": {
-        "description": "List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.",
+        "description": "List the files uploaded for a training run's artifact bundle (train.py, predict.py, features.sql, and any eda/ notebooks). Use to confirm a complete bundle is present before finalizing the run.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "List artifact bundle files",
@@ -815,7 +815,7 @@
         }
     },
     "autoresearch-training-runs-artifacts-upload-create": {
-        "description": "Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, recipe.yml, or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and predict.py (standalone sklearn scripts), features.sql (HogQL with the {anchors}/{lookback_days} contract), and recipe.yml (informational metadata), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference runs in a sandbox.",
+        "description": "Upload one file of a training run's runnable model bundle. Send the file contents base64-encoded in content_base64; path is the relative path within the bundle (train.py, predict.py, features.sql, or an eda/ notebook). Re-uploading the same path overwrites it. This is how you author the model — author train.py and predict.py (standalone sklearn scripts) and features.sql (HogQL with the {anchors}/{lookback_days} contract), then upload each here. Do NOT use set_output or curl — the bundle you upload is what inference runs in a sandbox.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Upload an artifact bundle file",

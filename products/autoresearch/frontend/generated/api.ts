@@ -414,7 +414,7 @@ export const getAutoresearchTrainingRunsArtifactsRetrieveUrl = (projectId: strin
 }
 
 /**
- * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, recipe.yml, and any eda/ notebooks).
+ * List the files an agent has uploaded for this training run's artifact bundle (train.py, predict.py, features.sql, and any eda/ notebooks).
  * @summary List artifact bundle files
  */
 export const autoresearchTrainingRunsArtifactsRetrieve = async (
@@ -491,7 +491,7 @@ export const getAutoresearchTrainingRunsArtifactsUploadCreateUrl = (
 }
 
 /**
- * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, features.sql, and recipe.yml.
+ * Upload one file of this training run's artifact bundle. Send the file contents base64-encoded in content_base64. Re-uploading the same path overwrites it. Use this — not curl/set_output — to author train.py, predict.py, and features.sql.
  * @summary Upload an artifact bundle file
  */
 export const autoresearchTrainingRunsArtifactsUploadCreate = async (

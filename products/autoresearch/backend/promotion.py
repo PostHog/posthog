@@ -14,7 +14,6 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone as django_timezone
 
-import yaml
 import structlog
 
 from products.autoresearch.backend import artifacts
@@ -107,11 +106,11 @@ def _build_run_summary(
     }
 
 
-def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> tuple[str, dict[str, Any]] | None:
+def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> str | None:
     """
-    If the agent uploaded a complete artifact bundle for this run, return its
-    object-storage prefix and the parsed (informational) recipe.yml. Returns None
-    when no complete bundle is present (the legacy recipe-only path).
+    If the agent uploaded a complete artifact bundle (train.py, predict.py, features.sql)
+    for this run, return its object-storage prefix. Returns None when no complete bundle is
+    present (the legacy recipe-only path).
     """
     pipeline = training_run.pipeline
     prefix = artifacts.bundle_prefix(
@@ -120,19 +119,13 @@ def _detect_uploaded_bundle(training_run: AutoresearchTrainingRun) -> tuple[str,
         training_run_id=str(training_run.id),
     )
     try:
-        bundle = artifacts.read_bundle(prefix)
+        artifacts.read_bundle(prefix)
     except artifacts.BundleNotFound:
         return None
     except Exception:
         logger.exception("autoresearch_bundle_read_failed", training_run_id=str(training_run.id), prefix=prefix)
         return None
-
-    try:
-        parsed = yaml.safe_load(bundle.recipe_yml) or {}
-        recipe_yml = parsed if isinstance(parsed, dict) else {}
-    except yaml.YAMLError:
-        recipe_yml = {}
-    return prefix, recipe_yml
+    return prefix
 
 
 @transaction.atomic
@@ -153,10 +146,8 @@ def complete_training_run(
     iteration_count = len(iterations)
 
     # If the agent uploaded a runnable bundle, the champion's artifact is that bundle
-    # (inference runs it in a sandbox). recipe.yml is informational metadata for the model card.
-    bundle = _detect_uploaded_bundle(training_run)
-    artifact_prefix = bundle[0] if bundle else ""
-    recipe_yml = bundle[1] if bundle else {}
+    # (inference runs train.py/predict.py in a sandbox).
+    artifact_prefix = _detect_uploaded_bundle(training_run) or ""
 
     promoted = False
     model: AutoresearchModel | None = None
@@ -182,9 +173,9 @@ def complete_training_run(
         else:
             role = AutoresearchModel.Role.CHALLENGER
 
-        # The recipe JSON stays for the legacy in-process path / model card; when a bundle
-        # was uploaded its recipe.yml is the source of truth for the displayed metadata.
-        model_recipe = {**_build_recipe(best), **recipe_yml} if recipe_yml else _build_recipe(best)
+        # The recipe JSON (derived from the winning iteration's model_spec/snapshot) backs the
+        # legacy in-process path and the model card.
+        model_recipe = _build_recipe(best)
         model = AutoresearchModel.objects.create(
             pipeline=pipeline,
             role=role,

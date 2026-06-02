@@ -2,8 +2,8 @@
 Real sandbox training: launches the autoresearch agent loop in a PostHog Task sandbox.
 
 The agent explores the team's event data with HogQL, iterates on feature sets and models
-in-sandbox, and authors a runnable bundle (features.sql / train.py / predict.py /
-recipe.yml) that it uploads via the autoresearch MCP write tools.
+in-sandbox, and authors a runnable bundle (features.sql / train.py / predict.py) that it
+uploads via the autoresearch MCP write tools.
 
 Flow:
   1. run_training() creates an AutoresearchTrainingRun (status=RUNNING) and fires
@@ -120,7 +120,7 @@ def build_agent_description(
 
         ## The bundle you will produce
 
-        Four files, uploaded via `autoresearch-training-runs-artifacts-upload-create` (one call
+        Three files, uploaded via `autoresearch-training-runs-artifacts-upload-create` (one call
         per file, contents base64-encoded in `content_base64`):
 
         | path           | what it is                                                            |
@@ -128,7 +128,6 @@ def build_agent_description(
         | `features.sql` | HogQL feature query with `{{anchors}}` + `{{lookback_days}}` placeholders |
         | `train.py`     | standalone sklearn fit script (any model you like inside)             |
         | `predict.py`   | standalone scoring script                                            |
-        | `recipe.yml`   | informational metadata for the model card                            |
 
         The framework runs train.py + predict.py in a locked-down sandbox with NO network and
         NO credentials. It ships pandas / numpy / scikit-learn / pyarrow (the same libraries your
@@ -263,7 +262,6 @@ def build_agent_description(
         - A one-line comment above each non-obvious step explaining WHY in business terms, not
           what the syntax does (e.g. "# count recent sessions — active users convert more often").
         - In features.sql, comment each feature with the intuition behind it.
-        - In recipe.yml, keep the `agent.description` plain-English and jargon-light.
         Keep comments concise; explain reasoning, not Python mechanics. Do not let comments
         change the I/O contract or print to stdout.
 
@@ -342,24 +340,12 @@ def build_agent_description(
         pd.DataFrame({{"distinct_id": f["distinct_id"], "p_y": p.round(6)}}).to_parquet(out_path, index=False)
         ```
 
-        **recipe.yml** — informational metadata for the model card. Example:
-
-        ```yaml
-        model_class: sklearn.linear_model.LogisticRegression
-        model_params: {{C: 1.0, max_iter: 200, random_state: 42}}
-        features:
-            source_sql: features.sql
-            description: <one line on your feature set>
-        agent:
-            description: <what you tried, what won, top features and why>
-        ```
-
         ## Finalize
 
-        When all four files are uploaded for the winning iteration:
+        When all three files are uploaded for the winning iteration:
 
         1. (Optional) confirm with `autoresearch-training-runs-artifacts-retrieve` that
-           features.sql, train.py, predict.py, and recipe.yml are all present.
+           features.sql, train.py, and predict.py are all present.
         2. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
            and `id = "{training_run_id}"`. The backend picks the best iteration, decides
            champion vs challenger, and attaches your uploaded bundle as the model's artifact.
@@ -387,7 +373,7 @@ def build_agent_description(
             "- **Reject** — violates a guardrail or is irrelevant. Set status to dismissed with rationale.",
             "",
             "For each suggestion you act on, note how you interpreted it in the relevant iteration's",
-            "agent_description and in recipe.yml's agent.description.",
+            "agent_description.",
             "",
         ]
         for s in pending_suggestions:

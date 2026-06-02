@@ -46,7 +46,7 @@ class TestNormalizeArtifactPath(BaseTest):
             ("plain", "train.py", "train.py"),
             ("leading_slash", "/train.py", "train.py"),
             ("subdir", "eda/iter-3.ipynb", "eda/iter-3.ipynb"),
-            ("whitespace", "  recipe.yml  ", "recipe.yml"),
+            ("whitespace", "  features.sql  ", "features.sql"),
         ]
     )
     def test_valid_paths(self, _name: str, path: str, expected: str) -> None:
