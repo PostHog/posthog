@@ -7,9 +7,9 @@
 import type {
     ApproveSnapshotInputApi,
     ArtifactApi,
-    AutoApproveResultApi,
     CreateRunInputApi,
     CreateRunResultApi,
+    FinalizeResultApi,
     RunApi,
     SnapshotApi,
     SnapshotManifestItemApi,
@@ -215,11 +215,15 @@ export class VisualReviewClient {
     }
 
     /**
-     * Auto-approve all changes in a run and get signed baseline YAML.
+     * Approve all changes and finalize, returning the signed baseline YAML to write/commit yourself.
+     *
+     * Uses commit_to_github=false so the server does not push the baseline — the CLI writes it
+     * locally and the CI commits it via git.
      */
-    async autoApproveRun(runId: string): Promise<AutoApproveResultApi> {
-        return this.request<AutoApproveResultApi>(`/visual_review/runs/${runId}/auto-approve/`, {
+    async autoApproveRun(runId: string): Promise<FinalizeResultApi> {
+        return this.request<FinalizeResultApi>(`/visual_review/runs/${runId}/finalize/`, {
             method: 'POST',
+            body: JSON.stringify({ approve_all: true, commit_to_github: false }),
         })
     }
 }
