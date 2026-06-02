@@ -737,7 +737,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (config !== undefined) {
                             actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                         }
-                        return updatedTile
+                        return null
                     } catch (e) {
                         if (config !== undefined && isWidgetConfigValidationError(e)) {
                             throw e
