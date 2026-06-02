@@ -1193,6 +1193,9 @@ export class ApiClient {
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
 
             lifecycleActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
         }
     }
 
