@@ -1,6 +1,6 @@
-from unittest.mock import patch
-
 from django.test import SimpleTestCase, override_settings
+
+from prometheus_client import REGISTRY
 
 from posthog.hogql import ast
 from posthog.hogql.observability import (
@@ -15,21 +15,30 @@ from posthog.hogql.observability import (
 )
 
 
+def _metric(name: str, labels: dict[str, str]) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
 class TestHogQLTypeObservability(SimpleTestCase):
     @override_settings(HOGQL_TYPE_OBSERVABILITY_ENABLED=False, HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE=1.0)
-    @patch("posthog.hogql.observability.statsd.incr")
-    def test_disabled_observability_does_not_emit_metrics(self, mock_incr):
-        stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
+    def test_disabled_observability_does_not_emit_metrics(self):
+        base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
+        before = _metric("hogql_typecheck_total", {**base, "result": "success"})
 
+        stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
         stats.expression_count = 1
         stats.typed_by_precision["precise"] = 1
         emit_hogql_type_observability(stats)
 
-        mock_incr.assert_not_called()
+        self.assertEqual(_metric("hogql_typecheck_total", {**base, "result": "success"}), before)
 
     @override_settings(HOGQL_TYPE_OBSERVABILITY_ENABLED=True, HOGQL_TYPE_OBSERVABILITY_SAMPLE_RATE=1.0)
-    @patch("posthog.hogql.observability.statsd.incr")
-    def test_emits_expression_coverage_metrics_with_bounded_tags(self, mock_incr):
+    def test_emits_expression_coverage_metrics_with_bounded_labels(self):
+        base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}
+        before_observed = _metric("hogql_expression_observed_total", base)
+        before_precise = _metric("hogql_expression_typed_total", {**base, "precision": "precise"})
+        before_unknown = _metric("hogql_expression_typed_total", {**base, "precision": "unknown"})
+
         stats = create_hogql_type_observability(dialect="clickhouse", source="sql_editor")
         node = ast.Array(
             exprs=[
@@ -42,31 +51,9 @@ class TestHogQLTypeObservability(SimpleTestCase):
         collect_hogql_type_coverage(node, stats)
         emit_hogql_type_observability(stats)
 
-        mock_incr.assert_any_call(
-            "hogql_expression_observed_total",
-            count=3,
-            tags={"engine": "current", "dialect": "clickhouse", "source": "sql_editor"},
-        )
-        mock_incr.assert_any_call(
-            "hogql_expression_typed_total",
-            count=1,
-            tags={
-                "engine": "current",
-                "dialect": "clickhouse",
-                "source": "sql_editor",
-                "precision": "precise",
-            },
-        )
-        mock_incr.assert_any_call(
-            "hogql_expression_typed_total",
-            count=2,
-            tags={
-                "engine": "current",
-                "dialect": "clickhouse",
-                "source": "sql_editor",
-                "precision": "unknown",
-            },
-        )
+        self.assertEqual(_metric("hogql_expression_observed_total", base) - before_observed, 3)
+        self.assertEqual(_metric("hogql_expression_typed_total", {**base, "precision": "precise"}) - before_precise, 1)
+        self.assertEqual(_metric("hogql_expression_typed_total", {**base, "precision": "unknown"}) - before_unknown, 2)
 
     def test_classifies_type_precision(self):
         self.assertEqual(classify_constant_type(ast.StringType()), "precise")

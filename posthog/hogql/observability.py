@@ -4,17 +4,84 @@ from collections import Counter
 from dataclasses import dataclass, field
 from random import random
 from time import perf_counter
-from typing import Literal, Union
+from typing import Literal
 
 from django.conf import settings
 
-from statshog.defaults.django import statsd
+from prometheus_client import (
+    Counter as PromCounter,
+    Histogram,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
 Precision = Literal["precise", "partial", "unknown"]
-StatsdTags = dict[str, Union[str, int]]
+Labels = dict[str, str]
+
+_BASE_LABELS = ["engine", "dialect", "source"]
+
+TYPECHECK_TOTAL = PromCounter(
+    "hogql_typecheck_total",
+    "HogQL prepare+typecheck passes by result.",
+    labelnames=[*_BASE_LABELS, "result"],
+)
+TYPECHECK_DURATION_SECONDS = Histogram(
+    "hogql_typecheck_duration_seconds",
+    "Wall-clock duration of a HogQL prepare+typecheck pass.",
+    labelnames=_BASE_LABELS,
+    buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+EXPRESSION_OBSERVED_TOTAL = PromCounter(
+    "hogql_expression_observed_total",
+    "HogQL AST expressions visited during type-coverage sampling.",
+    labelnames=_BASE_LABELS,
+)
+EXPRESSION_TYPED_TOTAL = PromCounter(
+    "hogql_expression_typed_total",
+    "HogQL expressions by inferred type precision.",
+    labelnames=[*_BASE_LABELS, "precision"],
+)
+TYPE_UNKNOWN_TOTAL = PromCounter(
+    "hogql_type_unknown_total",
+    "HogQL type-inference gaps by reason.",
+    labelnames=[*_BASE_LABELS, "reason"],
+)
+FUNCTION_CALL_TOTAL = PromCounter(
+    "hogql_function_call_total",
+    "HogQL function calls observed during resolution.",
+    labelnames=_BASE_LABELS,
+)
+FUNCTION_RETURN_TYPED_TOTAL = PromCounter(
+    "hogql_function_return_typed_total",
+    "HogQL function-call return types by precision.",
+    labelnames=[*_BASE_LABELS, "precision"],
+)
+FUNCTION_SIGNATURE_MISS_TOTAL = PromCounter(
+    "hogql_function_signature_miss_total",
+    "Function calls with no signature metadata, by function group.",
+    labelnames=[*_BASE_LABELS, "function_group"],
+)
+FUNCTION_SIGNATURE_MISMATCH_TOTAL = PromCounter(
+    "hogql_function_signature_mismatch_total",
+    "Function calls whose signatures did not resolve a return type, by function group.",
+    labelnames=[*_BASE_LABELS, "function_group"],
+)
+PROPERTY_TYPING_TOTAL = PromCounter(
+    "hogql_property_typing_total",
+    "Property-definition lookups by source and known/unknown result.",
+    labelnames=[*_BASE_LABELS, "result"],
+)
+MATERIALIZED_PROPERTY_USAGE_TOTAL = PromCounter(
+    "hogql_materialized_property_usage_total",
+    "Materialized vs JSON property access by result.",
+    labelnames=[*_BASE_LABELS, "result"],
+)
+SQL_SHAPE_TOTAL = PromCounter(
+    "hogql_sql_shape_total",
+    "Generated SQL shape pathologies by kind.",
+    labelnames=[*_BASE_LABELS, "shape"],
+)
 
 _UNKNOWN_REASONS = {
     "missing_function_signature",
@@ -87,7 +154,7 @@ class HogQLTypeObservability:
 
     sql_shape: Counter[str] = field(default_factory=Counter)
 
-    def tags(self) -> StatsdTags:
+    def tags(self) -> Labels:
         return {
             "engine": self.engine,
             "dialect": self.dialect,
@@ -212,28 +279,23 @@ def emit_hogql_type_observability(stats: HogQLTypeObservability | None) -> None:
     if stats is None or not stats.enabled or not stats.sampled:
         return
 
-    tags = stats.tags()
-    statsd.incr("hogql_typecheck_total", tags=tags | {"result": stats.result})
-    statsd.incr("hogql_typecheck_duration_ms", count=max(0, int((perf_counter() - stats.started_at) * 1000)), tags=tags)
+    base = stats.tags()
+    TYPECHECK_TOTAL.labels(**base, result=_clean_tag(stats.result)).inc()
+    TYPECHECK_DURATION_SECONDS.labels(**base).observe(max(0.0, perf_counter() - stats.started_at))
 
     if stats.expression_count:
-        statsd.incr("hogql_expression_observed_total", count=stats.expression_count, tags=tags)
-    _emit_counter("hogql_expression_typed_total", stats.typed_by_precision, tags, "precision")
-    _emit_counter("hogql_type_unknown_total", stats.unknown_by_reason, tags, "reason")
+        EXPRESSION_OBSERVED_TOTAL.labels(**base).inc(stats.expression_count)
+    _emit_counter(EXPRESSION_TYPED_TOTAL, "precision", stats.typed_by_precision, base)
+    _emit_counter(TYPE_UNKNOWN_TOTAL, "reason", stats.unknown_by_reason, base)
 
     if stats.function_call_count:
-        statsd.incr("hogql_function_call_total", count=stats.function_call_count, tags=tags)
-    _emit_counter("hogql_function_return_typed_total", stats.function_return_by_precision, tags, "precision")
-    _emit_counter("hogql_function_signature_miss_total", stats.function_signature_miss_by_group, tags, "function_group")
-    _emit_counter(
-        "hogql_function_signature_mismatch_total",
-        stats.function_signature_mismatch_by_group,
-        tags,
-        "function_group",
-    )
-    _emit_counter("hogql_property_typing_total", stats.property_typing, tags, "result")
-    _emit_counter("hogql_materialized_property_usage_total", stats.materialized_property_usage, tags, "result")
-    _emit_counter("hogql_sql_shape_total", stats.sql_shape, tags, "shape")
+        FUNCTION_CALL_TOTAL.labels(**base).inc(stats.function_call_count)
+    _emit_counter(FUNCTION_RETURN_TYPED_TOTAL, "precision", stats.function_return_by_precision, base)
+    _emit_counter(FUNCTION_SIGNATURE_MISS_TOTAL, "function_group", stats.function_signature_miss_by_group, base)
+    _emit_counter(FUNCTION_SIGNATURE_MISMATCH_TOTAL, "function_group", stats.function_signature_mismatch_by_group, base)
+    _emit_counter(PROPERTY_TYPING_TOTAL, "result", stats.property_typing, base)
+    _emit_counter(MATERIALIZED_PROPERTY_USAGE_TOTAL, "result", stats.materialized_property_usage, base)
+    _emit_counter(SQL_SHAPE_TOTAL, "shape", stats.sql_shape, base)
 
 
 class TypeCoverageCollector(TraversingVisitor):
@@ -279,10 +341,10 @@ class SQLShapeCollector(TraversingVisitor):
         super().visit_call(node)
 
 
-def _emit_counter(metric_name: str, values: Counter[str], tags: StatsdTags, tag_name: str) -> None:
-    for tag_value, count in values.items():
+def _emit_counter(metric: PromCounter, label_name: str, values: Counter[str], base: Labels) -> None:
+    for label_value, count in values.items():
         if count:
-            statsd.incr(metric_name, count=count, tags=tags | {tag_name: _clean_tag(tag_value)})
+            metric.labels(**base, **{label_name: _clean_tag(label_value)}).inc(count)
 
 
 def _bounded(value: str, allowed_values: set[str]) -> str:
