@@ -23,7 +23,10 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
+        enforcement_mode: zod
+            .enum(['allow', 'enforce', 'reject'])
+            .optional()
+            .describe('\* `allow` - Allow\n\* `enforce` - Enforce\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsCreateBodyPrimaryPropertyMax)
@@ -50,7 +53,10 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
+        enforcement_mode: zod
+            .enum(['allow', 'enforce', 'reject'])
+            .optional()
+            .describe('\* `allow` - Allow\n\* `enforce` - Enforce\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsUpdateBodyPrimaryPropertyMax)
@@ -77,7 +83,10 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
-        enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
+        enforcement_mode: zod
+            .enum(['allow', 'enforce', 'reject'])
+            .optional()
+            .describe('\* `allow` - Allow\n\* `enforce` - Enforce\n\* `reject` - Reject'),
         primary_property: zod
             .string()
             .max(eventDefinitionsPartialUpdateBodyPrimaryPropertyMax)

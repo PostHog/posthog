@@ -14782,6 +14782,7 @@ export namespace Schemas {
 
     /**
      * * `allow` - Allow
+    * `enforce` - Enforce
     * `reject` - Reject
      */
     export type EnforcementModeEnum = typeof EnforcementModeEnum[keyof typeof EnforcementModeEnum];
@@ -14789,6 +14790,7 @@ export namespace Schemas {
 
     export const EnforcementModeEnum = {
       Allow: 'allow',
+      Enforce: 'enforce',
       Reject: 'reject',
     } as const;
 
@@ -14830,6 +14832,7 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      readonly schema_version: number;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
          * @maxLength 400
@@ -16314,6 +16317,7 @@ export namespace Schemas {
       readonly last_updated_at: string;
       tags?: unknown[];
       enforcement_mode?: EnforcementModeEnum;
+      readonly schema_version: number;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
          * @maxLength 400
@@ -28207,6 +28211,7 @@ export namespace Schemas {
       /** @nullable */
       hidden?: boolean | null;
       enforcement_mode?: EnforcementModeEnum;
+      readonly schema_version?: number;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
          * @maxLength 400
