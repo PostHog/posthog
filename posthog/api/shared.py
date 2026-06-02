@@ -118,6 +118,7 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
             "id",
             "uuid",  # Compat with TeamSerializer
             "organization",
+            "project_id",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "name",
             "completed_snippet_onboarding",  # Compat with TeamSerializer
@@ -131,6 +132,7 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
         team_passthrough_fields = {
             "uuid",
             "api_token",
+            "project_id",
             "completed_snippet_onboarding",
             "has_completed_onboarding_for",
             "ingested_event",
