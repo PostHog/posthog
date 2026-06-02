@@ -4,9 +4,18 @@ from urllib.parse import urlencode
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
+from posthog.models.oauth import OAuthApplication
+
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import (
+    STRIPE_CONTRACTED_SCOPES,
+    LegacyStripeOAuthAppMissingError,
+    _get_legacy_stripe_oauth_app,
+)
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -126,3 +135,67 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
             headers={"api-version": "0.1d"},
         )
         assert res.status_code == 401
+
+    def test_token_exchange_seeds_stripe_app_scopes(self):
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = []
+        app.save(update_fields=["scopes"])
+
+        self._store_auth_code("seed_code")
+        res = self._post_token(self._token_request_body(code="seed_code"))
+
+        assert res.status_code == 200
+        app.refresh_from_db()
+        assert app.scopes == STRIPE_CONTRACTED_SCOPES
+
+    def test_token_exchange_missing_stripe_app_hard_fails(self):
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).delete()
+
+        self._store_auth_code("orphan_code")
+        res = self._post_token(self._token_request_body(code="orphan_code"))
+
+        assert res.status_code == 500
+        assert res.json()["error"] == "server_error"
+        # No app may be fabricated to paper over the missing configuration.
+        assert not OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).exists()
+
+
+class TestLegacyStripeOAuthApp(ProvisioningTestBase):
+    def _stripe_app(self) -> OAuthApplication:
+        return OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+
+    @parameterized.expand([("US",), ("EU",)])
+    def test_resolves_and_seeds_scopes_regardless_of_region(self, region: str):
+        app = self._stripe_app()
+        app.scopes = []
+        app.save(update_fields=["scopes"])
+
+        with override_settings(CLOUD_DEPLOYMENT=region):
+            resolved = _get_legacy_stripe_oauth_app()
+
+        assert resolved.id == app.id
+        resolved.refresh_from_db()
+        assert resolved.scopes == STRIPE_CONTRACTED_SCOPES
+
+    def test_does_not_overwrite_existing_scopes(self):
+        app = self._stripe_app()
+        app.scopes = ["query:read"]
+        app.save(update_fields=["scopes"])
+
+        resolved = _get_legacy_stripe_oauth_app()
+
+        resolved.refresh_from_db()
+        assert resolved.scopes == ["query:read"]
+
+    def test_missing_app_hard_fails_without_fabrication(self):
+        OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).delete()
+
+        with self.assertRaises(LegacyStripeOAuthAppMissingError):
+            _get_legacy_stripe_oauth_app()
+
+        assert not OAuthApplication.objects.filter(client_id=TEST_STRIPE_OAUTH_CLIENT_ID).exists()
+
+    def test_unconfigured_client_id_hard_fails(self):
+        with override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID=""):
+            with self.assertRaises(LegacyStripeOAuthAppMissingError):
+                _get_legacy_stripe_oauth_app()
