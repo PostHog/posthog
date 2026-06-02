@@ -22,6 +22,13 @@ class TestSafetyFilteringAndClassification(BaseTest):
             doc = KnowledgeDocument.objects.get(source_id=source.id)
         return source, doc
 
+    def _ready_unknown_source(self, name: str, text: str) -> tuple[KnowledgeSource, KnowledgeDocument]:
+        source, doc = self._ready_text_source(name, text)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=doc.id).update(safety_verdict=SafetyVerdict.UNKNOWN)
+            doc.refresh_from_db()
+        return source, doc
+
     def test_search_excludes_unsafe_documents(self) -> None:
         _source, doc = self._ready_text_source("Refunds", "Our refund policy covers widgets and gadgets.")
 
@@ -33,23 +40,30 @@ class TestSafetyFilteringAndClassification(BaseTest):
         logic.set_document_safety(team_id=self.team.id, document_id=doc.id, verdict=SafetyVerdict.SAFE)
         assert logic.search_knowledge(self.team.id, "refund") != []
 
+    def test_search_excludes_unknown_documents(self) -> None:
+        _source, doc = self._ready_text_source("Refunds", "Our refund policy covers widgets and gadgets.")
+        assert logic.search_knowledge(self.team.id, "refund") != []
+
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=doc.id).update(safety_verdict=SafetyVerdict.UNKNOWN)
+        assert logic.search_knowledge(self.team.id, "refund") == []
+
     def test_pending_classification_lists_unknown_live_docs(self) -> None:
-        _source, unknown_doc = self._ready_text_source("A", "alpha content here")
+        _source, unknown_doc = self._ready_unknown_source("A", "alpha content here")
         _source_b, safe_doc = self._ready_text_source("B", "beta content here")
-        logic.set_document_safety(team_id=self.team.id, document_id=safe_doc.id, verdict=SafetyVerdict.SAFE)
 
         pending_ids = {d.document_id for d in logic.list_documents_pending_classification()}
         assert unknown_doc.id in pending_ids
         assert safe_doc.id not in pending_ids
 
     def test_pending_classification_skips_tombstoned(self) -> None:
-        _source, doc = self._ready_text_source("A", "alpha content here")
+        _source, doc = self._ready_unknown_source("A", "alpha content here")
         with team_scope(self.team.id, canonical=True):
             KnowledgeDocument.objects.filter(id=doc.id).update(tombstoned_at=timezone.now())
         assert logic.list_documents_pending_classification() == []
 
     def test_pending_classification_skips_orgs_without_ai_consent(self) -> None:
-        _source, _doc = self._ready_text_source("A", "alpha content here")
+        _source, _doc = self._ready_unknown_source("A", "alpha content here")
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
         assert logic.list_documents_pending_classification() == []
