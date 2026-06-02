@@ -69,6 +69,7 @@ export default function SchemaForm(): JSX.Element {
         isDirectQueryMode,
         tablesAllToggledOn,
         source,
+        selectedConnector,
         groupedDirectQueryDatabaseSchema,
         expandedDirectQuerySchemaKeys,
     } = useValues(sourceWizardLogic)
@@ -85,6 +86,7 @@ export default function SchemaForm(): JSX.Element {
     }
 
     const shouldShowSyncColumns = !isDirectQueryMode
+    const shouldShowColumnSelection = !isDirectQueryMode && !!selectedConnector?.supportsColumnSelection
 
     // scroll to top of container
     useEffect(() => {
@@ -316,7 +318,7 @@ export default function SchemaForm(): JSX.Element {
             key: 'columns',
             title: 'Columns',
             align: 'right' as const,
-            isHidden: !shouldShowSyncColumns,
+            isHidden: !shouldShowColumnSelection,
             tooltip:
                 'Pick a subset of columns to sync. Primary keys and the active incremental field are always retained.',
             render: function RenderColumns(_: unknown, schema: ExternalDataSourceSyncSchema) {

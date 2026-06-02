@@ -12,6 +12,7 @@ from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     InternalAPIAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -205,7 +206,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             authentication_classes.append(SharingAccessTokenAuthentication)
 
         authentication_classes.extend(
-            [JwtAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication]
+            [
+                # IDJagAccessTokenAuthentication runs before JwtAuthentication because the latter
+                # decodes with HS256+SECRET_KEY and treats algorithm mismatches as hard auth
+                # failures (401) rather than "not my token". ID-JAG uses RS256, so it would be
+                # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
+                # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
+                IDJagAccessTokenAuthentication,
+                JwtAuthentication,
+                OAuthAccessTokenAuthentication,
+                PersonalAPIKeyAuthentication,
+                SessionAuthentication,
+            ]
         )
 
         return [auth() for auth in authentication_classes]

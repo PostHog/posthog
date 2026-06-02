@@ -39,22 +39,40 @@ const CHANNELS = [
     },
 ]
 
+// A channel whose ID is not returned by the bulk /channels endpoint — simulating a workspace
+// where the saved channel falls beyond the first page that the backend returns.
+const OFF_PAGE_CHANNEL = {
+    id: 'COFFPAGE9XX',
+    name: 'off-page-channel',
+    is_private: false,
+    is_member: true,
+    is_ext_shared: false,
+    is_private_without_access: false,
+}
+
 describe('SlackChannelPicker', () => {
     let channelsRequestSearchQueries: (string | null)[] = []
+    let channelIdLookups: string[] = []
 
     beforeEach(() => {
         channelsRequestSearchQueries = []
+        channelIdLookups = []
         useMocks({
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': (req: any) => {
                     const search = req.url.searchParams.get('search')
                     const channelId = req.url.searchParams.get('channel_id')
                     if (channelId) {
-                        const match = CHANNELS.find((c) => c.id === channelId)
+                        channelIdLookups.push(channelId)
+                        const match =
+                            CHANNELS.find((c) => c.id === channelId) ??
+                            (OFF_PAGE_CHANNEL.id === channelId ? OFF_PAGE_CHANNEL : null)
                         return [200, { channels: match ? [match] : [] }]
                     }
                     channelsRequestSearchQueries.push(search)
                     // Server-side search: substring match in name or id (mirrors the backend).
+                    // The bulk endpoint deliberately never returns OFF_PAGE_CHANNEL so we can
+                    // verify name resolution falls back to the direct-by-id lookup.
                     const filtered = search
                         ? CHANNELS.filter(
                               (c) =>
@@ -111,6 +129,49 @@ describe('SlackChannelPicker', () => {
         // `['']` before the unwanted request lands.
         await new Promise((resolve) => setTimeout(resolve, 1000))
         expect(channelsRequestSearchQueries).toEqual([''])
+    })
+
+    // The saved channel needs to be in slackChannels for LemonInputSelect's options to contain a
+    // matching key — otherwise the picker falls back to displaying the raw value text instead of
+    // "#name (id)". The by-id fetch is what feeds the channel into slackChannels regardless of
+    // bulk-list position, so it has to fire for both shapes the value can take. The lookup must
+    // also use just the id portion: sending the composite would 404 against Slack's
+    // conversations.info.
+    it.each<[string, string]>([
+        ['bare ID', 'COFFPAGE9XX'],
+        ['composite "id|#name"', 'COFFPAGE9XX|#off-page-channel'],
+    ])('directly fetches the saved channel by id on mount when value is a %s', async (_label, savedValue) => {
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} value={savedValue} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        // loadSlackChannelById has a 500ms breakpoint before fetching, so wait generously.
+        await waitFor(
+            () => {
+                expect(channelIdLookups).toContain('COFFPAGE9XX')
+            },
+            { timeout: 2000 }
+        )
+        // Never forward the composite to /channels?channel_id=… — that would 404 against Slack.
+        expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
+    })
+
+    it('does not fire a direct lookup when there is no saved value', async () => {
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        // Wait for the bulk load to finish so the test isn't racing the mount effects.
+        await waitFor(() => {
+            expect(channelsRequestSearchQueries).toEqual([''])
+        })
+        // Wait past the by-id breakpoint window so a stray call would have surfaced by now.
+        await new Promise((resolve) => setTimeout(resolve, 800))
+        expect(channelIdLookups).toEqual([])
     })
 
     it('still searches when the user actually types a different value', async () => {

@@ -63,8 +63,6 @@ _POSTGRES_IMPLEMENTATION = PostgresImplementation()
 
 @SourceRegistry.register
 class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
-    supports_column_selection: bool = True
-
     def __init__(self, source_name: str = "Postgres"):
         super().__init__()
         self.source_name = source_name

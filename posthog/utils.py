@@ -581,6 +581,18 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
+                with tracer.start_as_current_span("template.promoted_product_intent"):
+                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
+
+                    # Best-effort — the promoted-product sidebar entry is experimental.
+                    # If the lookup fails for any reason, hide it for this request
+                    # rather than 500ing the page render.
+                    try:
+                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
+                    except Exception:
+                        capture_exception()
+                        posthog_app_context["promoted_product_intent"] = None
+
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
@@ -762,7 +774,7 @@ def get_default_event_name(team: "Team") -> str | None:
 
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from posthog.models import Plugin, PluginSourceFile
+    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)

@@ -25,16 +25,14 @@ export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .array(zod.string())
+        .string()
         .optional()
-        .describe(
-            'Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.\n\n* `name` - Name\n* `-name` - Name (descending)\n* `created_at` - Created at\n* `-created_at` - Created at (descending)\n* `updated_at` - Updated at\n* `-updated_at` - Updated at (descending)\n* `scanner_type` - Scanner type\n* `-scanner_type` - Scanner type (descending)'
-        ),
+        .describe('Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.'),
     scanner_type: zod
-        .enum(['classifier', 'indexer', 'monitor', 'scorer', 'summarizer'])
+        .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
         .optional()
         .describe(
-            'Filter by scanner type (monitor, classifier, scorer, summarizer, indexer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            'Filter by scanner type (monitor, classifier, scorer, summarizer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
         ),
 })
 
@@ -61,17 +59,17 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable scanner name. Unique within the team.'),
     description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'indexer'])
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
-            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
         )
         .describe(
-            'What the scanner does: monitor, classifier, scorer, summarizer, or indexer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
         ),
     scanner_config: zod
         .unknown()
         .describe(
-            'Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
         ),
     query: zod
         .unknown()
@@ -147,19 +145,19 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable scanner name. Unique within the team.'),
     description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'indexer'])
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
-            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            '* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
         )
         .optional()
         .describe(
-            'What the scanner does: monitor, classifier, scorer, summarizer, or indexer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `indexer` - Indexer'
+            'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
         ),
     scanner_config: zod
         .unknown()
         .optional()
         .describe(
-            'Type-specific configuration. Monitor/classifier/scorer/summarizer require `prompt`; classifiers add `tags`, scorers add `scale`. Indexer is fixed-task and rejects `prompt`.'
+            'Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag.'
         ),
     query: zod
         .unknown()
@@ -250,10 +248,10 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
-        .array(zod.string())
+        .string()
         .optional()
         .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.\n\n* `created_at` - Created at\n* `-created_at` - Created at (descending)\n* `started_at` - Started at\n* `-started_at` - Started at (descending)\n* `completed_at` - Completed at\n* `-completed_at` - Completed at (descending)\n* `status` - Status\n* `-status` - Status (descending)'
+            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
         ),
     session_id: zod.string().optional().describe('Filter to observations of a specific session recording.'),
     status: zod

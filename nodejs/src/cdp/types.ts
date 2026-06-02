@@ -66,6 +66,10 @@ export type CyclotronPerson = {
     properties: Record<string, any>
     name: string
     url: string
+    // Populated whenever the manager could resolve a distinct_id for this person.
+    // Always present when looked up by distinct_id; for person_id lookups, present
+    // when the person has at least one distinct_id in the persondistinctid table.
+    distinct_id?: string
 }
 
 export type HogFunctionInvocationGlobals = {
@@ -328,7 +332,19 @@ export type HogFlowInvocationContext = {
         id: string
         startedAtTimestamp: number
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
+        // Set by the subscription matcher consumer when it wakes a wait_until_condition
+        // job because a matching event arrived (as opposed to a scheduled timeout firing).
+        eventMatched?: boolean
+        // Name of the event that triggered the wake, so the executor can surface
+        // "woken by event: X" in logs instead of echoing the trigger event.
+        eventMatchedEvent?: string
+        // UUID of the exact event that triggered the wake, so the logs view can link to
+        // it precisely (the name alone is ambiguous when a person fires it repeatedly).
+        eventMatchedEventUuid?: string
     }
+    // Set by the subscription matcher consumer when an incoming event matched the
+    // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
+    conversionMatched?: boolean
     variables?: Record<string, any>
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
@@ -356,6 +372,7 @@ export type HogFunctionInputSchemaType = {
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
+        | 'non_failure_status_codes'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

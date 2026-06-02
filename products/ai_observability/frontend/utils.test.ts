@@ -1,31 +1,50 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
+import { RecipeNormalizer } from './normalizer'
+import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
 import {
     asString,
     costContextFromProperties,
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
+    getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
     getToolNamesCalled,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
+    isInternalToolResultUserMessage,
     isLangChainMessage,
+    isInternalTagMessage,
     isTextContentItem,
+    isToolResult,
     isToolStepItem,
     looksLikeXml,
-    normalizeMessage,
-    normalizeMessages,
     parseOpenAIToolCalls,
     parsePartialJSON,
     parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
+import * as legacy from './utils'
 
-describe('AI observability utils', () => {
+// Parameterized suite: the canonical `normalizeMessage`/`normalizeMessages`
+// in `./utils` stays untouched and is the production code path; the
+// recipe-based wrapper in `./normalizer` exposes the same shape and we run
+// the entire suite against it too. Any divergence shows up as a failure on
+// only one column.
+const recipe = new RecipeNormalizer()
+const IMPLS = [
+    { name: 'legacy', normalizeMessage: legacy.normalizeMessage, normalizeMessages: legacy.normalizeMessages },
+    {
+        name: 'recipe',
+        normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
+        normalizeMessages: (m: unknown, d: string, t?: unknown) => recipe.normalizeMessages(m, d, t),
+    },
+] as const
+
+describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, normalizeMessages }) => {
     beforeEach(() => {
         console.warn = jest.fn()
     })
@@ -1134,6 +1153,265 @@ describe('AI observability utils', () => {
         })
     })
 
+    describe('getInternalTagName / isInternalTagMessage', () => {
+        // The shape these tests pin: typed-parts content with a single text item
+        // whose entire body is a balanced internal tag wrapper.
+        const typedParts = (text: string): CompatMessage['content'] =>
+            [{ type: 'text', text }] as unknown as CompatMessage['content']
+
+        it.each<[name: string, body: string, expected: string]>([
+            // String content
+            ['flat string with system-reminder (kebab)', '<system-reminder>foo</system-reminder>', 'system-reminder'],
+            ['flat string with system_reminder (snake)', '<system_reminder>foo</system_reminder>', 'system_reminder'],
+            [
+                'flat string with system_reminder_message',
+                '<system_reminder_message>foo</system_reminder_message>',
+                'system_reminder_message',
+            ],
+            [
+                'flat string with attached_context',
+                '<attached_context>foo bar baz</attached_context>',
+                'attached_context',
+            ],
+            ['flat string with voice_mode', '<voice_mode>off</voice_mode>', 'voice_mode'],
+            [
+                'multi-line internal tag body',
+                '<system_reminder>\nyou are an agent\nmode: foo\n</system_reminder>',
+                'system_reminder',
+            ],
+            ['leading/trailing whitespace tolerated', '   \n<voice_mode>off</voice_mode>\n  ', 'voice_mode'],
+        ])('returns the tag name for: %s', (_, body, expected) => {
+            const message: CompatMessage = { role: 'user', content: body }
+            expect(getInternalTagName(message)).toBe(expected)
+            expect(isInternalTagMessage(message)).toBe(true)
+        })
+
+        it('matches the typed-parts shape (single text item)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: typedParts('<system_reminder>be concise</system_reminder>'),
+            }
+            expect(getInternalTagName(message)).toBe('system_reminder')
+        })
+
+        it('matches the {type, content: string} wrapper shape (Vercel SDK legacy)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: {
+                    type: 'text',
+                    content: '<system-reminder>foo</system-reminder>',
+                } as unknown as CompatMessage['content'],
+            }
+            expect(getInternalTagName(message)).toBe('system-reminder')
+        })
+
+        // ---- negative cases: role gate ----
+
+        it('returns undefined for an assistant-role message even with an internal tag wrapper', () => {
+            // Models can legitimately emit `<system_reminder>` in their reply. Don't hide.
+            const message: CompatMessage = {
+                role: 'assistant',
+                content: '<system_reminder>foo</system_reminder>',
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for a system-role message (system messages are filtered upstream anyway)', () => {
+            const message: CompatMessage = {
+                role: 'system',
+                content: '<system_reminder>foo</system_reminder>',
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        // ---- negative cases: allowlist gate ----
+
+        it.each<[name: string, body: string]>([
+            ['unrelated tag <thinking> — model may emit as visible content', '<thinking>let me think</thinking>'],
+            ['unrelated tag <summary>', '<summary>the user wants X</summary>'],
+            ['unrelated tag <analysis>', '<analysis>foo</analysis>'],
+            ['unrelated tag <reasoning>', '<reasoning>foo</reasoning>'],
+            ['unrelated tag <answer>', '<answer>The capital of France is Paris.</answer>'],
+            ['unrelated tag not in allowlist', '<useful-context>foo</useful-context>'],
+            ['unrelated tag <relevance-scores>', '<relevance-scores>0.9</relevance-scores>'],
+            ['generic single-word <task>', '<task>foo</task>'],
+            ['HTML structural <pre>', '<pre>code block</pre>'],
+            ['HTML structural <code>', '<code>print("hi")</code>'],
+        ])('returns undefined for non-allowlisted tag: %s', (_, body) => {
+            const message: CompatMessage = { role: 'user', content: body }
+            expect(getInternalTagName(message)).toBeUndefined()
+            expect(isInternalTagMessage(message)).toBe(false)
+        })
+
+        // ---- negative cases: shape gate ----
+
+        it('returns undefined when text content has leading text before the wrapper', () => {
+            // User wrote actual text alongside a wrapper-shaped substring. Don't hide.
+            const message: CompatMessage = {
+                role: 'user',
+                content: 'foo <system_reminder>bar</system_reminder>',
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when text content has trailing text after the wrapper', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</system_reminder> bar',
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when content has two sibling wrappers (multi-block, not single)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</system_reminder>\n<voice_mode>off</voice_mode>',
+            }
+            // Conservative — coalescing multi-wrapper bodies is out of scope.
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for typed-parts with more than one item', () => {
+            // Two text items, even if each is itself an internal tag wrapper. The renderer
+            // would lose information if we collapsed this; keep it visible.
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'text', text: '<system_reminder>foo</system_reminder>' },
+                    { type: 'text', text: '<voice_mode>off</voice_mode>' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for typed-parts with a non-text item (image, tool_use, …)', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [{ type: 'image_url', image_url: { url: 'x' } }] as unknown as CompatMessage['content'],
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        // ---- negative cases: case-sensitivity + tag-mismatch guards ----
+
+        it('returns undefined for uppercase tag names (internal tags are lowercase by convention)', () => {
+            const message: CompatMessage = { role: 'user', content: '<System_Reminder>foo</System_Reminder>' }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined when open and close tag names differ', () => {
+            // Malformed XML — the backref enforces consistency.
+            const message: CompatMessage = {
+                role: 'user',
+                content: '<system_reminder>foo</voice_mode>',
+            }
+            expect(getInternalTagName(message)).toBeUndefined()
+        })
+
+        it('returns undefined for empty content', () => {
+            expect(getInternalTagName({ role: 'user', content: '' })).toBeUndefined()
+            expect(getInternalTagName({ role: 'user', content: [] })).toBeUndefined()
+            expect(getInternalTagName({ role: 'user', content: null as unknown as string })).toBeUndefined()
+        })
+
+        it('handles typed-parts content with a multi-line attached_context wrapper', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: typedParts('<attached_context>\nfoo\n\nbar: baz\nqux: 123\n</attached_context>'),
+            }
+            expect(getInternalTagName(message)).toBe('attached_context')
+        })
+    })
+
+    describe('isToolResult', () => {
+        it.each<[name: string, item: unknown]>([
+            ['Anthropic typed tool_result', { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }],
+            [
+                'Vercel SDK tool-result',
+                { type: 'tool-result', toolCallId: 'a', toolName: 'search_docs', output: { ok: true } },
+            ],
+            [
+                'OpenAI Responses function_call_output',
+                { type: 'function_call_output', call_id: 'c1', output: 'opaque' },
+            ],
+            [
+                'custom {type:"function", tool_name, content}',
+                { type: 'function', tool_name: 'lookup', content: 'opaque' },
+            ],
+        ])('returns true for: %s', (_, item) => {
+            expect(isToolResult(item)).toBe(true)
+        })
+
+        it.each<[name: string, item: unknown]>([
+            ['plain text part', { type: 'text', text: 'hi' }],
+            ['Anthropic tool_use (a tool CALL, not a result)', { type: 'tool_use', id: 't1', name: 'x', input: {} }],
+            [
+                'OpenAI tool CALL with nested function object',
+                { type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+            ],
+            ['Vercel SDK tool-call', { type: 'tool-call', toolCallId: 'a', toolName: 'x', input: {} }],
+            ['image part', { type: 'image_url', image_url: { url: 'x' } }],
+            ['null', null],
+            ['plain string', 'hello'],
+            ['function-typed item without tool_name', { type: 'function' }],
+        ])('returns false for: %s', (_, item) => {
+            expect(isToolResult(item)).toBe(false)
+        })
+    })
+
+    describe('isInternalToolResultUserMessage', () => {
+        it('returns true for a user message whose content is only typed tool_result parts', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value-1' },
+                    { type: 'tool_result', tool_use_id: 't2', content: 'value-2' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(true)
+        })
+
+        it('returns true for the custom `{type:"function", tool_name, content}` shape', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'function', tool_name: 'lookup', content: 'opaque' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(true)
+        })
+
+        it('returns false when a tool-result part sits alongside real user text', () => {
+            // Hiding would drop the user's prose.
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value' },
+                    { type: 'text', text: 'and please summarize the above' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(false)
+        })
+
+        it('returns false for an empty content array', () => {
+            expect(isInternalToolResultUserMessage({ role: 'user', content: [] })).toBe(false)
+        })
+
+        it('returns false for an assistant-role message even if its content is tool-result-shaped', () => {
+            const message: CompatMessage = {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(false)
+        })
+
+        it('returns false for a flat-string user message (text body, not a parts list)', () => {
+            expect(isInternalToolResultUserMessage({ role: 'user', content: 'follow-up question' })).toBe(false)
+        })
+    })
+
     describe('formatLLMEventTitle', () => {
         it('formats LLMTrace with traceName', () => {
             const trace: LLMTrace = {
@@ -1437,6 +1715,10 @@ describe('AI observability utils', () => {
                 const result = normalizeMessages(emptyResponse, 'assistant')
 
                 expect(result).toHaveLength(0)
+            })
+
+            it('returns no messages for undefined input', () => {
+                expect(normalizeMessages(undefined, 'assistant')).toEqual([])
             })
         })
 
