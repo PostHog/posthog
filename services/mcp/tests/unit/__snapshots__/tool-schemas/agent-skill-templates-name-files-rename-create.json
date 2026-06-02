@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "from_path": {
+            "description": "Existing file path inside the skill folder.",
+            "maxLength": 512,
+            "type": "string"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "to_path": {
+            "description": "New path. Must not collide with another file.",
+            "maxLength": 512,
+            "type": "string"
+        }
+    },
+    "required": ["name", "from_path", "to_path"],
+    "type": "object"
+}

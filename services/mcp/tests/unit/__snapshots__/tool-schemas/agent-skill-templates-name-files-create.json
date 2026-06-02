@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "File body.",
+            "type": "string"
+        },
+        "content_type": {
+            "default": "text/plain",
+            "description": "MIME type hint.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        },
+        "path": {
+            "description": "Relative path inside the skill folder.",
+            "maxLength": 512,
+            "type": "string"
+        }
+    },
+    "required": ["name", "path", "content"],
+    "type": "object"
+}

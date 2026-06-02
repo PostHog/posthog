@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "body": {
+            "description": "Markdown body. The `SKILL.md` equivalent.",
+            "type": "string"
+        },
+        "name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["name", "body"],
+    "type": "object"
+}
