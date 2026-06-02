@@ -251,12 +251,15 @@ def scopes_within_ceiling(requested: Iterable[str], app_scopes: Iterable[str]) -
     Mirrors the issuance-time resolution in `OAuthValidator.validate_scopes`
     (`posthog/api/oauth/views.py`) so hand-rolled token mints (e.g. agentic
     provisioning's direct-mint and consent paths) enforce the same ceiling as
-    `/authorize`:
+    `/authorize`, with one deliberate exception (the `*` note below):
 
     - OIDC + introspection are always allowed.
     - An explicit `app_scopes` ceiling rejects anything outside it, including `*`.
-    - Empty `app_scopes` (no per-app cap) falls back to `UNPRIVILEGED_SCOPES`,
-      where `*` is accepted so legacy wildcard clients keep working.
+    - Empty `app_scopes` (no per-app cap) falls back to `UNPRIVILEGED_SCOPES`.
+      `*` is rejected even here: the provisioning mint paths this guards never
+      granted wildcard, so an unseeded (empty) ceiling must not silently become
+      one. (`/authorize` still grandfathers `*` under an empty ceiling for legacy
+      wildcard clients; provisioning has no such clients.)
     """
     app = list(app_scopes or [])
     has_ceiling = bool(app)
@@ -267,7 +270,7 @@ def scopes_within_ceiling(requested: Iterable[str], app_scopes: Iterable[str]) -
         return True
     if has_ceiling:
         return "*" not in to_check and to_check.issubset(effective)
-    return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
+    return to_check.issubset(UNPRIVILEGED_SCOPES)
 
 
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:

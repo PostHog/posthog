@@ -240,7 +240,8 @@ class TestScopesWithinCeiling(SimpleTestCase):
             ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], False),
             ("privileged_allowed_when_in_ceiling", ["llm_gateway:read"], ["llm_gateway:read"], True),
             ("wildcard_rejected_under_explicit_ceiling", ["*"], ["query:read"], False),
-            ("wildcard_allowed_under_empty_ceiling", ["*"], [], True),
+            # Provisioning never grandfathered `*`; an unseeded ceiling must not grant it.
+            ("wildcard_rejected_under_empty_ceiling", ["*"], [], False),
             ("unprivileged_allowed_under_empty_ceiling", ["query:read", "insight:write"], [], True),
         ]
     )
