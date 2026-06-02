@@ -1,7 +1,14 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { CompatMessage } from './types'
-import { extractTextContent, hasStringContentField, normalizeMessages, readAiInput } from './utils'
+import {
+    extractTextContent,
+    hasStringContentField,
+    isInternalTagMessage,
+    isInternalToolResultUserMessage,
+    normalizeMessages,
+    readAiInput,
+} from './utils'
 
 const GENERIC_TRACE_NAMES = new Set(['langgraph', 'runnablesequence', 'chatprompttemplate'])
 
@@ -91,6 +98,9 @@ function firstUserText(inputPayload: unknown): string | null {
     const normalized = normalizeMessages(messages, 'user')
     for (const message of normalized) {
         if (message.role !== 'user') {
+            continue
+        }
+        if (isInternalTagMessage(message) || isInternalToolResultUserMessage(message)) {
             continue
         }
         const text = messageContentToText(message.content)
