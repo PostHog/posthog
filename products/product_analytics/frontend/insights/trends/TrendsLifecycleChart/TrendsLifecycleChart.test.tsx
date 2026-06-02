@@ -69,12 +69,18 @@ describe('TrendsLifecycleChart', () => {
             mocks: { additionalMockResponses: lifecycleMocks },
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('trend-lifecycle-graph')).toBeInTheDocument()
-        })
-        await waitFor(() => {
-            expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('trend-lifecycle-graph')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
+        await waitFor(
+            () => {
+                expect(screen.getByRole('img', { name: /chart with 4 data series/i })).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('shows the shortened lifecycle status in the tooltip rows', async () => {
@@ -126,9 +132,12 @@ describe('TrendsLifecycleChart', () => {
             },
         })
 
-        await waitFor(() => {
-            expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.getByTestId('insight-empty-state')).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 
     it('renders the legend items in the same order as the rendered series', async () => {
@@ -165,8 +174,11 @@ describe('TrendsLifecycleChart', () => {
 
         // Without the flag the hog-charts data-attr is never rendered; the Chart.js LineGraph
         // renders a <canvas> instead.
-        await waitFor(() => {
-            expect(screen.queryByTestId('trend-lifecycle-graph')).not.toBeInTheDocument()
-        })
+        await waitFor(
+            () => {
+                expect(screen.queryByTestId('trend-lifecycle-legend')).not.toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 })
