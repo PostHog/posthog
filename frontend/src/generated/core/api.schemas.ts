@@ -593,7 +593,8 @@ export interface ProjectBackwardCompatApi {
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
-    readonly updated_at: string
+    /** @nullable */
+    readonly updated_at: string | null
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
@@ -1386,7 +1387,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
-    readonly updated_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
