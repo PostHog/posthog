@@ -9,6 +9,7 @@ from urllib3.util.retry import Retry
 from posthog.temporal.data_imports.sources.common.http.transport import (
     DEFAULT_RETRY,
     TrackedHTTPAdapter,
+    _NoRedirectSession,
     make_tracked_adapter,
     make_tracked_session,
 )
@@ -66,6 +67,38 @@ def test_make_tracked_session_honors_custom_retry():
 
     assert adapter.max_retries.total == 7
     assert adapter.max_retries.backoff_factor == 2.0
+
+
+def test_make_tracked_session_allows_redirects_by_default():
+    session = make_tracked_session()
+    assert not isinstance(session, _NoRedirectSession)
+
+
+def test_make_tracked_session_can_disable_redirects():
+    session = make_tracked_session(allow_redirects=False)
+    assert isinstance(session, _NoRedirectSession)
+    # Tracked adapters must still be mounted on the no-redirect session.
+    assert isinstance(session.get_adapter("https://example.com/"), TrackedHTTPAdapter)
+
+
+def test_no_redirect_session_does_not_follow_redirects(mock_record):
+    # Even when a caller invokes send() without allow_redirects (as RESTClient does),
+    # a 3xx must be returned as-is rather than transparently followed to its target.
+    session = make_tracked_session(allow_redirects=False)
+    prepared = session.prepare_request(requests.Request("GET", "https://acme.example.com/"))
+
+    redirect = Response()
+    redirect.status_code = 302
+    redirect.headers["Location"] = "https://169.254.169.254/"
+    redirect._content = b""
+    redirect.url = "https://acme.example.com/"
+
+    with patch.object(HTTPAdapter, "send", return_value=redirect) as adapter_send:
+        response = session.send(prepared)
+
+    assert response.status_code == 302
+    # A single dispatch: the redirect target is never fetched.
+    assert adapter_send.call_count == 1
 
 
 def test_make_tracked_session_merges_headers():

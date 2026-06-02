@@ -159,8 +159,10 @@ class TestActiveCampaignSourceResumeBehavior:
             return next(response_iter)
 
         with (
+            # The pipeline path builds its own (no-redirect) session and hands it to
+            # RESTClient via config, so patch the factory where the source imports it.
             patch(
-                "posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
             ) as MockSession,
             # The SSRF guard runs real DNS resolution when DEBUG=False (as in CI); the
             # fake account host here isn't an SSRF test, so allow it deterministically.
@@ -295,6 +297,29 @@ class TestValidateCredentials:
             assert valid is False
             assert error == "boom"
 
+    def test_does_not_follow_redirects(self) -> None:
+        # Redirect-based SSRF guard: even a host that passes validation must not be
+        # allowed to 3xx-redirect onto an internal host, so the request disables it.
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
+            mock_session = MockSession.return_value
+            response = MagicMock()
+            response.status_code = 302
+            mock_session.get.return_value = response
+
+            valid, error = validate_credentials("https://acme.api-us1.com", "test-key")
+
+            assert valid is False
+            assert error is not None
+            assert mock_session.get.call_args.kwargs["allow_redirects"] is False
+
 
 class TestSsrfProtection:
     """The user-supplied api_url must not be usable to reach internal/metadata hosts."""
@@ -321,3 +346,29 @@ class TestSsrfProtection:
                 job_id="test_job",
                 resumable_source_manager=manager,
             )
+
+    def test_source_for_pipeline_disables_redirects(self) -> None:
+        # The sync path hands RESTClient a session built with redirects off, so a
+        # 3xx to an internal host can't be followed during a sync either.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.make_tracked_session"
+            ) as MockSession,
+            patch(
+                "posthog.temporal.data_imports.sources.active_campaign.active_campaign.is_url_allowed",
+                return_value=(True, None),
+            ),
+        ):
+            active_campaign_source(
+                api_url="https://acme.api-us1.com",
+                api_key="test-key",
+                endpoint="contacts",
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+            )
+
+            assert MockSession.call_args.kwargs["allow_redirects"] is False

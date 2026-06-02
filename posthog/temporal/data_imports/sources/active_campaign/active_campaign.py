@@ -102,6 +102,11 @@ def active_campaign_source(
                 "location": "header",
             },
             "paginator": ActiveCampaignPaginator(),
+            # Disable redirects: the base host is validated above, but `requests`
+            # follows redirects by default, so a 3xx to an internal host would
+            # bypass that check. ActiveCampaign's API responds directly, so this
+            # closes the redirect-based SSRF without affecting normal syncs.
+            "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
         },
         "resource_defaults": {
             "write_disposition": "replace",
@@ -156,11 +161,16 @@ def validate_credentials(api_url: str, api_key: str) -> tuple[bool, str | None]:
         return False, f"ActiveCampaign API URL is not allowed: {reason}"
 
     try:
+        # `allow_redirects=False`: the base host is validated above, but a 3xx to
+        # an internal host would otherwise be followed transparently and defeat the
+        # SSRF guard. ActiveCampaign's API responds directly, so no redirect is
+        # expected for a valid account.
         response = make_tracked_session(redact_values=(api_key,)).get(
             f"{base_url}/api/3/contacts",
             params={"limit": 1},
             headers={"Api-Token": api_key},
             timeout=10,
+            allow_redirects=False,
         )
     except Exception as e:
         return False, str(e)

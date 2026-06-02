@@ -107,11 +107,27 @@ def make_tracked_adapter(
     return TrackedHTTPAdapter(max_retries=retry, redact_values=redact_values, **kwargs)
 
 
+class _NoRedirectSession(requests.Session):
+    """`requests.Session` that never follows redirects.
+
+    A security boundary for SSRF-sensitive sources: even when the initial host
+    passes URL validation, a 3xx pointing at an internal/metadata host would
+    otherwise be followed transparently, defeating the check. `requests` reads
+    `allow_redirects` per call and callers like `RESTClient` invoke `send()`
+    without it (so it defaults to `True`), so we pin it off at the session level.
+    """
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        kwargs["allow_redirects"] = False
+        return super().send(request, **kwargs)
+
+
 def make_tracked_session(
     *,
     retry: Retry | None = None,
     headers: dict[str, str] | None = None,
     redact_values: tuple[str, ...] = (),
+    allow_redirects: bool = True,
 ) -> requests.Session:
     """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters.
 
@@ -120,8 +136,10 @@ def make_tracked_session(
     `redact_values` are credential strings to mask in logged URLs and captured
     samples — for auth injected under a param/header name the denylist can't
     predict (e.g. an API key in a query param).
+    `allow_redirects=False` returns a session that never follows redirects — an
+    SSRF boundary for sources that fetch user-supplied hosts (see `_NoRedirectSession`).
     """
-    session = requests.Session()
+    session: requests.Session = requests.Session() if allow_redirects else _NoRedirectSession()
     adapter = make_tracked_adapter(retry=retry, redact_values=redact_values)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
