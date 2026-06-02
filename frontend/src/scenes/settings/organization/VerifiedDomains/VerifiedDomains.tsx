@@ -5,7 +5,7 @@ import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@po
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -15,6 +15,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -23,6 +24,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
+import { ConfigureIdJagModal } from './ConfigureIdJagModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { ScimLogsModal } from './ScimLogsModal'
@@ -75,9 +77,13 @@ function VerifiedDomainsTable(): JSX.Element {
         setVerifyModal,
         setConfigureSAMLModalId,
         setConfigureSCIMModalId,
+        setConfigureIdJagModalId,
         setScimLogsModalId,
     } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const isXAAAuthenticationEnabled = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION]
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -211,6 +217,29 @@ function VerifiedDomainsTable(): JSX.Element {
                 )
             },
         },
+        ...(isXAAAuthenticationEnabled
+            ? ([
+                  {
+                      key: 'id_jag',
+                      title: 'XAA',
+                      render: function IdJag(_, { has_id_jag }) {
+                          if (has_id_jag) {
+                              return (
+                                  <div className="flex items-center gap-1 text-success">
+                                      <IconCheckCircle className="text-lg pt-0.5" /> XAA enabled
+                                  </div>
+                              )
+                          }
+
+                          return (
+                              <div className="flex items-center gap-1">
+                                  <IconOffline className="text-lg" /> XAA not set up
+                              </div>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<OrganizationDomainType>)
+            : []),
         {
             key: 'actions',
             width: 32,
@@ -238,6 +267,15 @@ function VerifiedDomainsTable(): JSX.Element {
                                 >
                                     Configure SCIM
                                 </LemonButton>
+                                {isXAAAuthenticationEnabled && (
+                                    <LemonButton
+                                        onClick={() => setConfigureIdJagModalId(id)}
+                                        fullWidth
+                                        disabledReason={restrictionReason}
+                                    >
+                                        Configure XAA
+                                    </LemonButton>
+                                )}
                                 {isSCIMAvailable && (
                                     <LemonButton
                                         onClick={() => setScimLogsModalId(id)}
@@ -379,6 +417,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
+            {isXAAAuthenticationEnabled && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
         </div>

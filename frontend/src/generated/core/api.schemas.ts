@@ -211,6 +211,22 @@ export interface OrganizationDomainApi {
     readonly scim_base_url: string | null
     /** @nullable */
     readonly scim_bearer_token: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 export interface PaginatedOrganizationDomainListApi {
@@ -255,6 +271,22 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
     /** @nullable */
     readonly scim_bearer_token?: string | null
+    /** Returns whether ID-JAG (XAA) is configured for this domain. */
+    readonly has_id_jag?: boolean
+    /**
+     * Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG on this domain.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_issuer_url?: string | null
+    /**
+     * Override JWKS URL. Defaults to OIDC discovery on the issuer URL.
+     * @maxLength 512
+     * @nullable
+     */
+    id_jag_jwks_url?: string | null
+    /** Allowed ID-JAG client IDs. Empty list allows any client_id. */
+    id_jag_allowed_clients?: string[]
 }
 
 /**
