@@ -83,6 +83,25 @@ const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApprov
     },
 })
 
+const VisualReviewRunsCountsRetrieveSchema = z.object({})
+
+const visualReviewRunsCountsRetrieve = (): ToolBase<
+    typeof VisualReviewRunsCountsRetrieveSchema,
+    Schemas.ReviewStateCounts
+> => ({
+    name: 'visual-review-runs-counts-retrieve',
+    schema: VisualReviewRunsCountsRetrieveSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewStateCounts>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/counts/`,
+        })
+        return result
+    },
+})
+
 const VisualReviewRunsFinalizeCreateSchema = VisualReviewRunsFinalizeCreateParams.omit({ project_id: true }).extend(
     VisualReviewRunsFinalizeCreateBody.shape
 )
@@ -106,25 +125,6 @@ const visualReviewRunsFinalizeCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/finalize/`,
             body,
-        })
-        return result
-    },
-})
-
-const VisualReviewRunsCountsRetrieveSchema = z.object({})
-
-const visualReviewRunsCountsRetrieve = (): ToolBase<
-    typeof VisualReviewRunsCountsRetrieveSchema,
-    Schemas.ReviewStateCounts
-> => ({
-    name: 'visual-review-runs-counts-retrieve',
-    schema: VisualReviewRunsCountsRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsCountsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ReviewStateCounts>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/counts/`,
         })
         return result
     },
@@ -283,8 +283,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-list': visualReviewReposList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
-    'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
+    'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
     'visual-review-runs-list': visualReviewRunsList,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,
