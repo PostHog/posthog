@@ -12,6 +12,7 @@ import {
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
+    EnvironmentsPromotedProductIntentRetrieveParams,
     ListQueryParams,
     MembersListQueryParams,
     RetrieveParams,
@@ -379,6 +380,24 @@ const organizationsList = (): ToolBase<
     },
 })
 
+const PromotedProductIntentGetSchema = EnvironmentsPromotedProductIntentRetrieveParams.omit({ project_id: true })
+
+const promotedProductIntentGet = (): ToolBase<
+    typeof PromotedProductIntentGetSchema,
+    Schemas.PromotedProductIntent
+> => ({
+    name: 'promoted-product-intent-get',
+    schema: PromotedProductIntentGetSchema,
+    handler: async (context: Context, params: z.infer<typeof PromotedProductIntentGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PromotedProductIntent>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/environments/${encodeURIComponent(String(params.id))}/promoted_product_intent/`,
+        })
+        return result
+    },
+})
+
 const RoleGetSchema = RolesRetrieveParams.omit({ organization_id: true })
 
 const roleGet = (): ToolBase<typeof RoleGetSchema, Schemas.Role> => ({
@@ -495,6 +514,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
+    'promoted-product-intent-get': promotedProductIntentGet,
     'role-get': roleGet,
     'role-members-list': roleMembersList,
     'roles-list': rolesList,

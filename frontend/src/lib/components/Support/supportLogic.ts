@@ -43,7 +43,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -52,11 +52,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
 function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
-    return `\nSession: ${replayUrl}`
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
+        return ''
+    }
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -102,14 +106,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {

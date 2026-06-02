@@ -1,6 +1,6 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache as django_cache
 
@@ -389,6 +389,29 @@ class TestSlackSourceGetSchemasForceRefresh:
         assert channel_names(cached) == {"C1"}
         assert channel_names(forced) == {"C2"}
 
+    def test_channel_schemas_are_webhook_only(self) -> None:
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        config, integration = self._build_mocks()
+        source = SlackSource()
+
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                return_value=[{"id": "C1", "name": "general"}],
+            ),
+        ):
+            schemas = source.get_schemas(config, team_id=1)
+
+        channel = next(s for s in schemas if s.name == "C1")
+        # Webhook is the only valid sync method: full-refresh would wipe the table and
+        # reload nothing, incremental/append have no polling endpoint to read from.
+        assert channel.supports_webhooks is True
+        assert channel.supports_incremental is False
+        assert channel.supports_append is False
+        assert channel.incremental_fields == []
+
 
 class TestSlackSourceChannelsEndpoint:
     def setup_method(self) -> None:
@@ -438,3 +461,45 @@ class TestSlackSourceChannelsEndpoint:
 
         assert items == sample
         mock_fetch.assert_called_once_with("token", authed_user)
+
+
+class TestSlackSourceChannelMessagesWebhookOnly:
+    def _build_channel_source(self, webhook_manager: Any) -> Any:
+        return slack_source(
+            access_token="token",
+            integration_id=42,
+            endpoint="C123",
+            team_id=1,
+            job_id="job-1",
+            webhook_source_manager=webhook_manager,
+            resumable_source_manager=MagicMock(spec=ResumableSourceManager),
+            channel_id="C123",
+        )
+
+    @parameterized.expand(
+        [
+            ("webhook_enabled", True, ["webhook-item"], True),
+            ("webhook_disabled", False, [], False),
+        ]
+    )
+    def test_channel_messages_are_webhook_only_and_never_backfill(
+        self,
+        _name: str,
+        webhook_on: bool,
+        expected_items: list[Any],
+        expect_get_items_called: bool,
+    ) -> None:
+        manager = MagicMock(spec=WebhookSourceManager)
+        manager.webhook_enabled = AsyncMock(return_value=webhook_on)
+        manager.get_items.return_value = ["webhook-item"]
+
+        with patch("posthog.temporal.data_imports.sources.slack.slack._channel_messages_generator") as mock_backfill:
+            response = self._build_channel_source(manager)
+            items = list(response.items())
+
+        # Webhook mode is activated from the first sync (skip the initial-sync-complete gate).
+        # When disabled the table stays empty until webhook events arrive — never a historical backfill.
+        manager.webhook_enabled.assert_awaited_once_with(True)
+        assert items == expected_items
+        assert manager.get_items.called == expect_get_items_called
+        mock_backfill.assert_not_called()
