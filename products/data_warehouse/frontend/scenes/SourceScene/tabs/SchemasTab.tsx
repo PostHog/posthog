@@ -387,7 +387,8 @@ function ManagedSchemaTable({
                     title: 'Last synced',
                     key: 'last_synced_at',
                     sorter: (a, b) =>
-                        new Date(a.last_synced_at ?? 0).getTime() - new Date(b.last_synced_at ?? 0).getTime(),
+                        (a.last_synced_at ? dayjs(a.last_synced_at).valueOf() : 0) -
+                        (b.last_synced_at ? dayjs(b.last_synced_at).valueOf() : 0),
                     render: (_, schema) =>
                         schema.last_synced_at ? (
                             <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
