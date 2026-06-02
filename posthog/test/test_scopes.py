@@ -260,25 +260,29 @@ class TestScopesWithinCeiling(SimpleTestCase):
 
 
 class TestNarrowScopesToCeiling(SimpleTestCase):
-    def test_empty_ceiling_is_noop(self) -> None:
-        assert narrow_scopes_to_ceiling(["query:read", "insight:write"], []) == ["query:read", "insight:write"]
-
-    def test_narrows_to_tightened_ceiling(self) -> None:
-        assert narrow_scopes_to_ceiling(["query:read", "insight:write"], ["query:read"]) == ["query:read"]
-
-    def test_no_overlap_returns_none(self) -> None:
-        assert narrow_scopes_to_ceiling(["insight:write"], ["query:read"]) is None
-
-    def test_wildcard_left_untouched(self) -> None:
-        assert narrow_scopes_to_ceiling(["*"], ["query:read"]) == ["*"]
-
-    def test_always_allowed_survive_narrowing(self) -> None:
-        assert narrow_scopes_to_ceiling(["openid", "query:read", "insight:write"], ["query:read"]) == [
-            "openid",
-            "query:read",
+    @parameterized.expand(
+        [
+            ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
+            ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
+            ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
+            (
+                "always_allowed_survive_narrowing",
+                ["openid", "query:read", "insight:write"],
+                ["query:read"],
+                ["openid", "query:read"],
+            ),
+            # OIDC alone keeps the token alive even when every resource scope falls
+            # outside the ceiling — mirrors OAuthValidator.get_original_scopes.
+            (
+                "only_always_allowed_survive_when_resource_scopes_drop",
+                ["openid", "insight:write"],
+                ["query:read"],
+                ["openid"],
+            ),
         ]
-
-    def test_only_always_allowed_survive_when_resource_scopes_drop(self) -> None:
-        # OIDC alone keeps the token alive even when every resource scope falls
-        # outside the ceiling — mirrors OAuthValidator.get_original_scopes.
-        assert narrow_scopes_to_ceiling(["openid", "insight:write"], ["query:read"]) == ["openid"]
+    )
+    def test_resolution(
+        self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
+    ) -> None:
+        assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
