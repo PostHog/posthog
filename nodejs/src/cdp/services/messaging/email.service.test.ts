@@ -582,7 +582,7 @@ describe('EmailService', () => {
         })
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
-            // Default config has capture_engagement_events=false, so even on success no event is queued.
+            // Default config has capture_messaging_engagement_events=false, so even on success no event is queued.
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()

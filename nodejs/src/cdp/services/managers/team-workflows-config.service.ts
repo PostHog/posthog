@@ -2,11 +2,11 @@ import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'
 import { LazyLoader } from '../../../utils/lazy-loader'
 
 export type TeamWorkflowsConfig = {
-    capture_engagement_events: boolean
+    capture_messaging_engagement_events: boolean
 }
 
 const DEFAULT_CONFIG: TeamWorkflowsConfig = {
-    capture_engagement_events: false,
+    capture_messaging_engagement_events: false,
 }
 
 /**
@@ -32,13 +32,13 @@ export class TeamWorkflowsConfigService {
 
     public async shouldCaptureEngagementEvents(teamId: number): Promise<boolean> {
         const config = await this.get(teamId)
-        return config.capture_engagement_events
+        return config.capture_messaging_engagement_events
     }
 
     private async fetchConfigs(teamIds: string[]): Promise<Record<string, TeamWorkflowsConfig>> {
-        const result = await this.postgres.query<{ team_id: number; capture_engagement_events: boolean }>(
+        const result = await this.postgres.query<{ team_id: number; capture_messaging_engagement_events: boolean }>(
             PostgresUse.COMMON_READ,
-            `SELECT team_id, capture_engagement_events
+            `SELECT team_id, capture_messaging_engagement_events
              FROM workflows_teamworkflowsconfig
              WHERE team_id = ANY($1)`,
             [teamIds.map(Number)],
@@ -51,7 +51,7 @@ export class TeamWorkflowsConfigService {
         }
         for (const row of result.rows) {
             configs[String(row.team_id)] = {
-                capture_engagement_events: row.capture_engagement_events,
+                capture_messaging_engagement_events: row.capture_messaging_engagement_events,
             }
         }
         return configs
