@@ -4,12 +4,13 @@ from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQuery
+from posthog.schema import RecordingOrder
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.session_recordings.session_recording_api import SessionRecordingSerializer, list_recordings_from_query
+from posthog.session_recordings.session_recording_api import run_recordings_list_query
+from posthog.session_recordings.utils import filter_from_params_to_query
 
 from products.dashboards.backend.widgets.config import (
     merge_base_widget_config_fields,
@@ -30,13 +31,6 @@ SESSION_REPLAY_ORDER_BY = frozenset(
         "console_error_count",
     }
 )
-
-
-class _SessionRecordingListViewShim:
-    """Skip list-view N+1 paths in SessionRecordingSerializer (external refs, summaries)."""
-
-    action = "list"
-
 
 ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
     "start_time": RecordingOrder.START_TIME,
@@ -66,46 +60,38 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
     }
 
 
-def _build_recordings_query(team: Team, config: dict[str, Any]) -> RecordingsQuery:
-    limit = cast(int, config["limit"])
+def _build_recordings_query(team: Team, config: dict[str, Any]):
     order_by = cast(str, config.get("orderBy", "start_time"))
-    order_direction = cast(str, config.get("orderDirection", "DESC"))
     date_range_raw = config.get("dateRange")
     date_from = "-7d"
     if isinstance(date_range_raw, dict) and isinstance(date_range_raw.get("date_from"), str):
         date_from = date_range_raw["date_from"]
 
-    return RecordingsQuery(
-        kind="RecordingsQuery",
-        limit=limit,
-        offset=0,
-        date_from=date_from,
-        date_to=None,
-        filter_test_accounts=resolve_filter_test_accounts(config, team),
-        order=ORDER_BY_TO_RECORDING_ORDER[order_by],
-        order_direction=RecordingOrderDirection(order_direction),
+    return filter_from_params_to_query(
+        {
+            "limit": config["limit"],
+            "offset": 0,
+            "date_from": date_from,
+            "filter_test_accounts": resolve_filter_test_accounts(config, team),
+            "order": ORDER_BY_TO_RECORDING_ORDER[order_by],
+            "order_direction": config.get("orderDirection", "DESC"),
+        }
     )
 
 
 def run_session_replay_list_widget(team: Team, config: dict[str, Any], user: User | None = None) -> dict[str, Any]:
     query = _build_recordings_query(team, config)
+    limit = cast(int, config["limit"])
     with tags_context(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk):
-        recordings, has_more, _, _next_cursor = list_recordings_from_query(
+        data = run_recordings_list_query(
             query=query,
             user=user,
             team=team,
             allow_event_property_expansion=False,
         )
-    serializer = SessionRecordingSerializer(
-        recordings,
-        many=True,
-        context={"view": _SessionRecordingListViewShim(), "get_team": lambda: team},
-    )
-    results = cast(list[dict[str, Any]], serializer.data)
-    limit = cast(int, config["limit"])
     return {
-        "results": results[:limit],
-        "hasMore": has_more,
+        "results": data["results"],
+        "hasMore": data["has_next"],
         "limit": limit,
-        "offset": 0,
+        "offset": query.offset or 0,
     }

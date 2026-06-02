@@ -169,7 +169,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_calculate.assert_called_once()
 
-    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_runs_session_replay_widget_for_requested_tile(self, mock_list_recordings: MagicMock) -> None:
         mock_list_recordings.return_value = ([], False, None, None)
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
@@ -195,7 +195,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         "posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.allow_request", return_value=False
     )
     @patch("posthog.session_recordings.session_recording_api.ListingBurstRateThrottle.wait", return_value=30)
-    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_run_widgets_applies_replay_listing_throttles(
         self,
         mock_list_recordings: MagicMock,
@@ -215,7 +215,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["error"], "Rate limit exceeded. Expected available in 30 seconds.")
         mock_list_recordings.assert_not_called()
 
-    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_tags_queries_in_debug_mode(self, mock_list_recordings: MagicMock) -> None:
         from django.test.utils import override_settings
 
@@ -244,7 +244,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(result["limit"], 10)
         mock_list_recordings.assert_called_once()
 
-    @patch("products.dashboards.backend.widgets.session_replay_list.list_recordings_from_query")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_serializes_recordings_with_person(self, mock_list_recordings: MagicMock) -> None:
         from posthog.models import Person
         from posthog.session_recordings.models.session_recording import SessionRecording
