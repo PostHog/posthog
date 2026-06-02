@@ -138,7 +138,7 @@ For example:
 - `DecimalDatabaseField` becomes `DecimalType`, with no precision or scale.
 - `DateTimeDatabaseField` becomes `DateTimeType`, with no `DateTime64` precision or timezone.
 - `StringArrayDatabaseField` becomes `StringArrayType`, which is a `StringType` subclass rather than `ArrayType(StringType)`.
-- `FloatArrayDatabaseField` currently resolves to `FloatType`, so the array dimension is lost.
+- `FloatArrayDatabaseField` now resolves to `ArrayType(FloatType)`.
 - `StructDatabaseField` becomes `TupleType`, but tuple field names are not represented in the type object.
 
 ### Resolver
@@ -162,21 +162,20 @@ Some useful things already work:
 - Some date truncation and conversion functions have signatures.
 - Tests in `posthog/hogql/test/test_resolver.py` cover subquery type propagation, arithmetic, booleans, comparisons, selected function types, date truncation return types, and nullability overrides for `assumeNotNull`, `nullIf`, and `toNullable`.
 
-The current function boundary behavior is the main limitation.
+The function boundary behavior has improved, but catalog coverage is still the main limitation.
 For a ClickHouse function call, the resolver:
 
 1. Visits all arguments.
 2. Resolves each argument to a `ConstantType`.
 3. Looks up the function in `HOGQL_CLICKHOUSE_FUNCTIONS`.
-4. Tries to find a matching signature.
-5. Uses the signature return type if matched.
+4. Asks `infer_function_return_type(...)` for generic return inference.
+5. Falls back to the legacy signature list when no generic inference applies.
 6. Falls back to `UnknownType` otherwise.
-7. Applies a few hard-coded nullability rules for `concat`, `nullIf`, `toNullable`, `*OrNull`, and `assumeNotNull`.
 
-The current signature matcher in `posthog/hogql/functions/core.py` is class-based.
-`UnknownType` in a signature acts as a wildcard.
+The old signature matcher in `posthog/hogql/functions/core.py` is still class-based.
+`UnknownType` in a legacy signature acts as a wildcard.
 `StringLiteralType` can constrain constant string values.
-There is no type variable, unification, generic return type, supertype computation, array element propagation, tuple field propagation, or type-level function.
+The new generic inference path covers many high-value relationships, but it is not a full signature DSL with type variables, overload ranking, aggregate combinators, or strict errors.
 
 ### Function Catalog
 
@@ -206,17 +205,17 @@ Some high-value function groups are partially typed:
 - Some string and geo functions have signatures.
 - Some PostHog extension functions have signatures.
 
-Many high-value groups are not deeply typed:
+Many high-value groups are now typed through generic inference, including logical/comparison functions, common conditionals, common array/map helpers, common string and URL helpers, and common scalar aggregates.
+The remaining gaps are more specific:
 
-- Logical functions in `mapping.py`, such as `equals`, `less`, `and`, `or`, `if`, and `multiIf`.
-- Map constructors and simple accessors are typed, but higher-order map functions, bitmap helpers, and deeper tuple and array functions are still incomplete.
-- URL helper coverage exists for common string, string-array, and `port(...)` return types, but deeper function families are still incomplete.
-- Higher-order array functions, such as `arrayMap`, `arrayFilter`, `arrayFirst`, `arrayExists`, and `arrayReduce`.
-- Most aggregate functions, including `count`, `sum`, `avg`, `min`, `max`, `uniq`, `quantile`, state functions, and merge functions.
+- Aggregate state/merge functions and aggregate combinators.
+- Deeper date/time function families beyond the high-use conversion and parsing paths.
+- Bitmap helpers and specialized ClickHouse families that are not common optimizer inputs yet.
+- Strict lambda arity and return validation for higher-order array/map functions.
 - UDFs.
 
-Aggregate functions are especially incomplete.
-Many entries are marked `aggregate=True` but have no return type signature.
+Aggregate state and merge functions are especially incomplete.
+Some entries are marked `aggregate=True` but still have no return type signature or generic inference.
 This blocks typed handling for preaggregation and aggregation state transformations.
 
 ### Property Typing
@@ -283,31 +282,31 @@ Any type-system work should preserve their current needs while making expression
 
 TODO:
 
-- [ ] Decide whether HogQL should keep using `ConstantType` classes as the canonical type model or introduce a separate `HogQLRuntimeType`/`SqlType` model.
-- [ ] Represent ClickHouse primitive families with enough detail for optimization:
-  - [ ] signed and unsigned integers with bit width
-  - [ ] floats with width
-  - [ ] decimals with precision and scale
-  - [ ] strings, fixed strings, UUIDs, booleans, enums
-  - [ ] dates and datetimes, including `DateTime64` precision and timezone
-  - [ ] low cardinality wrappers
-  - [ ] nullable wrappers
-  - [ ] arrays with element types and element nullability
-  - [ ] tuples with positional and optional named fields
+- [x] Introduce a separate `RuntimeType` model while keeping `ConstantType` as the resolver/printer compatibility surface.
+- [x] Represent ClickHouse primitive families with enough detail for the first optimizer work:
+  - [x] signed and unsigned integers with bit width
+  - [x] floats with width
+  - [x] decimals with precision and scale when the type string provides them
+  - [x] strings, fixed strings, UUIDs, booleans, enums
+  - [x] dates and datetimes, including `DateTime64` precision and timezone
+  - [ ] preserve low cardinality wrappers as a distinct type fact
+  - [x] nullable wrappers
+  - [x] arrays with element types and element nullability
+  - [x] tuples with positional and optional named fields
   - [x] maps with key and value types
-  - [ ] JSON/object-ish values
-  - [ ] aggregate states
-  - [ ] unknown types with a reason/provenance
-- [ ] Represent a common cross-dialect type core plus dialect-specific extensions for ClickHouse, Postgres, and DuckDB.
+  - [x] JSON/object-ish values
+  - [x] aggregate states
+  - [x] unknown runtime types with source metadata
+- [x] Represent a common cross-dialect type core plus dialect tags for ClickHouse, Postgres, and DuckDB.
 - [ ] Define which types are portable and which are backend-specific.
-- [ ] Define the relationship between storage fields (`DatabaseField`) and expression types.
-- [ ] Make type conversion from ClickHouse type strings structured instead of lossy string cleanup.
-- [ ] Add structured type adapters for Postgres and DuckDB metadata where HogQL prints or introspects those backends.
+- [x] Define the relationship between storage fields (`DatabaseField`) and expression types through adapters.
+- [x] Make type conversion from ClickHouse type strings structured instead of lossy string cleanup.
+- [x] Add basic structured type adapters for Postgres and DuckDB metadata where HogQL prints or introspects those backends.
 - [ ] Make type conversion from saved query metadata structured instead of routing through field class names.
 - [ ] Decide whether `StringArrayType` should become `ArrayType(StringType)` or remain as a storage-specific alias.
-- [ ] Fix `FloatArrayDatabaseField` so it does not lose the array dimension.
-- [ ] Preserve struct/tuple field names where available.
-- [ ] Represent property-definition type facts separately from physical storage type facts.
+- [x] Fix `FloatArrayDatabaseField` so it does not lose the array dimension.
+- [x] Preserve struct/tuple field names where available in structured runtime metadata.
+- [x] Represent property-definition type facts separately from physical storage type facts in property comparison planning.
 
 Acceptance criteria:
 
@@ -320,26 +319,27 @@ Acceptance criteria:
 
 TODO:
 
-- [ ] Add a `least_common_supertype(...)` operation for set queries, `if`, `multiIf`, `coalesce`, arrays, tuples, maps, arithmetic, and comparisons.
-- [ ] Add nullability algebra:
-  - [ ] nullable input propagation
-  - [ ] functions that always return nullable
-  - [ ] functions that never return nullable
-  - [ ] functions where nullability depends on specific arguments
-  - [ ] `assumeNotNull`, `toNullable`, `ifNull`, `coalesce`, `nullIf`, and `*OrNull` behavior
-- [ ] Add numeric promotion rules matching each supported backend well enough for optimization.
+- [x] Add a `least_common_supertype(...)` operation for set queries, `if`, `multiIf`, `coalesce`, arrays, tuples, and maps.
+- [x] Add initial nullability algebra:
+  - [x] nullable input propagation for common generic functions
+  - [x] functions that always return nullable in modeled cases
+  - [x] functions that never return nullable in modeled cases
+  - [x] functions where nullability depends on specific arguments
+  - [x] `assumeNotNull`, `toNullable`, `ifNull`, `coalesce`, `nullIf`, and `*OrNull` behavior
+- [x] Add numeric promotion rules matching common ClickHouse paths well enough for first optimizer decisions.
 - [ ] Add string/date/datetime coercion rules for PostHog-supported syntax by dialect.
-- [ ] Add array element unification rules.
-- [ ] Add tuple element and named-field lookup rules.
-- [ ] Add map key/value access rules.
-- [ ] Add comparison compatibility checks that can distinguish:
-  - [ ] definitely compatible
-  - [ ] compatible after cheap cast
-  - [ ] compatible after expensive parse/cast
-  - [ ] incompatible
-  - [ ] unknown
+- [x] Add array element unification rules.
+- [x] Add tuple element lookup rules.
+- [ ] Add named tuple lookup rules.
+- [x] Add map key/value access rules.
+- [x] Add comparison compatibility checks that can distinguish:
+  - [x] definitely compatible
+  - [x] compatible after cheap cast
+  - [x] compatible after expensive parse/cast
+  - [x] incompatible
+  - [x] unknown
 - [ ] Keep ClickHouse-specific rules separate from Postgres/DuckDB rules.
-- [ ] Add a way for an optimizer to ask whether a rewrite is valid for the current print target.
+- [x] Pass dialect into the first optimizer-facing type APIs.
 
 Acceptance criteria:
 
@@ -349,28 +349,28 @@ Acceptance criteria:
 
 ### 3. A Better Function Signature Engine
 
-The current signature format is `list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]`.
-This works for simple functions but cannot express most ClickHouse type relationships.
+The legacy signature format is `list[tuple[tuple[AnyConstantType, ...], AnyConstantType]]`.
+It still works for simple functions, but generic inference now handles relationships the tuple format cannot express.
 
 TODO:
 
-- [ ] Replace or extend signature tuples with a real signature DSL.
-- [ ] Support type variables, such as `T -> T`, `Array[T] -> T`, `Array[T] -> Array[T]`, and `(T, T) -> Bool`.
+- [x] Extend legacy signature tuples with a generic inference path.
+- [x] Support common type relationships such as `T -> T`, `Array[T] -> T`, `Array[T] -> Array[T]`, and `(T, T) -> Bool` through generic inference.
 - [ ] Support constrained type variables, such as numeric-only, orderable-only, string-like-only, date-like-only, and JSON-path-like.
 - [ ] Support variadic signatures without exploding into many generated combinations.
 - [ ] Support parametric functions and aggregate combinators.
-- [ ] Support literal constraints beyond current `StringLiteralType`.
-- [ ] Support return-type functions, for cases like:
-  - [ ] `toTypeName(T) -> String`
-  - [ ] `arrayElement(Array[T], Int) -> T`
-  - [ ] `arrayMap(Lambda[A -> B], Array[A]) -> Array[B]`
+- [x] Support selected literal-driven return types beyond current `StringLiteralType`, such as cast targets and `JSONExtract(..., 'Type')`.
+- [x] Support selected return-type functions, for cases like:
+  - [x] `toTypeName(T) -> String`
+  - [x] `arrayElement(Array[T], Int) -> T`
+  - [x] `arrayMap(Lambda[A -> B], Array[A]) -> Array[B]`
   - [x] `JSONExtract(json, path..., 'Array(String)') -> Array[String]`
-  - [ ] `if(Bool, T, U) -> least_common_supertype(T, U)`
-  - [ ] `count(...) -> UInt64`
-  - [ ] `sum(Int32) -> Int64` or the relevant ClickHouse promotion
-  - [ ] `uniq(...) -> UInt64`
+  - [x] `if(Bool, T, U) -> least_common_supertype(T, U)`
+  - [x] `count(...) -> UInt64` compatibility type
+  - [x] `sum(...)` common scalar return typing
+  - [x] `uniq(...) -> UInt64` compatibility type
 - [ ] Support overload ranking and deterministic error reporting.
-- [ ] Distinguish "function is known but signature is incomplete" from "function is unsupported".
+- [x] Distinguish "function is known but signature is incomplete" from "function is unsupported" in diagnostics/inventory.
 - [ ] Support dialect-specific function signatures, names, and return types where ClickHouse, Postgres, and DuckDB diverge.
 - [ ] Add a strict mode that can fail on unknown function return types once coverage is high enough.
 
@@ -384,7 +384,7 @@ Acceptance criteria:
 
 TODO:
 
-- [ ] Add a signature coverage inventory command or test that reports:
+- [x] Add a signature coverage inventory helper/test that reports:
   - [x] total function metadata entries
   - [x] entries by dialect/print target
   - [x] entries with precise signatures
@@ -398,7 +398,7 @@ TODO:
   - [x] `in`, `notIn`
   - [x] `and`, `or`, `xor`, `not`
   - [x] `if`, `multiIf`
-- [ ] Cover conversion and cast functions:
+- [x] Cover conversion and cast functions:
   - [x] `toInt`, `toFloat`, `toDecimal`, `toBool`, `toString`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`
   - [x] `accurateCast`, `accurateCastOrNull`, `CAST`, `TRY_CAST`
   - [x] `reinterpretAs*`
@@ -409,7 +409,7 @@ TODO:
   - [x] `JSON_VALUE`
   - [x] `JSONHas`, `JSONType`, `JSONLength`
   - [ ] PostHog property extraction wrappers if any are introduced
-- [ ] Cover array functions:
+- [x] Cover array functions:
   - [x] constructors and element access
   - [x] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
   - [x] `arrayReduce` with supported aggregate names
@@ -453,15 +453,15 @@ These are small but important because optimizers often reason around casts and a
 
 TODO:
 
-- [ ] Assign output types for `TypeCast`.
-- [ ] Assign output types for `TryCast`.
-- [ ] Represent the target type of casts using the canonical type model, not only `type_name: str`.
-- [ ] Preserve dialect-specific cast syntax and supported target types.
-- [ ] Infer `ArrayAccess(Array[T], Int) -> T`.
-- [ ] Infer `ArraySlice(Array[T], ...) -> Array[T]`.
-- [ ] Infer `TupleAccess(Tuple[..., T_i, ...], i) -> T_i`.
+- [x] Assign output types for `TypeCast`.
+- [x] Assign output types for `TryCast`.
+- [x] Represent the target type of casts using structured runtime type parsing, not only `type_name: str`.
+- [x] Preserve dialect-specific cast syntax and supported target types.
+- [x] Infer `ArrayAccess(Array[T], Int) -> T`.
+- [x] Infer `ArraySlice(Array[T], ...) -> Array[T]`.
+- [x] Infer `TupleAccess(Tuple[..., T_i, ...], i) -> T_i`.
 - [ ] Infer named tuple access when the tuple has field names.
-- [ ] Infer dictionary/map construction and access types.
+- [x] Infer dictionary/map construction and access types.
 - [x] Type common higher-order `Lambda` expressions with parameter and return types.
 - [x] Make `LambdaArgumentType` resolve from surrounding higher-order function context instead of always `UnknownType`.
 - [ ] Type `ColumnsExpr`/`AsteriskType` expansion boundaries more explicitly for projection optimizers.
@@ -480,8 +480,8 @@ The missing part is type unification and lifecycle robustness.
 
 TODO:
 
-- [ ] For `UNION`, `INTERSECT`, and `EXCEPT`, compute output column types across all branches rather than using the first branch as the effective type source.
-- [ ] Use `least_common_supertype` for set query columns.
+- [x] For `UNION`, `INTERSECT`, and `EXCEPT`, compute output column types across all branches rather than using the first branch as the effective type source.
+- [x] Use `least_common_supertype` for set query columns.
 - [ ] Validate column count and type compatibility in set queries when strict mode is enabled.
 - [ ] Keep CTE column alias remapping from losing type information.
 - [ ] Preserve types through recursive CTE base/recursive branches where supported.
@@ -532,13 +532,14 @@ Once type facts are reliable, optimizer work can be incremental.
 
 TODO:
 
-- [ ] Add a typed cast simplifier:
-  - [ ] remove redundant `toString(String)`
-  - [ ] remove redundant `toDate(Date)`
+- [x] Add an opt-in typed cast/nullability simplifier for conservative cases:
+  - [x] remove redundant `toString(String)`
+  - [x] remove redundant `toDate(Date)`
   - [ ] remove redundant `toDateTime(DateTime)`
-  - [ ] remove redundant `assumeNotNull(non_nullable_expr)`
+  - [x] remove redundant `toBool(Boolean)`
+  - [x] remove redundant `assumeNotNull(non_nullable_expr)`
   - [ ] collapse repeated compatible casts
-  - [ ] avoid removing casts that change timezone, precision, parsing semantics, or nullability
+  - [x] avoid removing casts that change timezone, precision, parsing semantics, or nullability
 - [ ] Add literal-side conversion rewrites:
   - [ ] compare typed column to typed literal without wrapping the column
   - [ ] move datetime timezone conversion from column side to constant side where safe
@@ -547,10 +548,10 @@ TODO:
   - [ ] use materialized columns for typed JSON extraction where safe
   - [ ] avoid decompressing full JSON blobs when a property column is available
   - [ ] avoid `JSONExtractRaw` fallback when all required properties are materialized
-- [ ] Add nullability simplification:
-  - [ ] avoid `ifNull(compare(...), default)` when both sides are non-nullable
+- [ ] Add broader nullability simplification:
+  - [x] avoid selected `ifNull(compare(...), default)` wrappers when both sides are non-nullable
   - [ ] preserve SQL three-valued logic where needed
-  - [ ] avoid redundant `ifNull` around functions known to be non-nullable
+  - [x] avoid redundant `ifNull`/`coalesce` around functions known to be non-nullable in the opt-in simplifier
 - [ ] Add aggregate-state typing:
   - [ ] allow state/merge transformations to know intermediate and final types
   - [ ] validate compatible state/merge pairs
@@ -575,11 +576,11 @@ Acceptance criteria:
 
 TODO:
 
-- [ ] Add a helper that returns a typed AST plus a diagnostic report.
-- [ ] Count `UnknownType` occurrences by source:
-  - [ ] unknown field
+- [x] Add a helper that returns a typed AST plus a diagnostic report.
+- [x] Count `UnknownType` occurrences by source:
+  - [x] unknown field
   - [ ] unknown database field mapping
-  - [ ] missing function signature
+  - [x] missing function signature
   - [ ] signature mismatch
   - [ ] unsupported AST node
   - [ ] transform invalidated type
@@ -600,24 +601,24 @@ Acceptance criteria:
 
 TODO:
 
-- [ ] Add unit tests for the type algebra.
-- [ ] Add resolver tests for:
-  - [ ] casts
-  - [ ] arrays
-  - [ ] tuples
-  - [ ] maps
-  - [ ] lambdas
-  - [ ] `if`, `multiIf`, `coalesce`
-  - [ ] aggregations
-  - [ ] set queries
-  - [ ] typed properties
+- [x] Add unit tests for the type algebra.
+- [x] Add resolver tests for:
+  - [x] casts
+  - [x] arrays
+  - [x] tuples
+  - [x] maps
+  - [x] lambdas
+  - [x] `if`, `multiIf`, `coalesce`
+  - [x] aggregations
+  - [x] set queries
+  - [x] typed properties
 - [ ] Add dialect compatibility tests for ClickHouse, Postgres, and DuckDB print targets.
 - [ ] Add function catalog tests:
   - [ ] every public function has either a precise signature or an explicit unknown marker
   - [ ] aggregate functions declare return type behavior
   - [ ] state/merge pairs are coherent
   - [ ] parametric functions validate literal arguments
-- [ ] Add printer tests for optimized SQL shape.
+- [x] Add printer tests for the first optimized SQL shapes.
 - [ ] Add ClickHouse integration tests for:
   - [ ] inferred type vs returned column type
   - [ ] skip-index usage on typed materialized property comparisons
@@ -630,7 +631,7 @@ TODO:
   - [x] typed string helpers such as `base64Encode(...)` avoid unnecessary comparison wrapping
   - [x] typed URL helpers such as `protocol(...)` avoid unnecessary comparison wrapping
   - [ ] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
-  - [ ] property access control does not leak materialized property values
+  - [x] property access control does not leak materialized property values in property comparison planning
 
 Acceptance criteria:
 
@@ -643,27 +644,27 @@ Acceptance criteria:
 
 TODO:
 
-- [ ] Add a non-invasive inventory command or test for function signature coverage.
-- [ ] Add unknown-type diagnostics without changing query output.
+- [x] Add a non-invasive inventory helper/test for function signature coverage.
+- [x] Add unknown-type diagnostics without changing query output.
 - [ ] Build a small representative query corpus from existing tests and query runners.
 - [ ] Record the baseline unknown-type rate by dialect.
 - [ ] Record the baseline compile-time cost of resolution.
 - [ ] Identify the top 20 unknown-producing functions in representative queries.
-- [ ] Record a backwards-compatibility baseline of representative queries that currently compile.
+- [x] Record focused backwards-compatibility tests for representative typed query shapes that currently compile.
 
-Do not change optimizer behavior in this phase.
+Phase 0 itself does not change optimizer behavior.
 
 ### Phase 1: Canonical Type Model
 
 TODO:
 
-- [ ] Add the structured SQL runtime type model.
-- [ ] Add adapters from current `ConstantType` classes to the new model, or evolve `ConstantType` directly.
-- [ ] Add adapters from `DatabaseField` to the new model.
-- [ ] Add parser/adapter for ClickHouse type strings used in warehouse and saved query metadata.
-- [ ] Add adapters for Postgres and DuckDB type metadata used by HogQL print targets.
-- [ ] Add equality, display, and debug serialization for types.
-- [ ] Keep current public resolver behavior compatible.
+- [x] Add the structured SQL runtime type model.
+- [x] Add adapters from current `ConstantType` classes to the new model.
+- [x] Add adapters from `DatabaseField` to the new model.
+- [x] Add parser/adapter for ClickHouse type strings.
+- [x] Add basic adapters for Postgres and DuckDB type metadata used by HogQL print targets.
+- [x] Add equality, display, and debug serialization for types.
+- [x] Keep current public resolver behavior compatible.
 
 This phase should be mostly mechanical and heavily tested.
 
@@ -671,12 +672,12 @@ This phase should be mostly mechanical and heavily tested.
 
 TODO:
 
-- [ ] Implement nullability algebra.
-- [ ] Implement least-common-supertype.
-- [ ] Implement generic function signatures.
+- [x] Implement initial nullability algebra.
+- [x] Implement least-common-supertype.
+- [x] Implement generic function inference.
 - [ ] Migrate existing signatures into the new format.
-- [ ] Preserve the current simple signature format temporarily if needed.
-- [ ] Add diagnostics for unknown or partially-known function calls.
+- [x] Preserve the current simple signature format.
+- [x] Add diagnostics for unknown or partially-known function calls.
 
 This phase should still avoid broad optimizer rewrites.
 
@@ -700,10 +701,10 @@ This phase should reduce `UnknownType` rates enough to make selective optimizati
 
 TODO:
 
-- [ ] Add cast simplification behind a modifier or internal flag.
+- [x] Add cast simplification behind an internal flag.
 - [x] Use property comparison planning as the default guard for the existing materialized string-column range rewrite.
 - [ ] Add typed property comparison rewrites behind a modifier or internal flag once physical source types or another proven-safe index path exist.
-- [ ] Add nullability wrapper simplification behind a modifier or internal flag.
+- [x] Add conservative nullability wrapper simplification behind an internal flag.
 - [ ] Add aggregate state typing support for preaggregation work.
 - [ ] Add projection/lazy table improvements only after field lineage is stable.
 - [ ] Run query corpus comparisons before and after each rewrite.
@@ -756,19 +757,20 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Suggested PR Slices
 
-1. Add function signature inventory and unknown-type diagnostics.
-2. Add a structured SQL runtime type model and adapters from current `ConstantType`/`DatabaseField`.
-3. Add cross-dialect adapters for ClickHouse, Postgres, and DuckDB type metadata.
-4. Add type algebra for nullability, common supertypes, numeric promotion, arrays, and tuples.
-5. Add generic function signature support while keeping existing simple signatures working.
-6. Type casts, accessors, and higher-order function lambda arguments.
-7. Type comparisons, logical functions, `if`, `multiIf`, and nullability functions.
-8. Type common aggregate and aggregate-state functions.
-9. Type property extraction and materialized property planning metadata.
-10. Add cast simplification with tests and a guarded rollout.
-11. Add typed materialized property comparison optimization with skip-index integration tests.
-12. Add strict mode for internal tests after coverage is high.
-13. Remove obsolete ad hoc workarounds and document the new workflow.
+- [x] Add function signature inventory and unknown-type diagnostics.
+- [x] Add a structured SQL runtime type model and adapters from current `ConstantType`/`DatabaseField`.
+- [x] Add cross-dialect adapters for ClickHouse, Postgres, and DuckDB type metadata.
+- [x] Add type algebra for nullability, common supertypes, numeric promotion, arrays, and tuples.
+- [x] Add generic function signature support while keeping existing simple signatures working.
+- [x] Type casts, accessors, and higher-order function lambda arguments.
+- [x] Type comparisons, logical functions, `if`, `multiIf`, and nullability functions.
+- [x] Type common scalar aggregate functions.
+- [x] Type property extraction and materialized property planning metadata.
+- [x] Add cast simplification with tests and a guarded rollout.
+- [x] Guard the existing materialized string range rewrite with property comparison planning.
+- [ ] Add typed materialized property comparison optimization with skip-index integration tests.
+- [ ] Add strict mode for internal tests after coverage is high.
+- [ ] Remove obsolete ad hoc workarounds and document the new workflow.
 
 ## Success Metrics
 

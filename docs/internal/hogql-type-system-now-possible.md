@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities added by the first real implementation slice of the HogQL type-system project.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, and an opt-in internal simplifier for conservative type-aware rewrites.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, property comparison planning, and an opt-in internal simplifier for conservative type-aware rewrites.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -318,7 +318,7 @@ Redundant cast detection:
 
 - `toString(String)` can be proven redundant.
 - `toDate(Date)` can be proven redundant.
-- `toDateTime(DateTime)` can be proven redundant when precision and timezone do not change.
+- datetime casts can be classified with precision/timezone metadata, but the current simplifier deliberately leaves them in place.
 - `assumeNotNull(non_nullable_expr)` can be proven redundant.
 - Casts that change nullability, timezone, precision, parsing semantics, or type family can stay in place.
 
@@ -353,7 +353,8 @@ Function-catalog work:
 The foundation is real, but several TODOs remain intentionally incomplete.
 
 Common lambda-first higher-order array functions now bind lambda argument types from surrounding array element types.
-Remaining higher-order gaps include `arrayReduce` aggregate-name binding, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
+`arrayReduce(...)` infers result types for supported aggregate names.
+Remaining higher-order gaps include broader aggregate-name coverage, aggregate combinator return typing, and strict validation of lambda arity and predicate return types.
 
 Property-definition metadata is now part of property comparison planning.
 `posthog/hogql/property_planner.py` combines semantic property-definition types, physical source metadata, restricted-property access control, and comparison compatibility.
