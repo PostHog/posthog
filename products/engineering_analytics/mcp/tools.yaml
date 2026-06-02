@@ -2,11 +2,8 @@
 # The tool list and operation IDs are kept in sync automatically:
 #   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
 #
-# The primary surface for this product is the generic SQL/query tool over the
-# curated read layer (engineering_analytics_pull_requests /
-# engineering_analytics_workflow_runs), guided by the
-# diagnosing-ci-and-merge-bottlenecks skill. pr-lifecycle is the one named deep
-# tool — a genuine single-PR assembly the SQL surface can't express in one call.
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Engineering analytics
 feature: engineering_analytics
 url_prefix: /engineering_analytics
