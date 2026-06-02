@@ -1,9 +1,11 @@
+import hashlib
 import datetime
 import dataclasses
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -11,12 +13,13 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.core import mail
 from django.core.exceptions import ImproperlyConfigured
+from django.test import override_settings
 from django.utils import timezone
 
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email, sanitize_email_properties
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
 
 
 class TestEmail(BaseTest):
@@ -442,3 +445,135 @@ class TestEmail(BaseTest):
             "the Customer.io transactional message ID, otherwise the sender will raise "
             "'Unknown template name' at runtime and capture_exception will swallow it.",
         )
+
+
+class TestMessagingHashSalt(BaseTest):
+    def test_get_email_hash_defaults_preserve_legacy_secret_key_hashes(self) -> None:
+        # MESSAGING_HASH_SALT defaults to SECRET_KEY, so hashes written before the salt
+        # was decoupled (SHA-256(SECRET_KEY + email)) stay valid. If this breaks, an
+        # upgrade would orphan every existing email_hash and re-send live campaigns.
+        with self.settings(MESSAGING_HASH_SALT=settings.SECRET_KEY, MESSAGING_HASH_SALT_FALLBACKS=[]):
+            legacy = hashlib.sha256(f"{settings.SECRET_KEY}_a@b.com".encode()).hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), legacy)
+            self.assertEqual(get_email_hashes("a@b.com"), [legacy])
+
+    def test_get_email_hashes_includes_primary_and_fallbacks_deduped(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt", "new_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            self.assertEqual(get_email_hash("a@b.com"), primary)
+            # both salts present and the duplicate "new_salt" collapsed; order is irrelevant
+            # since the result only feeds an `email_hash__in=` lookup
+            self.assertEqual(set(get_email_hashes("a@b.com")), {primary, fallback})
+
+    def test_unset_fallbacks_is_empty_list_not_blank_string(self) -> None:
+        # An unset env var yields [] (not [""]) — get_list("") returns [], and the
+        # settings parsing additionally strips any blanks. This is the invariant that
+        # keeps an empty salt from ever reaching the hash.
+        self.assertEqual(settings.MESSAGING_HASH_SALT_FALLBACKS, [])
+        self.assertNotIn("", settings.MESSAGING_HASH_SALT_FALLBACKS)
+
+    def test_get_email_hash_refuses_empty_primary_salt(self) -> None:
+        # Empty primary salt is a misconfiguration (would write a brute-forceable hash):
+        # the write path fails loud rather than silently degrade.
+        with self.settings(MESSAGING_HASH_SALT=""):
+            with self.assertRaises(ValueError):
+                get_email_hash("a@b.com")
+
+    def test_get_email_hashes_never_hashes_an_empty_salt(self) -> None:
+        # Even if a blank slips into the fallback list (e.g. a stray comma in the env
+        # var), it is skipped — the empty-salt hash is never produced.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["", "old_salt"]):
+            primary = hashlib.sha256(b"new_salt_a@b.com").hexdigest()
+            fallback = hashlib.sha256(b"old_salt_a@b.com").hexdigest()
+            empty_salt_hash = hashlib.sha256(b"_a@b.com").hexdigest()
+            hashes = get_email_hashes("a@b.com")
+            self.assertEqual(set(hashes), {primary, fallback})
+            self.assertNotIn(empty_salt_hash, hashes)
+
+    def test_dedup_matches_record_written_under_fallback_salt(self) -> None:
+        # Record written before rotation, under the old salt.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        # After rotation, with the old salt listed as a fallback, the existing record is
+        # found and reused — no duplicate row, no re-send.
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            record, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertFalse(created)
+            self.assertIsNotNone(record.sent_at)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 1)
+
+    def test_dedup_misses_after_rotation_without_fallback(self) -> None:
+        # Control for the test above: without the old salt as a fallback, the pre-rotation
+        # record is unreachable and a fresh row is created — proving the fallback is what
+        # bridges the rotation.
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            _, created = MessagingRecord.objects.get_or_create(raw_email="rotate@posthog.com", campaign_key="c")
+            self.assertTrue(created)
+            self.assertEqual(MessagingRecord.objects.filter(campaign_key="c").count(), 2)
+
+    def test_filter_by_raw_email_matches_across_salts(self) -> None:
+        with self.settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+            MessagingRecord.objects.get_or_create(
+                raw_email="rotate@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+            )
+
+        with self.settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+            self.assertTrue(
+                MessagingRecord.objects.filter(
+                    raw_email="rotate@posthog.com", campaign_key="c", sent_at__isnull=False
+                ).exists()
+            )
+
+
+# Async tests live as standalone functions — the async ORM (afirst/aget_or_create) can't
+# run inside BaseTest's wrapping transaction, so they need django_db(transaction=True).
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_reuses_record_written_under_fallback_salt() -> None:
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        original, created = await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+        assert created
+
+    # After rotation the old salt is a fallback, so the read finds the existing record:
+    # no duplicate row, no re-send.
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=["old_salt"]):
+        found, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert not created
+        assert found.pk == original.pk
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_writes_under_primary_salt_not_a_fallback() -> None:
+    with override_settings(MESSAGING_HASH_SALT="primary_salt", MESSAGING_HASH_SALT_FALLBACKS=["other_salt"]):
+        record, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert record.email_hash == hashlib.sha256(b"primary_salt_async@posthog.com").hexdigest()
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_aget_or_create_without_fallback_creates_duplicate_after_rotation() -> None:
+    # Control: without the old salt as a fallback, the pre-rotation record is unreachable
+    # and a fresh row is created — proving the fallback is what bridges the rotation.
+    with override_settings(MESSAGING_HASH_SALT="old_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        await MessagingRecord.objects.aget_or_create(
+            raw_email="async@posthog.com", campaign_key="c", defaults={"sent_at": timezone.now()}
+        )
+
+    with override_settings(MESSAGING_HASH_SALT="new_salt", MESSAGING_HASH_SALT_FALLBACKS=[]):
+        _, created = await MessagingRecord.objects.aget_or_create(raw_email="async@posthog.com", campaign_key="c")
+        assert created
+        assert await MessagingRecord.objects.filter(campaign_key="c").acount() == 2
