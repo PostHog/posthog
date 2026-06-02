@@ -38,7 +38,8 @@ test.describe('Auth', () => {
             let _context: any = undefined
             Object.defineProperty(window, 'POSTHOG_APP_CONTEXT', {
                 get() {
-                    if (_context?.preflight?.available_social_auth_providers) {
+                    if (_context?.preflight) {
+                        _context.preflight.available_social_auth_providers ??= {}
                         _context.preflight.available_social_auth_providers['google-oauth2'] = true
                     }
                     return _context
