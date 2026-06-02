@@ -8,9 +8,14 @@
             "description": "Full new body. Mutually exclusive with `edits`.",
             "type": "string"
         },
+        "compatibility": {
+            "description": "Overrides the `compatibility` frontmatter (max 500 chars). Omit to keep the prior value.",
+            "maxLength": 500,
+            "type": "string"
+        },
         "description": {
-            "description": "Overrides the prior description. Omit to keep the prior value.",
-            "maxLength": 4096,
+            "description": "Overrides the prior description (1–1024 chars, non-empty). Omit to keep the prior value.",
+            "maxLength": 1024,
             "type": "string"
         },
         "edits": {
@@ -43,8 +48,13 @@
             },
             "type": "array"
         },
+        "license": {
+            "description": "Overrides the `license` frontmatter. Omit to keep the prior value.",
+            "maxLength": 256,
+            "type": "string"
+        },
         "metadata": {
-            "description": "Overrides metadata. Omit to keep the prior value."
+            "description": "Overrides the metadata map. Omit to keep the prior value."
         },
         "name": {
             "pattern": "^[^/]+$",
