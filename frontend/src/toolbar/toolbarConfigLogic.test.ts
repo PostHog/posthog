@@ -10,13 +10,16 @@ import {
 } from '~/toolbar/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve([]),
-    } as any as Response)
-)
+/** Default fetch mock — succeeds with an empty JSON array. */
+function defaultFetchMock(): jest.Mock {
+    return jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([]),
+        } as any as Response)
+    )
+}
 
 /** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
@@ -39,7 +42,9 @@ describe('toolbar toolbarConfigLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(global.fetch as jest.Mock).mockClear()
+        // Reassign in beforeEach (not at module load) so this wins over the MSW
+        // interceptor that mswServer.listen() installs on global.fetch in beforeAll.
+        global.fetch = defaultFetchMock()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
 
