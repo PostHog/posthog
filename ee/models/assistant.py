@@ -125,11 +125,9 @@ class Conversation(UUIDTModel, DeletedMetaFields):
 
     @property
     def current_run(self) -> Optional["TaskRun"]:
-        # Derived, not stored: all Runs share the Task; the latest by created_at is
-        # the one new user messages target. Deterministic regardless of update ordering.
         if not self.task_id:
             return None
-        return self.task.runs.order_by("-created_at").first()
+        return self.task.latest_run
 
 
 class ConversationCheckpoint(UUIDTModel):
