@@ -1131,6 +1131,34 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         assert "evil.com" not in kwargs["subject"]
         assert kwargs["template_context"]["invite_message"] == ""
 
+    def test_send_invites_rejects_over_recipient_cap(self):
+        topic = self._create_topic(
+            interviewee_emails=["alex@example.com", "jordan@example.com"], interviewee_distinct_ids=[]
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.MAX_INVITE_RECIPIENTS_PER_SEND", 1),
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            response = self.client.post(self._url(str(topic.id)), data={}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "per-send limit" in response.json()["error"]
+
+    @parameterized.expand(
+        [
+            ("url", "chat about http://evil.com"),
+            ("brackets", "chat <b>now</b>"),
+            ("newline", "line one\nline two"),
+        ]
+    )
+    def test_send_invites_rejects_unsafe_subject_override(self, _name: str, subject: str):
+        topic = self._create_topic(interviewee_emails=["alex@example.com"], interviewee_distinct_ids=[])
+        with patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True):
+            response = self.client.post(self._url(str(topic.id)), data={"subject": subject}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == "subject"
+
 
 class TestInviteFieldValidation(_FeatureFlagEnabledMixin):
     def _url(self) -> str:
