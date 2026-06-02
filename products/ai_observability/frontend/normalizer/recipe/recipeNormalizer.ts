@@ -1,5 +1,5 @@
 import { CompatMessage } from '../../types'
-import { AVAILABLE_TOOLS_ROLE } from '../../utils'
+import { AVAILABLE_TOOLS_ROLE, safeStringify } from '../../utils'
 import { loadRecipes } from './registry'
 import { NO_MATCH, RecipePipeline } from './runtime/pipeline'
 
@@ -20,7 +20,7 @@ export class RecipeNormalizer {
         if (result === NO_MATCH) {
             // cajole.yaml matches anything, so NO_MATCH means a coverage gap, not a normal miss.
             throw new Error(
-                `RecipeNormalizer: no recipe matched ${JSON.stringify(input)?.slice(0, 200)} — cajole.yaml should be the final catch-all`
+                `RecipeNormalizer: no recipe matched ${safeStringify(input, 0).slice(0, 200)} — cajole.yaml should be the final catch-all`
             )
         }
         return result

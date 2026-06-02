@@ -28,7 +28,7 @@ export class SlotCoercer {
             }
         }
 
-        base.role = this.coerceRole(emit.role, scope)
+        const role = this.coerceRole(emit.role, scope)
 
         if (emit.content !== undefined) {
             base.content = this.coerceContent(emit.content.eval(scope))
@@ -61,10 +61,7 @@ export class SlotCoercer {
             return null
         }
         // Renderers expect a string, so default empty content rather than leave it undefined.
-        if (base.content === undefined) {
-            base.content = ''
-        }
-        return base as CompatMessage
+        return { ...base, role, content: base.content ?? '' }
     }
 
     // Attaches the parent's role/tool_call_id onto children that normalized

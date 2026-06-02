@@ -3,10 +3,12 @@ import { nearestOperator } from './operatorSuggestion'
 const OPERATORS = new Set(['select', 'reject', 'coalesce', 'join', 'omit', 'stringify', 'literal'])
 
 describe('nearestOperator', () => {
-    it('suggests an operator one edit away from a typo', () => {
-        expect(nearestOperator('selct', OPERATORS)).toBe('select') // deletion
-        expect(nearestOperator('joins', OPERATORS)).toBe('join') // insertion
-        expect(nearestOperator('omat', OPERATORS)).toBe('omit') // substitution
+    it.each([
+        ['selct', 'select', 'deletion'],
+        ['joins', 'join', 'insertion'],
+        ['omat', 'omit', 'substitution'],
+    ])('suggests %s → %s (%s)', (typo, expected) => {
+        expect(nearestOperator(typo, OPERATORS)).toBe(expected)
     })
 
     it('returns nothing when no operator is close', () => {

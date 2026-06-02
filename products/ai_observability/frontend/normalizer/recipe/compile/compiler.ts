@@ -368,7 +368,10 @@ function asOperatorMapping(op: string, payload: unknown): Record<string, unknown
 }
 
 function operatorArg(args: Record<string, unknown>, key: string): Expr {
-    return key in args ? compileValue(args[key]) : new LiteralExpr(undefined)
+    if (!(key in args)) {
+        throw new Error(`operator requires a '${key}:' argument`)
+    }
+    return compileValue(args[key])
 }
 
 function optionalArg(args: Record<string, unknown>, key: string): Expr | null {
@@ -380,9 +383,11 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 function stringField(o: Record<string, unknown>, key: string): string | undefined {
-    return typeof o[key] === 'string' ? (o[key] as string) : undefined
+    const value = o[key]
+    return typeof value === 'string' ? value : undefined
 }
 
 function numField(o: Record<string, unknown>, key: string): number | undefined {
-    return typeof o[key] === 'number' ? (o[key] as number) : undefined
+    const value = o[key]
+    return typeof value === 'number' ? value : undefined
 }
