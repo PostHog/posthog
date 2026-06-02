@@ -1,7 +1,7 @@
-import { act, fireEvent } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 
 import { dimensions } from './jsdom'
-import { waitForHogChartTooltip } from './tooltip'
+import { getHogChartTooltip } from './tooltip'
 
 /** Fire a mouseMove on a chart wrapper element at the pixel position
  *  corresponding to the given label index. */
@@ -15,10 +15,36 @@ export function hoverAtIndex(wrapper: HTMLElement, index: number, totalLabels: n
     })
 }
 
+/** Hover at the given label index, re-dispatching the mouseMove until the chart's
+ *  tooltip portal mounts. The chart commits its scales/dimensions in a post-render
+ *  effect (useChartCanvas), and onMouseMove is a no-op until that commit lands — so
+ *  a single hover fired before the chart settles is silently dropped and the tooltip
+ *  never appears. Polling the *trigger* (not just the result) makes the hover
+ *  deterministic regardless of when the chart settles, without inflating timeouts. */
+export async function hoverUntilTooltip(
+    wrapper: HTMLElement,
+    index: number,
+    totalLabels: number,
+    timeout = 3000
+): Promise<HTMLElement> {
+    let tooltip!: HTMLElement
+    await waitFor(
+        () => {
+            hoverAtIndex(wrapper, index, totalLabels)
+            const el = getHogChartTooltip()
+            if (!el) {
+                throw new Error('tooltip not yet rendered')
+            }
+            tooltip = el
+        },
+        { timeout, interval: 10 }
+    )
+    return tooltip
+}
+
 export async function clickAtIndex(wrapper: HTMLElement, index: number, totalLabels: number): Promise<void> {
-    hoverAtIndex(wrapper, index, totalLabels)
-    // Wait for the hover state to flush — onClick reads tooltipCtx synchronously
-    // to decide between pinning and onPointClick, and a stale null takes the wrong branch.
-    await waitForHogChartTooltip()
+    // Re-hover until the tooltip flushes — onClick reads tooltipCtx synchronously to decide
+    // between pinning and onPointClick, and a stale null takes the wrong branch.
+    await hoverUntilTooltip(wrapper, index, totalLabels)
     fireEvent.click(wrapper)
 }
