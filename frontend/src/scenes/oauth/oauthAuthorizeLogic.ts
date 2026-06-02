@@ -132,8 +132,7 @@ const oauthAuthorize = async (
         // api throws ApiError; the OAuth error code lands in `error.data.error` and the
         // human-readable text in `error.data.error_description`.
         const errorCode: string | null = error?.data?.error ?? null
-        const description: string | null =
-            error?.data?.error_description ?? error?.detail ?? error?.message ?? null
+        const description: string | null = error?.data?.error_description ?? error?.detail ?? error?.message ?? null
         return {
             type: 'error',
             error: buildAuthorizationError(errorCode, description, values.scopes),

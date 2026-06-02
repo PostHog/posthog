@@ -1,47 +1,47 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { useMocks } from '~/mocks/jest'
+import apiReal from 'lib/api'
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
 
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
-    let authorizeResponse: [number, Record<string, any>]
-
-    useMocks({
-        get: {
-            '/api/projects': () => [200, { results: [] }],
-            '/api/organizations/:id/projects': () => [200, { results: [] }],
-        },
-        post: {
-            '/oauth/authorize/': () => authorizeResponse,
-        },
-    })
+    let createSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        authorizeResponse = [200, { redirect_to: 'https://example.com/callback?code=abc&state=s' }]
-        logic = oauthAuthorizeLogic()
-        logic.mount()
-    })
+        // loadAllTeams runs on mount (via urlToAction); keep it off the network.
+        jest.spyOn(apiReal, 'loadPaginatedResults').mockResolvedValue([])
+        createSpy = jest
+            .spyOn(apiReal, 'create')
+            .mockResolvedValue({ redirect_to: 'https://example.com/callback?code=abc&state=s' })
 
-    const navigateToAuthorize = async (scope = 'experiment:write'): Promise<void> => {
         const params = new URLSearchParams({
             client_id: 'test-client-id',
             redirect_uri: 'https://example.com/callback',
             response_type: 'code',
             state: 's',
-            scope,
+            scope: 'experiment:write',
         })
         router.actions.push(`/oauth/authorize?${params.toString()}`)
-        await expectLogic(logic).toFinishAllListeners()
-    }
+        logic = oauthAuthorizeLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    const invalidScopeApiError = (description: string): ApiError =>
+        new ApiError('invalid_scope', 400, undefined, { error: 'invalid_scope', error_description: description })
 
     it('surfaces a persistent inline error when /authorize returns invalid_scope (4xx)', async () => {
-        await navigateToAuthorize('experiment:write')
-        authorizeResponse = [400, { error: 'invalid_scope', error_description: 'Out of bounds' }]
+        await expectLogic(logic).toFinishAllListeners()
+        createSpy.mockRejectedValue(invalidScopeApiError('Out of bounds'))
 
         await expectLogic(logic, () => {
             logic.actions.submitOauthAuthorization()
@@ -56,11 +56,10 @@ describe('oauthAuthorizeLogic', () => {
     })
 
     it('surfaces an inline error when invalid_scope is embedded in a 200 redirect_to', async () => {
-        await navigateToAuthorize('experiment:write')
-        authorizeResponse = [
-            200,
-            { redirect_to: 'http://localhost:1234/callback?error=invalid_scope&error_description=Nope' },
-        ]
+        await expectLogic(logic).toFinishAllListeners()
+        createSpy.mockResolvedValue({
+            redirect_to: 'http://localhost:1234/callback?error=invalid_scope&error_description=Nope',
+        })
 
         await expectLogic(logic, () => {
             logic.actions.submitOauthAuthorization()
@@ -73,15 +72,15 @@ describe('oauthAuthorizeLogic', () => {
     })
 
     it('clears a previous error when the form is resubmitted', async () => {
-        await navigateToAuthorize('experiment:write')
-        authorizeResponse = [400, { error: 'invalid_scope', error_description: 'Out of bounds' }]
+        await expectLogic(logic).toFinishAllListeners()
+        createSpy.mockRejectedValue(invalidScopeApiError('Out of bounds'))
         await expectLogic(logic, () => {
             logic.actions.submitOauthAuthorization()
         }).toFinishAllListeners()
-        expect(logic.values.authorizationError).not.toBeNull()
+        expect(logic.values.authorizationError?.detail).toEqual('Out of bounds')
 
         // A subsequent submit clears the stale error before re-attempting.
-        authorizeResponse = [400, { error: 'invalid_scope', error_description: 'Still out of bounds' }]
+        createSpy.mockRejectedValue(invalidScopeApiError('Still out of bounds'))
         await expectLogic(logic, () => {
             logic.actions.submitOauthAuthorization()
         })
