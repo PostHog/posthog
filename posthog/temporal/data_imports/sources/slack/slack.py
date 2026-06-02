@@ -421,32 +421,27 @@ def slack_source(
         resource = rest_api_resource(config, team_id, job_id, None)
         items = lambda: resource
     else:
-        # Per-channel message endpoint
+        # Per-channel message endpoint.
+        #
+        # Slack channel tables are webhook-only: we deliberately skip the historical
+        # `conversations.history` / `conversations.replies` backfill. That backfill makes one
+        # `conversations.replies` request per threaded message, which fans out into tens of
+        # thousands of rate-limited requests on workspaces with many channels and threads.
+        # Passing `skip_initial_sync_complete_check=True` activates webhook mode from the very
+        # first sync (the same pattern the Customer.io webhook tables use). Until the webhook is
+        # configured and delivering events, the table stays empty rather than backfilling history.
         endpoint_config = messages_endpoint_config()
         sort_mode = "desc"
 
         if channel_id is None:
             raise Exception(f"channel_not_found: {endpoint}")
 
-        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
-
-        oldest_ts: str | None = None
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
-            # Known limitation: incremental polling only fetches thread replies for parent messages
-            # returned by conversations.history in this window. Replies added to older parent threads
-            # (parent ts < oldest_ts) are intentionally not captured here and are expected to be
-            # addressed by webhook sources.
-            oldest_ts = str(db_incremental_field_last_value.timestamp())
-
-        resolved_id = channel_id
-        resolved_oldest_ts = oldest_ts
+        webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(True)
 
         def channel_items() -> Iterable[Any] | AsyncIterable[Any]:
             if webhook_enabled:
                 return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
-            return _channel_messages_generator(
-                access_token, resolved_id, resumable_source_manager, oldest_ts=resolved_oldest_ts
-            )
+            return iter([])
 
         items = channel_items
 

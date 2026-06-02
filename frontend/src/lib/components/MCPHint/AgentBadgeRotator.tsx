@@ -25,8 +25,8 @@ export function AgentBadgeRotator({ className }: { className?: string }): JSX.El
     return (
         <span className={cn('inline-flex relative', className)} aria-live="polite">
             <span
-                key={AGENTS[index]}
-                className={cn('font-semibold rainbow-text', {
+                key={index}
+                className={cn('font-semibold rainbow-text-fading', {
                     'rainbow-text-animating': !isStorybook,
                 })}
             >

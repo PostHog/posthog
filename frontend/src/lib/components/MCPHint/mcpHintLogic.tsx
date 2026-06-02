@@ -1,7 +1,10 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { toast } from 'react-toastify'
 
+import { IconX } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -10,20 +13,24 @@ import { UserType } from '~/types'
 
 import type { mcpHintLogicType } from './mcpHintLogicType'
 import { MCPHintToast } from './MCPHintToast'
-import type { SurfaceKey } from './prompts'
+import type { SurfaceKey, SurfacePromptContext } from './prompts'
+
+// In production the toast auto-dismisses after a few seconds so it doesn't linger;
+// in development we keep it open so it's easier to inspect.
+const AUTO_DISMISS_MS = process.env.NODE_ENV === 'development' ? false : 15000
 
 // A full week between hints, regardless of surface — these are promotional,
 // so we err heavily on the side of not overloading people.
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000
 
-export function tryShowMCPHint(surfaceKey: SurfaceKey): void {
+export function tryShowMCPHint(surfaceKey: SurfaceKey, context?: SurfacePromptContext): void {
     try {
         const mounted = mcpHintLogic.findMounted()
         if (!mounted?.values.featureEnabled) {
             return
         }
 
-        mounted.actions.tryShowHint(surfaceKey)
+        mounted.actions.tryShowHint(surfaceKey, context)
     } catch (error) {
         console.warn('[mcpHint] dispatch failed; host listener will continue', { surfaceKey, error })
     }
@@ -36,7 +43,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         actions: [userLogic, ['updateUser'], eventUsageLogic, ['reportMCPHintShown', 'reportMCPHintDismissed']],
     })),
     actions({
-        tryShowHint: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
+        tryShowHint: (surfaceKey: SurfaceKey, context?: SurfacePromptContext) => ({ surfaceKey, context }),
         recordShown: (now: number) => ({ now }),
         dismissSurface: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
         dismissAll: true,
@@ -80,7 +87,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
-        tryShowHint: ({ surfaceKey }) => {
+        tryShowHint: ({ surfaceKey, context }) => {
             const now = Date.now()
             const sinceLast = values.lastShownAt ? now - values.lastShownAt : Infinity
             const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
@@ -90,13 +97,27 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             }
 
             try {
-                toast.info(<MCPHintToast surfaceKey={surfaceKey} />, {
+                toast.info(<MCPHintToast surfaceKey={surfaceKey} context={context} />, {
                     toastId: `mcp-hint-${surfaceKey}-${now}`,
-                    autoClose: false,
+                    autoClose: AUTO_DISMISS_MS,
                     closeOnClick: false,
                     draggable: false,
                     hideProgressBar: true,
                     icon: false,
+                    // Clicking the X is the only way to permanently hide this surface — auto-dismiss
+                    // (timeout) shouldn't count, so we wire dismissSurface here, not in onClose.
+                    closeButton: ({ closeToast }) => (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconX />}
+                            onClick={(e) => {
+                                actions.dismissSurface(surfaceKey)
+                                closeToast(e)
+                            }}
+                            data-attr="mcp-hint-close"
+                        />
+                    ),
                 })
                 actions.recordShown(now)
                 actions.reportMCPHintShown(surfaceKey)
