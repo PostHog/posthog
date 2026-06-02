@@ -187,6 +187,17 @@ export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): n
     return epoch(a) - epoch(b) || a.id - b.id
 }
 
+// Order executed changes by `executed_at`, most recently executed first, so the history reads as a
+// real execution timeline even when execution is delayed. Unparseable/missing dates sort last; ties
+// break by `id` (creation order) for a stable order.
+export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        const ms = dayjs(sc.executed_at ?? undefined).valueOf()
+        return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
+    }
+    return epoch(b) - epoch(a) || b.id - a.id
+}
+
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
     business_hours: {
         label: 'Business hours',
@@ -2506,12 +2517,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
-            // History reads most-recent first, so reverse the soonest-first order.
             (scheduledChanges: ScheduledChangeType[]) =>
-                scheduledChanges
-                    .filter((sc) => !!sc.executed_at)
-                    .sort(byScheduledAt)
-                    .reverse(),
+                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
