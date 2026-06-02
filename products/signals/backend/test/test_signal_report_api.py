@@ -651,3 +651,74 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
+
+    def test_rejects_unknown_state(self):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "ready"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_snooze_for_delays_repromotion(self):
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": 10}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        assert report.signals_at_run == 15
+
+    @parameterized.expand([("zero", 0), ("negative", -1), ("too_large", 100_001)])
+    def test_snooze_for_out_of_bounds_rejected(self, _name, snooze_for):
+        report = self._create_report()
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential", "snooze_for": snooze_for}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
+
+    def test_internal_transition_kwargs_are_not_injectable(self):
+        # Callers must not be able to reach internal transition_to kwargs through the body.
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=5, total_weight=9.0
+        )
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps(
+                {
+                    "state": "potential",
+                    "reset_weight": True,
+                    "error": "injected",
+                    "signals_at_run_increment": 999,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
+        # None of the injected kwargs took effect.
+        assert report.total_weight == 9.0
+        assert report.error is None
+        assert report.signals_at_run == 0
+
+    def test_can_reopen_suppressed_report(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "potential"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.POTENTIAL
