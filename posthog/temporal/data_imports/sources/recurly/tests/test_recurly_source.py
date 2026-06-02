@@ -1,10 +1,12 @@
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import RecurlySourceConfig
 from posthog.temporal.data_imports.sources.recurly.recurly import RecurlyResumeConfig
@@ -119,7 +121,7 @@ class TestRecurlySource:
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
 
-        response = self.source.source_for_pipeline(self.config, manager, inputs)
+        response = self.source.source_for_pipeline(self.config, manager, cast(SourceInputs, inputs))
 
         mock_recurly_source.assert_called_once_with(
             api_key="test-key",
@@ -151,7 +153,7 @@ class TestRecurlySource:
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        self.source.source_for_pipeline(self.config, manager, cast(SourceInputs, inputs))
 
         # When the user isn't running incrementally, no watermark should leak through.
         assert mock_recurly_source.call_args.kwargs["db_incremental_field_last_value"] is None

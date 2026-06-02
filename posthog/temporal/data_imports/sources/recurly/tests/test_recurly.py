@@ -28,6 +28,12 @@ def _list_body(data: list[dict[str, Any]], has_more: bool = False, next_path: st
     return {"object": "list", "has_more": has_more, "next": next_path, "data": data}
 
 
+def _resource(endpoint: str, **kwargs: Any) -> dict[str, Any]:
+    # get_resource returns an EndpointResource TypedDict whose nested values are unions;
+    # cast to a plain dict so the structural assertions below stay readable.
+    return cast(dict[str, Any], get_resource(endpoint, **kwargs))
+
+
 class TestRecurlyHelpers:
     @pytest.mark.parametrize(
         "next_path, expected",
@@ -148,7 +154,7 @@ class TestRecurlyPaginator:
 class TestGetResource:
     @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
     def test_full_refresh_resource_uses_replace_and_stable_sort(self, endpoint):
-        resource = get_resource(
+        resource = _resource(
             endpoint, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
         )
         assert resource["name"] == endpoint
@@ -164,7 +170,7 @@ class TestGetResource:
 
     @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
     def test_incremental_resource_uses_merge_and_begin_time(self, endpoint):
-        resource = get_resource(
+        resource = _resource(
             endpoint,
             should_use_incremental_field=True,
             incremental_field="updated_at",
@@ -177,7 +183,7 @@ class TestGetResource:
         assert params["begin_time"] == "2024-01-01T00:00:00.000Z"
 
     def test_incremental_honours_chosen_field(self):
-        resource = get_resource(
+        resource = _resource(
             "accounts",
             should_use_incremental_field=True,
             incremental_field="created_at",
@@ -186,7 +192,7 @@ class TestGetResource:
         assert resource["endpoint"]["params"]["sort"] == "created_at"
 
     def test_incremental_falls_back_to_updated_at_for_unknown_field(self):
-        resource = get_resource(
+        resource = _resource(
             "accounts",
             should_use_incremental_field=True,
             incremental_field="not_a_field",
@@ -195,7 +201,7 @@ class TestGetResource:
         assert resource["endpoint"]["params"]["sort"] == "updated_at"
 
     def test_no_begin_time_without_last_value(self):
-        resource = get_resource(
+        resource = _resource(
             "accounts",
             should_use_incremental_field=True,
             incremental_field="updated_at",
@@ -207,7 +213,7 @@ class TestGetResource:
     def test_full_refresh_endpoint_ignores_incremental_request(self, endpoint):
         # Even if the pipeline asks for incremental, an endpoint without a server-side
         # time filter must stay full-refresh.
-        resource = get_resource(
+        resource = _resource(
             endpoint,
             should_use_incremental_field=True,
             incremental_field="updated_at",
