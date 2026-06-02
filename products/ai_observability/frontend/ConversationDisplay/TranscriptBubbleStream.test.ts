@@ -349,47 +349,48 @@ describe('buildStreamItems — internal messages (thinking, tool_result) collaps
 
     it('preserves the role of the first hidden message on the group (alignment is label-based; role kept for analytics)', () => {
         const items = buildStreamItems([thinking('first reasoning step')])
-        expect(items).toHaveLength(1)
+        expect(items.map((i) => i.kind)).toEqual(['internal-group'])
         if (items[0].kind === 'internal-group') {
             expect(items[0].role).toBe('assistant (thinking)')
         }
     })
 
-    it('groups Anthropic typed tool_result parts under the `tool_result` label (renders agent-side)', () => {
-        const userToolResultBlob: CompatMessage = {
-            role: 'user',
-            content: [
-                { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
-                { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
-            ] as unknown as CompatMessage['content'],
-        }
-        const items = buildStreamItems([userToolResultBlob])
+    it.each<[name: string, message: CompatMessage, expectedLabels: string[]]>([
+        [
+            'Anthropic typed tool_result parts (renders agent-side)',
+            {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'row 1' },
+                    { type: 'tool_result', tool_use_id: 't2', content: 'row 2' },
+                ] as unknown as CompatMessage['content'],
+            },
+            ['tool_result'],
+        ],
+        [
+            'custom function-shape user-role tool_result',
+            {
+                role: 'user',
+                content: [
+                    {
+                        type: 'function',
+                        tool_name: 'fetch_account_context',
+                        content: '<current_account_data>...</current_account_data>',
+                    },
+                ] as unknown as CompatMessage['content'],
+            },
+            ['tool_result'],
+        ],
+        [
+            'internal tags under their tag-name label (renders user-side)',
+            { role: 'user', content: '<system_reminder>foo</system_reminder>' },
+            ['system_reminder'],
+        ],
+    ])('groups a single message into one internal-group: %s', (_, message, expectedLabels) => {
+        const items = buildStreamItems([message])
+        expect(items.map((i) => i.kind)).toEqual(['internal-group'])
         if (items[0].kind === 'internal-group') {
-            expect(items[0].labels.every((l) => l === 'tool_result')).toBe(true)
-        }
-    })
-
-    it('groups custom function-shape user-role tool_result under the `tool_result` label', () => {
-        const userFunctionResult: CompatMessage = {
-            role: 'user',
-            content: [
-                {
-                    type: 'function',
-                    tool_name: 'fetch_account_context',
-                    content: '<current_account_data>...</current_account_data>',
-                },
-            ] as unknown as CompatMessage['content'],
-        }
-        const items = buildStreamItems([userFunctionResult])
-        if (items[0].kind === 'internal-group') {
-            expect(items[0].labels).toEqual(['tool_result'])
-        }
-    })
-
-    it('groups scaffold tags under their tag-name label (renders user-side)', () => {
-        const items = buildStreamItems([{ role: 'user', content: '<system_reminder>foo</system_reminder>' }])
-        if (items[0].kind === 'internal-group') {
-            expect(items[0].labels).toEqual(['system_reminder'])
+            expect(items[0].labels).toEqual(expectedLabels)
         }
     })
 })
