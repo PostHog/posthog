@@ -1,5 +1,6 @@
 import uuid
 from types import SimpleNamespace
+from typing import cast
 
 from django.test import SimpleTestCase, override_settings
 
@@ -7,6 +8,7 @@ import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.connection_token import (
     SANDBOX_CONNECTION_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
@@ -35,13 +37,18 @@ KEY_B = _generate_private_key_pem()
 KID_A = _compute_kid(_derive_public_key_pem(KEY_A))
 
 
-def _fake_run(state: dict | None = None) -> SimpleNamespace:
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        task_id=uuid.uuid4(),
-        team_id=1,
-        mode="background",
-        state=state if state is not None else {},
+def _fake_run(state: dict | None = None) -> TaskRun:
+    # Only the attributes the token helpers read are needed, so a lightweight stand-in
+    # avoids the DB; cast keeps the call sites type-correct.
+    return cast(
+        TaskRun,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            task_id=uuid.uuid4(),
+            team_id=1,
+            mode="background",
+            state=state if state is not None else {},
+        ),
     )
 
 
