@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
@@ -92,6 +92,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackIntegrationLogic({ id: integration.id })
     )
     const [localValue, setLocalValue] = useState<string | null>(null)
+    // Tracks whether a server-side search has clobbered the bulk cache, so the empty-val branch
+    // below only fires the recovery reload when there's actually something stale to recover.
+    // Without this, LemonInputSelect's setInputValue('') on blur and after-select triggers
+    // unnecessary loadAllSlackChannels() calls — visible as the "Only the first page of channels"
+    // hint flickering off and back on for every focus → blur cycle.
+    const hasActiveSearchRef = useRef(false)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -188,10 +194,17 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             // would overwrite the cached list with [], so the bare ID could no longer
                             // resolve to a name after blur.
                             loadAllSlackChannels(false, val)
+                            hasActiveSearchRef.current = true
                         }
                         setLocalValue(val)
-                    } else {
+                    } else if (hasActiveSearchRef.current) {
+                        // Only fire the recovery reload when a search actually clobbered the bulk
+                        // cache. Otherwise the empty val came from LemonInputSelect's setInputValue('')
+                        // on blur or after a selection — both of which would otherwise cause the
+                        // "first page of channels" hint to briefly flicker off and on with every
+                        // focus → blur cycle.
                         loadAllSlackChannels()
+                        hasActiveSearchRef.current = false
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
