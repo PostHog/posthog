@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, isStackOverflowError, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -94,6 +94,30 @@ describe('utils', () => {
                 const result = slashDotDataAttrUnescape(input)
                 expect(result).toBe(expected)
             })
+        })
+    })
+
+    describe('isStackOverflowError', () => {
+        const stackOverflowCases: Array<{ name: string; error: unknown }> = [
+            { name: 'RangeError instance', error: new RangeError('Maximum call stack size exceeded') },
+            { name: 'V8 stack message on plain Error', error: new Error('Maximum call stack size exceeded') },
+            { name: 'Firefox recursion message', error: new Error('too much recursion') },
+            { name: 'stack-size string', error: 'Maximum call stack size exceeded' },
+        ]
+        it.each(stackOverflowCases)('returns true for $name', ({ error }) => {
+            expect(isStackOverflowError(error)).toBe(true)
+        })
+
+        const otherCases: Array<{ name: string; error: unknown }> = [
+            { name: 'TypeError', error: new TypeError('something actually broke') },
+            { name: 'generic Error', error: new Error('boom') },
+            { name: 'finder no-match error', error: new Error("Can't select any node with this selector: div") },
+            { name: 'null', error: null },
+            { name: 'undefined', error: undefined },
+            { name: 'unrelated string', error: 'boom' },
+        ]
+        it.each(otherCases)('returns false for $name', ({ error }) => {
+            expect(isStackOverflowError(error)).toBe(false)
         })
     })
 })

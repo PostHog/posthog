@@ -161,7 +161,12 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         const foundSelector = finder(element, {
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
-            seedMinLength: 5,
+            seedMinLength: 4,
+            // bound finder's recursive candidate/optimize search so a pathological (deeply
+            // nested or very wide) DOM fails fast instead of churning through an exploding
+            // number of selector combinations
+            maxNumberOfPathChecks: 5_000,
+            timeoutMs: 500,
             attr: (name) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
@@ -171,9 +176,23 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
-        captureToolbarException(error, 'element_selector_computation')
+        // On a pathological DOM, finder's recursive search can overflow the stack. That's a
+        // benign "no selector found" outcome for a hovered element, not an error worth capturing.
+        if (!isStackOverflowError(error)) {
+            captureToolbarException(error, 'element_selector_computation')
+        }
         return undefined
     }
+}
+
+export function isStackOverflowError(error: unknown): boolean {
+    // V8/Safari throw RangeError("Maximum call stack size exceeded"); Firefox throws
+    // InternalError("too much recursion"). Match the message defensively across engines.
+    if (error instanceof RangeError) {
+        return true
+    }
+    const message = error instanceof Error ? error.message : String(error)
+    return /maximum call stack|stack size exceeded|too much recursion/i.test(message)
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
