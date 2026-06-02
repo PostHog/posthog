@@ -76,12 +76,19 @@ def verify_provisioning_signature(request: Request) -> Response | None:
             status=400,
         )
 
+    try:
+        decoded_body = body.decode("utf-8")
+    except UnicodeDecodeError as e:
+        _log_and_capture_event("body_not_decodable", 400, endpoint, reason=str(e))
+        return Response(
+            {"error": {"code": "body_not_decodable", "message": "Request body must be UTF-8 encoded"}},
+            status=400,
+        )
+
     sig_header = request.headers.get("stripe-signature", "")
     try:
-        stripe.WebhookSignature.verify_header(
-            body.decode("utf-8"), sig_header, secret, tolerance=MAX_TIMESTAMP_DRIFT_SECONDS
-        )
-    except (stripe.SignatureVerificationError, UnicodeDecodeError) as e:
+        stripe.WebhookSignature.verify_header(decoded_body, sig_header, secret, tolerance=MAX_TIMESTAMP_DRIFT_SECONDS)
+    except stripe.SignatureVerificationError as e:
         _log_and_capture_event("invalid_signature", 401, endpoint, reason=str(e))
         return Response(
             {"error": {"code": "invalid_signature", "message": "Signature verification failed"}}, status=401

@@ -191,3 +191,13 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         assert result is not None
         assert result.status_code == 401
         assert result.data["error"]["code"] == "invalid_signature"
+
+    def test_non_utf8_body_is_a_bad_request_not_a_signature_failure(self):
+        body = b"\xff\xfe not valid utf-8"
+        ts = int(time.time())
+
+        drf_request = self._make_request(body, f"t={ts},v1={'ab' * 32}")
+        result = verify_provisioning_signature(drf_request)
+        assert result is not None
+        assert result.status_code == 400
+        assert result.data["error"]["code"] == "body_not_decodable"
