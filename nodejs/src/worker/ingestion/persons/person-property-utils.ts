@@ -138,6 +138,42 @@ export function isInitialProperty(propertyName: string): boolean {
 
 export const eventToPersonProperties = new Set([...EVENT_TO_PERSON_PROPERTIES, ...CAMPAIGN_PROPERTIES])
 
+// Server-side SDKs run on a host machine, so their device/runtime context describes the
+// server, not the end user. Lifting it onto the person mislabels e.g. $initial_os as "Linux"
+// when a backend event is seen before the user's own device events. Keep in sync with the
+// $lib values these SDKs send.
+export const SERVER_SIDE_LIBS = new Set([
+    'posthog-python',
+    'posthog-node',
+    'posthog-go',
+    'posthog-ruby',
+    'posthog-php',
+    'posthog-java',
+    'posthog-dotnet',
+    'posthog-elixir',
+    'posthog-rs',
+])
+
+// Device/runtime context that only describes the end user's device. Campaign/UTM and URL
+// properties are intentionally excluded — a backend can legitimately set those for a person.
+export const DEVICE_CONTEXT_PROPERTIES = new Set([
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$os',
+    '$os_name',
+    '$os_version',
+    '$screen_height',
+    '$screen_width',
+    '$viewport_height',
+    '$viewport_width',
+    '$raw_user_agent',
+])
+
+export function isServerSideLib(lib: unknown): boolean {
+    return typeof lib === 'string' && SERVER_SIDE_LIBS.has(lib)
+}
+
 export const initialCampaignParams = new Set(
     Array.from(CAMPAIGN_PROPERTIES, (key) => `$initial_${key.replace('$', '')}`)
 )
