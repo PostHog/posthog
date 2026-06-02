@@ -235,6 +235,9 @@ tools:
     comments-update:
         operation: comments_update
         enabled: false
+    environments-promoted-product-intent-retrieve:
+        operation: environments_promoted_product_intent_retrieve
+        enabled: false
     members-destroy:
         operation: members_destroy
         enabled: false
@@ -325,6 +328,24 @@ tools:
     organizations-update:
         operation: update
         enabled: false
+    promoted-product-intent-get:
+        operation: environments_promoted_product_intent_retrieve
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the team's promoted product.
+        description: >
+            Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`,
+            `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured.
+            Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean —
+            for example, if their primary product is `session_replay`, treat a vague reference to "watch a session" as
+            referring to a session recording rather than a survey response.
+        feature_flag: promoted-product
+        feature_flag_variant: intent_plus
     role-get:
         operation: roles_retrieve
         enabled: true

@@ -1,3 +1,4 @@
+import type { ReactRenderer } from '@storybook/react'
 import { DecoratorFunction } from '@storybook/types'
 import { setupWorker } from 'msw/browser'
 
@@ -10,7 +11,7 @@ export const worker: ReturnType<typeof setupWorker> = setupWorker(...handlers)
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
-export const mswDecorator = (mocks: Mocks): DecoratorFunction<any> => {
+export const mswDecorator = (mocks: Mocks): DecoratorFunction<ReactRenderer, any> => {
     return function StoryMock(Story, { parameters }): JSX.Element {
         // merge the default mocks provided in `preview.tsx` with any provided by the story
         // allow the story to override defaults

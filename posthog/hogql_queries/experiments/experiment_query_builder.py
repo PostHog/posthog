@@ -11,7 +11,6 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
-    ExperimentMetricMathType,
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -32,13 +31,21 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
-    get_source_value_expr,
     is_session_property_metric,
     validate_session_property,
 )
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
 from posthog.hogql_queries.experiments.experiment_exposure_query_builder import ExposureQueryBuilder
+from posthog.hogql_queries.experiments.experiment_metric_values import (
+    build_conversion_window_predicate,
+    build_conversion_window_predicate_for_events,
+    build_metric_predicate,
+    build_session_conversion_window_predicate,
+    build_value_aggregation_expr,
+    build_value_expr,
+    get_conversion_window_seconds,
+)
 from posthog.hogql_queries.experiments.experiment_query_context import (
     ExperimentPrecomputationContext,
     ExperimentQueryContext,
@@ -46,11 +53,6 @@ from posthog.hogql_queries.experiments.experiment_query_context import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.funnel_step_builder import FunnelStepBuilder
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
-from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
-    aggregation_needs_numeric_input,
-    build_aggregation_call,
-    extract_aggregation_and_inner_expr,
-)
 from posthog.hogql_queries.experiments.metric_source import MetricSourceInfo
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -207,12 +209,7 @@ class ExperimentQueryBuilder:
         Returns 0 if no conversion window is configured.
         """
         assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
-        if self.metric.conversion_window and self.metric.conversion_window_unit:
-            return conversion_window_to_seconds(
-                self.metric.conversion_window,
-                self.metric.conversion_window_unit,
-            )
-        return 0
+        return get_conversion_window_seconds(self.metric)
 
     def _get_maturity_window_seconds(self) -> int:
         """
@@ -1475,48 +1472,21 @@ class ExperimentQueryBuilder:
         Build the predicate for limiting metric events to the conversion window for the user.
         Uses "metric_events" as the events alias.
         """
-        return self._build_conversion_window_predicate_for_events("metric_events")
+        return build_conversion_window_predicate(self._get_conversion_window_seconds())
 
     def _build_session_conversion_window_predicate(self) -> ast.Expr:
         """
         Build the predicate for limiting session metric events to the conversion window.
         Uses first_event_timestamp from metric_events_by_session for temporal filtering.
         """
-        conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds > 0:
-            return parse_expr(
-                """
-                metric_events_by_session.first_event_timestamp
-                    < exposures.last_exposure_time + toIntervalSecond({conversion_window_seconds})
-                """,
-                placeholders={
-                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-                },
-            )
-        else:
-            # No conversion window limit - just return true since temporal filtering
-            # is already handled by the >= first_exposure_timestamp condition in the join
-            return ast.Constant(value=True)
+        return build_session_conversion_window_predicate(self._get_conversion_window_seconds())
 
     def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
         """
         Build the predicate for limiting metric events to the conversion window for the user.
         Parameterized to support different event table aliases (for ratio metrics).
         """
-        conversion_window_seconds = self._get_conversion_window_seconds()
-        if conversion_window_seconds > 0:
-            return parse_expr(
-                f"""
-                {events_alias}.timestamp >= exposures.first_exposure_time
-                AND {events_alias}.timestamp
-                    < exposures.last_exposure_time + toIntervalSecond({{conversion_window_seconds}})
-                """,
-                placeholders={
-                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-                },
-            )
-        else:
-            return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
+        return build_conversion_window_predicate_for_events(events_alias, self._get_conversion_window_seconds())
 
     def _build_cuped_pre_window_predicate(
         self,
@@ -1690,43 +1660,13 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        # Data warehouse sources use different table and predicate logic
-        timestamp_field_chain: list[str | int]
-        if isinstance(source, ExperimentDataWarehouseNode):
-            # For DW tables, don't prefix with table name since:
-            # 1. We're in a single-table CTE context where field names are unambiguous
-            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
-            #    confuse HogQL field resolution when used as a prefix
-            timestamp_field_chain = [source.timestamp_field]
-            metric_event_filter = data_warehouse_node_to_filter(self.team, source)
-        else:
-            timestamp_field_chain = [table_alias, "timestamp"]
-            metric_event_filter = event_or_action_to_filter(self.team, source)
-
-        conversion_window_seconds = self._get_conversion_window_seconds()
-        date_from = self.date_range_query.date_from_as_hogql()
-        if cuped_lookback_days is not None:
-            date_from = parse_expr(
-                "{date_from} - toIntervalDay({lookback_days})",
-                placeholders={
-                    "date_from": date_from,
-                    "lookback_days": ast.Constant(value=cuped_lookback_days),
-                },
-            )
-
-        return parse_expr(
-            """
-            {timestamp_field} >= {date_from}
-            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
-            AND {metric_event_filter}
-            """,
-            placeholders={
-                "timestamp_field": ast.Field(chain=timestamp_field_chain),
-                "date_from": date_from,
-                "date_to": self.date_range_query.date_to_as_hogql(),
-                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
-                "metric_event_filter": metric_event_filter,
-            },
+        return build_metric_predicate(
+            team=self.team,
+            source=source,
+            date_range_query=self.date_range_query,
+            conversion_window_seconds=self._get_conversion_window_seconds(),
+            table_alias=table_alias,
+            cuped_lookback_days=cuped_lookback_days,
         )
 
     def _build_value_expr(self, source=None, apply_coalesce: bool = True) -> ast.Expr:
@@ -1750,30 +1690,7 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        base_expr = get_source_value_expr(source)
-
-        if not apply_coalesce:
-            return base_expr
-
-        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
-        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
-        if math_type in [
-            ExperimentMetricMathType.UNIQUE_SESSION,
-            ExperimentMetricMathType.DAU,
-            ExperimentMetricMathType.UNIQUE_GROUP,
-            ExperimentMetricMathType.HOGQL,
-        ]:
-            return base_expr
-
-        # Wrap numeric values with coalesce so NULL property values become 0
-        # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
-        # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
-        # Skip wrapping with toFloat if base_expr is already a toFloat call (e.g., continuous metrics)
-        if isinstance(base_expr, ast.Call) and base_expr.name == "toFloat":
-            float_expr = base_expr
-        else:
-            float_expr = ast.Call(name="toFloat", args=[base_expr])
-        return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
+        return build_value_expr(source, apply_coalesce=apply_coalesce)
 
     def _build_value_aggregation_expr(
         self,
@@ -1801,81 +1718,12 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
-        column_ref = f"{events_alias}.{column_name}"
-
-        if math_type in [
-            ExperimentMetricMathType.UNIQUE_SESSION,
-            ExperimentMetricMathType.DAU,
-            ExperimentMetricMathType.UNIQUE_GROUP,
-        ]:
-            if value_expr is not None:
-                # Count distinct values, filtering out null UUIDs and empty strings.
-                # Conditional CUPED expressions can be Nullable, so handle NULL before
-                # applying the same empty-value filtering as the base path.
-                return parse_expr(
-                    """toFloat(count(distinct
-                        multiIf(
-                            isNull({value_expr}), NULL,
-                            toTypeName({value_expr}) IN ('UUID', 'Nullable(UUID)') AND reinterpretAsUInt128(assumeNotNull({value_expr})) = 0, NULL,
-                            toString({value_expr}) = '', NULL,
-                            {value_expr}
-                        )
-                    ))""",
-                    placeholders={"value_expr": value_expr},
-                )
-
-            # Count distinct values, filtering out null UUIDs and empty strings
-            return parse_expr(
-                f"""toFloat(count(distinct
-                    multiIf(
-                        toTypeName({column_ref}) = 'UUID' AND reinterpretAsUInt128({column_ref}) = 0, NULL,
-                        toString({column_ref}) = '', NULL,
-                        {column_ref}
-                    )
-                ))"""
-            )
-        elif math_type == ExperimentMetricMathType.MIN:
-            # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
-            if value_expr is not None:
-                return parse_expr("coalesce(min(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
-            return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
-        elif math_type == ExperimentMetricMathType.MAX:
-            if value_expr is not None:
-                return parse_expr("coalesce(max(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
-            return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
-        elif math_type == ExperimentMetricMathType.AVG:
-            if value_expr is not None:
-                return parse_expr("coalesce(avg(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
-            return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
-        elif math_type == ExperimentMetricMathType.HOGQL:
-            math_hogql = getattr(source, "math_hogql", None)
-            if math_hogql is not None:
-                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
-                if aggregation_function:
-                    inner_value_expr = value_expr or parse_expr(column_ref)
-                    if aggregation_needs_numeric_input(aggregation_function):
-                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
-                    agg_call = build_aggregation_call(
-                        aggregation_function, inner_value_expr, params=params, distinct=distinct
-                    )
-                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
-                    # incompatible with Float64 in ClickHouse greatest/least functions used
-                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
-                    if not aggregation_needs_numeric_input(aggregation_function):
-                        agg_call = ast.Call(name="toFloat", args=[agg_call])
-                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
-            # Fallback to SUM
-            if value_expr is not None:
-                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
-            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
-        else:
-            # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
-            # For ratio metrics with combined_events, when there are no events of one type,
-            # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
-            if value_expr is not None:
-                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
-            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
+        return build_value_aggregation_expr(
+            source,
+            events_alias=events_alias,
+            column_name=column_name,
+            value_expr=value_expr,
+        )
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         return self._exposure_query_builder().build_test_accounts_filter()

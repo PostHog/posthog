@@ -20342,8 +20342,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports",
-                "deployments"
+                "exports"
             ],
             "type": "string"
         },
@@ -29005,7 +29004,6 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
-                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
@@ -41125,6 +41123,11 @@
                 "smoothingIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 1
+                },
+                "stackBreakdownValues": {
+                    "default": false,
+                    "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
+                    "type": "boolean"
                 },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",
