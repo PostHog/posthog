@@ -106,7 +106,7 @@ def build_metric_predicate(
     """
     Builds the metric predicate as an AST expression.
     For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
-    For mean metrics, uses self.metric.source by default with "events" alias.
+    For mean metrics, pass the resolved metric source explicitly with "events" alias.
     """
     # Data warehouse sources use different table and predicate logic
     timestamp_field_chain: list[str | int]
@@ -151,7 +151,7 @@ def build_value_expr(source: MetricSource, apply_coalesce: bool = True) -> ast.E
     """
     Extracts the value expression from the metric source configuration.
     For ratio metrics, pass the specific source (numerator or denominator).
-    For mean metrics, uses self.metric.source by default.
+    For mean metrics, pass the resolved metric source explicitly.
 
     Args:
         source: The metric source configuration
@@ -199,7 +199,7 @@ def build_value_aggregation_expr(
     """
     Returns the value aggregation expression based on math type.
     For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
-    For mean metrics, uses self.metric.source by default with "metric_events" alias.
+    For mean metrics, pass the resolved metric source explicitly with "metric_events" alias.
 
     Args:
         source: The metric source configuration
