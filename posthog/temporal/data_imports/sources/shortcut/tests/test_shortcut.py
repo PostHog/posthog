@@ -107,7 +107,7 @@ class TestValidateCredentials:
     def test_status_mapping(self, mock_session_factory, status_code: int, expected_valid: bool) -> None:
         session = mock.Mock()
         session.get.return_value = _make_response(json_data={"id": "x"}, status_code=status_code)
-        mock_session_factory.return_value = session
+        mock_session_factory.return_value.__enter__.return_value = session
 
         is_valid, error = validate_credentials("token")
 
@@ -126,7 +126,7 @@ class TestGetRows:
         session = mock.Mock()
         rows = [{"id": 1}, {"id": 2}]
         session.request.return_value = _make_response(json_data=rows)
-        mock_session_factory.return_value = session
+        mock_session_factory.return_value.__enter__.return_value = session
 
         batches = list(get_rows("token", "members", mock.Mock()))
 
@@ -140,7 +140,7 @@ class TestGetRows:
     def test_stories_uses_post_with_incremental_body(self, mock_session_factory) -> None:
         session = mock.Mock()
         session.request.return_value = _make_response(json_data=[{"id": 10}])
-        mock_session_factory.return_value = session
+        mock_session_factory.return_value.__enter__.return_value = session
 
         batches = list(
             get_rows(
@@ -163,7 +163,7 @@ class TestGetRows:
     def test_empty_list_yields_nothing(self, mock_session_factory) -> None:
         session = mock.Mock()
         session.request.return_value = _make_response(json_data=[])
-        mock_session_factory.return_value = session
+        mock_session_factory.return_value.__enter__.return_value = session
 
         assert list(get_rows("token", "epics", mock.Mock())) == []
 
@@ -171,7 +171,7 @@ class TestGetRows:
     def test_non_list_response_yields_nothing(self, mock_session_factory) -> None:
         session = mock.Mock()
         session.request.return_value = _make_response(json_data={"unexpected": "shape"})
-        mock_session_factory.return_value = session
+        mock_session_factory.return_value.__enter__.return_value = session
         logger = mock.Mock()
 
         assert list(get_rows("token", "epics", logger)) == []
