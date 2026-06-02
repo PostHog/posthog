@@ -155,7 +155,6 @@ def select_from_persons_table(
             ),
         )
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
-        select.distinct = True
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
 

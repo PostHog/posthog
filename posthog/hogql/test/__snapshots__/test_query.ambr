@@ -550,10 +550,10 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___email
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -606,10 +606,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -638,7 +638,7 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT person.id AS id 
+  SELECT person.id AS id
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -667,10 +667,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -699,10 +699,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -731,10 +731,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -824,10 +824,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS pdi LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -877,7 +877,7 @@
   
   SELECT persons.id AS id, events.event AS event 
   FROM (
-  SELECT person.id AS id 
+  SELECT person.id AS id
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -914,10 +914,10 @@
   GROUP BY person_distinct_id2.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 
@@ -968,10 +968,10 @@
   GROUP BY person_distinct_id_overrides.distinct_id 
   HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
-  SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
+  SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail
   FROM person 
   WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version), (
-  SELECT person.id AS id, max(person.version) AS version 
+  SELECT person.id AS id, max(person.version) AS version
   FROM person 
   WHERE equals(person.team_id, 99999) 
   GROUP BY person.id 

@@ -261,8 +261,8 @@
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -502,8 +502,8 @@
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -836,8 +836,8 @@
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -889,8 +889,8 @@
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -942,8 +942,8 @@
      GROUP BY error_tracking_issue_fingerprint_overrides.fingerprint
      HAVING ifNull(equals(tupleElement(argMax(tuple(error_tracking_issue_fingerprint_overrides.is_deleted), error_tracking_issue_fingerprint_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__exception_issue_override ON equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$exception_fingerprint'), ''), 'null'), '^"|"$', ''), e__exception_issue_override.fingerprint)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version

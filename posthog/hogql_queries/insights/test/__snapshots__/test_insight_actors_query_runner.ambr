@@ -62,8 +62,8 @@
         WHERE bitTest(steps_bitfield, 1)
         ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto') AS source
      INNER JOIN
-       (SELECT DISTINCT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -129,8 +129,8 @@
         WHERE and(ifNull(equals(start_of_period, toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1))), isNull(start_of_period)
                          and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), ifNull(equals(status, 'returning'), 0))) AS source
      INNER JOIN
-       (SELECT DISTINCT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -247,8 +247,8 @@
            GROUP BY aggregation_target)
         WHERE ifNull(equals(num_intervals, 2), 0)) AS source
      INNER JOIN
-       (SELECT DISTINCT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -428,8 +428,8 @@
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
-             (SELECT DISTINCT person.id AS id,
-                              replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+             (SELECT person.id AS id,
+                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                             (SELECT person.id AS id, max(person.version) AS version
@@ -440,8 +440,8 @@
            WHERE and(equals(e.team_id, 99999), ifNull(notEquals(e__person.properties___email, 'tom@posthog.com'), 1), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), less(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), equals(e.event, '$pageview')))
         GROUP BY actor_id) AS source
      INNER JOIN
-       (SELECT DISTINCT person.id AS id,
-                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+       (SELECT person.id AS id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                       (SELECT person.id AS id, max(person.version) AS version
@@ -460,7 +460,7 @@
                                                                                                                GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
                                                                                                             LEFT JOIN
-                                                                                                              (SELECT DISTINCT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+                                                                                                              (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
                                                                                                                FROM person
                                                                                                                WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                                                                                                              (SELECT person.id AS id, max(person.version) AS version

@@ -20,10 +20,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -66,10 +66,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -112,8 +112,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -156,8 +156,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -200,8 +200,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -374,8 +374,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -418,8 +418,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -463,8 +463,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -534,10 +534,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -582,10 +582,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -628,8 +628,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'nonexistent_property'), ''), 'null'), '^"|"$', '') AS properties___nonexistent_property
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'nonexistent_property'), ''), 'null'), '^"|"$', '') AS properties___nonexistent_property
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -672,10 +672,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -718,10 +718,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -764,8 +764,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -808,8 +808,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Property With Spaces'), ''), 'null'), '^"|"$', '') AS `properties___Property With Spaces`
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'Property With Spaces'), ''), 'null'), '^"|"$', '') AS `properties___Property With Spaces`
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -860,10 +860,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -935,10 +935,10 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '') AS properties___username
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version
@@ -1010,8 +1010,8 @@
      GROUP BY person_distinct_id2.distinct_id
      HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS __pdi ON equals(sessions.distinct_id, __pdi.distinct_id)
   LEFT JOIN
-    (SELECT DISTINCT person.id AS id,
-                     replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
+    (SELECT person.id AS id,
+            replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
      FROM person
      WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                    (SELECT person.id AS id, max(person.version) AS version

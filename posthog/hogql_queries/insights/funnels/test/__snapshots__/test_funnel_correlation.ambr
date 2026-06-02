@@ -127,8 +127,8 @@
        (SELECT persons.id AS id,
                persons.properties AS person_props
         FROM
-          (SELECT DISTINCT person.id AS id,
-                           person.properties AS properties
+          (SELECT person.id AS id,
+                  person.properties AS properties
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
@@ -200,8 +200,8 @@
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
-                (SELECT DISTINCT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                (SELECT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version
@@ -310,8 +310,8 @@
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
-                (SELECT DISTINCT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                (SELECT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version
@@ -420,8 +420,8 @@
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
-                (SELECT DISTINCT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                (SELECT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version
@@ -530,8 +530,8 @@
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
               LEFT JOIN
-                (SELECT DISTINCT person.id AS id,
-                                 replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
+                (SELECT person.id AS id,
+                        replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
                  FROM person
                  WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                                (SELECT person.id AS id, max(person.version) AS version

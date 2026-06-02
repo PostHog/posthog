@@ -1438,14 +1438,14 @@
                NULL AS initial_coupon,
                NULL AS initial_coupon_id
         FROM
-          (SELECT DISTINCT person.id AS id,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
-                           replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
-                           toTimeZone(person.created_at, 'UTC') AS created_at
+          (SELECT person.id AS id,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'phone'), ''), 'null'), '^"|"$', '') AS properties___phone,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'address'), ''), 'null'), '^"|"$', '') AS properties___address,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'metadata'), ''), 'null'), '^"|"$', '') AS properties___metadata,
+                  replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$geoip_country_name'), ''), 'null'), '^"|"$', '') AS `properties___$geoip_country_name`,
+                  toTimeZone(person.created_at, 'UTC') AS created_at
            FROM person
            WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
                                                          (SELECT person.id AS id, max(person.version) AS version
