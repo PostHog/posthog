@@ -150,7 +150,9 @@ class TestBambooHRSource:
 
 
 class TestGetRows:
-    def _run(self, manager: MagicMock, *responses: MagicMock, endpoint: str = "employees") -> list[list[dict[str, Any]]]:
+    def _run(
+        self, manager: MagicMock, *responses: MagicMock, endpoint: str = "employees"
+    ) -> list[list[dict[str, Any]]]:
         with patch(f"{MODULE}.make_tracked_session", return_value=_mock_session_returning(*responses)):
             return list(
                 get_rows(
