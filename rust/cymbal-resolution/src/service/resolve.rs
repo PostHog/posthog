@@ -131,55 +131,56 @@ async fn process_item(
     let deadline = Duration::from_millis(item.deadline_ms as u64);
     let _in_flight_guard = in_flight_guard;
 
-    let (result, outcome, kind) = match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
-        Ok(Ok(resolved)) => (
-            resolve_outcome::Result::Done(Done {
-                resolved_exception_json: resolved,
-            }),
-            "done",
-            "ok",
-        ),
-        Ok(Err(ItemFailure::InvalidPayload(msg))) => {
-            debug!(
-                id,
-                error = %msg,
-                "rejecting item with invalid payload",
-            );
-            (
-                error_result(codes::ErrorKind::InvalidPayload, msg),
-                "error",
-                "invalid_payload",
-            )
-        }
-        Ok(Err(ItemFailure::Overloaded(msg))) => {
-            warn!(id, "limiter closed mid-request, asking caller to retry");
-            (
-                error_result(codes::ErrorKind::Overloaded, msg),
-                "error",
-                "overloaded",
-            )
-        }
-        Ok(Err(ItemFailure::Unhandled(err))) => {
-            warn!(
-                id,
-                error = %err,
-                "unhandled error during resolution",
-            );
-            (
-                error_result(codes::ErrorKind::Unhandled, err),
-                "error",
-                "unhandled",
-            )
-        }
-        Err(_) => (
-            error_result(
-                codes::ErrorKind::Overloaded,
-                "item deadline expired".to_string(),
+    let (result, outcome, kind) =
+        match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
+            Ok(Ok(resolved)) => (
+                resolve_outcome::Result::Done(Done {
+                    resolved_exception_json: resolved,
+                }),
+                "done",
+                "ok",
             ),
-            "error",
-            "timeout",
-        ),
-    };
+            Ok(Err(ItemFailure::InvalidPayload(msg))) => {
+                debug!(
+                    id,
+                    error = %msg,
+                    "rejecting item with invalid payload",
+                );
+                (
+                    error_result(codes::ErrorKind::InvalidPayload, msg),
+                    "error",
+                    "invalid_payload",
+                )
+            }
+            Ok(Err(ItemFailure::Overloaded(msg))) => {
+                warn!(id, "limiter closed mid-request, asking caller to retry");
+                (
+                    error_result(codes::ErrorKind::Overloaded, msg),
+                    "error",
+                    "overloaded",
+                )
+            }
+            Ok(Err(ItemFailure::Unhandled(err))) => {
+                warn!(
+                    id,
+                    error = %err,
+                    "unhandled error during resolution",
+                );
+                (
+                    error_result(codes::ErrorKind::Unhandled, err),
+                    "error",
+                    "unhandled",
+                )
+            }
+            Err(_) => (
+                error_result(
+                    codes::ErrorKind::Overloaded,
+                    "item deadline expired".to_string(),
+                ),
+                "error",
+                "timeout",
+            ),
+        };
     record_item_metrics(started_at, outcome, kind);
 
     ProcessedItem { id, result }

@@ -86,7 +86,7 @@ impl RemoteResolutionConfig {
             overload_ejection_decay: Duration::from_millis(
                 config.remote_resolution_overload_ejection_decay_ms,
             ),
-            sample_rate: normalized_sample_rate(config.remote_resolution_sample_rate),
+            sample_rate: normalized_probability(config.remote_resolution_sample_rate),
             routing_jitter: normalized_probability(config.remote_resolution_routing_jitter),
             subscribe_tick_hint: Duration::from_millis(
                 config.remote_resolution_subscribe_tick_hint_ms.max(1),
@@ -100,10 +100,6 @@ impl RemoteResolutionConfig {
     }
 }
 
-fn normalized_sample_rate(sample_rate: f64) -> f64 {
-    normalized_probability(sample_rate)
-}
-
 fn normalized_probability(value: f64) -> f64 {
     if !value.is_finite() {
         return 1.0;
@@ -113,13 +109,13 @@ fn normalized_probability(value: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::normalized_sample_rate;
+    use super::normalized_probability;
 
     #[test]
-    fn sample_rate_is_clamped_to_valid_range() {
-        assert_eq!(normalized_sample_rate(-0.5), 0.0);
-        assert_eq!(normalized_sample_rate(0.25), 0.25);
-        assert_eq!(normalized_sample_rate(1.5), 1.0);
-        assert_eq!(normalized_sample_rate(f64::NAN), 1.0);
+    fn probability_is_clamped_to_valid_range() {
+        assert_eq!(normalized_probability(-0.5), 0.0);
+        assert_eq!(normalized_probability(0.25), 0.25);
+        assert_eq!(normalized_probability(1.5), 1.0);
+        assert_eq!(normalized_probability(f64::NAN), 1.0);
     }
 }

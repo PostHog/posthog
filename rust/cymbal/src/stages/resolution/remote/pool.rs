@@ -631,6 +631,25 @@ impl EndpointPool {
         }
         false
     }
+
+    #[cfg(test)]
+    async fn expire_overload_ejection_for_test(&self, addr: SocketAddr) -> bool {
+        let mut inner = self.inner.lock().await;
+        let Some(state) = inner.endpoints.get_mut(&addr) else {
+            return false;
+        };
+        state.overload_ejected_until = Some(Instant::now() - Duration::from_millis(1));
+        true
+    }
+
+    #[cfg(test)]
+    async fn overload_ejection_cooldown_for_test(&self, addr: SocketAddr) -> Option<Duration> {
+        let inner = self.inner.lock().await;
+        inner
+            .endpoints
+            .get(&addr)
+            .map(|state| state.overload_ejection_cooldown)
+    }
 }
 
 #[derive(Clone)]
@@ -1160,7 +1179,11 @@ mod test {
             .addr;
         assert_ne!(while_ejected, first);
 
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            pool.overload_ejection_cooldown_for_test(first).await,
+            Some(Duration::from_millis(25))
+        );
+        assert!(pool.expire_overload_ejection_for_test(first).await);
         let after_expiry = pool
             .select_for_key("team:1:symbol:bundle-a", &[])
             .await
@@ -1169,7 +1192,10 @@ mod test {
         assert_eq!(after_expiry, first);
 
         pool.eject_overloaded(first).await;
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            pool.overload_ejection_cooldown_for_test(first).await,
+            Some(Duration::from_millis(50))
+        );
         let after_initial_duration = pool
             .select_for_key("team:1:symbol:bundle-a", &[])
             .await
@@ -1177,7 +1203,7 @@ mod test {
             .addr;
         assert_ne!(after_initial_duration, first);
 
-        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert!(pool.expire_overload_ejection_for_test(first).await);
         let after_doubled_duration = pool
             .select_for_key("team:1:symbol:bundle-a", &[])
             .await
