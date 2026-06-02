@@ -30,6 +30,7 @@ from oauth2_provider.views import (
     UserInfoView,
 )
 from oauth2_provider.views.mixins import OAuthLibMixin
+from oauthlib.oauth2 import InvalidGrantError
 from rest_framework import serializers, status
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import IsAuthenticated
@@ -48,7 +49,7 @@ from posthog.helpers.impersonation import get_original_user_from_session, is_imp
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
-from posthog.scopes import downgrade_scopes_to_read_only, get_oauth_scopes_supported
+from posthog.scopes import OIDC_SCOPES, UNPRIVILEGED_SCOPES, downgrade_scopes_to_read_only, get_oauth_scopes_supported
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
@@ -357,6 +358,93 @@ class OAuthValidator(OAuth2Validator):
             return request.client.redirect_uri_allowed(portless)
 
         return False
+
+    # OIDC + introspection are accepted independently of the per-app ceiling.
+    # They are identity / token-management scopes, not resource permissions.
+    _ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+    def validate_scopes(self, client_id, scopes, client, request, *args, **kwargs):
+        """Enforce the per-application scope ceiling from `OAuthApplication.scopes`.
+
+        Resolution:
+        - empty / omitted `scope=` -> grant the effective ceiling (mutate
+          `request.scopes` so oauthlib's default-resolution doesn't fall back
+          to just ["openid"] from DEFAULT_SCOPES).
+        - any subset of `effective_scopes` plus the always-allowed (OIDC,
+          introspection) -> grant as requested.
+        - any value outside that union (including `*` when the app has an
+          explicit ceiling) -> reject. oauthlib turns the False return into
+          `InvalidScopeError` / RFC 6749 `error=invalid_scope`.
+
+        Empty `application.scopes` resolves to UNPRIVILEGED_SCOPES (the broad
+        default), and `*` is accepted in that mode so existing clients (the
+        PostHog Code CLI today) keep working until wildcard retirement.
+        """
+        app_scopes = getattr(client, "scopes", None) or []
+        has_ceiling = bool(app_scopes)
+        effective = frozenset(app_scopes) if has_ceiling else UNPRIVILEGED_SCOPES
+
+        requested = set(scopes or [])
+        if not requested:
+            request.scopes = sorted(effective | self._ALWAYS_ALLOWED_SCOPES)
+            return True
+
+        to_check = requested - self._ALWAYS_ALLOWED_SCOPES
+        if not to_check:
+            return True
+
+        if has_ceiling:
+            return "*" not in to_check and to_check.issubset(effective)
+        return to_check.issubset(UNPRIVILEGED_SCOPES | {"*"})
+
+    def get_original_scopes(self, refresh_token, request, *args, **kwargs):
+        """Cap refreshed scopes at the application's current ceiling.
+
+        DOT's refresh grant copies the prior access token's scopes verbatim and never
+        re-runs `validate_scopes`, so a token minted before a ceiling was tightened would
+        keep refreshing into the old, broader set. Intersecting with `application.scopes`
+        means a narrowed app drops the removed scopes on the next refresh.
+
+        Always-allowed scopes (OIDC, introspection) pass through, mirroring
+        `validate_scopes`. Resolution when the app has a ceiling:
+        - a `*` token is left untouched: narrowing it would strip all resource access
+          on refresh, and `*` is still issued to legacy clients. Its retirement is
+          handled separately in #60330 (coupled to #60342).
+        - a token whose scopes have no overlap with the ceiling can't be narrowed
+          without emptying it, so we reject the refresh (`invalid_grant`) — the client
+          re-authorizes and gets a token within the current ceiling, rather than
+          silently keeping out-of-ceiling access.
+
+        An empty `application.scopes` (no ceiling) is a no-op.
+        """
+        original = super().get_original_scopes(refresh_token, request, *args, **kwargs)
+        # DOT's base returns the stored scope as a space-delimited string; oauthlib
+        # `scope_to_list`s whatever we return, so a list back is fine.
+        original_list = original.split() if isinstance(original, str) else list(original)
+        # `request.client` is not always populated when oauthlib calls this during the
+        # refresh grant, so fall back to resolving the application from the token row.
+        application = getattr(request, "client", None)
+        if application is None:
+            rt = OAuthRefreshToken.objects.filter(token=refresh_token).select_related("application").first()
+            application = rt.application if rt else None
+
+        app_scopes = set(getattr(application, "scopes", None) or [])
+        if not app_scopes:
+            return original_list
+
+        original_set = set(original_list)
+        if "*" in original_set:
+            return original_list
+
+        narrowed = (original_set & app_scopes) | (original_set & self._ALWAYS_ALLOWED_SCOPES)
+        if not narrowed:
+            # Raised inside oauthlib's validate_token_request, which create_token_response
+            # wraps and turns into an RFC 6749 `invalid_grant` 400 — not a 500.
+            raise InvalidGrantError(
+                description="Token scopes are no longer within the application's allowed scopes; re-authorize.",
+                request=request,
+            )
+        return sorted(narrowed)
 
     def rotate_refresh_token(self, request) -> bool:
         """

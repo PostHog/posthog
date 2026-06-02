@@ -873,6 +873,11 @@ class WorkdaySourceConfig(config.Config):
 
 
 @config.config
+class WorkOSSourceConfig(config.Config):
+    api_key: str
+
+
+@config.config
 class WrikeSourceConfig(config.Config):
     pass
 
@@ -1050,6 +1055,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.WEBFLOW: WebflowSourceConfig,
         ExternalDataSourceType.WOOCOMMERCE: WooCommerceSourceConfig,
         ExternalDataSourceType.WORKDAY: WorkdaySourceConfig,
+        ExternalDataSourceType.WORKOS: WorkOSSourceConfig,
         ExternalDataSourceType.WRIKE: WrikeSourceConfig,
         ExternalDataSourceType.XERO: XeroSourceConfig,
         ExternalDataSourceType.YOUTUBEANALYTICS: YouTubeAnalyticsSourceConfig,

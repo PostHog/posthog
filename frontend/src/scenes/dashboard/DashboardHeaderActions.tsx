@@ -20,8 +20,8 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function DashboardAddTileButton(): JSX.Element | null {
-    const { dashboard } = useValues(dashboardLogic)
-    const { loadDashboard } = useActions(dashboardLogic)
+    const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
 
@@ -71,6 +71,16 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
                             'data-attr': 'dashboard-add-button-tile',
                         },
+                        ...(dashboardWidgetsEnabled
+                            ? [
+                                  {
+                                      label: 'Widget',
+                                      tag: 'new' as const,
+                                      onClick: () => setAddWidgetModalOpen(true),
+                                      'data-attr': 'dashboard-add-widget',
+                                  },
+                              ]
+                            : []),
                     ]}
                 >
                     <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>

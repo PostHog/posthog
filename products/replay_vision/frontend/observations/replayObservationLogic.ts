@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import type { replayObservationLogicType } from './replayObservationLogicType'
+import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export interface ReplayObservationLogicProps {
     id: string
@@ -49,6 +50,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             try {
                 const response = await visionObservationsRetrieve(String(teamId), props.id)
                 actions.loadObservationSuccess(response)
+                // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
+                replayObservationSceneLogic({ tabId: props.tabId }).actions.setScannerContext(
+                    response.scanner_id,
+                    response.scanner_snapshot?.name ?? null
+                )
             } catch (error) {
                 lemonToast.error(`Failed to load observation: ${String(error)}`)
                 actions.loadObservationFailure()
