@@ -58,6 +58,8 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
                 ) : null}
             </div>
 
+            <CronTriggerBadge trigger={session.trigger} />
+
             <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3">
                 <Tabs
                     value={activePane}
@@ -89,6 +91,40 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
                         <SessionLogs logs={logs} sessionStartedAt={session.started_at} bare />
                     </TabsContent>
                 </Tabs>
+            </div>
+        </div>
+    )
+}
+
+/**
+ * Compact "fired by <cron_name> at <fired_at>" badge for cron-triggered
+ * sessions. Renders nothing when the session wasn't fired by cron (the
+ * trigger field is populated by the API client's
+ * `triggerMetadataToSessionTrigger` mapping; non-cron triggers don't
+ * stamp `trigger_metadata` today, so they fall through to null). Manual
+ * fires get a `(manual)` suffix so an operator can tell at a glance
+ * which firings came from the "Fire now" button vs the scheduler.
+ */
+function CronTriggerBadge({ trigger }: { trigger: ChatSession['trigger'] }): React.ReactElement | null {
+    if (!trigger || trigger.kind !== 'cron') {
+        return null
+    }
+    const firedAt = new Date(trigger.firedAt)
+    const firedAtLabel = Number.isFinite(firedAt.getTime())
+        ? `${firedAt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`
+        : trigger.firedAt
+    return (
+        <div className="shrink-0 px-4 pt-2">
+            <div className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/40 px-2 py-1 text-[0.6875rem] text-muted-foreground">
+                <span className="font-medium text-foreground">Fired by</span>
+                <code className="font-mono">{trigger.cronName}</code>
+                <span>at</span>
+                <span title={trigger.firedAt}>{firedAtLabel}</span>
+                {trigger.manual ? (
+                    <span className="ml-0.5 rounded-sm bg-warning-foreground/15 px-1 text-warning-foreground">
+                        manual
+                    </span>
+                ) : null}
             </div>
         </div>
     )

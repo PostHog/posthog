@@ -3742,7 +3742,7 @@ importers:
         version: 0.577.0(react@18.3.1)
       next:
         specifier: ^15.5.4
-        version: 15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
+        version: 15.5.18(@opentelemetry/api@1.9.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0)
       react:
         specifier: 18.3.1
         version: 18.3.1
@@ -3847,6 +3847,9 @@ importers:
       '@aws-sdk/client-s3':
         specifier: ^3.723.0
         version: 3.975.0
+      '@posthog/agent-ingress':
+        specifier: workspace:*
+        version: link:../agent-ingress
       '@posthog/agent-migrations':
         specifier: workspace:*
         version: link:../agent-migrations
@@ -3856,6 +3859,9 @@ importers:
       '@posthog/agent-tools':
         specifier: workspace:*
         version: link:../agent-tools
+      cron-parser:
+        specifier: ^4.9.0
+        version: 4.9.0
       express:
         specifier: ^4.21.1
         version: 4.22.2
@@ -15341,6 +15347,10 @@ packages:
 
   cron-parser@4.8.1:
     resolution: {integrity: sha512-jbokKWGcyU4gl6jAfX97E1gDpY12DJ1cLJZmoDzaAln/shZ+S3KBFBuA2Q6WeUN4gJf/8klnV1EfvhA2lK5IRQ==}
+    engines: {node: '>=12.0.0'}
+
+  cron-parser@4.9.0:
+    resolution: {integrity: sha512-p0SaNjrHOnQeR8/VnfGbmg9te2kfyYSQ7Sc/j/6DtPL3JQvKxmjO9TSjNFpujqV3vEYYBvNNvXSxzyksBWAx1Q==}
     engines: {node: '>=12.0.0'}
 
   cron-parser@5.5.0:
@@ -39682,7 +39692,11 @@ snapshots:
 
   cron-parser@4.8.1:
     dependencies:
-      luxon: 3.5.0
+      luxon: 3.7.2
+
+  cron-parser@4.9.0:
+    dependencies:
+      luxon: 3.7.2
 
   cron-parser@5.5.0:
     dependencies:
@@ -46012,7 +46026,7 @@ snapshots:
 
   netmask@2.0.2: {}
 
-  next@15.5.18(@babel/core@7.29.0)(@opentelemetry/api@1.9.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
+  next@15.5.18(@opentelemetry/api@1.9.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(sass@1.56.0):
     dependencies:
       '@next/env': 15.5.18
       '@swc/helpers': 0.5.15
@@ -46020,7 +46034,7 @@ snapshots:
       postcss: 8.4.31
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-      styled-jsx: 5.1.6(@babel/core@7.29.0)(react@18.3.1)
+      styled-jsx: 5.1.6(react@18.3.1)
     optionalDependencies:
       '@next/swc-darwin-arm64': 15.5.18
       '@next/swc-darwin-x64': 15.5.18
@@ -49743,12 +49757,10 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.7
 
-  styled-jsx@5.1.6(@babel/core@7.29.0)(react@18.3.1):
+  styled-jsx@5.1.6(react@18.3.1):
     dependencies:
       client-only: 0.0.1
       react: 18.3.1
-    optionalDependencies:
-      '@babel/core': 7.29.0
 
   stylehacks@7.0.4(postcss@8.5.15):
     dependencies:

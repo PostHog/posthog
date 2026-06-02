@@ -20,7 +20,8 @@ import {
 } from '../spec/spec'
 import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
 
-const SELECT_COLS = `id, application_id, revision_id, team_id, external_key, state,
+const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
+                     idempotency_key, trigger_metadata, state,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests,
                      created_at, updated_at`
@@ -31,12 +32,13 @@ export class PgSessionQueue implements SessionQueue {
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
             `INSERT INTO agent_session
-                (id, application_id, revision_id, team_id, external_key, state,
+                (id, application_id, revision_id, team_id, external_key,
+                 idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
                  usage_total, acl, pending_elevation_requests,
                  created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11::jsonb,
-                     $12::jsonb, $13::jsonb, $14, $15)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -51,6 +53,8 @@ export class PgSessionQueue implements SessionQueue {
                 session.revision_id,
                 session.team_id,
                 session.external_key,
+                session.idempotency_key,
+                session.trigger_metadata ? JSON.stringify(session.trigger_metadata) : null,
                 session.state,
                 JSON.stringify(session.conversation),
                 JSON.stringify(session.pending_inputs),
@@ -180,6 +184,38 @@ export class PgSessionQueue implements SessionQueue {
             return null
         }
         return rowToSession(r.rows[0])
+    }
+
+    async findByIdempotencyKey(applicationId: string, idempotencyKey: string): Promise<AgentSession | null> {
+        // Unique index on (application_id, idempotency_key) guarantees at most
+        // one row matches — no ORDER BY / LIMIT needed for correctness, but
+        // included as a no-op defensive guard against a future index drop.
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE application_id = $1 AND idempotency_key = $2
+             LIMIT 1`,
+            [applicationId, idempotencyKey]
+        )
+        if (r.rowCount === 0) {
+            return null
+        }
+        return rowToSession(r.rows[0])
+    }
+
+    async clearStaleIdempotencyKeys(cutoff: Date): Promise<number> {
+        // Index-friendly: the partial unique index makes the WHERE NOT NULL
+        // filter cheap (it's only scanning rows that still have a key). The
+        // update also frees slots in the partial index — by the time a row
+        // is 30 days old, any retry that would have collided already has.
+        const r = await this.pool.query(
+            `UPDATE agent_session
+             SET idempotency_key = NULL
+             WHERE idempotency_key IS NOT NULL
+               AND created_at < $1`,
+            [cutoff]
+        )
+        return r.rowCount ?? 0
     }
 
     async findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null> {
@@ -352,6 +388,8 @@ interface DbRow {
     revision_id: string
     team_id: number
     external_key: string | null
+    idempotency_key: string | null
+    trigger_metadata: unknown
     state: string
     conversation: unknown
     pending_inputs: unknown
@@ -397,6 +435,11 @@ function rowToSession(row: DbRow): AgentSession {
         team_id: row.team_id,
         principal: (row.principal as AgentSession['principal']) ?? null,
         external_key: row.external_key,
+        idempotency_key: row.idempotency_key,
+        trigger_metadata:
+            row.trigger_metadata && typeof row.trigger_metadata === 'object'
+                ? (row.trigger_metadata as Record<string, unknown>)
+                : null,
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],

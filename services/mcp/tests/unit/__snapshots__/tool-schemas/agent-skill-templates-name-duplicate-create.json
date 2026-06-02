@@ -2,13 +2,13 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "description": {
-            "description": "Description for the new template. Defaults to the source's description.",
-            "maxLength": 4096,
+            "description": "Description for the new template (1–1024 chars, non-empty). Omit to keep the source's description.",
+            "maxLength": 1024,
             "type": "string"
         },
         "name": {
-            "description": "Slug for the new duplicate. Must not collide with an existing template.",
-            "maxLength": 128,
+            "description": "Slug for the new duplicate (max 64 chars). Must not collide with an existing template.",
+            "maxLength": 64,
             "type": "string"
         }
     },

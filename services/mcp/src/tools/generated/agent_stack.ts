@@ -22,6 +22,8 @@ import {
     AgentApplicationsRevisionsCloneFromCreateParams,
     AgentApplicationsRevisionsCreateBody,
     AgentApplicationsRevisionsCreateParams,
+    AgentApplicationsRevisionsCronFireCreateBody,
+    AgentApplicationsRevisionsCronFireCreateParams,
     AgentApplicationsRevisionsFileDestroyParams,
     AgentApplicationsRevisionsFileDestroyQueryParams,
     AgentApplicationsRevisionsFileRetrieveParams,
@@ -389,6 +391,34 @@ const agentApplicationsRevisionsCreate = (): ToolBase<
         const result = await context.api.request<Schemas.AgentRevision>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const AgentApplicationsRevisionsCronFireCreateSchema = AgentApplicationsRevisionsCronFireCreateParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsRevisionsCronFireCreateBody.shape)
+
+const agentApplicationsRevisionsCronFireCreate = (): ToolBase<
+    typeof AgentApplicationsRevisionsCronFireCreateSchema,
+    Schemas.AgentRevisionCronFireResponse
+> => ({
+    name: 'agent-applications-revisions-cron-fire-create',
+    schema: AgentApplicationsRevisionsCronFireCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsCronFireCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.cron_name !== undefined) {
+            body['cron_name'] = params.cron_name
+        }
+        if (params.request_id !== undefined) {
+            body['request_id'] = params.request_id
+        }
+        const result = await context.api.request<Schemas.AgentRevisionCronFireResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/cron/fire/`,
             body,
         })
         return result
@@ -1321,6 +1351,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-bundle-update': agentApplicationsRevisionsBundleUpdate,
     'agent-applications-revisions-clone-from-create': agentApplicationsRevisionsCloneFromCreate,
     'agent-applications-revisions-create': agentApplicationsRevisionsCreate,
+    'agent-applications-revisions-cron-fire-create': agentApplicationsRevisionsCronFireCreate,
     'agent-applications-revisions-file-destroy': agentApplicationsRevisionsFileDestroy,
     'agent-applications-revisions-file-retrieve': agentApplicationsRevisionsFileRetrieve,
     'agent-applications-revisions-file-update': agentApplicationsRevisionsFileUpdate,

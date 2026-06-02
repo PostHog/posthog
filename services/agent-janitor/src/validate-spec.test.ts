@@ -144,4 +144,84 @@ describe('validateRevisionBundle', () => {
         expect(report.revision_state).toBe('ready')
         expect(report.revision_id).toBe('rev1')
     })
+
+    describe('cron triggers', () => {
+        const cronTrigger = (
+            overrides: Record<string, unknown> = {}
+        ): NonNullable<z.input<typeof AgentSpecSchema>['triggers']>[number] => ({
+            type: 'cron',
+            config: {
+                name: 'digest',
+                schedule: '0 9 * * MON',
+                prompt: 'Produce the weekly digest for {fired_at:date}.',
+                ...overrides,
+            },
+        })
+
+        async function setup(
+            triggers: Array<NonNullable<z.input<typeof AgentSpecSchema>['triggers']>[number]>
+        ): ReturnType<typeof validateRevisionBundle> {
+            const bundles = new MemoryBundleStore()
+            await bundles.write('rev1', 'agent.md', 'hi')
+            return validateRevisionBundle(mkRev({ triggers }), bundles)
+        }
+
+        it('passes a well-formed cron trigger', async () => {
+            const report = await setup([cronTrigger()])
+            expect(report.ok).toBe(true)
+            expect(report.errors).toEqual([])
+        })
+
+        it('flags a malformed cron schedule', async () => {
+            const report = await setup([cronTrigger({ schedule: '0 25 * * MON' })])
+            const codes = report.errors.map((e) => e.code)
+            expect(codes).toContain('invalid_cron_schedule')
+        })
+
+        it('flags an unknown IANA timezone', async () => {
+            const report = await setup([cronTrigger({ timezone: 'Mars/Olympus_Mons' })])
+            const codes = report.errors.map((e) => e.code)
+            expect(codes).toContain('invalid_cron_timezone')
+        })
+
+        it('accepts a known IANA timezone with DST', async () => {
+            const report = await setup([cronTrigger({ timezone: 'US/Pacific' })])
+            expect(report.ok).toBe(true)
+        })
+
+        it('flags duplicate cron names within the same triggers[]', async () => {
+            const report = await setup([
+                cronTrigger({ name: 'digest', schedule: '0 9 * * MON' }),
+                cronTrigger({ name: 'digest', schedule: '0 9 * * FRI' }),
+            ])
+            const codes = report.errors.map((e) => e.code)
+            expect(codes).toContain('duplicate_cron_name')
+        })
+
+        it('flags an unknown placeholder in the prompt', async () => {
+            const report = await setup([cronTrigger({ prompt: 'Run the digest for {unknown_placeholder}.' })])
+            const err = report.errors.find((e) => e.code === 'unknown_cron_placeholder')
+            expect(err).not.toBeUndefined()
+            expect(err?.message).toContain('unknown_placeholder')
+            expect(err?.pointer).toBe('spec.triggers[0].config.prompt')
+        })
+
+        it('flags an unknown placeholder in external_key', async () => {
+            const report = await setup([cronTrigger({ external_key: 'digest-{run_id}' })])
+            const err = report.errors.find((e) => e.code === 'unknown_cron_placeholder')
+            expect(err).not.toBeUndefined()
+            expect(err?.message).toContain('run_id')
+            expect(err?.pointer).toBe('spec.triggers[0].config.external_key')
+        })
+
+        it('accepts every whitelisted placeholder', async () => {
+            const report = await setup([
+                cronTrigger({
+                    prompt: 'cron={cron_name} schedule={schedule} iso={fired_at:iso} date={fired_at:date} week={fired_at:week}',
+                    external_key: 'k-{fired_at:week}-{cron_name}',
+                }),
+            ])
+            expect(report.ok).toBe(true)
+        })
+    })
 })

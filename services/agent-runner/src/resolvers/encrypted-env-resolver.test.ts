@@ -11,6 +11,8 @@ function freshSession(overrides: Record<string, unknown> = {}): never {
         revision_id: 'rev1',
         team_id: 1,
         external_key: null,
+        idempotency_key: null,
+        trigger_metadata: null,
         state: 'queued',
         principal: null,
         conversation: [],

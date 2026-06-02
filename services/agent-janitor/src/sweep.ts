@@ -26,6 +26,13 @@ export interface SweepDeps {
     /** completed sessions idle for longer than this are auto-closed. Default 24h. */
     idleCompletedThresholdMs?: number
     /**
+     * Sessions whose `idempotency_key` is older than this get their key
+     * nulled out, freeing slots in the partial unique index. Plan §6
+     * "Retention" — by the time a row is this old, any retry that would
+     * have collided has long since happened. Default 30 days.
+     */
+    idempotencyKeyTtlMs?: number
+    /**
      * Poison-pill threshold: a stuck-running session that has been re-queued
      * this many times is failed instead. Catches sessions that consistently
      * crash the worker. Default 3 (matches v1's `maxTouchCount`).
@@ -64,6 +71,8 @@ export interface SweepResult {
     closed: number
     /** Queued approval requests aged past `expires_at` that were terminated this sweep. */
     expired_approvals: number
+    /** Sessions whose `idempotency_key` was nulled by the retention sweep. */
+    cleared_idempotency_keys: number
 }
 
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
@@ -132,7 +141,24 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         }
     }
 
-    return { requeued, poisoned, closed, expired_approvals: expiredApprovals }
+    // Policy 4: clear `idempotency_key` on rows older than the retention
+    // window. Keeps the partial unique index compact; by 30 days the dedupe
+    // is no longer load-bearing (any retry would have happened long ago).
+    // Plan §6 "Retention." Skipped if the dep is absent (older deployments
+    // pre-PR-4 haven't migrated yet); idempotencyKeyTtlMs: 0 disables.
+    const idemTtl = deps.idempotencyKeyTtlMs ?? 30 * 24 * 60 * 60_000
+    let clearedIdempotencyKeys = 0
+    if (idemTtl > 0) {
+        clearedIdempotencyKeys = await deps.queue.clearStaleIdempotencyKeys(new Date(now.getTime() - idemTtl))
+    }
+
+    return {
+        requeued,
+        poisoned,
+        closed,
+        expired_approvals: expiredApprovals,
+        cleared_idempotency_keys: clearedIdempotencyKeys,
+    }
 }
 
 /**

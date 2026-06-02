@@ -226,4 +226,215 @@ describe('enqueueOrResume', () => {
         const expired = session!.pending_elevation_requests.filter((r) => r.state === 'expired')
         expect(expired).toHaveLength(1)
     })
+
+    describe('idempotency_key', () => {
+        it('creates the session on first call with a key', async () => {
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'cron:rev1:digest:1780346400000',
+                    seed: { role: 'user', content: 'hi', timestamp: Date.now() },
+                }
+            )
+            expect(out.kind).toBe('created')
+            const session = await queue.get(out.sessionId)
+            expect(session!.idempotency_key).toBe('cron:rev1:digest:1780346400000')
+        })
+
+        it('returns the original session id on a duplicate call — no append, no resume, no new row', async () => {
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            const first = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'k1',
+                    seed: { role: 'user', content: 'first', timestamp: 1 },
+                }
+            )
+            const second = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'k1',
+                    // Deliberately different seed to prove it's discarded.
+                    seed: { role: 'user', content: 'second', timestamp: 2 },
+                }
+            )
+            expect(second.sessionId).toBe(first.sessionId)
+            expect(second.kind).toBe('created')
+            expect(second.isResume).toBe(false)
+            // The first call's seed is preserved; the duplicate's seed is dropped.
+            const session = await queue.get(first.sessionId)
+            expect(session!.conversation).toHaveLength(1)
+            expect((session!.conversation[0] as { content: string }).content).toBe('first')
+        })
+
+        it('stamps trigger_metadata on the session row when supplied', async () => {
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'k2',
+                    triggerMetadata: {
+                        kind: 'cron',
+                        cron_name: 'digest',
+                        schedule: '0 9 * * MON',
+                        fired_at: '2026-06-01T16:00:00Z',
+                    },
+                    seed: { role: 'user', content: 'hi', timestamp: 0 },
+                }
+            )
+            const session = await queue.get(out.sessionId)
+            expect(session!.trigger_metadata).toEqual({
+                kind: 'cron',
+                cron_name: 'digest',
+                schedule: '0 9 * * MON',
+                fired_at: '2026-06-01T16:00:00Z',
+            })
+        })
+
+        it('idempotency_key and external_key compose: idempotency wins on collision', async () => {
+            // A request with both keys, where the idempotency_key matches an
+            // existing row. The dedupe path returns the original; the
+            // external_key resume path doesn't fire.
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            const first = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: 'thread-1',
+                    idempotencyKey: 'req-A',
+                    seed: { role: 'user', content: 'first', timestamp: 0 },
+                }
+            )
+            const second = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: 'thread-1',
+                    idempotencyKey: 'req-A',
+                    seed: { role: 'user', content: 'second', timestamp: 1 },
+                }
+            )
+            expect(second.sessionId).toBe(first.sessionId)
+            // No append happened — the seed got dropped along with the
+            // duplicate request.
+            const session = await queue.get(first.sessionId)
+            expect(session!.pending_inputs).toHaveLength(0)
+            expect(session!.conversation).toHaveLength(1)
+        })
+
+        it('races: unique-violation on insert resolves to the original session id', async () => {
+            // Simulates the window between findByIdempotencyKey and INSERT:
+            // a concurrent writer landed a row first. The wrapped queue throws
+            // the PG unique-violation code on the second insert.
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            // First call goes through normally; capture its id.
+            const first = await enqueueOrResume(
+                { queue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'race-k',
+                    seed: { role: 'user', content: 'a', timestamp: 0 },
+                }
+            )
+            // Wrap the queue to: (a) hide the existing key from the
+            // pre-check (simulating the "didn't see it yet" window), (b)
+            // throw unique-violation on enqueue.
+            // Counter lives outside the Proxy handler because `get` is
+            // re-invoked per property access, so a per-handler closure
+            // would reset between the pre-check and the recovery lookup.
+            let findCalls = 0
+            const racyQueue = new Proxy(queue, {
+                get(target, prop, recv) {
+                    if (prop === 'findByIdempotencyKey') {
+                        return async (appId: string, key: string) => {
+                            findCalls++
+                            // First call (the pre-check) returns null; second
+                            // call (the post-violation lookup) returns the row.
+                            if (findCalls === 1) {
+                                return null
+                            }
+                            return target.findByIdempotencyKey(appId, key)
+                        }
+                    }
+                    if (prop === 'enqueue') {
+                        return async (_session: unknown) => {
+                            const err = new Error('duplicate key value violates unique constraint') as Error & {
+                                code: string
+                            }
+                            err.code = '23505'
+                            throw err
+                        }
+                    }
+                    const v = Reflect.get(target, prop, recv)
+                    return typeof v === 'function' ? v.bind(target) : v
+                },
+            })
+            const second = await enqueueOrResume(
+                { queue: racyQueue, teamId: 1 },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    idempotencyKey: 'race-k',
+                    seed: { role: 'user', content: 'b', timestamp: 1 },
+                }
+            )
+            expect(second.kind).toBe('created')
+            expect(second.sessionId).toBe(first.sessionId)
+        })
+
+        it('without a key: unique-violation propagates (the original bug surface)', async () => {
+            // Without an idempotency_key supplied, a unique-violation has
+            // nothing to resolve against — should rethrow rather than
+            // silently swallow.
+            const queue = new MemorySessionQueue()
+            const { app, rev } = makePair()
+            const racyQueue = new Proxy(queue, {
+                get(target, prop, recv) {
+                    if (prop === 'enqueue') {
+                        return async () => {
+                            const err = new Error('boom') as Error & { code: string }
+                            err.code = '23505'
+                            throw err
+                        }
+                    }
+                    const v = Reflect.get(target, prop, recv)
+                    return typeof v === 'function' ? v.bind(target) : v
+                },
+            })
+            await expect(
+                enqueueOrResume(
+                    { queue: racyQueue, teamId: 1 },
+                    {
+                        application: app,
+                        revision: rev,
+                        externalKey: null,
+                        seed: { role: 'user', content: 'x', timestamp: 0 },
+                    }
+                )
+            ).rejects.toThrow('boom')
+        })
+    })
 })

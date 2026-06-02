@@ -35,8 +35,55 @@ export const TriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('cron'),
         config: z.object({
-            schedule: z.string(),
+            /**
+             * Human + machine handle for this cron job. Unique within the
+             * agent's `triggers[]` (validated at freeze time). Surfaces as
+             * `trigger_metadata.cron_name` on the session row + in
+             * `trigger_metadata.cron_name` for placeholder expansion in
+             * `external_key` and `prompt`. Lowercase alphanumeric + hyphens.
+             */
+            name: z
+                .string()
+                .min(1)
+                .regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, {
+                    message: 'cron name must be lowercase alphanumeric with hyphens, no leading/trailing hyphen',
+                }),
+            /** Cron expression. Validated against `cron-parser` at freeze time. */
+            schedule: z.string().min(1),
+            /** IANA timezone — DST handling delegated to `cron-parser`. */
             timezone: z.string().default('UTC'),
+            /**
+             * The task to communicate to the agent when the cron fires —
+             * arrives as a user-role message at session start. Supports the
+             * shared placeholder set (`fired_at:iso`, `fired_at:date`,
+             * `fired_at:week`, `schedule`, `cron_name`). Capped at 4096 chars
+             * to keep the prompt diff-reviewable.
+             */
+            prompt: z.string().min(1).max(4096),
+            /**
+             * Optional. When set, firings dedupe / append onto the same
+             * session via the existing `external_key` resume path; same
+             * placeholder set as `prompt`. When absent (default), every
+             * firing creates a fresh session.
+             */
+            external_key: z.string().optional(),
+            /**
+             * What to do when the janitor missed scheduled firings (downtime,
+             * restart, deploy). `most_recent` (default) fires the latest
+             * missed firing once; `all` fires every missed firing in the
+             * window; `skip` drops them. See plan §7.
+             */
+            catch_up: z.enum(['all', 'most_recent', 'skip']).default('most_recent'),
+            /**
+             * Hard cap on how far back catch-up will look. Default 1 hour,
+             * max 7 days (604800s). Bounded regardless of `catch_up` mode.
+             */
+            max_catch_up_age_seconds: z
+                .number()
+                .int()
+                .min(1)
+                .max(7 * 86400)
+                .default(3600),
         }),
     }),
     z.object({
@@ -521,6 +568,27 @@ export interface AgentSession {
     revision_id: string
     team_id: number
     external_key: string | null
+    /**
+     * General-purpose dedupe key — "same request, no-op on collision."
+     * Distinct from `external_key` (which means "same conversation, append
+     * on collision"). Cron firings set it to `cron:<rev>:<name>:<minute>`;
+     * webhook triggers can forward provider-supplied keys (Stripe, GitHub,
+     * Slack). A partial unique index on `(application_id, idempotency_key)`
+     * enforces at most one live session per key. Janitor sweep clears keys
+     * older than 30 days so the partial index stays compact. Null for
+     * sessions that pre-date the column or didn't supply a key. See plan
+     * `cron-trigger-scheduler.md` §6.
+     */
+    idempotency_key: string | null
+    /**
+     * Trigger-specific metadata stamped at enqueue time. Shape varies by
+     * trigger kind; for cron firings:
+     * `{ kind: 'cron', cron_name, schedule, fired_at }`. Read by the
+     * session-detail UI to render a "fired by `<cron_name>` at `<fired_at>`"
+     * badge. Stash-don't-parse — the runtime doesn't introspect this beyond
+     * forwarding it to the UI.
+     */
+    trigger_metadata: Record<string, unknown> | null
     /**
      * Session state. See docs/agent-platform/plans/_TODO.md (system-prompt
      * fleshing out) and the session-restart redesign for the contract:
