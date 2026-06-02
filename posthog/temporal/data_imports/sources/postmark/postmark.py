@@ -62,7 +62,10 @@ def validate_credentials(server_token: str) -> bool:
     # returns 401 (ErrorCode 10) for an invalid/missing token and 200 otherwise.
     url = f"{POSTMARK_BASE_URL}/message-streams"
     try:
-        response = make_tracked_session(headers=_get_headers(server_token)).get(url, timeout=10)
+        # `X-Postmark-Server-Token` is not in the sample-capture header denylist, so mask the
+        # token by value to keep it out of any captured HTTP sample.
+        session = make_tracked_session(headers=_get_headers(server_token), redact_values=(server_token,))
+        response = session.get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -149,11 +152,18 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PostmarkResumeConfig],
 ) -> Iterator[Any]:
     config = POSTMARK_ENDPOINTS[endpoint]
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
+
+    # Align the batcher chunk size with the page size for paginated endpoints so each page
+    # yields its own table before we persist the resume offset for the next page. With a
+    # larger chunk size, several pages would buffer in memory while the offset advances, and
+    # a mid-buffer failure could resume past rows that were never yielded — a silent data gap.
+    chunk_size = config.page_size or 2000
+    batcher = Batcher(logger=logger, chunk_size=chunk_size, chunk_size_bytes=100 * 1024 * 1024)
 
     # One tracked session for the whole sync — keeps urllib3's TLS connection warm across
-    # pages, and every request inherits the auth headers.
-    session = make_tracked_session(headers=_get_headers(server_token))
+    # pages, and every request inherits the auth headers. The server token is also masked by
+    # value since `X-Postmark-Server-Token` is not in the sample-capture header denylist.
+    session = make_tracked_session(headers=_get_headers(server_token), redact_values=(server_token,))
 
     if config.page_size is None:
         source_iter = _iter_flat_endpoint(session, config, logger)

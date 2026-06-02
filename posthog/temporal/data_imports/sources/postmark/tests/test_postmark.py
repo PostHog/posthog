@@ -60,6 +60,8 @@ class TestValidateCredentials:
         # Auth token is bound to the session headers; URL is on `.get(...)`.
         session_kwargs = mock_session.call_args.kwargs
         assert session_kwargs["headers"]["X-Postmark-Server-Token"] == "test-token"
+        # The token is also masked by value so it never lands in a captured HTTP sample.
+        assert session_kwargs["redact_values"] == ("test-token",)
         called_args, _ = mock_session.return_value.get.call_args
         assert called_args[0] == f"{POSTMARK_BASE_URL}/message-streams"
 
@@ -80,6 +82,9 @@ class TestFlatEndpoint:
         assert len(tables) == 1
         assert tables[0].num_rows == 1
         assert tables[0].column("ID").to_pylist() == ["outbound"]
+
+        # The sync session masks the token by value to keep it out of captured HTTP samples.
+        assert mock_session.call_args.kwargs["redact_values"] == ("test-token",)
 
         # Flat endpoints fetch the bare path with no pagination params.
         called_url = mock_session.return_value.get.call_args[0][0]
