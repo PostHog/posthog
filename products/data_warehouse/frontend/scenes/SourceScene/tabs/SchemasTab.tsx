@@ -303,6 +303,7 @@ function ManagedSchemaTable({
                 getKey: (schema) => schema.id,
                 isRowSelectable: () => (editDisabledReason ? { disabledReason: editDisabledReason } : true),
                 noun: ['schema', 'schemas'],
+                barClassName: 'mb-2',
                 renderActions: (ctx) => (
                     <SchemaBulkActions schemas={ctx.selectedRecords} clearSelection={ctx.clearSelection} />
                 ),
