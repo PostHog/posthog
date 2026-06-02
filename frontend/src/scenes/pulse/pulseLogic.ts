@@ -1,8 +1,10 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { urls } from 'scenes/urls'
 
 import type { pulseLogicType } from './pulseLogicType'
 import {
@@ -15,6 +17,40 @@ import {
 
 const SCAN_POLL_INTERVAL_MS = 3000
 const SCAN_POLL_ATTEMPTS = 40 // ~2 minutes — covers a slow scan plus digest synthesis
+
+// The event Pulse emits per finding into the team's own project — the trigger a CDP destination filters on.
+const PULSE_FINDING_EVENT = 'pulse_finding_surfaced'
+
+// A Pulse-shaped Slack message prefilled into the destination. The generic template assumes a person
+// triggered the event, but Pulse's distinct_id is the digest, not a user — so we lead with the metric +
+// the human-readable narrative (the raw numeric props aren't formatted) and link back to the digest.
+// {project.url}/{event.properties.*} are resolved by the CDP destination at send time; source_url is a
+// relative path so it's prefixed with {project.url} for an absolute link.
+const PULSE_SLACK_BLOCKS = [
+    {
+        type: 'header',
+        text: { type: 'plain_text', text: '📈 Pulse: {event.properties.metric}' },
+    },
+    {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '{event.properties.narrative}' },
+    },
+    {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: 'Flagged by PostHog Pulse · <{project.url}|{project.name}>' }],
+    },
+    {
+        type: 'actions',
+        elements: [
+            {
+                type: 'button',
+                url: '{project.url}{event.properties.source_url}',
+                text: { type: 'plain_text', text: 'Open in Pulse' },
+            },
+        ],
+    },
+]
+const PULSE_SLACK_TEXT = 'Pulse flagged {event.properties.metric}: {event.properties.narrative}'
 
 const DEFAULT_SUBSCRIPTION: PulseSubscriptionType = {
     id: null,
@@ -47,6 +83,7 @@ export const pulseLogic = kea<pulseLogicType>([
         pollScan: true,
         markScanInProgress: true,
         scanResolved: true,
+        setUpPulseAlerts: true,
     }),
     loaders(({ values, cache }) => ({
         digests: [
@@ -191,6 +228,31 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         saveSubscriptionFailure: () => {
             lemonToast.error('Failed to save Pulse settings')
+        },
+        setUpPulseAlerts: () => {
+            // Deep-link into the CDP destination form pre-filtered to Pulse finding events, so the user only
+            // has to pick a Slack channel and save. hogFunctionConfigurationLogic reads `configuration` from
+            // the URL hash and merges it into the form (same seam the "duplicate destination" flow uses).
+            router.actions.push(
+                urls.hogFunctionNew('template-slack'),
+                {},
+                {
+                    configuration: {
+                        name: 'Pulse findings → Slack',
+                        filters: {
+                            events: [{ id: PULSE_FINDING_EVENT, name: PULSE_FINDING_EVENT, type: 'events' }],
+                        },
+                        // The form's input schema comes from the template; these prefill the message (the merge
+                        // is shallow, so we include icon/username too). The user still picks workspace + channel.
+                        inputs: {
+                            icon_emoji: { value: ':chart_with_upwards_trend:' },
+                            username: { value: 'PostHog Pulse' },
+                            blocks: { value: PULSE_SLACK_BLOCKS },
+                            text: { value: PULSE_SLACK_TEXT },
+                        },
+                    },
+                }
+            )
         },
         triggerScan: () => {
             // Remember the current digest so we can tell when a *new* one finishes (the scan creates a

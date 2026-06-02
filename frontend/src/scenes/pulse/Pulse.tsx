@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconChevronRight, IconPulse, IconRefresh } from '@posthog/icons'
+import { IconBell, IconChevronRight, IconPulse, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCard,
@@ -81,7 +81,10 @@ function DigestReadBanner({ summary, className }: { summary: string; className?:
     return (
         <LemonBanner type="info" className={className}>
             <div className="font-semibold mb-1">PostHog's read</div>
-            <LemonMarkdown>{summary}</LemonMarkdown>
+            {/* LemonBanner sets font-weight:500 on all its content; keep the read body at normal weight. */}
+            <div className="font-normal">
+                <LemonMarkdown>{summary}</LemonMarkdown>
+            </div>
         </LemonBanner>
     )
 }
@@ -390,7 +393,7 @@ export function Pulse(): JSX.Element {
         digestsNext,
         loadingMore,
     } = useValues(pulseLogic)
-    const { loadDigests, loadMoreDigests, loadFindings, loadSubscription, loadWatched, triggerScan } =
+    const { loadDigests, loadMoreDigests, loadFindings, loadSubscription, loadWatched, triggerScan, setUpPulseAlerts } =
         useActions(pulseLogic)
     const { user } = useValues(userLogic)
 
@@ -429,10 +432,19 @@ export function Pulse(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Pulse"
-                description="Max scans your metrics and surfaces changes worth investigating."
+                description="PostHog scans your metrics and surfaces changes worth investigating."
                 resourceType={{ type: 'project', forceIcon: <IconPulse /> }}
                 actions={
                     <>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconBell />}
+                            onClick={() => setUpPulseAlerts()}
+                            tooltip="Get notified in Slack when Pulse surfaces a finding (routes the pulse_finding_surfaced event to a destination)"
+                        >
+                            Set up alerts
+                        </LemonButton>
                         {user?.is_staff && (
                             <LemonButton
                                 type="secondary"
