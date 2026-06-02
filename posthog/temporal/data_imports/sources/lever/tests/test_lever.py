@@ -213,13 +213,15 @@ class TestLeverPaginationAndResume:
 
         assert sent_params[0].get("offset") == "saved_offset"
 
-    def test_hasnext_without_next_token_stops(self) -> None:
+    def test_hasnext_without_next_token_raises(self) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = False
 
-        # hasNext is True but no `next` token -> we must stop rather than loop forever.
+        # hasNext is True but no `next` token -> fail loudly rather than silently
+        # truncating the sync with partial data.
         responses = [_make_response(_page([{"id": "o1"}], True))]
-        self._drive("opportunities", manager, responses)
+        with pytest.raises(Exception, match="hasNext was true but no next offset token"):
+            self._drive("opportunities", manager, responses)
 
         manager.save_state.assert_not_called()
 

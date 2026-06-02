@@ -138,7 +138,10 @@ def get_rows(
 
             next_offset = data.get("next")
             if not next_offset:
-                break
+                # Lever signalled more pages (`hasNext`) but gave us no cursor to fetch
+                # them. Breaking here would silently truncate the sync, so fail loudly and
+                # let the pipeline retry instead of completing with partial data.
+                raise Exception(f"Lever: hasNext was true but no next offset token returned for endpoint={endpoint}")
 
             # Save state after yielding so a crash re-yields the last batch (merge dedupes
             # on the primary key) rather than skipping it.
