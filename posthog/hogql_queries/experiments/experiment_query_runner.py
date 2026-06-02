@@ -142,9 +142,14 @@ class ExperimentQueryRunner(QueryRunner):
         self.group_type_index = self.feature_flag.filters.get("aggregation_group_type_index")
         self.entity_key = get_entity_key(self.group_type_index)
 
-        self.variants = [variant["key"] for variant in self.feature_flag.variants]
-        if self.experiment.holdout:
-            self.variants.append(f"holdout-{self.experiment.holdout.id}")
+        # Holdout is intentionally not appended: holdout users were never exposed to
+        # the experiment, so they don't belong in the metric scorecard.
+        # self.experiment.holdout is still readable for code paths that need it
+        # (e.g. the Distribution table on the Variants tab).
+        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.variants = [
+            variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
+        ]
 
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = stats_config.get("baseline_variant_key", CONTROL_VARIANT_KEY)

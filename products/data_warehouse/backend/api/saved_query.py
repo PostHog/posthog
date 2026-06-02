@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -646,7 +646,6 @@ class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, 
         return normalized_name
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
@@ -698,7 +697,6 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -811,12 +809,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
+        name = instance.name
         try:
             delete_saved_query(instance)
         except HasDependentsError:
             raise serializers.ValidationError(
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="DataWarehouseSavedQuery",
+            activity="deleted",
+            detail=Detail(name=name),
+        )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

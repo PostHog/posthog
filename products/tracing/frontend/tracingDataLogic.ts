@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 
 import { AggregatedSpanRow, SpanTreeNode } from '~/queries/schema/schema-general'
@@ -24,6 +25,16 @@ export interface TracingSparklineData {
     data: { name: string; values: number[]; color: string }[]
     dates: string[]
     labels: string[]
+}
+
+export interface VisibleRowRange {
+    startIndex: number
+    stopIndex: number
+}
+
+export interface VisibleSpanTimeRange {
+    date_from: string
+    date_to: string
 }
 
 const DEFAULT_PAGE_SIZE = 100
@@ -65,6 +76,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         setSpanTreeAbortController: (controller: AbortController | null) => ({ controller }),
         setHasMoreToLoad: (hasMore: boolean) => ({ hasMore }),
         setNextCursor: (cursor: string | null) => ({ cursor }),
+        setVisibleRowRange: (startIndex: number, stopIndex: number) => ({ startIndex, stopIndex }),
         /**
          * Snapshot the resolved time windows used for the last aggregation fetch.
          * The drill-down flame query reads this snapshot instead of recomputing from
@@ -161,6 +173,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 clearSpans: () => null,
             },
         ],
+        visibleRowRange: [
+            null as VisibleRowRange | null,
+            {
+                setVisibleRowRange: (_, { startIndex, stopIndex }) => ({ startIndex, stopIndex }),
+                clearSpans: () => null,
+            },
+        ],
     }),
 
     loaders(({ values, actions }) => ({
@@ -205,6 +224,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            prefetchSpans: PREFETCH_SPANS,
                             limit: DEFAULT_PAGE_SIZE,
                             after: values.nextCursor,
                         },
@@ -414,6 +434,32 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             (s) => [s.spans],
             (spans: Span[]): Span[] => {
                 return spans.filter((s) => s.is_root_span)
+            },
+        ],
+
+        // Date range covered by the currently-visible (scrolled-into-view) rows. Mirrors the
+        // logs viewer so the sparkline can highlight the window the list is showing. Values are
+        // always ordered date_from <= date_to regardless of the list's sort order.
+        visibleRowDateRange: [
+            (s) => [s.visibleRowRange, s.rootSpans],
+            (visibleRowRange: VisibleRowRange | null, rootSpans: Span[]): VisibleSpanTimeRange | null => {
+                if (!visibleRowRange || rootSpans.length === 0) {
+                    return null
+                }
+                const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, rootSpans.length - 1))
+                const stopIndex = Math.max(0, Math.min(visibleRowRange.stopIndex, rootSpans.length - 1))
+                const a = rootSpans[startIndex]?.timestamp
+                const b = rootSpans[stopIndex]?.timestamp
+                if (!a || !b) {
+                    return null
+                }
+                const ta = dayjs(a)
+                const tb = dayjs(b)
+                const [earlier, later] = ta.isBefore(tb) ? [ta, tb] : [tb, ta]
+                return {
+                    date_from: earlier.toISOString(),
+                    date_to: later.toISOString(),
+                }
             },
         ],
     }),

@@ -69,7 +69,7 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         summary="Error rate rose after deploy.\nIgnored second line.",
         signal_count=12,
     )
-    recipient = _RecipientPresentation(header_label="<@U123>", plain_name="Marcus Twix")
+    recipient = _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix")
     blocks, text = _build_message_blocks(
         report,
         priority="P1",
@@ -77,10 +77,12 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         recipient=recipient,
     )
 
-    assert blocks[0]["text"]["text"] == "Inbox for <@U123> · P1"
+    assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
     section_text = blocks[1]["text"]["text"]
     assert "Suggested for" not in section_text
-    assert "*Checkout errors spiked*" in section_text
+    # Mention belongs in the mrkdwn section so Slack actually pings the user.
+    assert section_text.startswith("*‼️ P1 • Matched to <@U123> per code*")
+    assert "*Checkout errors spiked*" not in section_text
     assert "Error rate rose after deploy." in section_text
     assert "Ignored second line." not in section_text
     context_text = blocks[2]["elements"][0]["text"]
@@ -100,7 +102,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
         summary="Error rate rose after deploy.",
         signal_count=12,
     )
-    recipient = _RecipientPresentation(header_label="<@U123>", plain_name="Marcus Twix")
+    recipient = _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix")
     pr_url = "https://github.com/org/repo/pull/42"
     blocks, _ = _build_message_blocks(
         report,
@@ -119,7 +121,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
 
 def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
     report = SignalReport(id="report-uuid", title="No PR yet")
-    recipient = _RecipientPresentation(header_label="Marcus Twix", plain_name="Marcus Twix")
+    recipient = _RecipientPresentation(slack_mention=None, plain_name="Marcus Twix")
     blocks, _ = _build_message_blocks(
         report,
         priority=None,
@@ -128,7 +130,31 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         implementation_pr_url=None,
     )
 
+    assert blocks[1]["text"]["text"] == "*Matched to Marcus Twix per code*"
     assert len(blocks[3]["elements"]) == 1
+
+
+@pytest.mark.parametrize(
+    ("priority", "expected_priority_label"),
+    [
+        (AutonomyPriority.P0, "🆘 P0"),
+        (AutonomyPriority.P1, "‼️ P1"),
+        (AutonomyPriority.P2, "❗ P2"),
+        (AutonomyPriority.P3, "⚠️ P3"),
+        (AutonomyPriority.P4, "👀 P4"),
+    ],
+)
+def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expected_priority_label: str) -> None:
+    report = SignalReport(id="report-uuid", title="Priority test")
+    recipient = _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix")
+    blocks, _ = _build_message_blocks(
+        report,
+        priority=priority,
+        source_products=[],
+        recipient=recipient,
+    )
+
+    assert blocks[1]["text"]["text"] == f"*{expected_priority_label} • Matched to <@U123> per code*"
 
 
 def test_recipient_presentation_uses_slack_mention_when_lookup_succeeds() -> None:
@@ -142,7 +168,7 @@ def test_recipient_presentation_uses_slack_mention_when_lookup_succeeds() -> Non
     ):
         presentation = _recipient_presentation(user, slack, integration)
 
-    assert presentation.header_label == "<@U_SLACK>"
+    assert presentation.slack_mention == "<@U_SLACK>"
     assert presentation.plain_name == "Marcus Twix"
 
 
@@ -157,7 +183,8 @@ def test_recipient_presentation_falls_back_to_name_when_slack_user_not_found() -
     ):
         presentation = _recipient_presentation(user, slack, integration)
 
-    assert presentation.header_label == "Marcus Twix"
+    assert presentation.slack_mention is None
+    assert presentation.plain_name == "Marcus Twix"
 
 
 @pytest.fixture
@@ -284,7 +311,8 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert call_kwargs["channel"] == "C123"
     assert "Inbox for Reviewer Bot (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
-    assert blocks[0]["text"]["text"] == "Inbox for <@U_REVIEWER> · P1"
+    assert blocks[0]["text"]["text"] == "📬 Test report"
+    assert blocks[1]["text"]["text"].startswith("*‼️ P1 • Matched to <@U_REVIEWER> per code*")
     assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
 
 
