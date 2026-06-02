@@ -77,7 +77,10 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 # HeadlessExperimental.beginFrame for deterministic frame-by-frame capture
 # via puppeteer-capture (virtual time, no rAF dependency).
 #
-FROM node:24.13.0-bookworm-slim
+# Major-only tag so weekly rebuilds pick up the latest 24.x (node + bundled OpenSSL/V8 patches).
+# Must stay same major as the build stage (node 24) for native-addon ABI, and keep -bookworm-slim
+# so glibc / system libs match what the addons were linked against in the build stage.
+FROM node:24-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
