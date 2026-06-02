@@ -1,3 +1,9 @@
+"""HogQL type-system observability.
+
+Measures type-inference coverage and the shape of the generated SQL, emitted as Prometheus metrics.
+See ``observability.md`` (same directory) for the full metrics reference and intent.
+"""
+
 from __future__ import annotations
 
 from collections import Counter
