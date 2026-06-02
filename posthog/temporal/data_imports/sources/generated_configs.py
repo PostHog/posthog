@@ -548,7 +548,7 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NotionSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
