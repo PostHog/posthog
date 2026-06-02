@@ -339,7 +339,9 @@ class TestCollectThreadMessages:
 
         assert any(isinstance(h, RateLimitErrorRetryHandler) for h in self.slack.client.retry_handlers)
 
-    def test_block_extraction_failure_does_not_break_collection(self, mock_get_user_info):
+        handlers = [h for h in self.slack.client.retry_handlers if isinstance(h, RateLimitErrorRetryHandler)]
+        assert len(handlers) == 1
+        assert handlers[0].max_retry_count == 3
         # If block flattening blows up for one message, the rest of the thread still flows.
         self._set_thread(
             [
