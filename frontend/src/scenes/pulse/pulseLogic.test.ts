@@ -92,6 +92,31 @@ describe('pulseLogic', () => {
             })
     })
 
+    it('follows the next cursor and appends older digests on loadMoreDigests', async () => {
+        let page = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/pulse_digests/': () => {
+                    page += 1
+                    return page === 1
+                        ? [200, { count: 2, next: '/api/environments/997/pulse_digests/?offset=1', results: [DIGEST] }]
+                        : [200, { count: 2, next: null, results: [{ ...DIGEST, id: 'd2' }] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadDigests())
+            .toDispatchActions(['loadDigestsSuccess', 'setDigestsNext'])
+            .toMatchValues({ digestsNext: '/api/environments/997/pulse_digests/?offset=1' })
+
+        await expectLogic(logic, () => logic.actions.loadMoreDigests())
+            .toDispatchActions(['loadMoreDigestsSuccess', 'setDigestsNext'])
+            .toMatchValues({
+                digests: [DIGEST, { ...DIGEST, id: 'd2' }],
+                digestsNext: null,
+            })
+    })
+
     it('seeds subscriptionDraft from loaded subscription and patches locally', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadSubscription()

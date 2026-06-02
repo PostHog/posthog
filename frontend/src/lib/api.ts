@@ -2772,8 +2772,11 @@ const api = {
     },
 
     pulse: {
-        async listDigests(): Promise<{ results: PulseDigestSummary[]; count: number }> {
-            return new ApiRequest().pulseDigests().get()
+        async listDigests(
+            url?: string
+        ): Promise<{ results: PulseDigestSummary[]; count: number; next: string | null }> {
+            // `url` follows the DRF `next` cursor when paging through older digests.
+            return url ? await api.get(url) : new ApiRequest().pulseDigests().get()
         },
         async getDigest(id: string): Promise<PulseDigestDetail> {
             return new ApiRequest().pulseDigest(id).get()

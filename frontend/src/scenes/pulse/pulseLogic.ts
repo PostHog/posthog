@@ -35,24 +35,38 @@ export const pulseLogic = kea<pulseLogicType>([
     path(['scenes', 'pulse', 'pulseLogic']),
     actions({
         loadDigests: true,
+        loadMoreDigests: true,
         loadFindings: true,
         loadSubscription: true,
         loadWatched: true,
         getDigest: (id: string) => ({ id }),
         setExpandedDigestId: (id: string | null) => ({ id }),
+        setDigestsNext: (next: string | null) => ({ next }),
         updateSubscriptionLocal: (patch: Partial<PulseSubscriptionType>) => ({ patch }),
         saveSubscription: true,
         pollScan: true,
         markScanInProgress: true,
         scanResolved: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         digests: [
             [] as PulseDigestSummary[],
             {
                 loadDigests: async () => {
                     const response = await api.pulse.listDigests()
+                    // Stash the cursor in cache; the success listener moves it into the reducer, keeping
+                    // loaders free of action dispatches (a kea anti-pattern that can race).
+                    cache.digestsNext = response.next ?? null
                     return response.results || []
+                },
+                loadMoreDigests: async () => {
+                    const next = values.digestsNext
+                    if (!next) {
+                        return values.digests
+                    }
+                    const response = await api.pulse.listDigests(next)
+                    cache.digestsNext = response.next ?? null
+                    return [...values.digests, ...(response.results || [])]
                 },
             },
         ],
@@ -120,6 +134,22 @@ export const pulseLogic = kea<pulseLogicType>([
                 setExpandedDigestId: (_, { id }) => id,
             },
         ],
+        // DRF `next` cursor for older digests — drives the "Load more" button when there are more pages.
+        digestsNext: [
+            null as string | null,
+            {
+                setDigestsNext: (_, { next }) => next,
+            },
+        ],
+        // Separate from `digestsLoading` so appending a page never blanks the list into a skeleton.
+        loadingMore: [
+            false,
+            {
+                loadMoreDigests: () => true,
+                loadMoreDigestsSuccess: () => false,
+                loadMoreDigestsFailure: () => false,
+            },
+        ],
         subscriptionDraft: [
             null as PulseSubscriptionType | null,
             {
@@ -177,10 +207,17 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         pollScan: async (_, breakpoint) => {
             await breakpoint(SCAN_POLL_INTERVAL_MS)
+            // Refetches page 1 (where a new digest lands). If the user had paged into older digests via
+            // "Load more", that resets to the newest page — acceptable: a scan finishing should surface
+            // its fresh result at the top, and digests accrue weekly so paging is rarely in flight.
             actions.loadDigests()
             actions.loadFindings()
         },
+        loadMoreDigestsSuccess: () => {
+            actions.setDigestsNext(cache.digestsNext ?? null)
+        },
         loadDigestsSuccess: ({ digests }) => {
+            actions.setDigestsNext(cache.digestsNext ?? null)
             const latest = digests[0]
             const isGenerating = !!latest && (latest.status === 'pending' || latest.status === 'generating')
             if (values.isScanInProgress) {
