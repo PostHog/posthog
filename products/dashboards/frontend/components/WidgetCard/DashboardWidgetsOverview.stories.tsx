@@ -3,7 +3,11 @@ import React from 'react'
 
 import { DashboardPlacement } from '~/types'
 
-import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../../widget_types/catalog'
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetGroupLabel,
+    type DashboardWidgetCatalogKey,
+} from '../../widget_types/catalog'
 import { getDashboardWidgetDefinition } from '../../widgets/registry'
 import { WidgetCard } from './WidgetCard'
 import { WidgetCardBody } from './WidgetCardBody'
@@ -36,7 +40,7 @@ function DashboardWidgetOverviewTile({
     }
 
     const WidgetComponent = definition.Component
-    const widgetTypeLabel = catalogEntry.groupLabel
+    const widgetTypeLabel = getDashboardWidgetGroupLabel(catalogEntry.groupId)
     const defaultTitle = catalogEntry.headerTitle ?? catalogEntry.label
 
     return (

@@ -57,10 +57,11 @@ jest.mock('../../widget_types/catalog', () => ({
     getDashboardWidgetCatalogEntry: () => ({
         titleHref: '/error_tracking',
         headerLayout: 'dashboard_tile',
-        groupLabel: 'Error tracking',
+        groupId: 'error_tracking',
         label: 'Top issues',
         headerTitle: 'Top issues',
     }),
+    getDashboardWidgetGroupLabel: () => 'Error tracking',
 }))
 
 const tile = {

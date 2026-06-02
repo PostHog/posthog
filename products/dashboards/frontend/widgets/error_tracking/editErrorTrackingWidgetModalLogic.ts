@@ -7,6 +7,12 @@ import { exceptionIngestionLogic } from 'products/error_tracking/frontend/compon
 
 import { isWidgetConfigValidationError } from '../../utils'
 import { resolveWidgetFilterTestAccounts, type ErrorTrackingWidgetConfig } from '../../widget_types/configSchemas'
+import {
+    widgetEditModalSavingReducers,
+    widgetEditModalTileActions,
+    widgetEditModalTileReducers,
+} from '../editWidgetModalTileBuilders'
+import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editErrorTrackingWidgetModalLogicType } from './editErrorTrackingWidgetModalLogicType'
 import {
@@ -45,8 +51,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
         setLimit: (limit: number) => ({ limit }),
         setOrderBy: (orderBy: string) => ({ orderBy }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        setTileName: (tileName: string) => ({ tileName }),
-        setTileDescription: (tileDescription: string) => ({ tileDescription }),
+        ...widgetEditModalTileActions,
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setFieldErrors: (fieldErrors: ErrorTrackingWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof ErrorTrackingWidgetFieldErrors) => ({ field }),
@@ -74,18 +79,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 setDateFrom: (_, { dateFrom }) => dateFrom,
             },
         ],
-        tileName: [
-            '',
-            {
-                setTileName: (_, { tileName }) => tileName,
-            },
-        ],
-        tileDescription: [
-            '',
-            {
-                setTileDescription: (_, { tileDescription }) => tileDescription,
-            },
-        ],
+        ...widgetEditModalTileReducers,
         filterTestAccounts: [
             false,
             {
@@ -106,14 +100,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 },
             },
         ],
-        saving: [
-            false,
-            {
-                submit: () => true,
-                submitSuccess: () => false,
-                submitFailure: () => false,
-            },
-        ],
+        ...widgetEditModalSavingReducers,
     }),
 
     selectors({
@@ -172,8 +159,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
             dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
-            tileName: props.name ?? '',
-            tileDescription: props.description ?? '',
+            ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
                 values.filterTestAccountsDefault
@@ -190,7 +176,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 orderBy: values.orderBy,
                 dateFrom: values.dateFrom,
                 filterTestAccounts: values.filterTestAccounts,
-                baseConfig: props.config,
+                baseConfig: values.widgetConfig,
             })
 
             if (!result.success) {
@@ -199,24 +185,8 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             }
 
             try {
-                const trimmedName = values.tileName.trim()
-                const trimmedDescription = values.tileDescription.trim()
-                const nameChanged = trimmedName !== (props.name ?? '').trim()
-                const descriptionChanged = trimmedDescription !== (props.description ?? '').trim()
-
                 await props.onSave(result.config)
-                if (props.onSaveMetadata) {
-                    const metadata: { name?: string; description?: string } = {}
-                    if (nameChanged) {
-                        metadata.name = trimmedName === (props.defaultTitle ?? 'Untitled').trim() ? '' : trimmedName
-                    }
-                    if (descriptionChanged) {
-                        metadata.description = trimmedDescription
-                    }
-                    if (Object.keys(metadata).length > 0) {
-                        await props.onSaveMetadata(metadata)
-                    }
-                }
+                await saveWidgetTileMetadataAfterConfig(props, values.tileName, values.tileDescription)
                 actions.setFieldErrors({})
                 props.onClose()
                 actions.submitSuccess()

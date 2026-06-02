@@ -61,13 +61,23 @@ export const widgetLimitFieldSchema = z
     .min(1, 'Must be an integer between 1 and 25.')
     .max(25, 'Must be an integer between 1 and 25.')
 
+export const widgetOrderDirectionSchema = z.enum(['ASC', 'DESC']).default('DESC')
+
 // New widget types: add per-type schemas here — CONTRIBUTING.md
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),
     orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
-    orderDirection: z.enum(['ASC', 'DESC']).default('DESC'),
+    orderDirection: widgetOrderDirectionSchema,
     status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),
     dateRange: widgetDateRangeSchema,
 })
 
 export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>
+
+/** Form fields edited in the error tracking widget settings modal. */
+export const errorTrackingWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+})

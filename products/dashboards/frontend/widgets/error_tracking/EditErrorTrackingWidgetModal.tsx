@@ -1,7 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonTextArea } from '@posthog/lemon-ui'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
@@ -10,8 +8,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { DASHBOARD_WIDGET_CATALOG } from '../../widget_types/catalog'
+import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
+import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editErrorTrackingWidgetModalLogic } from './editErrorTrackingWidgetModalLogic'
 import { ERROR_TRACKING_WIDGET_ORDER_BY_OPTIONS } from './utils'
@@ -75,37 +74,14 @@ function EditErrorTrackingWidgetModalContents(): JSX.Element {
         >
             <div className="flex flex-col gap-4">
                 {showTileDetails ? (
-                    <section className="flex flex-col gap-3">
-                        <h5 className="text-sm font-semibold m-0">Tile details</h5>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <LemonField.Pure
-                                className="sm:col-span-2"
-                                label="Title"
-                                help="Shown on the tile. Leave empty to use the default title."
-                            >
-                                <LemonInput
-                                    value={tileName}
-                                    onChange={setTileName}
-                                    placeholder={defaultTitle}
-                                    maxLength={400}
-                                    disabled={saving}
-                                />
-                            </LemonField.Pure>
-                            <LemonField.Pure
-                                className="sm:col-span-2"
-                                label="Description"
-                                help="Shown under the tile title. Supports markdown. Leave empty to hide."
-                            >
-                                <LemonTextArea
-                                    value={tileDescription}
-                                    onChange={setTileDescription}
-                                    placeholder="Enter description (optional)"
-                                    minRows={2}
-                                    disabled={saving}
-                                />
-                            </LemonField.Pure>
-                        </div>
-                    </section>
+                    <EditWidgetModalTileDetailsSection
+                        tileName={tileName}
+                        tileDescription={tileDescription}
+                        defaultTitle={defaultTitle}
+                        saving={saving}
+                        setTileName={setTileName}
+                        setTileDescription={setTileDescription}
+                    />
                 ) : null}
                 {showIssueSettings ? (
                     <>
@@ -128,7 +104,7 @@ function EditErrorTrackingWidgetModalContents(): JSX.Element {
                         <LemonDivider className="my-0" />
                         <section className="flex flex-col gap-3">
                             <h5 className="text-sm font-semibold m-0">
-                                {DASHBOARD_WIDGET_CATALOG.error_tracking_list.groupLabel}
+                                {getDashboardWidgetGroupLabel('error_tracking')}
                             </h5>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <LemonField.Pure

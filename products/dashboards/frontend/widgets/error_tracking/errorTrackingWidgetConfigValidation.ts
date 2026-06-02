@@ -4,21 +4,13 @@ import { ApiError } from 'lib/api-error'
 
 import {
     errorTrackingWidgetConfigSchema,
+    errorTrackingWidgetFormSchema,
     type ErrorTrackingWidgetConfig,
-    widgetDateFromSchema,
-    widgetLimitFieldSchema,
 } from '../../widget_types/configSchemas'
 
-export type ErrorTrackingWidgetFieldErrors = Partial<Record<keyof ErrorTrackingWidgetFormInput, string>>
+type ErrorTrackingWidgetFormField = keyof z.infer<typeof errorTrackingWidgetFormSchema>
 
-export const errorTrackingWidgetFormSchema = z.object({
-    limit: widgetLimitFieldSchema,
-    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
-    dateFrom: widgetDateFromSchema,
-    filterTestAccounts: z.boolean(),
-})
-
-export type ErrorTrackingWidgetFormInput = z.infer<typeof errorTrackingWidgetFormSchema>
+export type ErrorTrackingWidgetFieldErrors = Partial<Record<ErrorTrackingWidgetFormField, string>>
 
 function fieldErrorsFromZodError(error: ZodError): ErrorTrackingWidgetFieldErrors {
     const { fieldErrors } = z.flattenError(error)
@@ -36,7 +28,7 @@ export function parseErrorTrackingWidgetConfig(config: Record<string, unknown>):
 }
 
 export function buildErrorTrackingWidgetConfig(
-    formInput: ErrorTrackingWidgetFormInput,
+    formInput: z.infer<typeof errorTrackingWidgetFormSchema>,
     baseConfig: ErrorTrackingWidgetConfig
 ): ErrorTrackingWidgetConfig {
     return errorTrackingWidgetConfigSchema.parse({
@@ -87,9 +79,9 @@ export function parseErrorTrackingWidgetConfigApiError(
         return null
     }
 
-    const formInput: ErrorTrackingWidgetFormInput = {
+    const formInput = {
         limit: (config.limit as number) ?? 0,
-        orderBy: (config.orderBy as ErrorTrackingWidgetFormInput['orderBy']) ?? 'occurrences',
+        orderBy: (config.orderBy as ErrorTrackingWidgetConfig['orderBy']) ?? 'occurrences',
         dateFrom: (config.dateRange as { date_from?: string } | undefined)?.date_from ?? '-7d',
         filterTestAccounts: (config.filterTestAccounts as boolean) ?? false,
     }

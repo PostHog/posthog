@@ -2,11 +2,7 @@ import posthog from 'posthog-js'
 import type { ComponentType } from 'react'
 
 import type { DashboardWidgetProductAccess } from '../types'
-import {
-    type DashboardWidgetCatalogKey,
-    DASHBOARD_WIDGET_TYPE_ALIASES,
-    getDashboardWidgetCatalogEntry,
-} from '../widget_types/catalog'
+import { type DashboardWidgetCatalogKey, getDashboardWidgetCatalogEntry } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
 import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTrackingWidgetModal'
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
@@ -103,10 +99,9 @@ export function getDashboardWidgetDefinition(
     widgetType: string,
     context?: DashboardWidgetRegistryLookupContext
 ): DashboardWidgetDefinition | undefined {
-    const canonicalType = DASHBOARD_WIDGET_TYPE_ALIASES[widgetType] ?? widgetType
-    if (!isDashboardWidgetRegistryKey(canonicalType)) {
-        reportMissingDashboardWidgetRegistryEntry(widgetType, canonicalType, context)
+    if (!isDashboardWidgetRegistryKey(widgetType)) {
+        reportMissingDashboardWidgetRegistryEntry(widgetType, widgetType, context)
         return undefined
     }
-    return DASHBOARD_WIDGET_REGISTRY[canonicalType]
+    return DASHBOARD_WIDGET_REGISTRY[widgetType]
 }

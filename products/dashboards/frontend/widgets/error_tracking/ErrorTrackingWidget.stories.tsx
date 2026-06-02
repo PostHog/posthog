@@ -11,7 +11,7 @@ import {
     widgetTileFrameDecorator,
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
-import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { ErrorTrackingWidget } from './ErrorTrackingWidget'
 
@@ -32,7 +32,7 @@ function ErrorTrackingWidgetTileStory({
     body,
     ...widgetProps
 }: ErrorTrackingWidgetTileStoryProps): JSX.Element {
-    const widgetTypeLabel = ERROR_TRACKING_CATALOG.groupLabel ?? 'Error tracking'
+    const widgetTypeLabel = getDashboardWidgetGroupLabel(ERROR_TRACKING_CATALOG.groupId)
     const defaultTitle = ERROR_TRACKING_CATALOG.headerTitle ?? ERROR_TRACKING_CATALOG.label
 
     return (

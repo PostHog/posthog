@@ -12,7 +12,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightModel } from '~/types'
 
-import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { getDashboardWidgetDefinition, type DashboardWidgetComponentProps } from '../../widgets/registry'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
@@ -96,7 +96,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             dashboardId: dashboardId ?? undefined,
         })
         const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
-        const widgetTypeLabel = catalogEntry?.groupLabel ?? catalogEntry?.label ?? widget.widget_type
+        const widgetTypeLabel = catalogEntry ? getDashboardWidgetGroupLabel(catalogEntry.groupId) : widget.widget_type
         const defaultTitle = catalogEntry?.headerTitle ?? widgetTypeLabel
         const title = widget.name?.trim() || ''
         const description = widget.description?.trim() || ''

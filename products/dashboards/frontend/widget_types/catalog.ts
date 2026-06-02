@@ -16,11 +16,18 @@ export type DashboardWidgetHeaderMeta = {
     showDateRange?: boolean
 }
 
+/** Product area labels keyed by catalog `groupId`. New groups: add here. */
+export const DASHBOARD_WIDGET_GROUP_LABELS = {
+    error_tracking: 'Error tracking',
+} as const satisfies Record<string, string>
+
+export function getDashboardWidgetGroupLabel(groupId: string): string {
+    return DASHBOARD_WIDGET_GROUP_LABELS[groupId as keyof typeof DASHBOARD_WIDGET_GROUP_LABELS] ?? groupId
+}
+
 export type DashboardWidgetCatalogEntry = {
     /** Stable key for grouping widgets from the same product area. */
-    groupId: string
-    /** Product area label shown as a section heading in the add-widget modal. */
-    groupLabel: string
+    groupId: keyof typeof DASHBOARD_WIDGET_GROUP_LABELS | (string & {})
     /** Widget variant label within the group (also used as fallback card title). */
     label: string
     description: string
@@ -41,12 +48,10 @@ export type DashboardWidgetCatalogEntry = {
 export const DASHBOARD_WIDGET_CATALOG = {
     error_tracking_list: {
         groupId: 'error_tracking',
-        groupLabel: 'Error tracking',
         label: 'Top issues',
         description: 'Ranked list of the most impactful error tracking issues.',
         headerTitle: 'Top issues',
         defaultConfig: errorTrackingWidgetConfigSchema.parse({
-            limit: 10,
             dateRange: { date_from: '-7d' },
         }),
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
@@ -62,27 +67,17 @@ export const DASHBOARD_WIDGET_CATALOG = {
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 
-/** New widget_type aliases: add here. See products/dashboards/CONTRIBUTING.md. */
-export const DASHBOARD_WIDGET_TYPE_ALIASES: Partial<Record<string, DashboardWidgetCatalogKey>> = {
-    error_tracking: 'error_tracking_list',
-}
-
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
     error_tracking_list: ErrorTrackingWidgetPreview,
-}
-
-export function resolveDashboardWidgetCatalogKey(widgetType: string): DashboardWidgetCatalogKey | undefined {
-    if (widgetType in DASHBOARD_WIDGET_CATALOG) {
-        return widgetType as DashboardWidgetCatalogKey
-    }
-    return DASHBOARD_WIDGET_TYPE_ALIASES[widgetType]
 }
 
 export function getDashboardWidgetCatalogEntry(widgetType: string): DashboardWidgetCatalogEntry | undefined {
     if (widgetType in DASHBOARD_WIDGET_CATALOG) {
         return DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
     }
+
+    console.warn(`[dashboard-widgets] Unknown widget type: ${widgetType}`)
     return undefined
 }
 
@@ -103,7 +98,11 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
         let group = groupsById.get(entry.groupId)
 
         if (!group) {
-            group = { groupId: entry.groupId, groupLabel: entry.groupLabel, widgets: [] }
+            group = {
+                groupId: entry.groupId,
+                groupLabel: getDashboardWidgetGroupLabel(entry.groupId),
+                widgets: [],
+            }
             groupsById.set(entry.groupId, group)
             groupOrder.push(entry.groupId)
         }
