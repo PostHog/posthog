@@ -42,21 +42,14 @@ export function HarnessPill({ category, title }: { category: string; title?: str
     )
 }
 
-type TileColor = 'blue' | 'red' | 'green'
-
 interface TileSpec {
     label: string
     metric: KPIMetric
     href: string
     format: (n: number) => string
-    color: TileColor
+    /** Sparkline color, picked from the shared data-viz palette (theme.colors). */
+    color: string
     loading: boolean
-}
-
-const COLOR_STROKE: Record<TileColor, string> = {
-    blue: '#185FA5',
-    red: '#A32D2D',
-    green: '#0F6E56',
 }
 
 function formatNumber(n: number): string {
@@ -106,7 +99,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                     value={metric.value}
                     data={hasSparkline ? metric.sparkline : undefined}
                     theme={theme}
-                    color={COLOR_STROKE[tile.color]}
+                    color={tile.color}
                     goodDirection={metric.goodDirection}
                     formatValue={tile.format}
                     subtitle={hasComparison ? `vs. ${tile.format(metric.previousValue)} prior` : undefined}
@@ -141,7 +134,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.sessions,
             href: urls.mcpAnalyticsSessions(),
             format: formatNumber,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -149,7 +142,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.toolCalls,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatNumber,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -157,7 +150,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.errorRatePct,
             href: urls.mcpAnalyticsSessions(),
             format: formatPercent,
-            color: 'red',
+            color: theme.colors[4], // --data-color-5 (red)
             loading: kpisLoading,
         },
         {
@@ -165,7 +158,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: kpis.p95LatencyMs,
             href: urls.mcpAnalyticsToolQuality(),
             format: formatMs,
-            color: 'blue',
+            color: theme.colors[0], // --data-color-1 (blue)
             loading: kpisLoading,
         },
         {
@@ -173,7 +166,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             metric: intentClusterCount,
             href: urls.mcpAnalyticsIntentClustering(),
             format: formatNumber,
-            color: 'green',
+            color: theme.colors[6], // --data-color-7 (green)
             loading: false,
         },
     ]
