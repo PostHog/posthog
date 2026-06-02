@@ -17,22 +17,22 @@ Each returns the **entire collection in a single un-paginated JSON array** and a
 timestamp filter** — so they are full-refresh only. All carry `created_at` (stable, used as the partition
 key) and `updated_at`.
 
-| Schema             | Path                | PK `id` type  |
-| ------------------ | ------------------- | ------------- |
-| members            | `/members`          | string (UUID) |
-| groups             | `/groups`           | string (UUID) |
-| projects           | `/projects`         | integer       |
-| workflows          | `/workflows`        | integer       |
-| epics              | `/epics`            | integer       |
-| iterations         | `/iterations`       | integer       |
-| labels             | `/labels`           | integer       |
-| categories         | `/categories`       | integer       |
-| objectives         | `/objectives`       | integer       |
-| custom_fields      | `/custom-fields`    | string (UUID) |
-| files              | `/files`            | integer       |
-| linked_files       | `/linked-files`     | integer       |
-| repositories       | `/repositories`     | integer       |
-| entity_templates   | `/entity-templates` | string (UUID) |
+| Schema           | Path                | PK `id` type  |
+| ---------------- | ------------------- | ------------- |
+| members          | `/members`          | string (UUID) |
+| groups           | `/groups`           | string (UUID) |
+| projects         | `/projects`         | integer       |
+| workflows        | `/workflows`        | integer       |
+| epics            | `/epics`            | integer       |
+| iterations       | `/iterations`       | integer       |
+| labels           | `/labels`           | integer       |
+| categories       | `/categories`       | integer       |
+| objectives       | `/objectives`       | integer       |
+| custom_fields    | `/custom-fields`    | string (UUID) |
+| files            | `/files`            | integer       |
+| linked_files     | `/linked-files`     | integer       |
+| repositories     | `/repositories`     | integer       |
+| entity_templates | `/entity-templates` | string (UUID) |
 
 `primary_keys=["id"]` works for all (the field name is uniform; only the value type differs).
 

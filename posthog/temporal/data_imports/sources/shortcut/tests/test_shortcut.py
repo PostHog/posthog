@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from requests import Response
 from requests.exceptions import HTTPError
 
 from posthog.temporal.data_imports.sources.shortcut.settings import ENDPOINTS, SHORTCUT_ENDPOINTS
@@ -25,7 +26,9 @@ def _make_response(json_data: Any = None, status_code: int = 200) -> mock.Mock:
     response.ok = 200 <= status_code < 300
     response.json.return_value = json_data
     response.text = str(json_data)
-    response.raise_for_status = mock.Mock(side_effect=HTTPError(f"{status_code} Client Error"))
+    error_response = Response()
+    error_response.status_code = status_code
+    response.raise_for_status = mock.Mock(side_effect=HTTPError(f"{status_code} Client Error", response=error_response))
     return response
 
 
