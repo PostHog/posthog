@@ -581,7 +581,7 @@ class TestToEventProperties:
         out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
         props = out.to_event_properties()
         assert props == {
-            "scanner_output_verdict": True,
+            "scanner_output_verdict": "yes",
             "scanner_output_reasoning": "found it",
             "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
