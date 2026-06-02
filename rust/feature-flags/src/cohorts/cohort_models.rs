@@ -1,4 +1,5 @@
 use crate::properties::property_models::PropertyFilter;
+use crate::utils::json_size::estimate_json_size;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -78,53 +79,6 @@ impl Cohort {
         let groups_size = estimate_json_size(&self.groups);
 
         base_size + name_size + desc_size + filters_size + query_size + groups_size
-    }
-}
-
-/// Estimates the serialized size of a JSON value with minimal allocation.
-///
-/// This walks the JSON tree and estimates the byte length of the serialized form.
-/// The estimate is close to `value.to_string().len()` but avoids the large allocation
-/// of serializing the entire structure. Numbers still allocate a small temporary string
-/// for simplicity, as they're typically only a few bytes.
-fn estimate_json_size(value: &serde_json::Value) -> usize {
-    match value {
-        serde_json::Value::Null => 4, // "null"
-        serde_json::Value::Bool(b) => {
-            if *b {
-                4
-            } else {
-                5
-            }
-        } // "true" or "false"
-        serde_json::Value::Number(n) => {
-            // For accuracy, just convert to string - numbers are small and this is fast
-            n.to_string().len()
-        }
-        serde_json::Value::String(s) => s.len() + 2, // quotes + content (ignoring escapes)
-        serde_json::Value::Array(arr) => {
-            if arr.is_empty() {
-                2 // "[]"
-            } else {
-                // "[" + elements + commas + "]"
-                2 + arr.iter().map(estimate_json_size).sum::<usize>() + arr.len().saturating_sub(1)
-            }
-        }
-        serde_json::Value::Object(map) => {
-            if map.is_empty() {
-                2 // "{}"
-            } else {
-                // "{" + entries + commas + "}"
-                // Each entry serialized as "key":value
-                2 + map
-                    .iter()
-                    .map(|(k, v)| {
-                        k.len() + 3 + estimate_json_size(v) // key + 2 quotes + colon + value
-                    })
-                    .sum::<usize>()
-                    + map.len().saturating_sub(1)
-            }
-        }
     }
 }
 

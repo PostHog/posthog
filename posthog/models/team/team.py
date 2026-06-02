@@ -1,7 +1,7 @@
 from datetime import timedelta
 from decimal import Decimal
 from functools import lru_cache
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -40,6 +40,7 @@ from posthog.settings.utils import get_list
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -126,7 +127,13 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards
-        dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
+        default_app_template = DashboardTemplate.original_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="My App Dashboard",
+            pinned=True,
+            team=team,
+            description=default_app_template.dashboard_description or "",
+        )
         create_dashboard_from_template("DEFAULT_APP", dashboard)
         team.primary_dashboard = dashboard
 
@@ -264,7 +271,7 @@ class Team(UUIDTClassicModel):
                 # We have this as a constraint rather than IS NOT NULL on the field, because setting IS NOT NULL cannot
                 # be done without locking the table. By adding this constraint using Postgres's `NOT VALID` option
                 # (via Django `AddConstraintNotValid()`) and subsequent `VALIDATE CONSTRAINT`, we avoid locking.
-                check=models.Q(project_id__isnull=False),
+                condition=models.Q(project_id__isnull=False),
             )
         ]
 
@@ -297,12 +304,15 @@ class Team(UUIDTClassicModel):
         default=generate_random_token_project,
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
-    app_urls: ArrayField = ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True)
+    app_urls: ArrayField = field_access_control(
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+    )
     name = models.CharField(
         max_length=200,
         default="Default project",
         validators=[MinLengthValidator(1, "Project must have a name!")],
     )
+    # DEPRECATED - not used anywhere and eligible for deletion
     slack_incoming_webhook = models.CharField(max_length=500, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -385,7 +395,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period = field_access_control(
         models.CharField(
             max_length=3,
-            choices=SessionRecordingRetentionPeriod.choices,
+            choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
         "project",
@@ -428,6 +438,13 @@ class Team(UUIDTClassicModel):
 
     # Logs
     logs_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
+
+    # LLM gateway — per-team kill switch read by the llm-gateway Go service via a
+    # purpose-built HyperCache blob (cache/team_tokens/<token>/team_metadata/
+    # llm_gateway_policy.json). Non-null revokes the team's gateway access; null
+    # means active. A non-revoked team with balance gets the full supported model
+    # surface (the catalog is gateway-owned). Set by internal tooling/admin only.
+    llm_gateway_revoked_at = models.DateTimeField(null=True, blank=True)
 
     # Heatmaps
     heatmaps_opt_in = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
@@ -485,18 +502,43 @@ class Team(UUIDTClassicModel):
         models.CharField(null=True, blank=True, max_length=24), "project", "admin"
     )
     signup_token = models.CharField(max_length=200, null=True, blank=True)
-    is_demo = models.BooleanField(default=False)
+    is_demo = field_access_control(models.BooleanField(default=False), "project", "admin")
 
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
 
     week_start_day = field_access_control(
-        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices), "project", "admin"
+        models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay), "project", "admin"
     )
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
-    test_account_filters = field_access_control(models.JSONField(default=list), "project", "admin")
+    test_account_filters = field_access_control(
+        models.JSONField(
+            default=list,
+            help_text="""Filters used to identify internal/test users. Each entry is a property filter.
+
+            Supported entry types and the exact shape each accepts:
+
+            # Person property — match (or exclude) by a person property
+            {"key": "email", "type": "person", "value": "@example.com", "operator": "icontains"}
+
+            # Event property — match by an event property
+            {"key": "$host", "type": "event", "value": "localhost", "operator": "icontains"}
+
+            # Cohort membership — match (or exclude) members of a cohort.
+            # Use operator "in" for inclusion and "not_in" for exclusion. Do NOT use a
+            # `negation` field here — `negation` is specific to cohort *definitions*
+            # (the inner sub-filters that build a cohort) and is rejected by the
+            # property-filter schema.
+            {"key": "id", "type": "cohort", "value": 8814, "operator": "not_in"}
+
+            Common operators: "exact", "is_not", "icontains", "not_icontains", "regex",
+            "not_regex", "gt", "lt", "gte", "lte", "is_set", "is_not_set", "in", "not_in".""",
+        ),
+        "project",
+        "admin",
+    )
     test_account_filters_default_checked = field_access_control(
         models.BooleanField(null=True, blank=True), "project", "admin"
     )
@@ -526,7 +568,7 @@ class Team(UUIDTClassicModel):
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
-            choices=CookielessServerHashMode.choices,
+            choices=CookielessServerHashMode,
             null=True,
         ),
         "project",
@@ -640,7 +682,7 @@ class Team(UUIDTClassicModel):
     default_experiment_stats_method = field_access_control(
         models.CharField(
             max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod.choices,
+            choices=Organization.DefaultExperimentStatsMethod,
             default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
             help_text="Default statistical method for new experiments in this environment.",
             null=True,
@@ -653,7 +695,7 @@ class Team(UUIDTClassicModel):
     business_model = field_access_control(
         models.CharField(
             max_length=10,
-            choices=BusinessModel.choices,
+            choices=BusinessModel,
             null=True,
             blank=True,
             help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
@@ -729,8 +771,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_no_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_OVERRIDE
+        person_on_events_override = getattr(settings, "PERSON_ON_EVENTS_OVERRIDE", None)
+        if person_on_events_override is not None:
+            return person_on_events_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -741,7 +784,7 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "project": {
                         "id": str(self.id),
-                        "created_at": self.created_at,
+                        "created_at": self.created_at.isoformat() if self.created_at else None,
                         "uuid": self.uuid,
                     }
                 },
@@ -754,8 +797,9 @@ class Team(UUIDTClassicModel):
 
     @property
     def _person_on_events_person_id_override_properties_on_events(self) -> bool:
-        if settings.PERSON_ON_EVENTS_V2_OVERRIDE is not None:
-            return settings.PERSON_ON_EVENTS_V2_OVERRIDE
+        person_on_events_v2_override = getattr(settings, "PERSON_ON_EVENTS_V2_OVERRIDE", None)
+        if person_on_events_v2_override is not None:
+            return person_on_events_v2_override
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
@@ -766,7 +810,9 @@ class Team(UUIDTClassicModel):
                 group_properties={
                     "organization": {
                         "id": str(self.organization_id),
-                        "created_at": self.organization.created_at,
+                        "created_at": self.organization.created_at.isoformat()
+                        if self.organization.created_at
+                        else None,
                     }
                 },
                 only_evaluate_locally=True,
@@ -828,10 +874,38 @@ class Team(UUIDTClassicModel):
         return filters
 
     def reset_token_and_save(self, *, user: "User", is_impersonated_session: bool):
-        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-
         old_token = self.api_token
         self.api_token = generate_random_token_project()
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
+
+    def _notify_vercel_of_token_rotation(self) -> None:
+        """Push updated API token to Vercel integrations in the background."""
+        from posthog.tasks.integrations import push_vercel_secrets
+
+        push_vercel_secrets.delay(self.id)
+
+    def set_token_and_save(self, *, new_token: str, user: "User", is_impersonated_session: bool):
+        new_token = new_token.strip()
+        if not new_token:
+            raise ValueError("New API token must be non-empty.")
+        api_token_field = self._meta.get_field("api_token")
+        if not isinstance(api_token_field, models.CharField) or api_token_field.max_length is None:
+            raise RuntimeError("Team.api_token field must declare a max_length")
+        api_token_max_length = api_token_field.max_length
+        if len(new_token) > api_token_max_length:
+            raise ValueError(f"New API token exceeds {api_token_max_length} characters.")
+        if new_token == self.api_token:
+            raise ValueError("New API token is identical to the current token.")
+        if Team.objects.filter(api_token=new_token).exclude(pk=self.pk).exists():
+            raise ValueError("New API token is already in use by another team.")
+
+        old_token = self.api_token
+        self.api_token = new_token
+        self._persist_api_token_change(old_token=old_token, user=user, is_impersonated_session=is_impersonated_session)
+
+    def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
+        from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+
         self.save()
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
@@ -858,12 +932,6 @@ class Team(UUIDTClassicModel):
         )
 
         self._notify_vercel_of_token_rotation()
-
-    def _notify_vercel_of_token_rotation(self) -> None:
-        """Push updated API token to Vercel integrations in the background."""
-        from posthog.tasks.integrations import push_vercel_secrets
-
-        push_vercel_secrets.delay(self.id)
 
     def rotate_secret_token_and_save(self, *, user: "User", is_impersonated_session: bool):
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -1003,11 +1071,20 @@ class Team(UUIDTClassicModel):
         create_data_for_demo_team.delay(self.id, initiating_user.id, cache_key)
 
     def all_users_with_access(self) -> QuerySet["User"]:
+        from posthog.constants import AvailableFeature
         from posthog.models.organization import OrganizationMembership
         from posthog.models.user import User
 
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
+
+        # Without ACCESS_CONTROL there is no notion of private teams — all org members have access.
+        # Mirrors User.teams and UserTeamPermissions.effective_membership_level_for_parent_membership.
+        if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            user_ids_queryset = OrganizationMembership.objects.filter(organization_id=self.organization_id).values_list(
+                "user_id", flat=True
+            )
+            return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(
@@ -1048,24 +1125,28 @@ class Team(UUIDTClassicModel):
                 id__in=org_memberships_with_access
             ).values_list("user_id", flat=True)
 
-            # Get roles with access to this team
-            roles_with_access = AccessControl.objects.filter(
-                team_id=self.id,
-                resource="project",
-                resource_id=str(self.id),
-                role__isnull=False,
-                access_level__in=["member", "admin"],
-            ).values_list("role", flat=True)
+            # Role-backed access only contributes when the org has ROLE_BASED_ACCESS —
+            # same gate as the UI's "Roles" block on the project access settings page.
+            if self.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+                roles_with_access = AccessControl.objects.filter(
+                    team_id=self.id,
+                    resource="project",
+                    resource_id=str(self.id),
+                    role__isnull=False,
+                    access_level__in=["member", "admin"],
+                ).values_list("role", flat=True)
 
-            # Get users who have these roles
-            role_user_ids = (
-                RoleMembership.objects.filter(role_id__in=roles_with_access)
-                .values_list("organization_member__user_id", flat=True)
-                .distinct()
-            )
+                role_user_ids = (
+                    RoleMembership.objects.filter(role_id__in=roles_with_access)
+                    .values_list("organization_member__user_id", flat=True)
+                    .distinct()
+                )
+            else:
+                # Empty queryset (not a list) so `.union()` keeps working.
+                role_user_ids = RoleMembership.objects.none().values_list("organization_member__user_id", flat=True)
 
             # Union all sets of user IDs
-            user_ids_queryset = admin_user_ids.union(member_access_user_ids).union(role_user_ids)
+            user_ids_queryset = cast(Any, admin_user_ids).union(member_access_user_ids, role_user_ids)
 
         return User.objects.filter(is_active=True, id__in=user_ids_queryset)
 
@@ -1087,6 +1168,18 @@ def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
 @mutable_receiver(post_delete, sender=Team)
 def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
     set_team_in_cache(instance.api_token, None)
+
+
+@mutable_receiver(post_save, sender=Team)
+def reevaluate_authorized_urls_health(sender, instance: Team, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "app_urls" not in update_fields:
+        return
+
+    from posthog.tasks.health_checks import evaluate_health_check_for_team
+
+    team_id = instance.id
+    transaction.on_commit(lambda: evaluate_health_check_for_team.delay("authorized_urls", team_id))
 
 
 def check_is_feature_available_for_team(team_id: int, feature_key: str, current_usage: Optional[int] = None):

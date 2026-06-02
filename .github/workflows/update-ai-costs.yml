@@ -10,6 +10,10 @@ on:
 permissions:
     contents: read
 
+concurrency:
+    group: update-ai-costs
+    cancel-in-progress: false
+
 jobs:
     update-ai-costs:
         runs-on: ubuntu-latest
@@ -18,21 +22,18 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -76,19 +77,46 @@ jobs:
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
+                    gh pr comment "$existing_pr" --body "Closing — a fresh run found no cost changes against master, so this PR is no longer needed. A new PR will open automatically the next time pricing drifts." || true
                     gh pr close "$existing_pr" --delete-branch || true
                     echo "Closed stale PR #$existing_pr and deleted branch"
                   fi
 
-            - name: Ensure branch exists
+            - name: Capture any open PR before branch reset
+              # Force-resetting the branch below can auto-close the previously open PR
+              # (GitHub closes a PR when its head branch no longer contains any commits
+              # beyond the base). Remember the PR number now so we can cross-link the
+              # old and new PRs later if a new one gets created.
+              id: previous-pr
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  if ! gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs 2>/dev/null; then
-                    master_sha=$(gh api repos/${{ github.repository }}/git/ref/heads/master --jq '.object.sha')
-                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$master_sha"
-                    echo "Created branch from master at $master_sha"
+                  pr=$(gh pr list --head "chore/llma-update-ai-costs" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+                  echo "number=$pr" >> "$GITHUB_OUTPUT"
+                  if [ -n "$pr" ]; then
+                    echo "Captured open PR #$pr before branch reset"
+                  fi
+
+            - name: Reset branch to checked-out SHA
+              # Force-reset the branch to the SHA this job was pinned to so each run is
+              # independent of any unmerged commits from prior runs. Using `github.sha`
+              # (instead of looking up master's current tip) guarantees the branch tip
+              # matches workspace HEAD — otherwise a merge to master during the run could
+              # leave ghcommit-action with a parent mismatch and the same
+              # "Expected branch to point to X but it did not" failure mode.
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
+              run: |
+                  if gh api repos/${{ github.repository }}/git/ref/heads/chore/llma-update-ai-costs >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/chore/llma-update-ai-costs \
+                      -f sha="$TARGET_SHA" -F force=true
+                    echo "Force-reset branch to $TARGET_SHA (superseding any prior unmerged commits)"
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/chore/llma-update-ai-costs -f sha="$TARGET_SHA"
+                    echo "Created branch at $TARGET_SHA"
                   fi
 
             - name: Commit via GitHub API (signed)
@@ -105,14 +133,17 @@ jobs:
               if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  PREVIOUS_PR: ${{ steps.previous-pr.outputs.number }}
               run: |
                   existing_pr=$(gh pr list --head "chore/llma-update-ai-costs" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
-                  else
-                    gh pr create \
-                      --title "chore(llma): Update LLM costs" \
-                      --body "$(cat <<'BODY'
+                    exit 0
+                  fi
+
+                  new_pr_url=$(gh pr create \
+                    --title "chore(llma): Update LLM costs" \
+                    --body "$(cat <<'BODY'
                   This is an automated PR to update LLM pricing models.
 
                   ## Reviewer checklist
@@ -125,15 +156,28 @@ jobs:
                   - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
                   BODY
                   )" \
-                      --base master \
-                      --head chore/llma-update-ai-costs \
-                      --label "automated" --label "llm-analytics" \
-                      --reviewer "PostHog/team-llm-analytics"
+                    --base master \
+                    --head chore/llma-update-ai-costs \
+                    --label "automated" --label "llm-analytics" \
+                    --reviewer "PostHog/team-ai-gateway")
+                  echo "Created $new_pr_url"
+
+                  # If the previously open PR on this branch got auto-closed by the
+                  # force-reset above, cross-link it with the new PR so reviewers
+                  # have a trail from the closed one to the replacement.
+                  if [ -n "$PREVIOUS_PR" ] && [ -n "$new_pr_url" ]; then
+                    prev_state=$(gh pr view "$PREVIOUS_PR" --json state --jq '.state' 2>/dev/null || echo "")
+                    if [ "$prev_state" = "CLOSED" ]; then
+                      gh pr comment "$PREVIOUS_PR" --body "Superseded by $new_pr_url" || true
+                      current_body=$(gh pr view "$new_pr_url" --json body --jq '.body')
+                      printf '%s\n\nSupersedes #%s.\n' "$current_body" "$PREVIOUS_PR" \
+                        | gh pr edit "$new_pr_url" --body-file - || true
+                    fi
                   fi
 
             - name: Alert Slack on failure
               if: failure()
-              uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}

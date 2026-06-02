@@ -11,11 +11,11 @@ import {
     IconPeople,
     IconPlusSmall,
     IconTarget,
+    IconWarning,
     IconWebhooks,
 } from '@posthog/icons'
 import {
     LemonButton,
-    LemonCalendarSelectInput,
     LemonCollapse,
     LemonDivider,
     LemonDropdown,
@@ -31,8 +31,6 @@ import {
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -40,6 +38,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
 import { PropertyFilterType } from '~/types'
@@ -54,6 +53,7 @@ import { HogFlowAction } from '../types'
 import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
+import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -239,16 +239,12 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                       },
                   ]
                 : []),
-            ...(type === 'schedule'
-                ? [
-                      {
-                          label: 'Schedule',
-                          description: 'Schedule your workflow to run at a specific time in the future',
-                          value: 'schedule',
-                          icon: <IconClock />,
-                      },
-                  ]
-                : []),
+            {
+                label: 'Schedule',
+                description: 'Run your workflow on a schedule',
+                value: 'schedule',
+                icon: <IconClock />,
+            },
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',
@@ -304,21 +300,11 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 },
             })
         } else if (value === 'schedule') {
-            setWorkflowActionConfig(node.id, {
-                type: 'schedule',
-                template_id: 'template-source-webhook',
-                inputs: {
-                    event: { order: 0, value: '$workflow_triggered' },
-                    distinct_id: { order: 1, value: '{request.body.user_id}' },
-                    method: { order: 2, value: 'POST' },
-                },
-                scheduled_at: undefined,
-            })
+            setWorkflowActionConfig(node.id, { type: 'schedule' })
         } else if (value === 'batch') {
             setWorkflowActionConfig(node.id, {
                 type: 'batch',
                 filters: { properties: [] },
-                scheduled_at: undefined,
             })
         } else if (value === 'tracking_pixel') {
             setWorkflowActionConfig(node.id, {
@@ -336,9 +322,12 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 <span className="text-md font-semibold">Trigger type</span>
             </span>
             <span>What causes this workflow to begin?</span>
-            <LemonField.Pure error={validationResult?.errors?.type}>
-                <TriggerTypeDropdown items={allTriggerItems} selectedItem={selectedItem} onSelect={handleSelect} />
-            </LemonField.Pure>
+            <div className="flex items-center gap-2">
+                <LemonField.Pure error={validationResult?.errors?.type}>
+                    <TriggerTypeDropdown items={allTriggerItems} selectedItem={selectedItem} onSelect={handleSelect} />
+                </LemonField.Pure>
+                {type === 'schedule' && <ScheduleStatusBadge />}
+            </div>
             {node.data.config.type === 'event' ? (
                 (() => {
                     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
@@ -352,7 +341,15 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             ) : node.data.config.type === 'manual' ? (
                 <StepTriggerConfigurationManual />
             ) : node.data.config.type === 'schedule' ? (
-                <StepTriggerConfigurationSchedule action={node.data} config={node.data.config} />
+                <div className="flex flex-col gap-2 w-full">
+                    <p className="text-xs text-muted mb-0">
+                        Schedule triggers run without a person or event. If your workflow needs to target specific
+                        users, use a batch trigger instead.
+                    </p>
+                    <LemonField.Pure error={validationResult?.errors?.schedule}>
+                        <RecurringSchedulePicker />
+                    </LemonField.Pure>
+                </div>
             ) : node.data.config.type === 'batch' ? (
                 <StepTriggerConfigurationBatch action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'tracking_pixel' ? (
@@ -491,59 +488,30 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
-function StepTriggerConfigurationSchedule({
-    action,
-    config,
-}: {
-    action: Extract<HogFlowAction, { type: 'trigger' }>
-    config: Extract<HogFlowAction['config'], { type: 'schedule' }>
-}): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
-    const { actionValidationErrorsById } = useValues(workflowLogic)
-    const validationResult = actionValidationErrorsById[action.id]
-
-    const scheduledDateTime = config.scheduled_at ? dayjs(config.scheduled_at) : null
-
-    return (
-        <>
-            <div className="flex flex-col gap-2">
-                <p className="mb-0">Schedule this workflow to run at a specific time in the future.</p>
-                <LemonField.Pure label="Scheduled time" error={validationResult?.errors?.scheduled_at}>
-                    <div className="flex flex-col gap-2">
-                        <LemonCalendarSelectInput
-                            value={scheduledDateTime}
-                            onChange={(date) => {
-                                setWorkflowActionConfig(action.id, {
-                                    type: 'schedule',
-                                    template_id: config.template_id,
-                                    template_uuid: config.template_uuid,
-                                    inputs: config.inputs,
-                                    scheduled_at: date ? date.toISOString() : undefined,
-                                })
-                            }}
-                            granularity="minute"
-                            selectionPeriod="upcoming"
-                            showTimeToggle={false}
-                        />
-                        {scheduledDateTime && (
-                            <div className="text-xs text-muted">
-                                Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
-                                {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
-                            </div>
-                        )}
-                    </div>
-                </LemonField.Pure>
-            </div>
-        </>
-    )
-}
-
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const logic = batchTriggerLogic({ id: actionId, filters })
-    const { blastRadiusLoading, blastRadius } = useValues(logic)
+    const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
+    }
+
+    if (blastRadiusError) {
+        return (
+            <div className="text-warning text-xs flex items-start gap-1 mt-1">
+                <IconWarning className="text-base shrink-0 mt-0.5" />
+                <div>
+                    <div className="font-semibold">
+                        Couldn't validate audience size — this batch will likely fail to run.
+                    </div>
+                    <div>
+                        Your filters could not be evaluated against the audience. Review and adjust them before saving,
+                        otherwise the batch is likely to error when it executes.
+                    </div>
+                    <div className="mt-1 text-muted">Details: {blastRadiusError}</div>
+                </div>
+            </div>
+        )
     }
 
     if (!blastRadius) {
@@ -576,7 +544,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <RecurringSchedulePicker />
         </>
     )
@@ -590,7 +558,6 @@ function StepTriggerConfigurationBatch({
     config: Extract<HogFlowAction['config'], { type: 'batch' }>
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="flex flex-col gap-2 my-2 w-full">
@@ -606,7 +573,7 @@ function StepTriggerConfigurationBatch({
                     orFiltering
                     sendAllKeyUpdates
                     allowRelativeDateOptions
-                    exactMatchFeatureFlagCohortOperators
+                    {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                     hideBehavioralCohorts
                     logicalRowDivider
                     onChange={(properties) =>
@@ -632,7 +599,7 @@ function StepTriggerConfigurationBatch({
                 />
             </div>
 
-            {featureFlags[FEATURE_FLAGS.WORKFLOWS_RECURRING_SCHEDULES] && <BatchScheduleSection />}
+            <BatchScheduleSection />
         </div>
     )
 }
@@ -715,9 +682,13 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
+const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
+const CALENDAR_DAY_TTL = 24 * 60 * 60
+
 const FREQUENCY_OPTIONS = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
 ]
 
 const TTL_OPTIONS = [
@@ -776,13 +747,17 @@ function FrequencySection(): JSX.Element {
                                 val
                                     ? {
                                           hash: val,
-                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                          ttl:
+                                              val === MASKING_HASH_PER_PERSON_PER_DAY
+                                                  ? CALENDAR_DAY_TTL
+                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
                                       }
                                     : null
                             )
                         }
                     />
-                    {workflow.trigger_masking?.hash ? (
+                    {workflow.trigger_masking?.hash &&
+                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>

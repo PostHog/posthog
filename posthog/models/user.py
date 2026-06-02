@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from functools import cached_property
-from typing import Any, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -12,7 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailNormalizer
+from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
@@ -20,6 +20,11 @@ from posthog.utils import get_instance_realm
 from .organization import Organization, OrganizationMembership
 from .team import Team
 from .utils import UUIDTClassicModel, generate_random_token, sane_repr
+
+if TYPE_CHECKING:
+    from django.db.models.fields.related_descriptors import RelatedManager
+
+    from social_django.models import UserSocialAuth
 
 
 class Notifications(TypedDict, total=False):
@@ -37,9 +42,17 @@ class Notifications(TypedDict, total=False):
     )
     project_api_key_exposed: bool
     materialized_view_sync_failed: bool
+    web_analytics_weekly_digest: bool
+    web_analytics_weekly_digest_project_enabled: dict[str, bool]
     organization_member_join_email_disabled: dict[
         str, bool
     ]  # Maps organization ID (str) to disabled status (True = do not email when a new member joins)
+    realtime_notifications_disabled: dict[
+        str, dict[str, bool]
+    ]  # Maps notification_type (str) to {team_id (str) -> disabled (True = muted)}. Absence = enabled (opt-out default).
+    pipeline_notifications_disabled: dict[
+        str, bool
+    ]  # Maps pipeline ID (e.g. "hog_function:<uuid>", "plugin_config:<id>", "batch_export:<uuid>") to disabled status (True = do not email for this pipeline)
 
 
 NOTIFICATION_DEFAULTS: Notifications = {
@@ -52,7 +65,10 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
     "project_api_key_exposed": True,  # Private project API key (secure API key) exposure alerts enabled by default
     "materialized_view_sync_failed": False,  # Materialized view failure disabled by default
+    "web_analytics_weekly_digest": True,  # Web analytics weekly digest enabled by default
     "organization_member_join_email_disabled": {},  # No per-org opt-out until user configures
+    "realtime_notifications_disabled": {},  # No opt-outs by default
+    "pipeline_notifications_disabled": {},  # No per-pipeline opt-out until user configures
 }
 
 # We don't need the following attributes in most cases, so we defer them by default
@@ -76,9 +92,15 @@ class UserManager(BaseUserManager):
     def get_queryset(self):
         return super().get_queryset().defer(*DEFERED_ATTRS)
 
-    model: type["User"]
-
     use_in_migrations = True
+
+    def get_by_natural_key(self, username: str | None) -> "User":  # type: ignore[override]
+        # Case-insensitive lookup, ModelBackend.authenticate calls this method,
+        # is_active filtering happens later in ModelBackend.user_can_authenticate, so we don't filter on it here.
+        user = EmailLookupHandler.get_user_by_email(username, is_active=None) if username else None
+        if user is None:
+            raise User.DoesNotExist("User with that email does not exist.")
+        return user
 
     def create_user(self, email: str, password: Optional[str], first_name: str, **extra_fields) -> "User":
         """Create and save a User with the given email and password."""
@@ -86,7 +108,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
-        user = self.model(email=email, first_name=first_name, **extra_fields)
+        user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
             user.set_password(password)
@@ -157,9 +179,15 @@ class ShortcutPosition(models.TextChoices):
     HIDDEN = "hidden", "Hidden"
 
 
-class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
+class OnboardingSkippedReason(models.TextChoices):
+    DELEGATED = "delegated", "Delegated to teammate"
+    LATER = "later", "Skipped for later"
+    OTHER = "other", "Other"
+
+
+class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS: list[str] = []
+    REQUIRED_FIELDS = []
 
     DISABLED = "disabled"
     TOOLBAR = "toolbar"
@@ -176,6 +204,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     distinct_id = models.CharField(max_length=200, null=True, blank=True, unique=True)
     is_email_verified = models.BooleanField(null=True, blank=True)
+    credentials_reviewed_at = models.DateTimeField(null=True, blank=True)
     requested_password_reset_at = models.DateTimeField(null=True, blank=True)
     requested_2fa_reset_at = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for = models.JSONField(null=True, blank=True)
@@ -188,7 +217,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     role_at_organization = models.CharField(max_length=64, choices=ROLE_CHOICES, null=True, blank=True)
     # Preferences / configuration options
 
-    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
+    theme_mode = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode)
     # These override the notification settings
     partial_notification_settings = models.JSONField(null=True, blank=True)
     anonymize_data = models.BooleanField(default=False, null=True, blank=True)
@@ -197,7 +226,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
     shortcut_position = models.CharField(
-        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+        max_length=20, null=True, blank=True, choices=ShortcutPosition, default=ShortcutPosition.ABOVE
     )
     passkeys_enabled_for_2fa = models.BooleanField(
         default=False,
@@ -205,6 +234,43 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         blank=True,
         help_text="Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
     )
+    hide_mcp_hints = models.BooleanField(
+        default=False,
+        db_default=False,
+        null=False,
+        blank=False,
+        help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+    )
+
+    # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).
+    ONBOARDING_SKIPPED_REASONS = OnboardingSkippedReason.choices
+    onboarding_skipped_at = models.DateTimeField(null=True, blank=True)
+    onboarding_skipped_reason = models.CharField(
+        max_length=32, null=True, blank=True, choices=ONBOARDING_SKIPPED_REASONS
+    )
+    # Scopes the skip to a specific organization so a user who skips onboarding in Org A
+    # still sees onboarding when they switch to Org B. Read by `isOnboardingRedirectSuppressed`
+    # on the frontend, which only suppresses the redirect when this matches the current org.
+    onboarding_skipped_organization_id = models.UUIDField(null=True, blank=True)
+    # Index is created out-of-band via `CREATE INDEX CONCURRENTLY` in a follow-up migration —
+    # see 1138_onboarding_delegated_to_invite_index. `db_index=False` keeps Django's base AddField
+    # from emitting a blocking CREATE INDEX on posthog_user during deploy.
+    onboarding_delegated_to_invite = models.ForeignKey(
+        "posthog.OrganizationInvite",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delegating_users",
+        db_index=False,
+    )
+    # Denormalized org id: filled when the delegation invite is created so that `/api/users/@me/`
+    # doesn't need an extra DB query per page load just to surface which org the delegation is scoped to.
+    # Not a ForeignKey to avoid extra ALTER TABLE lock overhead on posthog_user. Dangling rows on
+    # Organization deletion are tolerated — frontend compares this against current org.id and
+    # treats a no-match the same as "no delegation"; consistency is restored the next time the
+    # delegation state transitions (accept/cancel/expire).
+    onboarding_delegated_to_organization_id = models.UUIDField(null=True, blank=True)
+    onboarding_delegation_accepted_at = models.DateTimeField(null=True, blank=True)
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)
@@ -215,9 +281,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
 
     # Remove unused attributes from `AbstractUser`
-    username = None
+    username = cast(Any, None)
 
-    objects: UserManager = UserManager()
+    objects: UserManager = UserManager()  # type: ignore[assignment,misc]
+
+    # Reverse relation from social_django.UserSocialAuth.user (related_name="social_auth"); not a DB column.
+    if TYPE_CHECKING:
+        social_auth: RelatedManager[UserSocialAuth]
 
     # Snapshot of is_active at load time, used by signal handlers to detect changes.
     # Set in from_db(); not a model field.
@@ -230,7 +300,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         return instance
 
     @property
-    def is_superuser(self) -> bool:
+    def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
 
     @cached_property
@@ -244,7 +314,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
         )
         if org_available_product_features and len(org_available_product_features) > 0:
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
+            if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
                 try:
                     from ee.models.rbac.access_control import AccessControl
                 except ImportError:
@@ -269,20 +339,28 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                         ).values_list("team_id", flat=True)
                     )
 
-                    # Get teams where user has role-based access
-                    try:
-                        from ee.models.rbac.role import RoleMembership
+                    # Get teams where user has role-based access. Only honored when the
+                    # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
+                    # the project access settings page (and as resource-level role overrides).
+                    role_based_access_supported = (
+                        AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
+                    )
+                    if role_based_access_supported:
+                        try:
+                            from ee.models.rbac.role import RoleMembership
 
-                        user_roles = RoleMembership.objects.filter(
-                            user=self, organization_member__in=[membership.id for membership in org_memberships]
-                        ).values_list("role_id", flat=True)
+                            user_roles = RoleMembership.objects.filter(
+                                user=self, organization_member__in=[membership.id for membership in org_memberships]
+                            ).values_list("role_id", flat=True)
 
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
+                            role_accessible_team_ids = set(
+                                AccessControl.objects.filter(
+                                    resource="project", access_level__in=["member", "admin"], role__in=user_roles
+                                ).values_list("team_id", flat=True)
+                            )
+                        except ImportError:
+                            role_accessible_team_ids = set()
+                    else:
                         role_accessible_team_ids = set()
 
                     # Get organizations where user is admin or owner (have implicit access to all teams)
@@ -298,7 +376,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
 
                     # Build the list of all accessible team IDs
-                    all_accessible_team_ids = set()
+                    all_accessible_team_ids: set[int] = set()
 
                     # Add teams from organizations where user is admin
                     admin_teams = Team.objects.filter(
@@ -340,6 +418,61 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 self.save(update_fields=["current_team"])
         return self.current_team
 
+    def get_github_login(self) -> str | None:
+        """Resolve this user's GitHub login.
+
+        Precedence:
+        1. `UserIntegration` (kind=github) — user's own GitHub integration
+        2. `UserSocialAuth` (provider=github) — OAuth login linkage when no GitHub user integration exists
+        3. Team-level `Integration` (kind=github) `connecting_user_github_login` — identity stored on the
+           team's GitHub integration (e.g. captured at install). Still a supported integration path,
+           lowest precedence as an identity fallback when (1)/(2) do not yield a GitHub username.
+        """
+        from posthog.models.user_integration import UserGitHubIntegration
+
+        prefetched_user_integrations = getattr(self, "_prefetched_github_user_integrations", None)
+        if prefetched_user_integrations is not None:
+            user_integrations = prefetched_user_integrations
+        else:
+            user_integrations = self.integrations.filter(kind="github")[:1]
+
+        for user_integration in user_integrations:
+            login = UserGitHubIntegration(user_integration).github_login
+            if login:
+                return login
+
+        for sa in self.social_auth.all():
+            if sa.provider != "github":
+                continue
+            login_val = getattr(sa, "_prefetched_github_login", None)
+            if login_val:
+                return str(login_val)
+            if isinstance(sa.extra_data, dict):
+                login = sa.extra_data.get("login")
+                if login:
+                    return str(login)
+
+        # Team-level GitHub integration: connecting_user_github_login from install / configuration.
+        prefetched_integrations = getattr(self, "_prefetched_github_integrations", None)
+        if prefetched_integrations is not None:
+            for integration in prefetched_integrations:
+                login = (integration.config or {}).get("connecting_user_github_login")
+                if login:
+                    return str(login)
+        else:
+            team_github_integration = (
+                self.integration_set.filter(kind="github")
+                .exclude(config__connecting_user_github_login=None)
+                .only("config")
+                .first()
+            )
+            if team_github_integration and isinstance(team_github_integration.config, dict):
+                login_val = team_github_integration.config.get("connecting_user_github_login")
+                if login_val:
+                    return str(login_val)
+
+        return None
+
     def join(
         self,
         *,
@@ -350,7 +483,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
 
             self.current_organization = organization
-            if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("id").first()
             else:
@@ -383,7 +516,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                     },
                 )
 
-        self.update_billing_organization_users(organization)
         return membership
 
     @property
@@ -411,7 +543,6 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):
                 )
                 self.team = self.current_team  # Update cached property
                 self.save()
-        self.update_billing_organization_users(organization)
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         from ee.billing.billing_manager import BillingManager  # avoid circular import

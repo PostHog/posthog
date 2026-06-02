@@ -122,10 +122,12 @@ export function getGraphColors(): Record<string, string | null> {
         axis: getColorVar('color-graph-axis'),
         crosshair: getColorVar('color-graph-crosshair'),
 
-        // TODO: these are not used anywhere, but setting them to the correct values
         tooltipBackground: getColorVar('color-bg-surface-tooltip'),
-        tooltipTitle: getColorVar('color-text-primary'),
-        tooltipBody: getColorVar('color-bg-surface-tooltip'),
+        // Pair the inverse text colour with the tooltip background — the tooltip surface is
+        // already an inverse colour itself, so the default text-primary would match the
+        // background in one of the two modes and render the text invisible.
+        tooltipTitle: getColorVar('color-text-primary-inverse'),
+        tooltipBody: getColorVar('color-text-primary-inverse'),
     }
 }
 

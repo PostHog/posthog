@@ -11,32 +11,33 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
 
 
 @contextmanager
 def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[psycopg.Connection]:
-    """Open a psycopg connection to the source database, respecting SSH tunnels.
+    """Open a connection to the source database for CDC management operations.
 
-    This is the single place to create CDC management connections. All callers
-    (slot creation, publication management, cleanup, WAL lag checks) should use
-    this rather than constructing connections manually from job_inputs.
+    Handles SSH tunnel and delegates the actual connection
+    to _connect_to_postgres which owns SSL cert overrides.
     """
-    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource, PostgresSourceConfig
+    from posthog.temporal.data_imports.sources.postgres.postgres import _connect_to_postgres, source_requires_ssl
+    from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 
     source_impl = PostgresSource()
-    job_inputs = source.job_inputs or {}
-    config: PostgresSourceConfig = source_impl.parse_config(job_inputs)
+    config = source_impl.parse_config(source.job_inputs or {})
+    require_ssl = source_requires_ssl(source)
 
     with source_impl.with_ssh_tunnel(config) as (host, port):
-        conn = psycopg.connect(
+        conn = _connect_to_postgres(
             host=host,
             port=port,
-            dbname=config.database,
+            database=config.database,
             user=config.user,
             password=config.password,
+            require_ssl=require_ssl,
             connect_timeout=connect_timeout,
         )
         try:
@@ -78,6 +79,20 @@ def create_slot_and_publication(
         # creation in a transaction that has performed writes.
         conn.commit()
 
+    consistent_point = create_slot(conn, slot_name)
+    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
+    return consistent_point
+
+
+def create_slot(conn: psycopg.Connection, slot_name: str) -> str:
+    """Create just a logical replication slot against an already-existing publication.
+
+    Used by self-managed CDC: the customer's DBA creates the publication with an owner
+    account, then PostHog creates and manages the slot with its own REPLICATION user.
+
+    Returns the consistent_point LSN from slot creation.
+    """
+    with conn.cursor() as cur:
         cur.execute(
             sql.SQL("SELECT lsn FROM pg_create_logical_replication_slot({}, 'pgoutput')").format(
                 sql.Literal(slot_name),
@@ -86,25 +101,17 @@ def create_slot_and_publication(
         row = cur.fetchone()
         if row is None:
             raise RuntimeError(f"pg_create_logical_replication_slot returned no result for slot '{slot_name}'")
-
         consistent_point: str = row[0]
         conn.commit()
 
-    logger.info(
-        "Created publication '%s' and slot '%s' at LSN %s",
-        pub_name,
-        slot_name,
-        consistent_point,
-    )
+    logger.info("Created replication slot '%s' at LSN %s", slot_name, consistent_point)
     return consistent_point
 
 
-def drop_slot_and_publication(
-    conn: psycopg.Connection,
-    slot_name: str,
-    pub_name: str,
-) -> None:
-    """Drop a replication slot and publication. Best-effort — logs and continues on errors."""
+def drop_slot(conn: psycopg.Connection, slot_name: str) -> None:
+    """Drop just the replication slot. Best-effort — used by self-managed rollback,
+    where the publication is customer-owned and must not be touched.
+    """
     with conn.cursor() as cur:
         try:
             cur.execute(
@@ -119,6 +126,15 @@ def drop_slot_and_publication(
             conn.rollback()
             logger.exception("Failed to drop replication slot '%s'", slot_name)
 
+
+def drop_slot_and_publication(
+    conn: psycopg.Connection,
+    slot_name: str,
+    pub_name: str,
+) -> None:
+    """Drop a replication slot and publication. Best-effort — logs and continues on errors."""
+    drop_slot(conn, slot_name)
+    with conn.cursor() as cur:
         try:
             cur.execute(
                 sql.SQL("DROP PUBLICATION IF EXISTS {}").format(sql.Identifier(pub_name)),

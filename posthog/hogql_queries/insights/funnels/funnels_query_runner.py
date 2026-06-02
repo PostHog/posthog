@@ -1,8 +1,7 @@
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from math import ceil
 from typing import Any, Optional
-
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
@@ -23,10 +22,19 @@ from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, 
 from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert import FunnelTimeToConvertUDF
+from posthog.hogql_queries.insights.funnels.funnel_validation_rules import (
+    RequireAtLeastTwoFunnelSteps,
+    ValidateFunnelExclusions,
+    ValidateFunnelStepRange,
+    ValidateOptionalFunnelSteps,
+)
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.user import User
 
 
 class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
@@ -42,12 +50,27 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
         just_summarize: bool = False,
+        user: Optional[User] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 
         self.just_summarize = just_summarize
         self.context = FunnelQueryContext(
-            query=self.query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context
+            query=self.query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    def validators(self) -> Sequence[QueryValidationRule[FunnelsQuery]]:
+        return (
+            RequireAtLeastTwoFunnelSteps(),
+            ValidateFunnelStepRange(),
+            ValidateFunnelExclusions(),
+            ValidateOptionalFunnelSteps(),
+            DisallowUnsupportedDataWarehouseSettings(),
         )
 
     def _refresh_frequency(self):
@@ -74,9 +97,6 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self.funnel_actor_class.actor_query()
 
     def _calculate(self):
-        if len(self.query.series) < 2:
-            raise ValidationError("Funnels require at least two steps.")
-
         query = self.to_query()
         timings = []
 
@@ -87,13 +107,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             query_type="FunnelsQuery",
             query=query,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             settings=HogQLGlobalSettings(
                 # Make sure funnel queries never OOM
                 max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-                enable_analyzer=True,
             ),
         )
 

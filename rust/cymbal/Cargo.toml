@@ -20,9 +20,8 @@ common-kafka = { path = "../common/kafka" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
-limiters = { path = "../common/limiters" }
+cymbal-proto = { path = "../cymbal-proto" }
 posthog-symbol-data = { path = "../common/symbol_data" }
-common-geoip = { path = "../common/geoip" }
 hogvm = { path = "../common/hogvm" }
 thiserror = { workspace = true }
 sqlx = { workspace = true }
@@ -42,18 +41,22 @@ moka = { workspace = true }
 rdkafka = { workspace = true }
 posthog-rs = { workspace = true }
 base64 = { workspace = true }
+bytes = { workspace = true }
 regex = { workspace = true }
-once_cell = { workspace = true }
+rand = { workspace = true }
 futures.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
-tower.workspace = true
 tiktoken-rs.workspace = true
+tonic = { workspace = true }
+tokio-stream = "0.1"
 
 
 [dev-dependencies]
+cymbal-resolution = { path = "../cymbal-resolution" }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
+tower.workspace = true
 
 [lints]
 workspace = true

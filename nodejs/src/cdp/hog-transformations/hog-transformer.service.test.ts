@@ -1,4 +1,4 @@
-import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
@@ -53,7 +53,7 @@ describe('HogTransformer', () => {
 
         hogTransformer = createHogTransformerService(hub, {
             ...hub,
-            monitoringOutputs: createTestMonitoringOutputs(hub.kafkaProducer),
+            monitoringOutputs: createTestMonitoringOutputs(mockProducer),
         })
     })
 
@@ -94,7 +94,7 @@ describe('HogTransformer', () => {
                   "$geoip_country_name": "United States",
                   "$geoip_latitude": 41.5,
                   "$geoip_longitude": -81.6938,
-                  "$geoip_postal_code": "44199",
+                  "$geoip_postal_code": "44192",
                   "$geoip_subdivision_1_code": "OH",
                   "$geoip_subdivision_1_name": "Ohio",
                   "$geoip_time_zone": "America/New_York",
@@ -109,7 +109,7 @@ describe('HogTransformer', () => {
                     "$geoip_country_name": "United States",
                     "$geoip_latitude": 41.5,
                     "$geoip_longitude": -81.6938,
-                    "$geoip_postal_code": "44199",
+                    "$geoip_postal_code": "44192",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_subdivision_2_code": null,
@@ -126,7 +126,7 @@ describe('HogTransformer', () => {
                     "$initial_geoip_country_name": "United States",
                     "$initial_geoip_latitude": 41.5,
                     "$initial_geoip_longitude": -81.6938,
-                    "$initial_geoip_postal_code": "44199",
+                    "$initial_geoip_postal_code": "44192",
                     "$initial_geoip_subdivision_1_code": "OH",
                     "$initial_geoip_subdivision_1_name": "Ohio",
                     "$initial_geoip_subdivision_2_code": null,
@@ -882,6 +882,83 @@ describe('HogTransformer', () => {
             expect(result.event?.properties?.$transformations_failed).toBeUndefined()
         })
 
+        it('should catch thrown executeHogFunction errors without crashing, track failure, and queue app metric', async () => {
+            const successTemplate: HogFunctionTemplate = {
+                free: true,
+                status: 'beta',
+                type: 'transformation',
+                id: 'template-success',
+                name: 'Success Template',
+                description: 'A template that should succeed',
+                category: ['Custom'],
+                code_language: 'hog',
+                code: `
+                    let returnEvent := event
+                    returnEvent.properties.success := true
+                    return returnEvent
+                `,
+                inputs_schema: [],
+            }
+
+            const brokenFunction = createHogFunction({
+                type: 'transformation',
+                name: 'Broken Template',
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog('return event'),
+                execution_order: 1,
+            })
+
+            const successFunction = createHogFunction({
+                type: 'transformation',
+                name: successTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                bytecode: await compileHog(successTemplate.code),
+                execution_order: 2,
+            })
+
+            await insertHogFunction(hub.postgres, teamId, brokenFunction)
+            await insertHogFunction(hub.postgres, teamId, successFunction)
+
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [
+                brokenFunction.id,
+                successFunction.id,
+            ])
+
+            const executeHogFunctionSpy = jest.spyOn(hogTransformer as any, 'executeHogFunction')
+            executeHogFunctionSpy.mockRejectedValueOnce(
+                new Error('Could not execute bytecode for input field: person_id')
+            )
+
+            const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
+
+            const event = createPluginEvent({ event: 'test', properties: {} }, teamId)
+            const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+            expect(result.event?.properties?.$transformations_failed).toEqual([
+                `Broken Template (${brokenFunction.id})`,
+            ])
+            expect(result.event?.properties?.$transformations_succeeded).toEqual([
+                `Success Template (${successFunction.id})`,
+            ])
+            expect(result.event?.properties?.success).toBe(true)
+
+            expect(queueAppMetricSpy).toHaveBeenCalledWith(
+                {
+                    team_id: teamId,
+                    app_source_id: brokenFunction.id,
+                    metric_kind: 'failure',
+                    metric_name: 'failed',
+                    count: 1,
+                },
+                'hog_function'
+            )
+
+            executeHogFunctionSpy.mockRestore()
+            queueAppMetricSpy.mockRestore()
+        })
+
         it('should track both successful and skipped transformations in sequence', async () => {
             const successTemplate = {
                 free: true,
@@ -1080,7 +1157,7 @@ describe('HogTransformer', () => {
                     "$geoip_continent_code": "NA",
                     "$geoip_continent_name": "North America",
                     "$geoip_country_name": "United States",
-                    "$geoip_postal_code": "44199",
+                    "$geoip_postal_code": "44192",
                     "$geoip_subdivision_1_code": "OH",
                     "$geoip_subdivision_1_name": "Ohio",
                     "$geoip_time_zone": "America/New_York",
@@ -1094,7 +1171,7 @@ describe('HogTransformer', () => {
                       "$geoip_country_name": "United States",
                       "$geoip_latitude": 41.5,
                       "$geoip_longitude": -81.6938,
-                      "$geoip_postal_code": "44199",
+                      "$geoip_postal_code": "44192",
                       "$geoip_subdivision_1_code": "OH",
                       "$geoip_subdivision_1_name": "Ohio",
                       "$geoip_subdivision_2_code": null,
@@ -1111,7 +1188,7 @@ describe('HogTransformer', () => {
                       "$initial_geoip_country_name": "United States",
                       "$initial_geoip_latitude": 41.5,
                       "$initial_geoip_longitude": -81.6938,
-                      "$initial_geoip_postal_code": "44199",
+                      "$initial_geoip_postal_code": "44192",
                       "$initial_geoip_subdivision_1_code": "OH",
                       "$initial_geoip_subdivision_1_name": "Ohio",
                       "$initial_geoip_subdivision_2_code": null,

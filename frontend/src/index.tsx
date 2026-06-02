@@ -6,19 +6,31 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { polyfillCountryFlagEmojis } from 'country-flag-emoji-polyfill'
 import { getContext } from 'kea'
 import posthog from 'posthog-js'
-import { PostHogProvider } from 'posthog-js/react'
 import { createRoot } from 'react-dom/client'
+
+import { PostHogProvider } from '@posthog/react'
 
 import { App } from 'scenes/App'
 
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
-import { preWarmDecompression } from './scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 
 loadPostHogJS()
 initKea()
-preWarmDecompression()
+
+const idle =
+    typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
+        ? window.requestIdleCallback.bind(window)
+        : (cb: () => void) => setTimeout(cb, 200)
+
+idle(() => {
+    void import('./scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+        .then(({ preWarmDecompression }) => preWarmDecompression())
+        .catch((error) => {
+            console.warn('[index] Failed to load DecompressionWorkerManager for pre-warm:', error)
+        })
+})
 
 // On Chrome + Windows, the country flag emojis don't render correctly. This is a polyfill for that.
 // It won't be applied on other platforms.

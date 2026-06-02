@@ -351,3 +351,55 @@ ADD_IS_DELETED_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_
 ADD_IS_DELETED_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_IS_DELETED_COLUMN.format(
     table_name="session_replay_events",
 )
+
+# =========================
+# MIGRATION: Add AI-generated columns for session tagging
+# The summarization pipeline produces tags and a "highlighted" flag per session.
+# These are written back to Kafka and merged via the MV, same pattern as is_deleted.
+# =========================
+
+ALTER_SESSION_REPLAY_ADD_AI_COLUMNS = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        ADD COLUMN IF NOT EXISTS ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
+        ADD COLUMN IF NOT EXISTS ai_highlighted SimpleAggregateFunction(max, UInt8) DEFAULT 0
+"""
+
+ADD_AI_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ADD_AI_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name="writable_session_replay_events",
+)
+
+ADD_AI_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_AI_COLUMNS.format(
+    table_name="session_replay_events",
+)
+
+# =========================
+# MIGRATION: Add surfacing_score column for the surfacing scoring sweep
+# Nullable so NULL = "not scored yet" is distinct from "scored as 0". SimpleAggregateFunction(max)
+# is NULL-safe on merge, so the scorer's value wins over the events MV's NULL row.
+# =========================
+
+ALTER_SESSION_REPLAY_ADD_SURFACING_SCORE_COLUMN = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS surfacing_score SimpleAggregateFunction(max, Nullable(Float32))
+"""
+
+ADD_SURFACING_SCORE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SURFACING_SCORE_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ADD_SURFACING_SCORE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_SURFACING_SCORE_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_SURFACING_SCORE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_SURFACING_SCORE_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)

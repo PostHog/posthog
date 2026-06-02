@@ -1,7 +1,8 @@
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
+import { CyclotronJobInvocationResult } from '../../types'
 import { createInvocation } from '../../utils/invocation-utils'
-import { sanitizeInvocationForPersistence } from './shared'
+import { createInvocationSanitizer, sanitizeInvocationForPersistence } from './shared'
 
 describe('sanitizeInvocationForPersistence', () => {
     const exampleHogFunction = createHogFunction({
@@ -196,5 +197,78 @@ describe('sanitizeInvocationForPersistence', () => {
         } else {
             expect(sanitized.state!.globals.person).toBeUndefined()
         }
+    })
+})
+
+describe('createInvocationSanitizer', () => {
+    const exampleHogFunction = createHogFunction({
+        name: 'Test hog function',
+        ...HOG_EXAMPLES.simple_fetch,
+        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+        ...HOG_FILTERS_EXAMPLES.no_filters,
+    })
+
+    const exampleGroups = {
+        organization: {
+            id: 'org-1',
+            type: 'organization',
+            index: 0,
+            url: 'http://localhost:8000/groups/0/org-1',
+            properties: { name: 'PostHog' },
+        },
+    }
+
+    it('should strip groups from invocations', () => {
+        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' })
+        const invocation = createInvocation(
+            { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
+            exampleHogFunction
+        )
+
+        const [sanitized] = sanitizer.sanitizeInvocations([invocation])
+        expect(sanitized.state!.globals.groups).toBeUndefined()
+        expect(sanitized.state!.globals.person).toBeDefined()
+    })
+
+    it('should strip person for configured teams', () => {
+        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '2' })
+        const invocation = createInvocation(
+            { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
+            { ...exampleHogFunction, team_id: 2 }
+        )
+
+        const [sanitized] = sanitizer.sanitizeInvocations([invocation])
+        expect(sanitized.state!.globals.person).toBeUndefined()
+    })
+
+    it('should not strip person for non-configured teams', () => {
+        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '99' })
+        const invocation = createInvocation(
+            { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
+            { ...exampleHogFunction, team_id: 2 }
+        )
+
+        const [sanitized] = sanitizer.sanitizeInvocations([invocation])
+        expect(sanitized.state!.globals.person).toBeDefined()
+    })
+
+    it('should sanitize results', () => {
+        const sanitizer = createInvocationSanitizer({ CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '' })
+        const invocation = createInvocation(
+            { ...createHogExecutionGlobals({ groups: exampleGroups }), inputs: {} },
+            exampleHogFunction
+        )
+        const result: CyclotronJobInvocationResult = {
+            invocation,
+            finished: false,
+            error: null,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+        }
+
+        const [sanitized] = sanitizer.sanitizeResults([result])
+        expect(sanitized.invocation.state!.globals.groups).toBeUndefined()
     })
 })

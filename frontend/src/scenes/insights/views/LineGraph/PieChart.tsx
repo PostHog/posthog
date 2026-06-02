@@ -16,7 +16,10 @@ import {
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { useChart } from 'lib/hooks/useChart'
 import { isString } from 'lib/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import {
+    formatAggregationAxisValue,
+    formatAggregationAxisValueWithShareOfTotal,
+} from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
@@ -39,6 +42,7 @@ export interface PieChartProps extends LineGraphProps {
     breakdownFilter?: BreakdownFilter | null | undefined
     showLabelOnSeries?: boolean | null
     disableHoverOffset?: boolean | null
+    valueFormatter?: ((value: number) => string) | null
 }
 
 export function PieChart({
@@ -58,6 +62,7 @@ export function PieChart({
     showPersonsModal = true,
     labelGroupType,
     disableHoverOffset,
+    valueFormatter,
 }: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
@@ -156,6 +161,10 @@ export function PieChart({
                                     return `${percentage.toFixed(1)}%`
                                 }
 
+                                if (valueFormatter) {
+                                    return valueFormatter(value)
+                                }
+
                                 return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
                             },
                             font: {
@@ -231,18 +240,20 @@ export function PieChart({
                                             renderCount={
                                                 tooltipConfig?.renderCount ||
                                                 ((value: number): string => {
+                                                    if (valueFormatter) {
+                                                        return valueFormatter(value)
+                                                    }
+
                                                     const total = dataset.data.reduce(
                                                         (a: number, b: number) => a + b,
                                                         0
                                                     )
-                                                    const percentageLabel: number = parseFloat(
-                                                        ((value / total) * 100).toFixed(1)
-                                                    )
-                                                    return `${formatAggregationAxisValue(
+                                                    return formatAggregationAxisValueWithShareOfTotal(
                                                         trendsFilter,
                                                         value,
+                                                        total,
                                                         baseCurrency
-                                                    )} (${percentageLabel}%)`
+                                                    )
                                                 })
                                             }
                                             hideInspectActorsSection={!onClick || !showPersonsModal}

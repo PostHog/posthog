@@ -3,14 +3,21 @@ import json
 import time
 import uuid
 import tempfile
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Literal, Optional
-from urllib.parse import quote
+from typing import Any, Literal, Optional, cast
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
 
 import structlog
 import posthoganalytics
+from playwright.sync_api import (
+    Error as PlaywrightError,
+    TimeoutError as PlaywrightTimeoutError,
+    sync_playwright,
+)
+from prometheus_client import Counter, Histogram
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
@@ -22,22 +29,40 @@ from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.schema import FunnelLayout, NodeKind
 
-from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import InsightVariable
-from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
+from posthog.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.tasks.exports.exporter_utils import log_error_if_site_url_not_reachable
+from posthog.tasks.exports.failure_handler import BrowserlessUnavailable, classify_failure_type
 from posthog.utils import absolute_uri
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 logger = structlog.get_logger(__name__)
+
+IMAGE_EXPORT_BACKEND_COUNTER = Counter(
+    "image_export_backend_total",
+    "Image exports by rendering backend (browserless vs selenium)",
+    labelnames=["backend"],
+)
+IMAGE_EXPORT_RENDER_DURATION = Histogram(
+    "image_export_render_duration_seconds",
+    "Image export render time (browser navigate + wait + screenshot), by backend and outcome",
+    labelnames=["backend", "outcome"],
+    buckets=(0.5, 1, 2, 5, 10, 20, 30, 45, 60, 90, 120, float("inf")),
+)
+IMAGE_EXPORT_RENDER_FAILURE_COUNTER = Counter(
+    "image_export_render_failure_total",
+    "Image export render failures by backend and classified failure type",
+    labelnames=["backend", "failure_type"],
+)
 
 
 def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str:
@@ -67,6 +92,49 @@ MEASURE_CONTENT_HEIGHT_JS = """
     }
     return document.body.scrollHeight;
 """
+
+MEASURE_CONTENT_WIDTH_JS = f"""
+            // Check for heatmap exporter first — its width is set explicitly
+            const heatmapElement = document.querySelector('.heatmap-exporter');
+            if (heatmapElement) {{
+                return heatmapElement.offsetWidth;
+            }}
+
+            // Check for replay player
+            const replayElement = document.querySelector('.replayer-wrapper');
+            if (replayElement) {{
+                return replayElement.offsetWidth;
+            }}
+
+            // Check for left-to-right funnel (FunnelBarVertical)
+            // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
+            const funnelElement = document.querySelector('.FunnelBarVertical');
+            if (funnelElement) {{
+                // Force funnel to shrink to content size
+                funnelElement.style.width = 'fit-content';
+                funnelElement.style.maxWidth = 'fit-content';
+
+                const table = funnelElement.querySelector('table');
+                if (table) {{
+                    table.style.width = 'fit-content';
+                    table.style.maxWidth = 'fit-content';
+                }}
+
+                // Force a reflow
+                void funnelElement.offsetWidth;
+
+                // Now measure the actual content width
+                return funnelElement.offsetWidth + {CONTENT_PADDING};
+            }}
+
+            // Fall back to table width for insights
+            const tableElement = document.querySelector('table');
+            if (tableElement) {{
+                return tableElement.offsetWidth * 1.5;
+            }}
+
+            return null;
+        """
 
 ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
@@ -116,7 +184,7 @@ def get_driver() -> webdriver.Chrome:
     # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
     # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
     # right after, so the HTTP shutdown is redundant.
-    driver.service.send_remote_shutdown_command = lambda: None
+    cast(Any, driver.service).send_remote_shutdown_command = lambda: None
 
     return driver
 
@@ -153,7 +221,7 @@ def _export_to_png(
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
 
-        access_token = get_public_access_token(exported_asset, timedelta(minutes=15))
+        access_token = get_render_access_token(exported_asset, timedelta(minutes=15))
 
         screenshot_width: ScreenWidth
         wait_for_css_selector: CSSSelector
@@ -205,9 +273,13 @@ def _export_to_png(
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
-            # Handle replay export using /exporter route (same as insights/dashboards)
+            # URL-encode the page and data URLs so their inner `?` and `&` (e.g.
+            # `?width=1024&format=jpeg` on screenshot content URLs) don't corrupt
+            # the `/exporter` query string.
+            encoded_page_url = quote(heatmap_url, safe="")
+            encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
             url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={exported_asset.export_context.get('heatmap_url')}&dataURL={exported_asset.export_context.get('heatmap_data_url')}"
+                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
@@ -230,14 +302,37 @@ def _export_to_png(
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        _screenshot_asset(
-            image_path,
-            url_to_render,
-            screenshot_width,
-            wait_for_css_selector,
-            screenshot_height,
-            max_height_pixels,
-            page_load_timeout,
+        use_browserless = _should_use_browserless(exported_asset)
+
+        backend = "browserless" if use_browserless else "selenium"
+        logger.info(
+            "image_exporter.backend_selected",
+            backend=backend,
+            asset_id=exported_asset.id,
+            team_id=exported_asset.team_id,
+        )
+        IMAGE_EXPORT_BACKEND_COUNTER.labels(backend=backend).inc()
+
+        render_start = time.perf_counter()
+        try:
+            _screenshot_asset(
+                image_path,
+                url_to_render,
+                screenshot_width,
+                wait_for_css_selector,
+                screenshot_height,
+                max_height_pixels,
+                page_load_timeout,
+                use_browserless=use_browserless,
+            )
+        except Exception as e:
+            IMAGE_EXPORT_RENDER_DURATION.labels(backend=backend, outcome="failure").observe(
+                time.perf_counter() - render_start
+            )
+            IMAGE_EXPORT_RENDER_FAILURE_COUNTER.labels(backend=backend, failure_type=classify_failure_type(e)).inc()
+            raise
+        IMAGE_EXPORT_RENDER_DURATION.labels(backend=backend, outcome="success").observe(
+            time.perf_counter() - render_start
         )
 
         with open(image_path, "rb") as image_file:
@@ -257,7 +352,111 @@ def _export_to_png(
         raise
 
 
+def _build_cdp_endpoint(cdp_url: str, token: str, session_timeout_ms: int) -> str:
+    parsed = urlparse(cdp_url)
+    query = {
+        key: value for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key not in ("token", "timeout")
+    }
+    if token:
+        query["token"] = token
+    query["timeout"] = str(session_timeout_ms)
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _redact_browserless_token(message: str) -> str:
+    token = settings.BROWSERLESS_TOKEN
+    if not token:
+        return message
+    return message.replace(token, "***").replace(quote_plus(token), "***")
+
+
+def _should_use_browserless(exported_asset: ExportedAsset) -> bool:
+    if not settings.BROWSERLESS_CDP_URL:
+        return False
+    team = exported_asset.team
+    distinct_id = (exported_asset.created_by.distinct_id if exported_asset.created_by else None) or str(team.uuid)
+    return bool(
+        posthoganalytics.feature_enabled(
+            "image-exporter-use-browserless",
+            distinct_id,
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def _screenshot_asset(
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
+    screenshot_height: int = 600,
+    max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
+    use_browserless: bool = False,
+) -> None:
+    if use_browserless:
+        _screenshot_asset_browserless(
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height,
+            max_height_pixels,
+            page_load_timeout,
+        )
+    else:
+        _screenshot_asset_selenium(
+            image_path,
+            url_to_render,
+            screenshot_width,
+            wait_for_css_selector,
+            screenshot_height,
+            max_height_pixels,
+            page_load_timeout,
+        )
+
+
+def _effective_max_height(max_height_pixels: Optional[int]) -> int:
+    return min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
+
+
+def _cap_height(raw_height: int, effective_max: int, url: str, *, final: bool = False) -> int:
+    if raw_height <= effective_max:
+        return raw_height
+    if final:
+        logger.warning(
+            "screenshot_final_height_capped",
+            original_final_height=raw_height,
+            capped_height=effective_max,
+            url=url,
+        )
+    else:
+        logger.warning(
+            "screenshot_height_capped",
+            original_height=raw_height,
+            capped_height=effective_max,
+            url=url,
+        )
+    return effective_max
+
+
+def _resolve_width(raw_width: object, screenshot_width: int, url: str) -> int:
+    if not isinstance(raw_width, (int, float)):
+        return screenshot_width
+    calculated_width = raw_width or screenshot_width
+    if calculated_width > MAX_WIDTH_PIXELS:
+        logger.warning(
+            "screenshot_width_capped",
+            original_width=calculated_width,
+            capped_width=MAX_WIDTH_PIXELS,
+            url=url,
+        )
+    return min(MAX_WIDTH_PIXELS, int(calculated_width))
+
+
+def _screenshot_asset_selenium(
     image_path: str,
     url_to_render: str,
     screenshot_width: ScreenWidth,
@@ -287,7 +486,7 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-            raise TimeoutException(f"Timeout while waiting for the page to load")
+            raise TimeoutException("Timeout while waiting for the page to load") from e
 
         try:
             # Also wait until nothing is loading
@@ -302,70 +501,9 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-        height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
-
-        effective_max = min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
-        if height > effective_max:
-            logger.warning(
-                "screenshot_height_capped",
-                original_height=height,
-                capped_height=effective_max,
-                url=url_to_render,
-            )
-            height = effective_max
-
-        # Calculate width for replay players and non-funnel tables
-        # Funnels are handled separately with fit-content measurement below
-        width = driver.execute_script(
-            f"""
-            // Check for replay player first
-            const replayElement = document.querySelector('.replayer-wrapper');
-            if (replayElement) {{
-                return replayElement.offsetWidth;
-            }}
-
-            // Check for left-to-right funnel (FunnelBarVertical)
-            // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
-            const funnelElement = document.querySelector('.FunnelBarVertical');
-            if (funnelElement) {{
-                // Force funnel to shrink to content size
-                funnelElement.style.width = 'fit-content';
-                funnelElement.style.maxWidth = 'fit-content';
-
-                const table = funnelElement.querySelector('table');
-                if (table) {{
-                    table.style.width = 'fit-content';
-                    table.style.maxWidth = 'fit-content';
-                }}
-
-                // Force a reflow
-                void funnelElement.offsetWidth;
-
-                // Now measure the actual content width
-                return funnelElement.offsetWidth + {CONTENT_PADDING};
-            }}
-
-            // Fall back to table width for insights
-            const tableElement = document.querySelector('table');
-            if (tableElement) {{
-                return tableElement.offsetWidth * 1.5;
-            }}
-
-            return null;
-        """
-        )
-        if isinstance(width, (int, float)):
-            calculated_width = width or screenshot_width
-            if calculated_width > MAX_WIDTH_PIXELS:
-                logger.warning(
-                    "screenshot_width_capped",
-                    original_width=calculated_width,
-                    capped_width=MAX_WIDTH_PIXELS,
-                    url=url_to_render,
-                )
-            width = min(MAX_WIDTH_PIXELS, int(calculated_width))
-        else:
-            width = screenshot_width
+        effective_max = _effective_max_height(max_height_pixels)
+        height = _cap_height(int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)), effective_max, url_to_render)
+        width = _resolve_width(driver.execute_script(MEASURE_CONTENT_WIDTH_JS), screenshot_width, url_to_render)
 
         # Set window size with the calculated dimensions
         driver.set_window_size(width, height + HEIGHT_OFFSET)
@@ -373,16 +511,9 @@ def _screenshot_asset(
         # Allow a moment for any dynamic resizing
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
-        final_height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
-
-        if final_height > effective_max:
-            logger.warning(
-                "screenshot_final_height_capped",
-                original_final_height=final_height,
-                capped_height=effective_max,
-                url=url_to_render,
-            )
-            final_height = effective_max
+        final_height = _cap_height(
+            int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)), effective_max, url_to_render, final=True
+        )
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
@@ -404,6 +535,127 @@ def _screenshot_asset(
     finally:
         if driver:
             driver.quit()
+
+
+_BROWSERLESS_CONNECTION_ERROR_INDICATORS = (
+    "target closed",
+    "has been closed",
+    "connection closed",
+    "websocket",
+    "disconnected",
+    "econnrefused",
+)
+
+
+def _is_browserless_connection_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
+
+
+def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
+    try:
+        take_screenshot(image_path)
+        posthoganalytics.tag("image_path", image_path)
+    except Exception:
+        pass
+
+
+def _screenshot_asset_browserless(
+    image_path: str,
+    url_to_render: str,
+    screenshot_width: ScreenWidth,
+    wait_for_css_selector: CSSSelector,
+    screenshot_height: int = 600,
+    max_height_pixels: Optional[int] = None,
+    page_load_timeout: int = 40,
+) -> None:
+    endpoint = _build_cdp_endpoint(
+        settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
+    )
+
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
+        except (PlaywrightError, PlaywrightTimeoutError) as e:
+            raise BrowserlessUnavailable(
+                f"Failed to connect to browserless: {_redact_browserless_token(str(e))}"
+            ) from None
+
+        disconnected = [False]
+        browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))
+
+        context = None
+        page = None
+        try:
+            context = browser.new_context(
+                device_scale_factor=2,
+                viewport={"width": screenshot_width, "height": screenshot_height},
+            )
+            page = context.new_page()
+            posthoganalytics.tag("url_to_render", url_to_render)
+
+            try:
+                page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
+                page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
+            except PlaywrightTimeoutError as e:
+                with posthoganalytics.new_context():
+                    posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
+                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+                    capture_exception(e)
+
+                raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+
+            try:
+                page.wait_for_selector(".Spinner", state="detached", timeout=20000)
+            except PlaywrightTimeoutError as e:
+                with posthoganalytics.new_context():
+                    posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
+                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+                    capture_exception(e)
+
+            effective_max = _effective_max_height(max_height_pixels)
+            height = _cap_height(
+                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
+            )
+            width = _resolve_width(
+                page.evaluate(f"() => {{ {MEASURE_CONTENT_WIDTH_JS} }}"), screenshot_width, url_to_render
+            )
+
+            page.set_viewport_size({"width": width, "height": height})
+
+            page.wait_for_timeout(500)
+
+            final_height = _cap_height(
+                int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render, final=True
+            )
+
+            page.set_viewport_size({"width": width, "height": final_height})
+            page.screenshot(path=image_path)
+        except BrowserlessUnavailable:
+            raise
+        except PlaywrightTimeoutError:
+            raise
+        except PlaywrightError as e:
+            if disconnected[0] or _is_browserless_connection_error(e):
+                raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
+
+            with posthoganalytics.new_context():
+                posthoganalytics.tag("url_to_render", url_to_render)
+                if page:
+                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
+            capture_exception(e)
+
+            raise
+        finally:
+            if context:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 
 def export_image(

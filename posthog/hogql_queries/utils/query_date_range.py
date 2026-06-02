@@ -464,9 +464,9 @@ class QueryDateRangeWithIntervals(QueryDateRange):
 
         return date_to
 
-    def get_start_of_interval_hogql(self, *, source: ast.Expr = None) -> ast.Expr:
-        trunc_func = get_trunc_func_ch(self._interval.name.lower())
-        trunc_func_args = [source] if source else [ast.Constant(value=self.date_from())]
+    def get_start_of_interval_hogql(self, *, source: ast.Expr | None = None) -> ast.Expr:
+        trunc_func = get_trunc_func_ch(self.interval_type.name.lower())
+        trunc_func_args: list[ast.Expr] = [source] if source else [ast.Constant(value=self.date_from())]
         if trunc_func == "toStartOfWeek":
             trunc_func_args.append(
                 ast.Constant(value=int((WeekStartDay(self._team.week_start_day or 0)).clickhouse_mode))

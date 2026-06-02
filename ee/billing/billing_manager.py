@@ -1,4 +1,5 @@
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, cast
@@ -20,12 +21,17 @@ from posthog.models import Organization
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.user import User
 
+from ee.api.agentic_provisioning.signature import compute_signature
 from ee.billing.billing_types import BillingProvider, BillingStatus
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
+
+BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
+BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
+BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 
 
 class BillingAPIErrorCodes(Enum):
@@ -116,6 +122,19 @@ def build_billing_token(
     return encoded_jwt
 
 
+def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, str]:
+    secret = getattr(settings, "BILLING_PROVIDER_WEBHOOK_SECRET", "")
+    if not secret:
+        raise ValueError("BILLING_PROVIDER_WEBHOOK_SECRET is not configured")
+
+    timestamp = int(time.time())
+    digest = compute_signature(secret, timestamp, body)
+    return {
+        BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER: f"{BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION}={digest}",
+        BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER: str(timestamp),
+    }
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
@@ -145,7 +164,8 @@ class BillingManager:
         # Get billing info from billing service
         billing_service_response = self._get_billing(organization, query_params)
 
-        if not billing_service_response.get("customer"):
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
             return self._get_default_billing_response(organization)
 
         # Ensure the license and org are updated with the latest info
@@ -428,7 +448,7 @@ class BillingManager:
             organization.available_product_features = data["available_product_features"]
             org_modified = True
 
-        never_drop_data = data.get("never_drop_data", None)
+        never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
             org_modified = True
@@ -447,7 +467,10 @@ class BillingManager:
                 org_customer_trust_scores[product_key_to_usage_key[product_key]] = customer_trust_scores[product_key]
 
         if org_customer_trust_scores != organization.customer_trust_scores:
-            organization.customer_trust_scores.update(org_customer_trust_scores)
+            organization.customer_trust_scores = {
+                **(organization.customer_trust_scores or {}),
+                **org_customer_trust_scores,
+            }
             org_modified = True
 
         if org_modified:
@@ -734,14 +757,25 @@ class BillingManager:
         Pure passthrough - no transformation of event data.
         Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
         """
-        res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
-            headers=self.get_auth_headers(organization),
-            json={
+        body = json.dumps(
+            {
                 "event_type": event_type,
                 "event_data": event_data,
                 "billing_provider": billing_provider,
             },
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        headers = {
+            **self.get_auth_headers(organization),
+            **build_billing_provider_webhook_signature_headers(body),
+            "Content-Type": "application/json",
+        }
+
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
+            headers=headers,
+            data=body,
             timeout=30,
         )
 

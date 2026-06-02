@@ -6,9 +6,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyFilterValue, PropertyOperator } from '~/types'
 
-const eventFilter = (key: string, value?: string, operator?: PropertyOperator): AnyPropertyFilter =>
+const eventFilter = (key: string, value?: PropertyFilterValue, operator?: PropertyOperator): AnyPropertyFilter =>
     ({
         key,
         type: PropertyFilterType.Event,
@@ -117,6 +117,24 @@ describe('propertyFilterLogic', () => {
             const filter = { key: '$browser', type: PropertyFilterType.Event } as AnyPropertyFilter
             const cb = await setFilterAndCheck(filter, false)
             expect(cb).not.toHaveBeenCalled()
+        })
+
+        it.each<[string, AnyPropertyFilter, false | 0]>([
+            [
+                'boolean false (e.g. flag dependency set to false)',
+                {
+                    key: '911',
+                    type: PropertyFilterType.Flag,
+                    operator: PropertyOperator.FlagEvaluatesTo,
+                    value: false,
+                } as AnyPropertyFilter,
+                false,
+            ],
+            ['number 0', eventFilter('$browser', 0, PropertyOperator.Exact), 0],
+        ])('calls onChange when the value is the falsy literal %s', async (_name, filter, expectedValue) => {
+            const cb = await setFilterAndCheck(filter, false)
+            expect(cb).toHaveBeenCalledTimes(1)
+            expect(cb.mock.calls[0][0][0]).toMatchObject({ value: expectedValue })
         })
     })
 

@@ -11,7 +11,27 @@ export interface PrecomputationTeam {
     team_name: string
     organization_id: string | null
     organization_name: string | null
+    organization_arr: number | null
     experiment_precomputation_enabled: boolean
+}
+
+export interface SlowestQuery {
+    query_id: string
+    query: string
+    timestamp: string
+    execution_time: number
+    exception: string
+    status: number
+    team_id: number
+    team_name: string | null
+    organization_name: string | null
+    organization_arr: number | null
+    query_type: string
+    experiment_name: string
+    experiment_metric_name: string
+    experiment_execution_path: string
+    experiment_metric_type: string
+    experiment_id: number | null
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
@@ -19,12 +39,33 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
     actions({
         setSearch: (search: string) => ({ search }),
         setPrecomputation: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        setHoursBack: (hours: number) => ({ hours }),
+        setTeamIdFilter: (teamId: string) => ({ teamId }),
+        setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
     }),
     reducers({
         search: [
             '',
             {
                 setSearch: (_, { search }) => search,
+            },
+        ],
+        hoursBack: [
+            1,
+            {
+                setHoursBack: (_, { hours }) => hours,
+            },
+        ],
+        teamIdFilter: [
+            '',
+            {
+                setTeamIdFilter: (_, { teamId }) => teamId,
+            },
+        ],
+        experimentIdFilter: [
+            '',
+            {
+                setExperimentIdFilter: (_, { experimentId }) => experimentId,
             },
         ],
     }),
@@ -54,16 +95,43 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 },
             },
         ],
+        slowestQueries: [
+            [] as SlowestQuery[],
+            {
+                loadSlowestQueries: async () => {
+                    const params = new URLSearchParams({ hours: String(values.hoursBack) })
+                    if (values.teamIdFilter) {
+                        params.append('team_id', values.teamIdFilter)
+                    }
+                    if (values.experimentIdFilter) {
+                        params.append('experiment_id', values.experimentIdFilter)
+                    }
+                    return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
+                },
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadPrecomputationTeams()
         },
+        setHoursBack: () => {
+            actions.loadSlowestQueries()
+        },
+        setTeamIdFilter: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSlowestQueries()
+        },
+        setExperimentIdFilter: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadSlowestQueries()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
+            actions.loadSlowestQueries()
         }
     }),
 ])

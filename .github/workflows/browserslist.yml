@@ -17,26 +17,18 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
 
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Configure git
-              run: |
-                  git config --global user.email "action@github.com"
-                  git config --global user.name "Browserslist Update Action"
-
             - name: Install pnpm
-              uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -44,31 +36,83 @@ jobs:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
 
-            - name: Reset stale browserslist branch
+            - name: Update Browserslist database
+              env:
+                  NO_COLOR: '1'
+              run: |
+                  pnpm install
+                  npx --yes update-browserslist-db@latest 2>&1 | tee /tmp/browserslist-output.txt
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet pnpm-lock.yaml; then
+                    echo "changes=false" >> $GITHUB_OUTPUT
+                    echo "No Browserslist updates available"
+                  else
+                    echo "changes=true" >> $GITHUB_OUTPUT
+                    git diff --stat pnpm-lock.yaml
+                  fi
+
+            - name: Build PR body
+              if: steps.check-changes.outputs.changes == 'true'
+              run: |
+                  {
+                    echo "Automated weekly update of the Browserslist database (\`caniuse-lite\`)."
+                    echo
+                    echo '```'
+                    cat /tmp/browserslist-output.txt
+                    echo '```'
+                  } > /tmp/pr-body.md
+
+            - name: Reset branch to checked-out SHA
+              if: steps.check-changes.outputs.changes == 'true'
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  TARGET_SHA: ${{ github.sha }}
+              run: |
+                  if gh api repos/${{ github.repository }}/git/ref/heads/browserslist-update >/dev/null 2>&1; then
+                    gh api -X PATCH repos/${{ github.repository }}/git/refs/heads/browserslist-update \
+                      -f sha="$TARGET_SHA" -F force=true
+                  else
+                    gh api repos/${{ github.repository }}/git/refs -f ref=refs/heads/browserslist-update -f sha="$TARGET_SHA"
+                  fi
+
+            - name: Commit
+              if: steps.check-changes.outputs.changes == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+              with:
+                  commit_message: 'build: update Browserslist db'
+                  repo: ${{ github.repository }}
+                  branch: browserslist-update
+                  file_pattern: 'pnpm-lock.yaml'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Create or update pull request
+              id: pr
+              if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  if git ls-remote --heads origin browserslist-update | grep browserslist-update; then
-                    echo "Resetting stale browserslist-update branch to master to avoid rebase conflicts"
-                    git fetch origin browserslist-update
-                    git checkout -b browserslist-update origin/browserslist-update
-                    git reset --hard origin/master
-                    git push origin browserslist-update --force
-                    git checkout master
+                  existing_pr=$(gh pr list --head "browserslist-update" --json number --jq '.[0].number' 2>/dev/null || true)
+                  if [ -n "$existing_pr" ]; then
+                    gh pr edit "$existing_pr" --body-file /tmp/pr-body.md
+                    echo "pr_number=$existing_pr" >> $GITHUB_OUTPUT
+                  else
+                    pr_url=$(gh pr create \
+                      --title "build: update Browserslist db" \
+                      --body-file /tmp/pr-body.md \
+                      --base master \
+                      --head browserslist-update \
+                      --label "dependencies")
+                    echo "pr_number=$(basename "$pr_url")" >> $GITHUB_OUTPUT
                   fi
 
-            - name: Update Browserslist database and create PR if applies
-              id: update-browserlist
-              uses: c2corg/browserslist-update-action@a76abb476199caea5399f9e28ff3f16e491ec566 # v2.5.0
-              with:
-                  github_token: ${{ steps.app-token.outputs.token }}
-                  commit_message: 'build: update Browserslist db'
-                  title: 'build: update Browserslist db'
-                  labels: 'dependencies'
-
             - name: Enable automerge
+              if: steps.check-changes.outputs.changes == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  PR_NUMBER: ${{ steps.update-browserlist.outputs.pr_number }}
+                  PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
               run: |
                   gh pr merge "$PR_NUMBER" --auto --squash

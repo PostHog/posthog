@@ -33,7 +33,7 @@ from posthog.constants import TREND_FILTER_TYPE_EVENTS, TRENDS_BAR_VALUE, TRENDS
 from posthog.hogql_queries.insights.trends.test.test_trends_persons import get_actors
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models import Cohort, Entity, Filter, Organization, Person
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.person.util import create_person_distinct_id
@@ -42,6 +42,7 @@ from posthog.models.utils import uuid7
 from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 
@@ -3560,12 +3561,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response[0]["count"], 2)
             self.assertEqual(response[0]["data"][-1], 2)
-
-    def test_response_empty_if_no_events(self):
-        self._create_events()
-        flush_persons_and_events()
-        response = self._run(Filter(team=self.team, data={"date_from": "2012-12-12"}), self.team)
-        self.assertEqual(response, [])
 
     def test_interval_filtering_hour(self):
         self._create_events(use_time=True)

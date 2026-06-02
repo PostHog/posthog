@@ -49,7 +49,7 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                         <div
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
-                            } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
+                            } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
                                 <div className="flex items-center justify-end">

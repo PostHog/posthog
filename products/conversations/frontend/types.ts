@@ -4,13 +4,16 @@ import type { TicketAssignee } from './components/Assignee'
 
 export type NotificationPermission = 'default' | 'granted' | 'denied'
 export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
-export type TicketChannel = 'widget' | 'slack' | 'email'
+export type TicketChannel = 'widget' | 'slack' | 'email' | 'teams' | 'github'
 export type TicketChannelDetail =
     | 'slack_channel_message'
     | 'slack_bot_mention'
     | 'slack_emoji_reaction'
+    | 'teams_channel_message'
+    | 'teams_bot_mention'
     | 'widget_embedded'
     | 'widget_api'
+    | 'github_issue'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 export type TicketPriority = 'low' | 'medium' | 'high'
 export type SceneTabKey = 'tickets' | 'settings'
@@ -30,6 +33,7 @@ export interface TicketViewFilters {
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null
+    search?: string
 }
 
 export interface SavedTicketView {
@@ -86,12 +90,16 @@ export interface Ticket {
         [key: string]: any
     }
     sla_due_at?: string | null
+    snoozed_until?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
     email_subject?: string | null
     email_from?: string | null
     email_to?: string | null
+    cc_participants?: string[]
+    github_repo?: string | null
+    github_issue_number?: number | null
     person?: TicketPerson | null
     tags?: string[]
 }
@@ -183,7 +191,9 @@ export const channelOptions: { value: TicketChannel | 'all'; label: string }[] =
     { value: 'all', label: 'All channels' },
     { value: 'widget', label: 'Widget' },
     { value: 'slack', label: 'Slack' },
+    { value: 'teams', label: 'Microsoft Teams' },
     { value: 'email', label: 'Email' },
+    { value: 'github', label: 'GitHub' },
 ]
 
 export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [

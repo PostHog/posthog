@@ -52,6 +52,8 @@ export function createTestContext(client: ApiClient): Context {
         env: {} as any,
         stateManager,
         sessionManager: new SessionManager(cache),
+        getDistinctId: async () => 'test-distinct-id',
+        trackEvent: async () => {},
     }
 
     return context

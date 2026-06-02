@@ -16,15 +16,17 @@ impl PropertyFilter {
     }
 
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
-    /// or if the value cannot be parsed as a cohort id
+    /// or if the value cannot be parsed as a cohort id.
+    /// Handles both JSON number and string representations (Python serializes both).
     pub fn get_cohort_id(&self) -> Option<CohortId> {
         if !self.is_cohort() {
             return None;
         }
-        self.value
-            .as_ref()
-            .and_then(|value| value.as_i64())
-            .map(|id| id as CohortId)
+        self.value.as_ref().and_then(|value| match value {
+            Value::Number(n) => n.as_i64().and_then(|id| CohortId::try_from(id).ok()),
+            Value::String(s) => s.parse::<CohortId>().ok(),
+            _ => None,
+        })
     }
 
     /// Checks if the filter depends on a feature flag
@@ -137,6 +139,11 @@ mod tests {
         let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert_eq!(filter.get_cohort_id(), None);
 
+        // Cohort filter with string-encoded numeric value should return the id
+        let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
+        filter.value = Some(Value::String("123".to_string()));
+        assert_eq!(filter.get_cohort_id(), Some(123));
+
         // Cohort filter with non-numeric value should return None
         let mut filter = mock!(crate::properties::property_models::PropertyFilter, key: "cohort".mock_into(), prop_type: PropertyType::Cohort, operator: Some(OperatorType::Exact));
         filter.value = Some(Value::String("not_a_number".to_string()));
@@ -176,6 +183,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         assert!(filter.compiled_regex.is_none());
@@ -196,6 +204,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -215,6 +224,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -235,6 +245,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         regex_filter.prepare_regex();
         assert!(matches!(
@@ -251,6 +262,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         not_regex_filter.prepare_regex();
         assert!(matches!(
@@ -273,6 +285,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -291,6 +304,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
 
         filter.prepare_regex();
@@ -332,6 +346,7 @@ mod tests {
             group_type_index: None,
             negation: None,
             compiled_regex: None,
+            extra: Default::default(),
         };
         let result_raw = match_property(&filter_raw, &props, false);
 

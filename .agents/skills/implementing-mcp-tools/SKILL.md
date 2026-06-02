@@ -11,9 +11,10 @@ Read the full guide at [docs/published/handbook/engineering/ai/implementing-mcp-
 
 ```sh
 # 1. Scaffold a starter YAML with all operations disabled.
-#    --product discovers endpoints via x-explicit-tags (priority 1) then
+#    --product discovers endpoints via x-product (priority 1) then
 #    URL substring match (fallback). ViewSets in products/<name>/backend/
-#    are auto-tagged. ViewSets elsewhere need @extend_schema(tags=["<product>"]).
+#    are auto-attributed via module path. ViewSets elsewhere need
+#    @extend_schema(extensions={"x-product": "<product>"}).
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
@@ -21,7 +22,7 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 #    Place in products/<product>/mcp/*.yaml (preferred) or services/mcp/definitions/*.yaml
 
 # 3. Add a HogQL system table in posthog/hogql/database/schema/system.py
-#    and a model reference in products/posthog_ai/skills/query-examples/references/
+#    and a model reference in products/posthog_ai/skills/querying-posthog-data/references/
 
 # 4. Generate handlers and schemas
 hogli build:openapi
@@ -143,9 +144,22 @@ tools:
       include: [id, key, name] # keep only these fields (dot-path wildcards supported)
       exclude: [filters.groups.*.properties] # remove these fields
       # include and exclude are mutually exclusive
+    feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
+    feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```
 
 Unknown keys are rejected at build time (Zod `.strict()`).
+
+### Gating tools with feature flags
+
+Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure on a PostHog feature flag evaluated at MCP init time for the current user.
+
+- `feature_flag_behavior: enable` (default) — tool is shown **only when the flag is on**. Use for rolling out new tools.
+- `feature_flag_behavior: disable` — tool is hidden **when the flag is on**. Use for sunsetting old tools.
+
+Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
+
+Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
 
 ### Syncing after endpoint changes
 
@@ -182,8 +196,8 @@ Use `mcp_version: 1` on read/list YAML tools when a system table covers the same
 v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
-(`models-<domain>.md`) in [`products/posthog_ai/skills/query-examples/references/`](products/posthog_ai/skills/query-examples/references/)
-and register it in [`products/posthog_ai/skills/query-examples/SKILL.md`](products/posthog_ai/skills/query-examples/SKILL.md) under **Data Schema**.
+(`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](products/posthog_ai/skills/querying-posthog-data/references/)
+and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
 
 ## Two MCP versions
 

@@ -11,7 +11,8 @@ showTitle: true
 ```text
 .
 ├── bin              # Shell scripts wrapped by hogli, the unified developer CLI
-├── common           # Shared code: hogli CLI, PostHog SQL parser, HogVM, shared UI packages
+├── common           # Shared code: PostHog SQL parser, HogVM, shared UI packages
+├── tools            # Developer/CI tooling (hogli framework, hogli-commands, openapi-codegen, ...)
 ├── ee               # Enterprise platform package features (separate license)
 ├── frontend         # React/TypeScript frontend application
 │   └── src
@@ -83,10 +84,18 @@ High-performance Rust services including:
 
 Shared code used across the codebase:
 
-- `hogli` – Unified developer CLI for building, testing, and running PostHog
 - `hogql_parser` – PostHog SQL parser (C++)
 - `hogvm` – Hog virtual machine
 - `tailwind` – Shared Tailwind configuration
+
+### `tools`
+
+Developer and CI tooling, not imported by runtime code:
+
+- `hogli` – Developer CLI framework (PyPI-publishable)
+- `hogli-commands` – PostHog-specific hogli commands
+- `openapi-codegen` – OpenAPI client/spec generation
+- (and others — see `tools/`)
 
 ### `ee`
 

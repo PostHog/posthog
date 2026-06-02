@@ -180,6 +180,20 @@ class SignalData:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _render_extra_to_text(extra: dict) -> list[str]:
+    """Render signal extra data to text lines for LLM consumption."""
+    lines = []
+    for key, value in extra.items():
+        if key == "images":
+            images = value or []
+            rendered = ", ".join(f"[{img.get('author', 'unknown')}] {img['url']}" for img in images if img.get("url"))
+            if rendered:
+                lines.append(f"- images: {rendered}")
+        else:
+            lines.append(f"- {key}: {value}")
+    return lines
+
+
 def render_signal_to_text(
     signal: SignalData,
     index: Optional[int] = None,
@@ -190,6 +204,8 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.extra:
+        lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)
 
 

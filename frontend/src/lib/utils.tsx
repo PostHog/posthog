@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import { CSSProperties } from 'react'
 
 import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
@@ -22,6 +21,7 @@ import {
 import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
 import { LemonTagType } from './lemon-ui/LemonTag'
 import { getAppContext } from './utils/getAppContext'
+import { getPrimaryPropertyForEvent } from './utils/primaryEventProperty'
 
 // WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
 // Preferably create a dedicated file in utils/..
@@ -1028,23 +1028,28 @@ export function eventToDescription(
     event: Pick<EventType, 'elements' | 'event' | 'properties'>,
     shortForm: boolean = false
 ): string {
-    if (['$pageview', '$pageleave'].includes(event.event)) {
-        return event.properties.$pathname ?? event.properties.$current_url ?? '<unknown URL>'
-    }
     if (event.event === '$autocapture') {
         return autoCaptureEventToDescription(event, shortForm)
     }
-    if (event.event === '$feature_flag_called') {
-        return event.properties.$feature_flag ?? event.event
+    // For events with a taxonomy-default primary property (e.g. `$pageview` -> `$pathname`,
+    // `$screen` -> `$screen_name`, `$feature_flag_called` -> `$feature_flag`), use the property's
+    // value as the description so consumers (notebooks, save-as-action, funnel labels, ...) get
+    // useful context instead of the bare event name. Returns the event name when the property
+    // isn't present on the event so callers always get something to display.
+    const primaryKey = getPrimaryPropertyForEvent(event.event)
+    if (primaryKey) {
+        const value = event.properties[primaryKey]
+        if (value != null && value !== '') {
+            return String(value)
+        }
     }
-    // All other events and actions
     return event.event
 }
 
 // $event_type to verb map
-const eventTypeToVerb: { [key: string]: string } = {
+export const eventTypeToVerb: { [key: string]: string } = {
     click: 'clicked',
-    change: 'typed something into',
+    change: 'changed',
     submit: 'submitted',
     touch: 'touched a',
     value_changed: 'changed value in',
@@ -1951,15 +1956,6 @@ export function humanList(arr: readonly string[]): string {
     return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.at(-1) : arr.join(' and ')
 }
 
-export function resolveWebhookService(webhookUrl: string): string {
-    for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
-        if (webhookUrl.includes(domain + '/')) {
-            return service
-        }
-    }
-    return 'your webhook service'
-}
-
 export function hexToRGB(hex: string): { r: number; g: number; b: number; a: number } {
     // Remove the "#" if it exists
     hex = hex.replace(/^#/, '')
@@ -2474,9 +2470,19 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
         return null
     }
 
-    // Root-relative path
+    // Root-relative path — resolve against the current origin and verify it doesn't escape.
+    // Browsers normalize backslashes in special-scheme URLs per WHATWG, so a raw startsWith('/')
+    // check would accept '/\\evil.com/path', which the browser then loads as '//evil.com/path'.
     if (decoded.startsWith('/')) {
-        return decoded
+        try {
+            const url = new URL(decoded, location.origin)
+            if (url.origin !== location.origin) {
+                return null
+            }
+            return url.pathname + url.search + url.hash
+        } catch {
+            return null
+        }
     }
 
     // Try to parse as a full URL

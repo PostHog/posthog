@@ -74,9 +74,20 @@ const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     classify: |_| "$ai_span",
 };
 
-/// The complete list of supported AI providers. To add a new provider: define
-/// a constant above and add it here.
-const SUPPORTED_PROVIDERS: &[SupportedProvider] = &[GEN_AI, VERCEL_AI, TRACELOOP, PYDANTIC_AI];
+/// Providers are matched in order — first prefix match wins. More specific
+/// matchers must come before less specific ones to avoid shadowing. For example,
+/// Vercel AI spans carry both `ai.*` and `gen_ai.*` attributes; if GEN_AI were
+/// checked first it would match on `gen_ai.*` but fail to classify (Vercel AI
+/// doesn't set `gen_ai.operation.name`), shadowing the VERCEL_AI classifier.
+const SUPPORTED_PROVIDERS: &[SupportedProvider] = &[
+    // 1. Framework-specific — dedicated SDKs with their own attribute namespaces
+    VERCEL_AI,
+    PYDANTIC_AI,
+    // 2. Spec variations — alternative telemetry standards with distinct classification keys
+    TRACELOOP,
+    // 3. Generic catch-all — standard OpenTelemetry semantic conventions (gen_ai.*)
+    GEN_AI,
+];
 
 /// Returns the matching provider for raw protobuf attributes, based on prefix
 /// matching. Used as a lightweight pre-filter to avoid converting irrelevant
@@ -168,7 +179,9 @@ mod tests {
     }
 
     #[test]
-    fn test_gen_ai_operation_name_takes_precedence() {
+    fn test_vercel_ai_takes_precedence_over_gen_ai() {
+        // Vercel AI spans carry both ai.* and gen_ai.* attributes. The
+        // SDK-specific VERCEL_AI provider should match first.
         let mut attrs = serde_json::Map::new();
         attrs.insert(
             "gen_ai.operation.name".to_string(),
@@ -177,6 +190,23 @@ mod tests {
         attrs.insert(
             "ai.operationId".to_string(),
             Value::String("ai.toolCall".to_string()),
+        );
+        assert_eq!(get_event_name(&attrs), Some("$ai_span"));
+    }
+
+    #[test]
+    fn test_vercel_ai_do_generate_with_gen_ai_attrs() {
+        // Real-world scenario: Vercel AI .doGenerate spans carry gen_ai.*
+        // attributes (e.g. gen_ai.request.model) but not gen_ai.operation.name.
+        // VERCEL_AI must match first and classify via ai.operationId.
+        let mut attrs = serde_json::Map::new();
+        attrs.insert(
+            "gen_ai.request.model".to_string(),
+            Value::String("gpt-4".to_string()),
+        );
+        attrs.insert(
+            "ai.operationId".to_string(),
+            Value::String("ai.generateText.doGenerate".to_string()),
         );
         assert_eq!(get_event_name(&attrs), Some("$ai_generation"));
     }

@@ -154,7 +154,7 @@ describe('surveys', () => {
             },
             {
                 name: 'non-event config',
-                config: { type: 'schedule', scheduled_at: '2026-01-01' },
+                config: { type: 'schedule' },
                 expected: null,
             },
         ])('returns $expected for $name', ({ config, expected }) => {

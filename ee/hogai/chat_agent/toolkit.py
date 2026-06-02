@@ -6,6 +6,7 @@ from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
 
+from products.ai_observability.backend.tools.skills import GetLLMSkillFileTool, GetLLMSkillTool, ListLLMSkillsTool
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
@@ -34,7 +35,7 @@ from ee.hogai.tools import (
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
-    has_llm_gateway_feature_flag,
+    get_llm_gateway_variant,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
@@ -51,6 +52,9 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     SwitchModeTool,
     CreateFormTool,
     CreateNotebookTool,
+    ListLLMSkillsTool,
+    GetLLMSkillTool,
+    GetLLMSkillFileTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [
@@ -69,11 +73,11 @@ class ChatAgentPlanToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type[MaxTool]]:
-        tools = [
+        tools: list[type[MaxTool]] = [
             ReadTaxonomyTool,
             SearchTool,
-            TodoWriteTool,  # type: ignore[list-item]
-            SwitchModeTool,  # type: ignore[list-item]
+            TodoWriteTool,
+            SwitchModeTool,
             CreateFormTool,
             FinalizePlanTool,
         ]
@@ -142,13 +146,12 @@ class ChatAgentToolkitManager(AgentToolkitManager):
             if mcp_tool._installations:
                 available_tools.append(mcp_tool)
 
-        # Final tools = available contextual tools + LLM provider server tools
-        if not (
-            has_llm_gateway_feature_flag(self._team, self._user)
-            and settings.LLM_GATEWAY_URL
-            and settings.LLM_GATEWAY_API_KEY
-        ):
-            # Web Search isn't supported by AWS Bedrock
+        # Web Search isn't supported by AWS Bedrock as primary provider
+        variant = get_llm_gateway_variant(self._team, self._user)
+        uses_bedrock_primary = (
+            variant == "gateway-bedrock" and settings.LLM_GATEWAY_URL and settings.LLM_GATEWAY_API_KEY
+        )
+        if not uses_bedrock_primary:
             available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools

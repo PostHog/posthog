@@ -1,4 +1,5 @@
 import datetime
+from typing import Any
 
 from django.conf import settings
 from django.utils import timezone
@@ -9,6 +10,7 @@ from posthog.schema import HogQLFilters, ProductKey
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
+from posthog.tasks.email_utils import compute_week_over_week_change
 
 logger = structlog.get_logger(__name__)
 
@@ -61,22 +63,40 @@ def get_exception_summary_for_team(team: Team) -> dict:
     }
 
 
-def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[int, dict]) -> None:
-    """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
-    and persist the selection to their notification settings"""
-    from posthog.models.user import User
+ELIGIBLE_ROLES_FOR_AUTO_DIGEST = {"engineering", "data", "founder"}
 
+
+def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: dict[int, dict]) -> bool:
+    """For first-time users who have no ET digest project settings, auto-select the project with the most exceptions
+    and persist the selection to their notification settings.
+
+    Only auto-enrolls users with engineering, data, or founder roles. Users with other roles
+    (marketing, sales, leadership, product, other, None) are marked as "processed" with an empty
+    project map so auto-selection doesn't run again - they can still opt in manually via settings.
+    """
+    from posthog.models.user import User
+    from posthog.tasks.email_utils import auto_select_digest_project
+
+    setting_key = "error_tracking_weekly_digest_project_enabled"
     current_settings = user.partial_notification_settings or {}
-    if "error_tracking_weekly_digest_project_enabled" in current_settings:
-        return
+    if setting_key in current_settings:
+        return False
 
     if not team_exception_counts:
-        return
+        return False
 
-    busiest_team_id = max(team_exception_counts, key=lambda tid: team_exception_counts[tid]["exception_count"])
+    role = (user.role_at_organization or "").lower()
+    if role not in ELIGIBLE_ROLES_FOR_AUTO_DIGEST:
+        current_settings[setting_key] = {}
+        User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
+        return True
 
-    current_settings["error_tracking_weekly_digest_project_enabled"] = {str(busiest_team_id): True}
-    User.objects.filter(pk=user.pk).update(partial_notification_settings=current_settings)
+    return auto_select_digest_project(
+        user=user,
+        team_data=team_exception_counts,
+        setting_key=setting_key,
+        sort_key=lambda d: d["exception_count"],
+    )
 
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
@@ -159,33 +179,6 @@ def get_crash_free_sessions(team: Team) -> dict:
     )
 
     return result
-
-
-def compute_week_over_week_change(current: float, previous: float | None, higher_is_better: bool) -> dict | None:
-    """Compute a week-over-week percentage change dict for use in email templates.
-
-    Returns None when there's no meaningful comparison (no previous data or 0% change).
-    """
-    if previous is None or previous == 0:
-        return None
-
-    percent_change = ((current - previous) / previous) * 100
-    rounded = round(abs(percent_change))
-    if rounded == 0:
-        return None
-
-    is_increase = percent_change > 0
-    direction = "Up" if is_increase else "Down"
-    is_good = (is_increase and higher_is_better) or (not is_increase and not higher_is_better)
-    color = "#2f7d4f" if is_good else "#a13232"
-
-    return {
-        "percent": rounded,
-        "direction": direction,
-        "color": color,
-        "text": f"{direction} {rounded}%",
-        "long_text": f"{direction} {rounded}% from previous week",
-    }
 
 
 def get_daily_exception_counts(team: Team) -> list[dict]:

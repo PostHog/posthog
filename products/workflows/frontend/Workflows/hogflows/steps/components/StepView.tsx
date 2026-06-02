@@ -14,6 +14,7 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from '../../react_flow_utils/constants'
 import { HogFlowAction } from '../../types'
 import { useHogFlowStep } from '../HogFlowSteps'
+import { buildSummary } from './rrule-helpers'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 import { StepViewMetrics } from './StepViewMetrics'
 
@@ -28,8 +29,23 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         workflow,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
-    const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
+        useValues(workflowLogic)
     const { deleteElements } = useReactFlow()
+
+    const isScheduleTrigger = action.type === 'trigger' && (action.config as any)?.type === 'schedule'
+    const scheduleDescription = useMemo(() => {
+        if (!isScheduleTrigger) {
+            return null
+        }
+        if (!scheduleStartsAt) {
+            return 'No schedule configured'
+        }
+        if (!isScheduleRepeating) {
+            return 'One-time run'
+        }
+        return buildSummary(scheduleState, scheduleStartsAt)
+    }, [isScheduleTrigger, scheduleState, scheduleStartsAt, isScheduleRepeating])
 
     const isSelected = selectedNode?.id === action.id
     const node = nodesById[action.id]
@@ -168,17 +184,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                             />
                         </div>
                     ) : (
-                        <Tooltip title={action.description || ''}>
+                        <Tooltip title={scheduleDescription ?? action.description ?? ''}>
                             <div
-                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 !rounded-sm px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
+                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 !rounded-sm px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected && !isScheduleTrigger ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                 onClick={(e) => {
-                                    if (isSelected) {
+                                    if (isSelected && !isScheduleTrigger) {
                                         e.stopPropagation()
                                         startEditingDescription()
                                     }
                                 }}
                             >
-                                {action.description || ''}
+                                {scheduleDescription ?? action.description ?? ''}
                             </div>
                         </Tooltip>
                     )}

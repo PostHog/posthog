@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
+import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
@@ -18,6 +19,20 @@ import { APIErrorType, CohortType, ExportContext, ExportedAssetType, ExporterFor
 import type { exportsLogicType } from './exportsLogicType'
 
 const POLL_DELAY_MS = 10000
+// Long-running formats (e.g. MP4 session-replay renders) can take 30+ minutes,
+// so polling every 10s produces unhelpful timeout noise. Back off when the
+// pending queue is dominated by long-running formats.
+const LONG_RUNNING_POLL_DELAY_MS = 30000
+
+export const pickPollDelayMs = (pendingAssets: ExportedAssetType[]): number => {
+    const pending = pendingAssets.filter((asset) => !asset.has_content && !asset.exception)
+    if (pending.length === 0) {
+        return POLL_DELAY_MS
+    }
+    return pending.every((asset) => isLongRunningExportFormat(asset.export_format))
+        ? LONG_RUNNING_POLL_DELAY_MS
+        : POLL_DELAY_MS
+}
 
 const isLocalExport = (context: ExportContext | undefined): context is LocalExportContext =>
     !!(context && 'localData' in context)
@@ -111,7 +126,7 @@ export const exportsLogic = kea<exportsLogicType>([
             // Check if any exports haven't completed
             const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
             if (!donePolling) {
-                await breakpoint(POLL_DELAY_MS)
+                await breakpoint(pickPollDelayMs(exportsLogic.values.exports))
                 actions.loadExports()
                 return
             }
@@ -148,7 +163,6 @@ export const exportsLogic = kea<exportsLogicType>([
             format = ExporterFormat.PNG,
             timestamp,
             duration = 5,
-            mode = SessionRecordingPlayerMode.Screenshot,
             options,
         }) => {
             const exportData: TriggerExportProps = {
@@ -156,12 +170,11 @@ export const exportsLogic = kea<exportsLogicType>([
                 export_context: {
                     session_recording_id: sessionRecordingId,
                     timestamp: timestamp,
-                    css_selector: options?.css_selector || '.replayer-wrapper',
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    mode: mode,
+                    skip_inactivity: false,
                 },
             }
 

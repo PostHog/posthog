@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -58,7 +59,11 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting } = useValues(dashboardsLogic)
+    const { tableSorting, filters } = useValues(dashboardsLogic)
+    // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
+    // would push the exact match below partial matches. Suppress the persisted column sort
+    // while the user has an active search term.
+    const effectiveTableSorting = filters.search ? null : tableSorting
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -258,10 +263,33 @@ export function DashboardsTable({
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
                 columns={columns}
                 loading={dashboardsLoading}
-                defaultSorting={tableSorting}
+                defaultSorting={effectiveTableSorting}
                 onSort={tableSortingChanged}
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
+                bulkSelection={{
+                    getKey: (dashboard: DashboardType): number => dashboard.id,
+                    isRowSelectable: (dashboard: DashboardType) =>
+                        accessLevelSatisfied(
+                            AccessControlResourceType.Dashboard,
+                            dashboard.user_access_level,
+                            AccessControlLevel.Editor
+                        )
+                            ? true
+                            : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
+                    rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
+                    headerAriaLabel: 'Select all dashboards on this page',
+                    renderActions: (ctx) => (
+                        <BulkUpdateTagsButton
+                            resource="dashboards"
+                            selectedIds={ctx.selectedKeys}
+                            onSuccess={() => {
+                                ctx.clearSelection()
+                                dashboardsModel.actions.loadDashboards()
+                            }}
+                        />
+                    ),
+                }}
             />
         </>
     )

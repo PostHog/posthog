@@ -3,18 +3,24 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
-    FeatureFlagsActivityRetrieve2Params,
-    FeatureFlagsActivityRetrieve2QueryParams,
+    FeatureFlagsActivityRetrieveParams,
+    FeatureFlagsActivityRetrieveQueryParams,
+    FeatureFlagsBulkDeleteCreateBody,
+    FeatureFlagsBulkKeysRetrieveBody,
+    FeatureFlagsBulkUpdateTagsCreateBody,
     FeatureFlagsCopyFlagsCreateBody,
     FeatureFlagsCreateBody,
     FeatureFlagsDependentFlagsListParams,
     FeatureFlagsDestroyParams,
     FeatureFlagsEvaluationReasonsRetrieveQueryParams,
     FeatureFlagsListQueryParams,
+    FeatureFlagsMyFlagsRetrieveQueryParams,
     FeatureFlagsPartialUpdateBody,
     FeatureFlagsPartialUpdateParams,
-    FeatureFlagsRetrieve2Params,
+    FeatureFlagsRetrieveParams,
     FeatureFlagsStatusRetrieveParams,
+    FeatureFlagsTestEvaluationCreateBody,
+    FeatureFlagsTestEvaluationCreateParams,
     FeatureFlagsUserBlastRadiusCreateBody,
     ScheduledChangesCreateBody,
     ScheduledChangesDestroyParams,
@@ -23,71 +29,11 @@ import {
     ScheduledChangesPartialUpdateParams,
     ScheduledChangesRetrieveParams,
 } from '@/generated/feature_flags/api'
+import { withUiApp } from '@/resources/ui-apps'
+import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
+import { castStringToInt } from '@/tools/cast-helpers'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams
-
-const featureFlagGetAll = (): ToolBase<
-    typeof FeatureFlagGetAllSchema,
-    WithPostHogUrl<Schemas.PaginatedFeatureFlagList>
-> => ({
-    name: 'feature-flag-get-all',
-    schema: FeatureFlagGetAllSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetAllSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedFeatureFlagList>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/`,
-            query: {
-                active: params.active,
-                created_by_id: params.created_by_id,
-                evaluation_runtime: params.evaluation_runtime,
-                excluded_properties: params.excluded_properties,
-                has_evaluation_contexts: params.has_evaluation_contexts,
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-                tags: params.tags,
-                type: params.type,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: result.results.map((item: any) =>
-                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
-            ),
-        } as typeof result
-        return await withPostHogUrl(
-            context,
-            {
-                ...filtered,
-                results: await Promise.all(
-                    filtered.results.map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
-                ),
-            },
-            '/feature_flags'
-        )
-    },
-})
-
-const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieve2Params.omit({ project_id: true })
-
-const featureFlagGetDefinition = (): ToolBase<
-    typeof FeatureFlagGetDefinitionSchema,
-    WithPostHogUrl<Schemas.FeatureFlag>
-> => ({
-    name: 'feature-flag-get-definition',
-    schema: FeatureFlagGetDefinitionSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetDefinitionSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FeatureFlag>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
-        })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
-    },
-})
 
 const CreateFeatureFlagSchema = FeatureFlagsCreateBody
 
@@ -117,51 +63,16 @@ const createFeatureFlag = (): ToolBase<typeof CreateFeatureFlagSchema, WithPostH
         }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
-            path: `/api/projects/${projectId}/feature_flags/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             body,
         })
         return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
     },
 })
 
-const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true }).extend(
-    FeatureFlagsPartialUpdateBody.shape
-)
-
-const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
-    name: 'update-feature-flag',
-    schema: UpdateFeatureFlagSchema,
-    handler: async (context: Context, params: z.infer<typeof UpdateFeatureFlagSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.key !== undefined) {
-            body['key'] = params.key
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.filters !== undefined) {
-            body['filters'] = params.filters
-        }
-        if (params.active !== undefined) {
-            body['active'] = params.active
-        }
-        if (params.tags !== undefined) {
-            body['tags'] = params.tags
-        }
-        if (params.evaluation_contexts !== undefined) {
-            body['evaluation_contexts'] = params.evaluation_contexts
-        }
-        const result = await context.api.request<Schemas.FeatureFlag>({
-            method: 'PATCH',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
-    },
+const DeleteFeatureFlagSchema = FeatureFlagsDestroyParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsDestroyParams.shape['id']),
 })
-
-const DeleteFeatureFlagSchema = FeatureFlagsDestroyParams.omit({ project_id: true })
 
 const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.FeatureFlag> => ({
     name: 'delete-feature-flag',
@@ -170,16 +81,87 @@ const deleteFeatureFlag = (): ToolBase<typeof DeleteFeatureFlagSchema, Schemas.F
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
             body: { deleted: true },
         })
         return result
     },
 })
 
-const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieve2Params.omit({ project_id: true }).extend(
-    FeatureFlagsActivityRetrieve2QueryParams.shape
-)
+const FeatureFlagGetAllSchema = FeatureFlagsListQueryParams.extend({
+    search: FeatureFlagsListQueryParams.shape['search'].describe(
+        'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+    ),
+    limit: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, FeatureFlagsListQueryParams.shape['offset']).optional(),
+})
+
+const featureFlagGetAll = (): ToolBase<
+    typeof FeatureFlagGetAllSchema,
+    WithPostHogUrl<Schemas.PaginatedFeatureFlagList>
+> => ({
+    name: 'feature-flag-get-all',
+    schema: FeatureFlagGetAllSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetAllSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedFeatureFlagList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
+            query: {
+                active: params.active,
+                created_by_id: params.created_by_id,
+                evaluation_runtime: params.evaluation_runtime,
+                excluded_properties: params.excluded_properties,
+                has_evaluation_contexts: params.has_evaluation_contexts,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                tags: params.tags,
+                type: params.type,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, ['id', 'key', 'name', 'updated_at', 'status', 'tags'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                ),
+            },
+            '/feature_flags'
+        )
+    },
+})
+
+const FeatureFlagGetDefinitionSchema = FeatureFlagsRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsRetrieveParams.shape['id']),
+})
+
+const featureFlagGetDefinition = (): ToolBase<
+    typeof FeatureFlagGetDefinitionSchema,
+    WithPostHogUrl<Schemas.FeatureFlag>
+> => ({
+    name: 'feature-flag-get-definition',
+    schema: FeatureFlagGetDefinitionSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagGetDefinitionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+    },
+})
+
+const FeatureFlagsActivityRetrieveSchema = FeatureFlagsActivityRetrieveParams.omit({ project_id: true })
+    .extend(FeatureFlagsActivityRetrieveQueryParams.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsActivityRetrieveParams.shape['id']) })
 
 const featureFlagsActivityRetrieve = (): ToolBase<
     typeof FeatureFlagsActivityRetrieveSchema,
@@ -191,7 +173,7 @@ const featureFlagsActivityRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ActivityLogPaginatedResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/activity/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/activity/`,
             query: {
                 limit: params.limit,
                 page: params.page,
@@ -201,84 +183,78 @@ const featureFlagsActivityRetrieve = (): ToolBase<
     },
 })
 
-const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListParams.omit({ project_id: true })
+const FeatureFlagsBulkDeleteCreateSchema = FeatureFlagsBulkDeleteCreateBody
 
-const featureFlagsDependentFlagsRetrieve = (): ToolBase<
-    typeof FeatureFlagsDependentFlagsRetrieveSchema,
-    Schemas.DependentFlag[]
+const featureFlagsBulkDeleteCreate = (): ToolBase<
+    typeof FeatureFlagsBulkDeleteCreateSchema,
+    Schemas.BulkDeleteResponse
 > => ({
-    name: 'feature-flags-dependent-flags-retrieve',
-    schema: FeatureFlagsDependentFlagsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsDependentFlagsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DependentFlag[]>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/dependent_flags/`,
-        })
-        return result
-    },
-})
-
-const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true })
-
-const featureFlagsStatusRetrieve = (): ToolBase<
-    typeof FeatureFlagsStatusRetrieveSchema,
-    Schemas.FeatureFlagStatusResponse
-> => ({
-    name: 'feature-flags-status-retrieve',
-    schema: FeatureFlagsStatusRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsStatusRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.FeatureFlagStatusResponse>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/${params.id}/status/`,
-        })
-        return result
-    },
-})
-
-const FeatureFlagsEvaluationReasonsRetrieveSchema = FeatureFlagsEvaluationReasonsRetrieveQueryParams
-
-const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
-    typeof FeatureFlagsEvaluationReasonsRetrieveSchema,
-    unknown
-> => ({
-    name: 'feature-flags-evaluation-reasons-retrieve',
-    schema: FeatureFlagsEvaluationReasonsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsEvaluationReasonsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${projectId}/feature_flags/evaluation_reasons/`,
-            query: {
-                distinct_id: params.distinct_id,
-                groups: params.groups,
-            },
-        })
-        return result
-    },
-})
-
-const FeatureFlagsUserBlastRadiusCreateSchema = FeatureFlagsUserBlastRadiusCreateBody
-
-const featureFlagsUserBlastRadiusCreate = (): ToolBase<
-    typeof FeatureFlagsUserBlastRadiusCreateSchema,
-    Schemas.UserBlastRadiusResponse
-> => ({
-    name: 'feature-flags-user-blast-radius-create',
-    schema: FeatureFlagsUserBlastRadiusCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof FeatureFlagsUserBlastRadiusCreateSchema>) => {
+    name: 'feature-flags-bulk-delete-create',
+    schema: FeatureFlagsBulkDeleteCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkDeleteCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.condition !== undefined) {
-            body['condition'] = params.condition
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
         }
-        if (params.group_type_index !== undefined) {
-            body['group_type_index'] = params.group_type_index
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
         }
-        const result = await context.api.request<Schemas.UserBlastRadiusResponse>({
+        const result = await context.api.request<Schemas.BulkDeleteResponse>({
             method: 'POST',
-            path: `/api/projects/${projectId}/feature_flags/user_blast_radius/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkKeysRetrieveSchema = FeatureFlagsBulkKeysRetrieveBody
+
+const featureFlagsBulkKeysRetrieve = (): ToolBase<
+    typeof FeatureFlagsBulkKeysRetrieveSchema,
+    Schemas.BulkKeysResponse
+> => ({
+    name: 'feature-flags-bulk-keys-retrieve',
+    schema: FeatureFlagsBulkKeysRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkKeysRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        const result = await context.api.request<Schemas.BulkKeysResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_keys/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsBulkUpdateTagsCreateSchema = FeatureFlagsBulkUpdateTagsCreateBody
+
+const featureFlagsBulkUpdateTagsCreate = (): ToolBase<
+    typeof FeatureFlagsBulkUpdateTagsCreateSchema,
+    Schemas.BulkUpdateTagsResponse
+> => ({
+    name: 'feature-flags-bulk-update-tags-create',
+    schema: FeatureFlagsBulkUpdateTagsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsBulkUpdateTagsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.action !== undefined) {
+            body['action'] = params.action
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        const result = await context.api.request<Schemas.BulkUpdateTagsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/bulk_update_tags/`,
             body,
         })
         return result
@@ -308,49 +284,158 @@ const featureFlagsCopyFlagsCreate = (): ToolBase<
         if (params.copy_schedule !== undefined) {
             body['copy_schedule'] = params.copy_schedule
         }
+        if (params.disable_copied_flag !== undefined) {
+            body['disable_copied_flag'] = params.disable_copied_flag
+        }
         const result = await context.api.request<Schemas.CopyFlagsResponse>({
             method: 'POST',
-            path: `/api/organizations/${orgId}/feature_flags/copy_flags/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/feature_flags/copy_flags/`,
             body,
         })
         return result
     },
 })
 
-const ScheduledChangesListSchema = ScheduledChangesListQueryParams
+const FeatureFlagsDependentFlagsRetrieveSchema = FeatureFlagsDependentFlagsListParams.omit({ project_id: true }).extend(
+    { id: z.preprocess(castStringToInt, FeatureFlagsDependentFlagsListParams.shape['id']) }
+)
 
-const scheduledChangesList = (): ToolBase<
-    typeof ScheduledChangesListSchema,
-    WithPostHogUrl<Schemas.PaginatedScheduledChangeList>
+const featureFlagsDependentFlagsRetrieve = (): ToolBase<
+    typeof FeatureFlagsDependentFlagsRetrieveSchema,
+    Schemas.DependentFlag[]
 > => ({
-    name: 'scheduled-changes-list',
-    schema: ScheduledChangesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesListSchema>) => {
+    name: 'feature-flags-dependent-flags-retrieve',
+    schema: FeatureFlagsDependentFlagsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsDependentFlagsRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedScheduledChangeList>({
+        const result = await context.api.request<Schemas.DependentFlag[]>({
             method: 'GET',
-            path: `/api/projects/${projectId}/scheduled_changes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/dependent_flags/`,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsEvaluationReasonsRetrieveSchema = FeatureFlagsEvaluationReasonsRetrieveQueryParams
+
+const featureFlagsEvaluationReasonsRetrieve = (): ToolBase<
+    typeof FeatureFlagsEvaluationReasonsRetrieveSchema,
+    unknown
+> => ({
+    name: 'feature-flags-evaluation-reasons-retrieve',
+    schema: FeatureFlagsEvaluationReasonsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsEvaluationReasonsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/evaluation_reasons/`,
             query: {
-                limit: params.limit,
-                model_name: params.model_name,
-                offset: params.offset,
-                record_id: params.record_id,
+                distinct_id: params.distinct_id,
+                groups: params.groups,
+            },
+        })
+        return result
+    },
+})
+
+const FeatureFlagsMyFlagsRetrieveSchema = FeatureFlagsMyFlagsRetrieveQueryParams
+
+const featureFlagsMyFlagsRetrieve = (): ToolBase<
+    typeof FeatureFlagsMyFlagsRetrieveSchema,
+    WithPostHogUrl<Schemas.MyFlagsResponse[]>
+> => ({
+    name: 'feature-flags-my-flags-retrieve',
+    schema: FeatureFlagsMyFlagsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsMyFlagsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MyFlagsResponse[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/my_flags/`,
+            query: {
+                groups: params.groups,
             },
         })
         return await withPostHogUrl(context, result, '/feature_flags')
     },
 })
 
-const ScheduledChangesGetSchema = ScheduledChangesRetrieveParams.omit({ project_id: true })
+const FeatureFlagsStatusRetrieveSchema = FeatureFlagsStatusRetrieveParams.omit({ project_id: true }).extend({
+    id: z.preprocess(castStringToInt, FeatureFlagsStatusRetrieveParams.shape['id']),
+})
 
-const scheduledChangesGet = (): ToolBase<typeof ScheduledChangesGetSchema, Schemas.ScheduledChange> => ({
-    name: 'scheduled-changes-get',
-    schema: ScheduledChangesGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesGetSchema>) => {
+const featureFlagsStatusRetrieve = (): ToolBase<
+    typeof FeatureFlagsStatusRetrieveSchema,
+    Schemas.FeatureFlagStatusResponse
+> => ({
+    name: 'feature-flags-status-retrieve',
+    schema: FeatureFlagsStatusRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsStatusRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ScheduledChange>({
+        const result = await context.api.request<Schemas.FeatureFlagStatusResponse>({
             method: 'GET',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/status/`,
+        })
+        return result
+    },
+})
+
+const FeatureFlagsTestEvaluationCreateSchema = FeatureFlagsTestEvaluationCreateParams.omit({ project_id: true })
+    .extend(FeatureFlagsTestEvaluationCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsTestEvaluationCreateParams.shape['id']) })
+    .superRefine(validateDistinctIdPersonIdExclusive)
+
+const featureFlagsTestEvaluationCreate = (): ToolBase<
+    typeof FeatureFlagsTestEvaluationCreateSchema,
+    Schemas.FeatureFlagTestEvaluationResponse
+> =>
+    withUiApp('feature-flag-testing', {
+        name: 'feature-flags-test-evaluation-create',
+        schema: FeatureFlagsTestEvaluationCreateSchema,
+        handler: async (context: Context, params: z.infer<typeof FeatureFlagsTestEvaluationCreateSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const body: Record<string, unknown> = {}
+            if (params.distinct_id !== undefined) {
+                body['distinct_id'] = params.distinct_id
+            }
+            if (params.person_id !== undefined) {
+                body['person_id'] = params.person_id
+            }
+            if (params.timestamp !== undefined) {
+                body['timestamp'] = params.timestamp
+            }
+            if (params.groups !== undefined) {
+                body['groups'] = params.groups
+            }
+            const result = await context.api.request<Schemas.FeatureFlagTestEvaluationResponse>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/test_evaluation/`,
+                body,
+            })
+            return result
+        },
+    })
+
+const FeatureFlagsUserBlastRadiusCreateSchema = FeatureFlagsUserBlastRadiusCreateBody
+
+const featureFlagsUserBlastRadiusCreate = (): ToolBase<
+    typeof FeatureFlagsUserBlastRadiusCreateSchema,
+    Schemas.UserBlastRadiusResponse
+> => ({
+    name: 'feature-flags-user-blast-radius-create',
+    schema: FeatureFlagsUserBlastRadiusCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof FeatureFlagsUserBlastRadiusCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.condition !== undefined) {
+            body['condition'] = params.condition
+        }
+        if (params.group_type_index !== undefined) {
+            body['group_type_index'] = params.group_type_index
+        }
+        const result = await context.api.request<Schemas.UserBlastRadiusResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/user_blast_radius/`,
+            body,
         })
         return result
     },
@@ -390,10 +475,71 @@ const scheduledChangesCreate = (): ToolBase<typeof ScheduledChangesCreateSchema,
         }
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'POST',
-            path: `/api/projects/${projectId}/scheduled_changes/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/`,
             body,
         })
         return result
+    },
+})
+
+const ScheduledChangesDeleteSchema = ScheduledChangesDestroyParams.omit({ project_id: true })
+
+const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema, unknown> => ({
+    name: 'scheduled-changes-delete',
+    schema: ScheduledChangesDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof ScheduledChangesDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ScheduledChangesGetSchema = ScheduledChangesRetrieveParams.omit({ project_id: true })
+
+const scheduledChangesGet = (): ToolBase<typeof ScheduledChangesGetSchema, Schemas.ScheduledChange> => ({
+    name: 'scheduled-changes-get',
+    schema: ScheduledChangesGetSchema,
+    handler: async (context: Context, params: z.infer<typeof ScheduledChangesGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScheduledChange>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ScheduledChangesListSchema = ScheduledChangesListQueryParams.extend({
+    model_name: ScheduledChangesListQueryParams.shape['model_name'].describe(
+        'Filter by model type. Use "FeatureFlag" to see feature flag schedules.'
+    ),
+    record_id: ScheduledChangesListQueryParams.shape['record_id'].describe(
+        'Filter by the ID of a specific feature flag.'
+    ),
+})
+
+const scheduledChangesList = (): ToolBase<
+    typeof ScheduledChangesListSchema,
+    WithPostHogUrl<Schemas.PaginatedScheduledChangeList>
+> => ({
+    name: 'scheduled-changes-list',
+    schema: ScheduledChangesListSchema,
+    handler: async (context: Context, params: z.infer<typeof ScheduledChangesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedScheduledChangeList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/`,
+            query: {
+                limit: params.limit,
+                model_name: params.model_name,
+                offset: params.offset,
+                record_id: params.record_id,
+            },
+        })
+        return await withPostHogUrl(context, result, '/feature_flags')
     },
 })
 
@@ -433,43 +579,70 @@ const scheduledChangesUpdate = (): ToolBase<typeof ScheduledChangesUpdateSchema,
         }
         const result = await context.api.request<Schemas.ScheduledChange>({
             method: 'PATCH',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/scheduled_changes/${encodeURIComponent(String(params.id))}/`,
             body,
         })
         return result
     },
 })
 
-const ScheduledChangesDeleteSchema = ScheduledChangesDestroyParams.omit({ project_id: true })
+const UpdateFeatureFlagSchema = FeatureFlagsPartialUpdateParams.omit({ project_id: true })
+    .extend(FeatureFlagsPartialUpdateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams.shape['id']) })
 
-const scheduledChangesDelete = (): ToolBase<typeof ScheduledChangesDeleteSchema, unknown> => ({
-    name: 'scheduled-changes-delete',
-    schema: ScheduledChangesDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof ScheduledChangesDeleteSchema>) => {
+const updateFeatureFlag = (): ToolBase<typeof UpdateFeatureFlagSchema, WithPostHogUrl<Schemas.FeatureFlag>> => ({
+    name: 'update-feature-flag',
+    schema: UpdateFeatureFlagSchema,
+    handler: async (context: Context, params: z.infer<typeof UpdateFeatureFlagSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${projectId}/scheduled_changes/${params.id}/`,
+        const body: Record<string, unknown> = {}
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
+        if (params.active !== undefined) {
+            body['active'] = params.active
+        }
+        if (params.tags !== undefined) {
+            body['tags'] = params.tags
+        }
+        if (params.evaluation_contexts !== undefined) {
+            body['evaluation_contexts'] = params.evaluation_contexts
+        }
+        const result = await context.api.request<Schemas.FeatureFlag>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
     },
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'create-feature-flag': createFeatureFlag,
+    'delete-feature-flag': deleteFeatureFlag,
     'feature-flag-get-all': featureFlagGetAll,
     'feature-flag-get-definition': featureFlagGetDefinition,
-    'create-feature-flag': createFeatureFlag,
-    'update-feature-flag': updateFeatureFlag,
-    'delete-feature-flag': deleteFeatureFlag,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,
-    'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
-    'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
-    'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
-    'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
+    'feature-flags-bulk-delete-create': featureFlagsBulkDeleteCreate,
+    'feature-flags-bulk-keys-retrieve': featureFlagsBulkKeysRetrieve,
+    'feature-flags-bulk-update-tags-create': featureFlagsBulkUpdateTagsCreate,
     'feature-flags-copy-flags-create': featureFlagsCopyFlagsCreate,
-    'scheduled-changes-list': scheduledChangesList,
-    'scheduled-changes-get': scheduledChangesGet,
+    'feature-flags-dependent-flags-retrieve': featureFlagsDependentFlagsRetrieve,
+    'feature-flags-evaluation-reasons-retrieve': featureFlagsEvaluationReasonsRetrieve,
+    'feature-flags-my-flags-retrieve': featureFlagsMyFlagsRetrieve,
+    'feature-flags-status-retrieve': featureFlagsStatusRetrieve,
+    'feature-flags-test-evaluation-create': featureFlagsTestEvaluationCreate,
+    'feature-flags-user-blast-radius-create': featureFlagsUserBlastRadiusCreate,
     'scheduled-changes-create': scheduledChangesCreate,
-    'scheduled-changes-update': scheduledChangesUpdate,
     'scheduled-changes-delete': scheduledChangesDelete,
+    'scheduled-changes-get': scheduledChangesGet,
+    'scheduled-changes-list': scheduledChangesList,
+    'scheduled-changes-update': scheduledChangesUpdate,
+    'update-feature-flag': updateFeatureFlag,
 }

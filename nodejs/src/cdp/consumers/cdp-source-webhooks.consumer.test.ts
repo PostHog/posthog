@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
@@ -111,13 +112,18 @@ describe('SourceWebhooksConsumer', () => {
 
         let mockExecuteSpy: jest.SpyInstance
         let mockQueueInvocationsSpy: jest.SpyInstance
+        let mockQueueHogflowInvocationsSpy: jest.SpyInstance
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, createCdpConsumerDeps(hub))
+            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
+                hogQueue: createMockJobQueue(),
+                hogflowQueue: createMockJobQueue(),
+            })
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
-            mockQueueInvocationsSpy = jest.spyOn(
-                api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],
+            mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
+            mockQueueHogflowInvocationsSpy = jest.spyOn(
+                api['cdpSourceWebhooksConsumer']['hogflowQueue'],
                 'queueInvocations'
             )
             app = setupExpressApp()
@@ -455,53 +461,6 @@ describe('SourceWebhooksConsumer', () => {
                 await insertHogFlow(hub.postgres, hogFlow)
             })
 
-            it('should schedule workflow run for scheduled_at on trigger', async () => {
-                const scheduledAt = '2025-01-02T12:00:00.000Z'
-                const scheduledHogFlow = new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withSimpleWorkflow({
-                        trigger: {
-                            type: 'schedule',
-                            template_id: incomingWebhookTemplate.id,
-                            scheduled_at: scheduledAt,
-                            inputs: {
-                                event: {
-                                    value: 'my-event',
-                                    bytecode: await compileHog(`return f'my-event'`),
-                                },
-                                distinct_id: {
-                                    value: '{request.body.distinct_id}',
-                                    bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
-                                },
-                                method: {
-                                    value: 'POST',
-                                    bytecode: await compileHog(`return f'POST'`),
-                                },
-                            },
-                        },
-                    })
-                    .build()
-                await insertHogFlow(hub.postgres, scheduledHogFlow)
-
-                const res = await doPostRequest({
-                    webhookId: scheduledHogFlow.id,
-                    body: {
-                        event: 'my-event',
-                        distinct_id: 'test-distinct-id',
-                    },
-                })
-                expect(res.status).toEqual(201)
-                expect(res.body).toEqual({ status: 'queued' })
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
-                expect(call.queueScheduledAt.toISO()).toEqual(scheduledAt)
-                await waitForBackgroundTasks()
-                expect(getLogs()).toEqual([
-                    expect.stringContaining('[Action:trigger] Function completed in'),
-                    expect.stringContaining(`[Action:trigger] Workflow run scheduled for ${scheduledAt}`),
-                ])
-            })
-
             it('should 404 if the hog flow does not exist', async () => {
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',
@@ -522,8 +481,8 @@ describe('SourceWebhooksConsumer', () => {
                     status: 'queued',
                 })
                 expect(mockExecuteSpy).toHaveBeenCalledTimes(1)
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const call = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const call = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
                 expect(call.queue).toEqual('hogflow')
                 expect(call.hogFlow).toMatchObject(hogFlow)
             })
@@ -577,9 +536,9 @@ describe('SourceWebhooksConsumer', () => {
                 // (this is what actually captures the event)
                 expect(mockQueueInvocationResults).not.toHaveBeenCalled()
 
-                // Verify the workflow invocation was queued
-                expect(mockQueueInvocationsSpy).toHaveBeenCalledTimes(1)
-                const invocation = mockQueueInvocationsSpy.mock.calls[0][0][0]
+                // Verify the workflow invocation was queued to hogflowQueue
+                expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                const invocation = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
 
                 expect(invocation.state.event).toMatchObject({
                     event: 'my-event',

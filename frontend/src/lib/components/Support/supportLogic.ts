@@ -3,6 +3,8 @@ import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils'
@@ -41,7 +43,7 @@ export function getPublicSupportSnippet(
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
         getSessionReplayLink() +
-        `\nAdmin: http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
+        `\nAdmin (internal): http://go/adminOrg${cloudRegion}/${currentOrganization?.id} (project ID ${currentTeam?.id})`
     ).trimStart()
 }
 
@@ -50,11 +52,15 @@ function getCurrentLocationLink(): string {
     return `\nLocation: ${cleanedCurrentUrl}`
 }
 
+// The recording lives in PostHog's own telemetry project, which the reporting user is not a member
+// of, so this link is for PostHog staff triaging the ticket/issue — never the user. We rewrite to the
+// internal http://go/session/ golink to make that explicit.
 function getSessionReplayLink(): string {
-    const replayUrl = posthog
-        .get_session_replay_url({ withTimestamp: true, timestampLookBack: 30 })
-        .replace(window.location.origin + '/replay/', 'http://go/session/')
-    return `\nSession: ${replayUrl}`
+    const replayUrl = posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 })
+    if (!replayUrl) {
+        return ''
+    }
+    return `\nSession: ${replayUrl.replace(window.location.origin + '/replay/', 'http://go/session/')}`
 }
 
 function getErrorTrackingLink(uuid?: string): string {
@@ -100,14 +106,14 @@ function getDjangoAdminLink(
         return ''
     }
     const link = `https://${cloudRegion.toLowerCase()}.posthog.com/admin/posthog/user/${user.id}/change/`
-    return `\nAdmin: ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
+    return `\nAdmin (internal): ${link} (organization ID ${currentOrganization?.id}: ${currentOrganization?.name}, project ID ${currentTeam?.id}: ${currentTeam?.name})`
 }
 
 function getBillingAdminLink(currentOrganization: OrganizationBasicType | null): string {
     if (!currentOrganization) {
         return ''
     }
-    return `\nBilling admin: http://go/billing/${currentOrganization.id}`
+    return `\nBilling admin (internal): http://go/billing/${currentOrganization.id}`
 }
 
 const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
@@ -116,187 +122,190 @@ const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
     bug: 'Report a bug',
 }
 
+const TARGET_AREA_TO_NAME_GENERAL = [
+    {
+        value: 'login',
+        'data-attr': `support-form-target-area-login`,
+        label: 'Authentication (incl. login, sign-up, invites)',
+    },
+    {
+        value: 'analytics_platform',
+        'data-attr': `support-form-target-area-analytics_platform`,
+        label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
+    },
+    {
+        value: 'billing',
+        'data-attr': `support-form-target-area-billing`,
+        label: 'Billing',
+    },
+    {
+        value: 'cohorts',
+        'data-attr': `support-form-target-area-cohorts`,
+        label: 'Cohorts',
+    },
+    {
+        value: 'data_ingestion',
+        'data-attr': `support-form-target-area-data_ingestion`,
+        label: 'Data ingestion',
+    },
+    {
+        value: 'health_overview',
+        'data-attr': `support-form-target-area-health_overview`,
+        label: 'Health overview',
+    },
+    {
+        value: 'data_management',
+        'data-attr': `support-form-target-area-data_management`,
+        label: 'Data management (incl. events, actions, properties)',
+    },
+    {
+        value: 'mobile',
+        'data-attr': `support-form-target-area-mobile`,
+        label: 'Mobile',
+    },
+    {
+        value: 'notebooks',
+        'data-attr': `support-form-target-area-notebooks`,
+        label: 'Notebooks',
+    },
+    {
+        value: 'onboarding',
+        'data-attr': `support-form-target-area-onboarding`,
+        label: 'Onboarding',
+    },
+    {
+        value: 'platform_addons',
+        'data-attr': `support-form-target-area-platform_addons`,
+        label: 'Platform addons',
+    },
+    {
+        value: 'sdk',
+        'data-attr': `support-form-target-area-onboarding`,
+        label: 'SDK / Implementation',
+    },
+    {
+        value: 'setup-wizard',
+        'data-attr': `support-form-target-area-setup-wizard`,
+        label: 'Wizard',
+    },
+] as const satisfies LemonSelectOptions<string>
+
+const TARGET_AREA_TO_NAME_PRODUCTS = [
+    {
+        value: 'apps',
+        'data-attr': `support-form-target-area-apps`,
+        label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
+    },
+    {
+        value: 'batch_exports',
+        'data-attr': `support-form-target-area-batch_exports`,
+        label: 'Destinations (batch exports)',
+    },
+    {
+        value: 'cdp_destinations',
+        'data-attr': `support-form-target-area-cdp_destinations`,
+        label: 'Destinations (real-time)',
+    },
+    {
+        value: 'data_modeling',
+        'data-attr': `support-form-target-area-data_modeling`,
+        label: 'Data modeling (views, matviews, endpoints)',
+    },
+    {
+        value: 'data_warehouse',
+        'data-attr': `support-form-target-area-data_warehouse`,
+        label: 'Data warehouse (sources)',
+    },
+    {
+        value: 'error_tracking',
+        'data-attr': `support-form-target-area-error_tracking`,
+        label: 'Error tracking',
+    },
+    {
+        value: 'experiments',
+        'data-attr': `support-form-target-area-experiments`,
+        label: 'Experiments',
+    },
+    {
+        value: 'feature_flags',
+        'data-attr': `support-form-target-area-feature_flags`,
+        label: 'Feature flags',
+    },
+    {
+        value: 'group_analytics',
+        'data-attr': `support-form-target-area-group-analytics`,
+        label: 'Group analytics',
+    },
+    {
+        value: 'customer_analytics',
+        'data-attr': `support-form-target-area-customer-analytics`,
+        label: 'Customer analytics',
+    },
+    {
+        value: 'heatmaps',
+        'data-attr': `support-form-target-area-heatmaps`,
+        label: 'Heatmaps',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
+        value: 'logs',
+        'data-attr': `support-form-target-area-logs`,
+        label: 'Logs',
+    },
+    {
+        value: 'max-ai',
+        'data-attr': `support-form-target-area-max-ai`,
+        label: 'PostHog AI',
+    },
+    {
+        value: 'posthog-mcp',
+        'data-attr': `support-form-target-area-posthog-mcp`,
+        label: 'MCP Server',
+    },
+    {
+        value: 'analytics',
+        'data-attr': `support-form-target-area-analytics`,
+        label: 'Product analytics (incl. insights, dashboards, etc.)',
+    },
+    {
+        value: 'revenue_analytics',
+        'data-attr': `support-form-target-area-revenue-analytics`,
+        label: 'Revenue analytics',
+    },
+    {
+        value: 'session_replay',
+        'data-attr': `support-form-target-area-session_replay`,
+        label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'surveys',
+        'data-attr': `support-form-target-area-surveys`,
+        label: 'Surveys',
+    },
+    {
+        value: 'toolbar',
+        'data-attr': `support-form-target-area-toolbar`,
+        label: 'Toolbar',
+    },
+    {
+        value: 'web_analytics',
+        'data-attr': `support-form-target-area-web_analytics`,
+        label: 'Web analytics',
+    },
+    {
+        value: 'workflows',
+        'data-attr': `support-form-target-area-workflows`,
+        label: 'Workflows / Messaging',
+    },
+] as const satisfies LemonSelectOptions<string>
+
 export const TARGET_AREA_TO_NAME = [
-    {
-        title: 'General',
-        options: [
-            {
-                value: 'login',
-                'data-attr': `support-form-target-area-login`,
-                label: 'Authentication (incl. login, sign-up, invites)',
-            },
-            {
-                value: 'analytics_platform',
-                'data-attr': `support-form-target-area-analytics_platform`,
-                label: 'Analytics features (incl. alerts, subscriptions, exports, etc.)',
-            },
-            {
-                value: 'billing',
-                'data-attr': `support-form-target-area-billing`,
-                label: 'Billing',
-            },
-            {
-                value: 'cohorts',
-                'data-attr': `support-form-target-area-cohorts`,
-                label: 'Cohorts',
-            },
-            {
-                value: 'data_ingestion',
-                'data-attr': `support-form-target-area-data_ingestion`,
-                label: 'Data ingestion',
-            },
-            {
-                value: 'health_overview',
-                'data-attr': `support-form-target-area-health_overview`,
-                label: 'Health overview',
-            },
-            {
-                value: 'data_management',
-                'data-attr': `support-form-target-area-data_management`,
-                label: 'Data management (incl. events, actions, properties)',
-            },
-            {
-                value: 'mobile',
-                'data-attr': `support-form-target-area-mobile`,
-                label: 'Mobile',
-            },
-            {
-                value: 'notebooks',
-                'data-attr': `support-form-target-area-notebooks`,
-                label: 'Notebooks',
-            },
-            {
-                value: 'onboarding',
-                'data-attr': `support-form-target-area-onboarding`,
-                label: 'Onboarding',
-            },
-            {
-                value: 'platform_addons',
-                'data-attr': `support-form-target-area-platform_addons`,
-                label: 'Platform addons',
-            },
-            {
-                value: 'sdk',
-                'data-attr': `support-form-target-area-onboarding`,
-                label: 'SDK / Implementation',
-            },
-            {
-                value: 'setup-wizard',
-                'data-attr': `support-form-target-area-setup-wizard`,
-                label: 'Wizard',
-            },
-        ],
-    },
-    {
-        title: 'Individual product',
-        options: [
-            {
-                value: 'data_warehouse',
-                'data-attr': `support-form-target-area-data_warehouse`,
-                label: 'Data warehouse (sources)',
-            },
-            {
-                value: 'data_modeling',
-                'data-attr': `support-form-target-area-data_modeling`,
-                label: 'Data modeling (views, matviews, endpoints)',
-            },
-            {
-                value: 'batch_exports',
-                'data-attr': `support-form-target-area-batch_exports`,
-                label: 'Destinations (batch exports)',
-            },
-            {
-                value: 'cdp_destinations',
-                'data-attr': `support-form-target-area-cdp_destinations`,
-                label: 'Destinations (real-time)',
-            },
-            {
-                value: 'error_tracking',
-                'data-attr': `support-form-target-area-error_tracking`,
-                label: 'Error tracking',
-            },
-            {
-                value: 'experiments',
-                'data-attr': `support-form-target-area-experiments`,
-                label: 'Experiments',
-            },
-            {
-                value: 'feature_flags',
-                'data-attr': `support-form-target-area-feature_flags`,
-                label: 'Feature flags',
-            },
-            {
-                value: 'group_analytics',
-                'data-attr': `support-form-target-area-group-analytics`,
-                label: 'Group analytics',
-            },
-            {
-                value: 'customer_analytics',
-                'data-attr': `support-form-target-area-customer-analytics`,
-                label: 'Customer analytics',
-            },
-            {
-                value: 'llm-analytics',
-                'data-attr': `support-form-target-area-llm-analytics`,
-                label: 'LLM analytics',
-            },
-            {
-                value: 'logs',
-                'data-attr': `support-form-target-area-logs`,
-                label: 'Logs',
-            },
-            {
-                value: 'max-ai',
-                'data-attr': `support-form-target-area-max-ai`,
-                label: 'PostHog AI',
-            },
-            {
-                value: 'posthog-mcp',
-                'data-attr': `support-form-target-area-posthog-mcp`,
-                label: 'MCP Server',
-            },
-            {
-                value: 'workflows',
-                'data-attr': `support-form-target-area-workflows`,
-                label: 'Workflows / Messaging',
-            },
-            {
-                value: 'analytics',
-                'data-attr': `support-form-target-area-analytics`,
-                label: 'Product analytics (incl. insights, dashboards, etc.)',
-            },
-            {
-                value: 'revenue_analytics',
-                'data-attr': `support-form-target-area-revenue-analytics`,
-                label: 'Revenue analytics',
-            },
-            {
-                value: 'session_replay',
-                'data-attr': `support-form-target-area-session_replay`,
-                label: 'Session replay (incl. recordings)',
-            },
-            {
-                value: 'surveys',
-                'data-attr': `support-form-target-area-surveys`,
-                label: 'Surveys',
-            },
-            {
-                value: 'toolbar',
-                'data-attr': `support-form-target-area-toolbar`,
-                label: 'Toolbar (incl. heatmaps)',
-            },
-            {
-                value: 'web_analytics',
-                'data-attr': `support-form-target-area-web_analytics`,
-                label: 'Web analytics',
-            },
-            {
-                value: 'logs',
-                'data-attr': `support-form-target-area-logs`,
-                label: 'Logs',
-            },
-        ],
-    },
+    { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
+    { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
 
 export const SEVERITY_LEVEL_TO_NAME = {
@@ -313,32 +322,8 @@ export const SUPPORT_KIND_TO_SUBJECT = {
 }
 
 export type SupportTicketTargetArea =
-    | 'experiments'
-    | 'apps'
-    | 'login'
-    | 'billing'
-    | 'onboarding'
-    | 'cohorts'
-    | 'data_management'
-    | 'notebooks'
-    | 'data_warehouse'
-    | 'data_modeling'
-    | 'feature_flags'
-    | 'analytics'
-    | 'session_replay'
-    | 'toolbar'
-    | 'surveys'
-    | 'web_analytics'
-    | 'error_tracking'
-    | 'cdp_destinations'
-    | 'data_ingestion'
-    | 'batch_exports'
-    | 'workflows'
-    | 'platform_addons'
-    | 'max-ai'
-    | 'customer-analytics'
-    | 'logs'
-    | 'health_overview'
+    | (typeof TARGET_AREA_TO_NAME_GENERAL)[number]['value']
+    | (typeof TARGET_AREA_TO_NAME_PRODUCTS)[number]['value']
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -369,8 +354,8 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     annotations: 'analytics',
     persons: 'analytics',
     groups: 'analytics',
-    app: 'apps',
-    toolbar: 'session_replay',
+    heatmaps: 'heatmaps',
+    toolbar: 'toolbar',
     warehouse: 'data_warehouse',
     surveys: 'surveys',
     web: 'web_analytics',
@@ -434,14 +419,14 @@ export const supportLogic = kea<supportLogicType>([
             ['user'],
             preflightLogic,
             ['preflight'],
-            sidePanelStateLogic,
-            ['sidePanelAvailable'],
             userLogic,
             ['hasAvailableFeature'],
             billingLogic,
             ['billing'],
             organizationLogic,
             ['isCurrentOrganizationNew'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
@@ -478,7 +463,7 @@ export const supportLogic = kea<supportLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ values }) => ({
         sendSupportRequest: {
             defaults: {
                 name: '',
@@ -490,9 +475,9 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message, kind, target_area, severity_level }) => {
                 return {
-                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
-                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
-                    message: !message ? 'Please enter a message' : '',
+                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    email: !values.user && !email ? 'Please enter your email' : undefined,
+                    message: !message ? 'Please enter a message' : undefined,
                     kind: !kind ? 'Please choose' : undefined,
                     severity_level: !severity_level ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
@@ -502,9 +487,7 @@ export const supportLogic = kea<supportLogicType>([
                 // name must be present for zendesk to accept the ticket
                 formValues.name = values.user?.first_name ?? formValues.name ?? 'name not set'
                 formValues.email = values.user?.email ?? formValues.email ?? ''
-                actions.submitZendeskTicket(formValues)
-                // Form closing and resetting is now handled in submitZendeskTicket listener
-                // based on success/failure of the submission
+                await supportLogic.asyncActions.submitZendeskTicket(formValues)
             },
         },
     })),
@@ -530,7 +513,6 @@ export const supportLogic = kea<supportLogicType>([
                 values.sendSupportRequest.target_area ?? '',
                 values.sendSupportRequest.severity_level ?? '',
                 values.isEmailFormOpen ?? 'false',
-                // Explicitly exclude message, name, and email fields
             ].join(':')
 
             if (panelOptions !== ':') {
@@ -609,8 +591,8 @@ export const supportLogic = kea<supportLogicType>([
 
             const isNewOrganization = values.isCurrentOrganizationNew
 
-            const hasBoostTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'boost'
-            const hasScaleTrial = billing?.trial?.status === 'active' && (billing.trial?.target as any) === 'scale'
+            const hasBoostTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'boost'
+            const hasScaleTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'scale'
             const hasEnterpriseTrial = billing?.trial?.status === 'active' && billing.trial?.target === 'enterprise'
 
             if (isKnownEnterpriseOrg || hasEnterpriseTrial || billingPlan === BillingPlan.Enterprise) {

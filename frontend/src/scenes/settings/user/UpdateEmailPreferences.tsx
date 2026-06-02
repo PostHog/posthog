@@ -3,12 +3,14 @@ import { router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { NotificationSettings, OrganizationBasicType, TeamBasicType } from '~/types'
+
+import { PIPELINE_KIND_LABELS, pipelineNotificationsLogic } from './pipelineNotificationsLogic'
 
 enum NotificationBlock {
     Security = 'security',
@@ -17,6 +19,7 @@ enum NotificationBlock {
     DataPipelineErrors = 'data-pipeline-errors',
     IssueAssigned = 'issue-assigned',
     EtWeeklyDigest = 'et-weekly-digest',
+    WaWeeklyDigest = 'wa-weekly-digest',
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
@@ -28,6 +31,7 @@ type BooleanNotificationSettings = Omit<
     NotificationSettings,
     | 'project_weekly_digest_disabled'
     | 'error_tracking_weekly_digest_project_enabled'
+    | 'web_analytics_weekly_digest_project_enabled'
     | 'organization_member_join_email_disabled'
 >
 
@@ -39,6 +43,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
+    web_analytics_weekly_digest: true,
 }
 
 function ProjectDigestSelector({
@@ -200,6 +205,92 @@ function OrganizationMemberJoinSelector(): JSX.Element {
     )
 }
 
+function PipelineNotificationSelector(): JSX.Element {
+    const { userLoading } = useValues(userLogic)
+    const { updatePipelineNotification, updatePipelineNotificationForAll } = useActions(userLogic)
+    const { pipelines, pipelinesLoading, pipelinesByTeam, allPipelineIds, isPipelineDisabled } =
+        useValues(pipelineNotificationsLogic)
+    const [expanded, setExpanded] = useState(false)
+
+    return (
+        <div>
+            <LemonButton
+                icon={expanded ? <IconChevronDown /> : <IconChevronRight />}
+                onClick={() => setExpanded(!expanded)}
+                size="small"
+                type="tertiary"
+                className="p-0"
+            >
+                Select pipelines to receive notifications for
+            </LemonButton>
+
+            {expanded && (
+                <div className="mt-3 ml-6 space-y-2">
+                    <p className="text-muted text-xs">
+                        All pipelines are enabled by default. Uncheck any pipeline you no longer want notifications for.
+                    </p>
+                    {pipelinesLoading ? (
+                        <div className="flex items-center gap-2 py-2">
+                            <Spinner className="text-lg" />
+                            <span className="text-muted text-sm">Loading pipelines...</span>
+                        </div>
+                    ) : pipelines.length === 0 ? (
+                        <p className="text-muted text-sm">No pipelines found in your projects.</p>
+                    ) : (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex flex-row items-center gap-4">
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, true)}
+                                >
+                                    Enable all notifications
+                                </LemonButton>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => updatePipelineNotificationForAll(allPipelineIds, false)}
+                                >
+                                    Mute all notifications
+                                </LemonButton>
+                            </div>
+
+                            {Object.entries(pipelinesByTeam).map(([key, { teamId, teamName, items }]) => (
+                                <div key={key} className="flex flex-col gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-medium">{teamName}</span>
+                                        <LemonTag type="muted">id: {teamId}</LemonTag>
+                                    </div>
+                                    <div className="ml-4 flex flex-col gap-1">
+                                        {items.map((pipeline) => (
+                                            <LemonCheckbox
+                                                key={pipeline.id}
+                                                id={`pipeline-${pipeline.id}`}
+                                                data-attr={`pipeline_notification_${pipeline.id}`}
+                                                onChange={(checked) => updatePipelineNotification(pipeline.id, checked)}
+                                                checked={!isPipelineDisabled(pipeline.id)}
+                                                disabled={userLoading}
+                                                label={
+                                                    <div className="flex items-center gap-2">
+                                                        <span>{pipeline.name}</span>
+                                                        <LemonTag type="default">
+                                                            {PIPELINE_KIND_LABELS[pipeline.kind]}
+                                                        </LemonTag>
+                                                    </div>
+                                                }
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
 export function UpdateEmailPreferences(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const {
@@ -207,6 +298,8 @@ export function UpdateEmailPreferences(): JSX.Element {
         updateWeeklyDigestForAllTeams,
         updateETWeeklyDigestForTeam,
         updateETWeeklyDigestForAllTeams,
+        updateWAWeeklyDigestForTeam,
+        updateWAWeeklyDigestForAllTeams,
         updateDataPipelineErrorThreshold,
     } = useActions(userLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -216,6 +309,7 @@ export function UpdateEmailPreferences(): JSX.Element {
 
     const weeklyDigestEnabled = !user?.notification_settings?.all_weekly_digest_disabled
     const etDigestEnabled = user?.notification_settings?.error_tracking_weekly_digest !== false
+    const waDigestEnabled = user?.notification_settings?.web_analytics_weekly_digest !== false
 
     const dataPipelineErrorThresholdValue = (user?.notification_settings?.data_pipeline_error_threshold ?? 0) * 100
     const [localDataPipelineErrorThreshold, setLocalDataPipelineErrorThreshold] = useState(
@@ -321,6 +415,7 @@ export function UpdateEmailPreferences(): JSX.Element {
                         </div>
                     </div>
                 )}
+                {user?.notification_settings?.plugin_disabled !== false && <PipelineNotificationSelector />}
             </div>
         ),
         [NotificationBlock.IssueAssigned]: (
@@ -358,6 +453,36 @@ export function UpdateEmailPreferences(): JSX.Element {
                             }
                             onToggleTeam={updateETWeeklyDigestForTeam}
                             onToggleAllTeams={updateETWeeklyDigestForAllTeams}
+                        />
+                    </>
+                )}
+            </div>
+        ),
+        [NotificationBlock.WaWeeklyDigest]: (
+            <div className="border rounded p-4 space-y-3">
+                <SimpleSwitch
+                    setting="web_analytics_weekly_digest"
+                    label="Web analytics weekly digest"
+                    description="Get a weekly summary of web traffic across your projects every Monday"
+                    dataAttr="web_analytics_weekly_digest_enabled"
+                />
+                {waDigestEnabled && (
+                    <>
+                        {!user?.notification_settings.web_analytics_weekly_digest_project_enabled && (
+                            <LemonBanner type="info">
+                                You haven't selected any projects yet, so on the first digest run we'll automatically
+                                pick the one with the most visitors. If you'd prefer to choose yourself, just select
+                                your projects below and we won't override your choice.
+                            </LemonBanner>
+                        )}
+                        <ProjectDigestSelector
+                            keyPrefix="wa-digest"
+                            dataAttrPrefix="wa_weekly_digest"
+                            isTeamDisabled={(teamId) =>
+                                !user?.notification_settings.web_analytics_weekly_digest_project_enabled?.[teamId]
+                            }
+                            onToggleTeam={updateWAWeeklyDigestForTeam}
+                            onToggleAllTeams={updateWAWeeklyDigestForAllTeams}
                         />
                     </>
                 )}

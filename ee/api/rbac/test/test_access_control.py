@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -14,6 +13,7 @@ from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 
 from ee.api.test.base import APILicensedTest
@@ -23,9 +23,9 @@ from ee.models.rbac.role import Role, RoleMembership
 class BaseAccessControlTest(APILicensedTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [
-            AvailableFeature.ADVANCED_PERMISSIONS,
-            AvailableFeature.ROLE_BASED_ACCESS,
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
         ]
         self.organization.save()
 
@@ -125,13 +125,32 @@ class TestAccessControlProjectLevelAPI(BaseAccessControlTest):
         assert "organization member id" in res.json()["detail"]
         assert "/api/organizations/" in res.json()["detail"]
 
+    def test_role_based_access_control_rejected_without_role_based_access_feature(self):
+        # Drop ROLE_BASED_ACCESS, keep ACCESS_CONTROL — same shape as the UI gate
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        role = Role.objects.create(name="Engineering", organization=self.organization)
+
+        res = self._put_project_access_control({"role": str(role.id), "access_level": "admin"})
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+        assert "Role-based access" in res.json()["detail"]
+
+        # Member-level writes still work — only the role-backed write is blocked
+        res = self._put_project_access_control(
+            {"organization_member": str(self.organization_membership.id), "access_level": "admin"}
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
 
 class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -145,8 +164,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-
-        from posthog.models.action import Action
+        from products.actions.backend.models.action import Action
 
         action = Action.objects.create(team=self.team, name="test action")
 
@@ -1003,11 +1021,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 7):
+        # +1 for the parent_resource lookup on NotebookSerializer
+        with self.assertNumQueries(baseline + 8):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 8
@@ -1047,11 +1067,13 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 8
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
-        with self.assertNumQueries(baseline + 6):
+        # +1 for the parent_resource lookup on NotebookSerializer
+        with self.assertNumQueries(baseline + 7):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
-        with self.assertNumQueries(baseline + 7):
+        # +1 for the parent_resource lookup on NotebookSerializer
+        with self.assertNumQueries(baseline + 8):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):
@@ -1677,6 +1699,36 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         role_data = self._find_role(res.json()["results"], self.role.id)
         assert role_data["project"]["access_level"] == "member"
 
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """Without ROLE_BASED_ACCESS, role-based overrides (project- and resource-level)
+        are inert at runtime, so the per-role preview must show the resource/project
+        default as the effective level."""
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Dashboard default 'viewer', role-based override 'manager'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+
+        res = self.client.get("/api/projects/@current/access_control_roles")
+        role_data = self._find_role(res.json()["results"], self.role.id)
+
+        # Resource-level role override must be ignored
+        dashboard = role_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level role override must also be ignored — falls back to project default
+        project = role_data["project"]
+        assert project["access_level"] is None
+        assert project["effective_access_level"] == "member"
+
 
 class TestAccessControlMembersEndpoint(BaseAccessControlTest):
     def setUp(self):
@@ -1815,6 +1867,45 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         assert ff["access_level"] is None
         assert ff["effective_access_level"] is None
         assert ff["inherited_access_level"] is None
+
+    def test_role_overrides_ignored_when_role_based_access_not_available(self):
+        """When the organization does not have the ROLE_BASED_ACCESS feature, role-based
+        overrides (project- and resource-level) must not influence a member's effective
+        access. The member should fall back to the default at each level."""
+        # Remove the ROLE_BASED_ACCESS feature, keep ACCESS_CONTROL
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        # Make user2 a regular member so org-admin highest-access doesn't mask the bug
+        self.user2_membership.level = OrganizationMembership.Level.MEMBER
+        self.user2_membership.save()
+
+        # Project default 'member', role-based project override 'admin'
+        self._put_project_access_control({"access_level": "member"})
+        self._put_project_access_control({"role": str(self.role.id), "access_level": "admin"})
+        # Default dashboard access for the project is 'viewer'
+        self._put_global_access_control({"resource": "dashboard", "access_level": "viewer"})
+        # A role-based resource override grants 'manager' on dashboards
+        self._put_global_access_control({"resource": "dashboard", "access_level": "manager", "role": str(self.role.id)})
+        # user2 is in that role
+        RoleMembership.objects.create(user=self.user2, role=self.role, organization_member=self.user2_membership)
+
+        res = self.client.get("/api/projects/@current/access_control_members")
+        member_data = self._find_member(res.json()["results"], self.user2_membership.id)
+
+        # Resource-level: role override must be ignored, fall back to project default
+        dashboard = member_data["resources"]["dashboard"]
+        assert dashboard["effective_access_level"] == "viewer"
+        assert dashboard["inherited_access_level"] == "viewer"
+        assert dashboard["inherited_access_level_reason"] == "project_default"
+
+        # Project-level: role override must also be ignored, fall back to project default
+        project = member_data["project"]
+        assert project["effective_access_level"] == "member"
+        assert project["inherited_access_level"] == "member"
+        assert project["inherited_access_level_reason"] == "project_default"
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""

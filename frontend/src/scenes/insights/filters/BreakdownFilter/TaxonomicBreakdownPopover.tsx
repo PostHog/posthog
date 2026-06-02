@@ -50,6 +50,7 @@ export const TaxonomicBreakdownPopover = ({
             TaxonomicFilterGroupType.EventFeatureFlags,
             ...groupsTaxonomicTypes,
             TaxonomicFilterGroupType.CohortsWithAllUsers,
+            TaxonomicFilterGroupType.HogQLExpression,
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ]
     } else {
@@ -74,6 +75,7 @@ export const TaxonomicBreakdownPopover = ({
                 <TaxonomicFilter
                     groupType={taxonomicType}
                     value={breakdownValue}
+                    hogQLExpressionShowBreakdownLabelHint
                     onChange={(taxonomicGroup, value) => {
                         if (breakdownValue && breakdownType) {
                             replaceBreakdown(

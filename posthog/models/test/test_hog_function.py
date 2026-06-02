@@ -1,21 +1,27 @@
 import json
+from typing import Any, cast
 
 from posthog.test.base import QueryMatchingTest
 from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from posthog.models.action.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cdp.backend.tasks.hog_functions import refresh_affected_hog_functions
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 to_dict = lambda x: json.loads(json.dumps(x))
+
+
+def get_bytecode(filters: Any) -> Any:
+    return cast(dict[str, Any], filters)["bytecode"]
 
 
 class TestHogFunction(TestCase):
@@ -194,12 +200,12 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
         # Check that the bytecode is correct
         assert (
-            json.dumps(hog_function_1.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_1.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
         )
 
         assert (
-            json.dumps(hog_function_2.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_2.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "old-value-1", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
         )
 
@@ -224,12 +230,12 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_2.refresh_from_db()
 
         assert (
-            json.dumps(hog_function_1.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_1.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2, 32, "old-value-2", 32, "prop-2", 32, "properties", 1, 2, 11, 4, 2]'
         )
 
         assert (
-            json.dumps(hog_function_2.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_2.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "test-event", 32, "event", 1, 1, 11, 32, "change-value", 32, "prop-1", 32, "properties", 1, 2, 11, 3, 2]'
         )
 
@@ -264,13 +270,13 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         )
 
         # Check that the bytecode is correct
-        assert json.dumps(hog_function_1.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
+        assert json.dumps(get_bytecode(hog_function_1.filters)) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
         assert (
-            json.dumps(hog_function_2.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_2.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$pageview", 32, "event", 1, 1, 11]'
         )
 
-        assert json.dumps(hog_function_3.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
+        assert json.dumps(get_bytecode(hog_function_3.filters)) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
 
         # Modify the action and check that the bytecode is updated
         self.team.test_account_filters = [
@@ -286,16 +292,16 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         hog_function_3.refresh_from_db()
 
         assert (
-            json.dumps(hog_function_1.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_1.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 3, 2]'
         )
 
         assert (
-            json.dumps(hog_function_2.filters["bytecode"])
+            json.dumps(get_bytecode(hog_function_2.filters))
             == f'["_H", {HOGQL_BYTECODE_VERSION}, 32, "$host", 32, "properties", 1, 2, 2, "toString", 1, 32, "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "properties", 1, 2, 2, "toString", 1, 32, "test", 2, "match", 2, 47, 3, 35, 33, 0, 32, "$pageview", 32, "event", 1, 1, 11, 3, 3]'
         )
 
-        assert json.dumps(hog_function_3.filters["bytecode"]) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
+        assert json.dumps(get_bytecode(hog_function_3.filters)) == f'["_H", {HOGQL_BYTECODE_VERSION}, 29]'
 
     def test_cohort_save_signal_triggers_hog_function_refresh(self):
         cohort = Cohort.objects.create(
@@ -311,7 +317,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_any_call(cohort_id=cohort.id)
@@ -333,7 +339,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         ]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()
@@ -353,7 +359,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id + 9999}]
         self.team.save()
 
-        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+        with patch("products.cdp.backend.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_not_called()

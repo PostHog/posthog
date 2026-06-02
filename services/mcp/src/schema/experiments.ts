@@ -1,10 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
-
-import {
-    ExperimentCreateSchema as ToolExperimentCreateSchema,
-    ExperimentUpdateInputSchema as ToolExperimentUpdateInputSchema,
-} from './tool-inputs'
 
 const ExperimentType = ['web', 'product'] as const
 
@@ -21,137 +15,43 @@ const FeatureFlagSchema = z.object({
     updated_at: z.string().nullish(),
 })
 
-/**
- * This is the schema for the experiment metric base properties.
- * It references the ExperimentMetricBaseProperties type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- *
- * TODO: Add the schemas for FunnelConversionWindowTimeUnit
- */
-export const ExperimentMetricBasePropertiesSchema = z.object({
-    kind: z.literal('ExperimentMetric'),
-    uuid: z.string().optional(),
-    name: z.string().optional(),
-    conversion_window: z.number().optional(),
-    conversion_window_unit: z.any().optional(), // FunnelConversionWindowTimeUnit
-})
-
-export type ExperimentMetricBaseProperties = z.infer<typeof ExperimentMetricBasePropertiesSchema>
-
-/**
- * This is the schema for the experiment metric outlier handling.
- * It references the ExperimentMetricOutlierHandling type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentMetricOutlierHandlingSchema = z.object({
-    lower_bound_percentile: z.number().optional(),
-    upper_bound_percentile: z.number().optional(),
-})
-
-export type ExperimentMetricOutlierHandling = z.infer<typeof ExperimentMetricOutlierHandlingSchema>
-
-/**
- * This is the schema for the experiment metric source.
- * It references the ExperimentMetricSource type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- *
- * TODO: Add the schemas for the EventsNode and ActionsNode and ExperimentDataWarehouseNode
- */
-export const ExperimentMetricSourceSchema = z.any() // EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-/**
- * This is the schema for the experiment funnel metric step.
- * It references the ExperimentFunnelMetricStep type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- *
- * TODO: Add the schemas for the EventsNode and ActionsNode
- */
-export const ExperimentFunnelMetricStepSchema = z.any() // EventsNode | ActionsNode
-
-/**
- * This is the schema for the experiment mean metric.
- * It references the ExperimentMeanMetric type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentMeanMetricSchema = z
-    .object({
-        metric_type: z.literal('mean'),
-        source: ExperimentMetricSourceSchema,
-    })
-    .extend(ExperimentMetricBasePropertiesSchema.shape)
-    .extend(ExperimentMetricOutlierHandlingSchema.shape)
-
-export type ExperimentMeanMetric = z.infer<typeof ExperimentMeanMetricSchema>
-
-/**
- * This is the schema for the experiment funnel metric.
- * It references the ExperimentFunnelMetric type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentFunnelMetricSchema = z
-    .object({
-        metric_type: z.literal('funnel'),
-        series: z.array(ExperimentFunnelMetricStepSchema),
-        funnel_order_type: z.any().optional(), // StepOrderValue
-    })
-    .extend(ExperimentMetricBasePropertiesSchema.shape)
-
-export type ExperimentFunnelMetric = z.infer<typeof ExperimentFunnelMetricSchema>
-
-/**
- * This is the schema for the experiment ratio metric.
- * It references the ExperimentRatioMetric type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentRatioMetricSchema = z
-    .object({
-        metric_type: z.literal('ratio'),
-        numerator: ExperimentMetricSourceSchema,
-        denominator: ExperimentMetricSourceSchema,
-    })
-    .extend(ExperimentMetricBasePropertiesSchema.shape)
-
-export type ExperimentRatioMetric = z.infer<typeof ExperimentRatioMetricSchema>
-
-/**
- * This is the schema for the experiment metric.
- * It references the ExperimentMetric type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentMetricSchema = z.union([
-    ExperimentMeanMetricSchema,
-    ExperimentFunnelMetricSchema,
-    ExperimentRatioMetricSchema,
-])
-
-export type ExperimentMetric = z.infer<typeof ExperimentMetricSchema>
-
-/**
- * This is the schema for the experiment exposure config.
- * It references the ExperimentEventExposureConfig type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentEventExposureConfigSchema = z.object({
+const ExperimentEventExposureConfigSchema = z.object({
     kind: z.literal('ExperimentEventExposureConfig'),
     event: z.string(),
-    properties: z.array(z.any()), // this is an array of AnyPropertyFilter
+    properties: z.array(z.any()),
 })
 
-/**
- * This is the schema for the experiment exposure criteria.
- * It references the ExperimentExposureCriteria type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
-export const ExperimentExposureCriteriaSchema = z.object({
+const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
     exposure_config: ExperimentEventExposureConfigSchema.optional(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 
 /**
- * This is the schema for the experiment object.
- * It references the Experiment type from
- * @posthog/frontend/src/types.ts
+ * One entry of `experiment.saved_metrics` — a junction row attaching a shared
+ * saved metric to an experiment. Mirrors `ExperimentToSavedMetricSerializer` on
+ * the backend. Kept loose (looseObject so extra fields survive, nullish on
+ * every field) so a malformed row doesn't fail parsing of the whole experiment;
+ * `buildMetricEntries` does the strict filtering. Tightening this catches
+ * backend field renames at the type boundary instead of silently nulling out
+ * shared-row fields.
+ */
+export const SavedMetricAttachmentSchema = z.looseObject({
+    saved_metric: z.number().nullish(),
+    name: z.string().nullish(),
+    metadata: z
+        .looseObject({
+            type: z.string().nullish(),
+        })
+        .nullish(),
+    query: z.unknown(),
+})
+
+export type SavedMetricAttachment = z.infer<typeof SavedMetricAttachmentSchema>
+
+/**
+ * Hand-written Experiment schema used by the results tool's API client methods.
+ * The codegen tools use Schemas.Experiment from the generated OpenAPI types instead.
  */
 export const ExperimentSchema = z.object({
     id: z.number(),
@@ -162,12 +62,9 @@ export const ExperimentSchema = z.object({
     feature_flag: FeatureFlagSchema.nullish(),
     exposure_cohort: z.number().nullish(),
     exposure_criteria: ExperimentExposureCriteriaSchema.nullish(),
-    /**
-     * We only type ExperimentMetrics. Legacy metric formats are not validated.
-     */
-    metrics: z.array(z.union([ExperimentMetricSchema, z.any()])).nullish(),
-    metrics_secondary: z.array(z.union([ExperimentMetricSchema, z.any()])).nullish(),
-    saved_metrics: z.array(z.any()).nullish(),
+    metrics: z.array(z.any()).nullish(),
+    metrics_secondary: z.array(z.any()).nullish(),
+    saved_metrics: z.array(SavedMetricAttachmentSchema).nullish(),
     saved_metrics_ids: z.array(z.any()).nullable(),
     parameters: z
         .object({
@@ -177,6 +74,7 @@ export const ExperimentSchema = z.object({
                         key: z.string(),
                         name: z.string().nullish(),
                         rollout_percentage: z.number().nullish(),
+                        split_percent: z.number().nullish(),
                     })
                 )
                 .nullish(),
@@ -203,252 +101,6 @@ export const ExperimentSchema = z.object({
 
 export type Experiment = z.infer<typeof ExperimentSchema>
 
-/**
- * Schema for the API payload when creating an experiment
- * This is derived from ExperimentSchema with appropriate omissions
- */
-export const ExperimentApiPayloadSchema = ExperimentSchema.omit({
-    id: true,
-    feature_flag: true,
-    exposure_cohort: true,
-    exposure_criteria: true,
-    saved_metrics: true,
-    saved_metrics_ids: true,
-    start_date: true,
-    end_date: true,
-    deleted: true,
-    archived: true,
-    created_at: true,
-    updated_at: true,
-    holdout: true,
-    stats_config: true,
-    conclusion: true,
-    conclusion_comment: true,
-}).partial()
-
-export type ExperimentApiPayload = z.infer<typeof ExperimentApiPayloadSchema>
-
-/**
- * Schema for the API payload when updating an experiment
- * Derived from ExperimentSchema, omitting fields that cannot be updated
- */
-export const ExperimentUpdateApiPayloadSchema = ExperimentSchema.omit({
-    id: true,
-    feature_flag: true,
-    feature_flag_key: true,
-    type: true,
-    exposure_cohort: true,
-    saved_metrics: true,
-    deleted: true,
-    created_at: true,
-    updated_at: true,
-    holdout: true,
-    holdout_id: true,
-}).partial()
-
-export type ExperimentUpdateApiPayload = z.infer<typeof ExperimentUpdateApiPayloadSchema>
-
-/**
- * Helper to conditionally add properties only if they exist and are not empty
- */
-const getPropertiesIfNotEmpty = <T>(props: T): { properties?: T } => {
-    return props && Object.keys(props).length > 0 ? { properties: props } : {}
-}
-
-/**
- * Transform tool input metrics to ExperimentMetric format for API
- */
-const transformMetricToApi = (metric: any): z.infer<typeof ExperimentMetricSchema> => {
-    const uuid = uuidv4()
-    const base = {
-        kind: 'ExperimentMetric' as const,
-        uuid,
-        name: metric.name,
-    }
-
-    switch (metric.metric_type) {
-        case 'mean':
-            return {
-                ...base,
-                metric_type: 'mean',
-                source: {
-                    kind: 'EventsNode',
-                    event: metric.event_name,
-                    ...getPropertiesIfNotEmpty(metric.properties),
-                },
-            }
-
-        case 'funnel':
-            return {
-                ...base,
-                metric_type: 'funnel',
-                series: (metric.funnel_steps || [metric.event_name]).map((event: string) => ({
-                    kind: 'EventsNode',
-                    event,
-                    ...getPropertiesIfNotEmpty(metric.properties),
-                })),
-            }
-
-        case 'ratio': {
-            const numeratorProps = metric.properties?.numerator || metric.properties
-            const denominatorProps = metric.properties?.denominator || metric.properties
-
-            return {
-                ...base,
-                metric_type: 'ratio',
-                numerator: {
-                    kind: 'EventsNode',
-                    event: metric.event_name,
-                    ...getPropertiesIfNotEmpty(numeratorProps),
-                },
-                denominator: {
-                    kind: 'EventsNode',
-                    event: metric.properties?.denominator_event || metric.event_name,
-                    ...getPropertiesIfNotEmpty(denominatorProps),
-                },
-            }
-        }
-
-        default:
-            throw new Error(`Unknown metric type: ${metric.metric_type}`)
-    }
-}
-
-/**
- * Transform tool input to API payload format
- * This bridges the gap between user-friendly input and PostHog API requirements
- */
-export const ExperimentCreatePayloadSchema = ToolExperimentCreateSchema.transform((input) => {
-    // Transform metrics with proper UUIDs
-    const primaryMetrics = input.primary_metrics?.map(transformMetricToApi) || []
-    const secondaryMetrics = input.secondary_metrics?.map(transformMetricToApi) || []
-
-    return {
-        // Core fields
-        name: input.name,
-        description: input.description || null,
-        feature_flag_key: input.feature_flag_key, // Maps to get_feature_flag_key in serializer
-        type: 'product',
-
-        // Metrics - ensure arrays are never null, always empty arrays when no metrics
-        metrics: primaryMetrics,
-        metrics_secondary: secondaryMetrics,
-
-        // Metrics UUIDs for ordering - ensure arrays are never null
-        primary_metrics_ordered_uuids: primaryMetrics.map((m) => m.uuid),
-        secondary_metrics_ordered_uuids: secondaryMetrics.map((m) => m.uuid),
-
-        // Legacy fields still required by API
-        filters: {}, // Legacy but still in model
-        secondary_metrics: secondaryMetrics, // Use the same array as metrics_secondary
-        saved_metrics_ids: [], // Empty array for saved metrics
-
-        // Parameters with variants
-        parameters: {
-            feature_flag_variants: input.variants || [
-                { key: 'control', name: 'Control', rollout_percentage: 50 },
-                { key: 'test', name: 'Test', rollout_percentage: 50 },
-            ],
-            minimum_detectable_effect: input.minimum_detectable_effect || 30,
-        },
-
-        // Exposure criteria
-        exposure_criteria: input.filter_test_accounts
-            ? {
-                  filterTestAccounts: input.filter_test_accounts,
-              }
-            : null,
-
-        // Stats config (empty, will be filled by backend)
-        stats_config: {},
-
-        // Scheduling config (empty, will be filled by backend)
-        scheduling_config: {},
-
-        // State fields
-        start_date: input.draft === false ? new Date().toISOString() : null,
-        end_date: null,
-        archived: false,
-        deleted: false,
-
-        // Optional holdout
-        holdout_id: input.holdout_id || null,
-
-        // Event validation bypass
-        ...(input.allow_unknown_events !== undefined && { allow_unknown_events: input.allow_unknown_events }),
-    }
-})
-
-export type ExperimentCreatePayload = z.output<typeof ExperimentCreatePayloadSchema>
-
-/**
- * Transform user-friendly update input to API payload format for experiment updates
- * This handles partial updates with the same transformation patterns as creation
- */
-export const ExperimentUpdateTransformSchema = ToolExperimentUpdateInputSchema.transform((input) => {
-    const updatePayload: Record<string, any> = {}
-
-    // Basic fields - direct mapping
-    if (input.name !== undefined) {
-        updatePayload.name = input.name
-    }
-    if (input.description !== undefined) {
-        updatePayload.description = input.description
-    }
-
-    // Transform metrics if provided
-    if (input.primary_metrics !== undefined) {
-        updatePayload.metrics = input.primary_metrics.map(transformMetricToApi)
-        updatePayload.primary_metrics_ordered_uuids = updatePayload.metrics.map((m: any) => m.uuid!)
-    }
-
-    if (input.secondary_metrics !== undefined) {
-        updatePayload.metrics_secondary = input.secondary_metrics.map(transformMetricToApi)
-        updatePayload.secondary_metrics_ordered_uuids = updatePayload.metrics_secondary.map((m: any) => m.uuid!)
-    }
-
-    // Transform minimum detectable effect into parameters
-    if (input.minimum_detectable_effect !== undefined) {
-        updatePayload.parameters = {
-            ...updatePayload.parameters,
-            minimum_detectable_effect: input.minimum_detectable_effect,
-        }
-    }
-
-    // Handle experiment state management (restart first, then launch to allow restart+relaunch)
-    if (input.restart === true) {
-        updatePayload.start_date = null
-        updatePayload.end_date = null
-        updatePayload.conclusion = null
-        updatePayload.conclusion_comment = null
-    }
-
-    if (input.launch === true) {
-        updatePayload.start_date = new Date().toISOString()
-    }
-
-    if (input.conclude !== undefined) {
-        updatePayload.conclusion = input.conclude
-        updatePayload.end_date = new Date().toISOString()
-        if (input.conclusion_comment !== undefined) {
-            updatePayload.conclusion_comment = input.conclusion_comment
-        }
-    }
-
-    if (input.archive !== undefined) {
-        updatePayload.archived = input.archive
-    }
-
-    return updatePayload
-}).pipe(ExperimentUpdateApiPayloadSchema)
-
-export type ExperimentUpdateTransform = z.output<typeof ExperimentUpdateTransformSchema>
-
-/**
- * This is the schema for the experiment exposure query.
- * It references the ExperimentExposureQuery type from
- * @posthog/frontend/src/queries/schema/schema-general.ts
- */
 export const ExperimentExposureQuerySchema = z.object({
     kind: z.literal('ExperimentExposureQuery'),
     experiment_id: z.number(),
@@ -469,16 +121,38 @@ export const ExperimentExposureTimeSeriesSchema = z.object({
 })
 
 export const ExperimentExposureQueryResponseSchema = z.object({
-    kind: z.literal('ExperimentExposureQuery'), // API returns the query kind, not a response kind
+    kind: z.literal('ExperimentExposureQuery'),
     timeseries: z.array(ExperimentExposureTimeSeriesSchema),
     total_exposures: z.record(z.string(), z.number()),
     date_range: z.object({
         date_from: z.string(),
-        date_to: z.string().nullable(), // API can return null for date_to
+        date_to: z.string().nullable(),
     }),
 })
 
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema>
+
+export type MetricSummary = {
+    uuid: string | null
+    name: string | null
+    metric_type: string | null
+    goal: string | null
+    source: 'inline' | 'shared'
+    saved_metric_id: number | null
+    saved_metric_name: string | null
+}
+
+export type ResolvedMetricEntry = {
+    /** metric is forwarded to the ExperimentQuery body but not read by MCP. */
+    metric: unknown
+    summary: MetricSummary
+}
+
+export type ExperimentMetricResultRow = {
+    index: number
+    metric: MetricSummary
+    data: unknown
+}
 
 export interface ExperimentResultsSummary {
     experiment: {
@@ -488,6 +162,7 @@ export interface ExperimentResultsSummary {
         feature_flag_key: string
         metrics?: unknown[] | null | undefined
         metrics_secondary?: unknown[] | null | undefined
+        saved_metrics?: unknown[] | null | undefined
         start_date?: string | null | undefined
         end_date?: string | null | undefined
         status: 'draft' | 'running' | 'completed'
@@ -495,28 +170,167 @@ export interface ExperimentResultsSummary {
             key: string
             name?: string | null | undefined
             rollout_percentage?: number | null | undefined
+            split_percent?: number | null | undefined
         }>
     }
     exposures: ExperimentExposureQueryResponse
     metrics: {
         primary: {
             count: number
-            results: Array<{ index: number; data: unknown }>
+            results: ExperimentMetricResultRow[]
         }
         secondary: {
             count: number
-            results: Array<{ index: number; data: unknown }>
+            results: ExperimentMetricResultRow[]
         }
+    }
+}
+
+function toMetricSummary(
+    metric: unknown,
+    source: 'inline' | 'shared',
+    saved: { id: number | null; name: string | null } = { id: null, name: null }
+): MetricSummary {
+    const m = (metric ?? {}) as Record<string, unknown>
+    const queryName = typeof m.name === 'string' ? m.name : null
+    // For shared rows, the saved metric's label is what users see in the UI, the
+    // inner query.name is internal and often unset or drifted
+    const name = source === 'shared' ? (saved.name ?? queryName) : queryName
+    return {
+        uuid: typeof m.uuid === 'string' ? m.uuid : null,
+        name,
+        metric_type: typeof m.metric_type === 'string' ? m.metric_type : null,
+        goal: typeof m.goal === 'string' ? m.goal : null,
+        source,
+        saved_metric_id: saved.id,
+        saved_metric_name: saved.name,
+    }
+}
+
+/**
+ * Build the per-position metric entries for a primary/secondary slot, merging the
+ * inline metrics on the experiment with the shared metrics (saved_metrics), and
+ * ordering them by `*_metrics_ordered_uuids` so the result rows match what users
+ * see in the UI. Each entry tracks its source so each result row can be
+ * self-describing.
+ */
+export function buildMetricEntries(experiment: Experiment, slot: 'primary' | 'secondary'): ResolvedMetricEntry[] {
+    const inline = (slot === 'primary' ? experiment.metrics : experiment.metrics_secondary) ?? []
+    const shared = (experiment.saved_metrics ?? []).filter((sm) => sm.metadata?.type === slot)
+    const entries: ResolvedMetricEntry[] = [
+        ...inline.map((metric) => ({ metric: metric as unknown, summary: toMetricSummary(metric, 'inline') })),
+        ...shared.map((sm) => ({
+            metric: sm.query,
+            summary: toMetricSummary(sm.query, 'shared', {
+                id: typeof sm.saved_metric === 'number' ? sm.saved_metric : null,
+                name: typeof sm.name === 'string' ? sm.name : null,
+            }),
+        })),
+    ]
+
+    // Sort by position in *_metrics_ordered_uuids so result rows match the UI.
+    // Entries whose uuid isn't listed (legacy or stale ordering) keep their
+    // insertion order at the end thanks to stable Array.prototype.sort.
+    const orderedUuids =
+        (slot === 'primary' ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ??
+        []
+    if (orderedUuids.length === 0) {
+        return entries
+    }
+    const positionByUuid = new Map<string, number>()
+    orderedUuids.forEach((uuid, i) => positionByUuid.set(uuid, i))
+    const fallbackPosition = orderedUuids.length
+    const position = (entry: ResolvedMetricEntry): number =>
+        entry.summary.uuid ? (positionByUuid.get(entry.summary.uuid) ?? fallbackPosition) : fallbackPosition
+    return [...entries].sort((a, b) => position(a) - position(b))
+}
+
+/**
+ * Strip UI-only bulk fields from a query response. The compiled SQL bodies and the
+ * per-step session samples can together account for ~90% of the payload. None of it
+ * is usable by an MCP caller — `step_sessions` powers the frontend's funnel step-bar
+ * "view sessions" linkbacks, `insight` is the rendered visualization payload for
+ * the legacy trends/funnels charts, and anyone debugging a compiled query should
+ * hit the dedicated query API directly. Statistical fields (sum, sum_squares,
+ * step_counts, number_of_samples, credible_intervals, etc.) are left untouched,
+ * including per-breakdown statistics in `breakdown_results` — the sessions inside
+ * each breakdown entry are stripped, but the breakdown stats themselves are kept
+ * because they are real per-segment analysis data.
+ */
+function stripBulkFields(data: unknown): unknown {
+    if (data === null || typeof data !== 'object') {
+        return data
+    }
+    const {
+        clickhouse_sql: _omitSql,
+        hogql: _omitHogql,
+        insight: _omitInsight,
+        baseline: rawBaseline,
+        variant_results: rawVariantResults,
+        breakdown_results: rawBreakdownResults,
+        ...rest
+    } = data as Record<string, unknown>
+
+    const stripVariantBulk = (variant: unknown): unknown => {
+        if (variant === null || typeof variant !== 'object') {
+            return variant
+        }
+        const { step_sessions: _omitStepSessions, ...variantRest } = variant as Record<string, unknown>
+        return variantRest
+    }
+
+    const stripBreakdownBulk = (entry: unknown): unknown => {
+        if (entry === null || typeof entry !== 'object') {
+            return entry
+        }
+        const { baseline: bdBaseline, variants: bdVariants, ...bdRest } = entry as Record<string, unknown>
+        return {
+            ...bdRest,
+            ...(bdBaseline !== undefined ? { baseline: stripVariantBulk(bdBaseline) } : {}),
+            ...(bdVariants !== undefined
+                ? {
+                      variants: Array.isArray(bdVariants) ? bdVariants.map(stripVariantBulk) : bdVariants,
+                  }
+                : {}),
+        }
+    }
+
+    return {
+        ...rest,
+        ...(rawBaseline !== undefined ? { baseline: stripVariantBulk(rawBaseline) } : {}),
+        ...(rawVariantResults !== undefined
+            ? {
+                  variant_results: Array.isArray(rawVariantResults)
+                      ? rawVariantResults.map(stripVariantBulk)
+                      : rawVariantResults,
+              }
+            : {}),
+        ...(rawBreakdownResults !== undefined
+            ? {
+                  breakdown_results: Array.isArray(rawBreakdownResults)
+                      ? rawBreakdownResults.map(stripBreakdownBulk)
+                      : rawBreakdownResults,
+              }
+            : {}),
     }
 }
 
 export function transformExperimentResults(input: {
     experiment: Experiment
     exposures: ExperimentExposureQueryResponse
+    primaryMetricEntries: ResolvedMetricEntry[]
+    secondaryMetricEntries: ResolvedMetricEntry[]
     primaryMetricsResults: unknown[]
     secondaryMetricsResults: unknown[]
 }): ExperimentResultsSummary {
-    const { experiment, exposures, primaryMetricsResults, secondaryMetricsResults } = input
+    const {
+        experiment,
+        exposures,
+        primaryMetricEntries,
+        secondaryMetricEntries,
+        primaryMetricsResults,
+        secondaryMetricsResults,
+    } = input
 
     const transformedExperiment = {
         id: experiment.id,
@@ -525,6 +339,7 @@ export function transformExperimentResults(input: {
         feature_flag_key: experiment.feature_flag_key,
         metrics: experiment.metrics,
         metrics_secondary: experiment.metrics_secondary,
+        saved_metrics: experiment.saved_metrics,
         start_date: experiment.start_date,
         end_date: experiment.end_date,
         status: (experiment.start_date ? (experiment.end_date ? 'completed' : 'running') : 'draft') as
@@ -534,79 +349,35 @@ export function transformExperimentResults(input: {
         variants: experiment.parameters?.feature_flag_variants || [],
     }
 
+    const buildRows = (
+        results: unknown[],
+        entries: ResolvedMetricEntry[]
+    ): { count: number; results: ExperimentMetricResultRow[] } => {
+        if (results.length !== entries.length) {
+            // Defensive throwing since the two arrays are paired by index, one result per entry
+            throw new Error(
+                `experiment-results-get (experiment ${experiment.id}): result/entry length mismatch (${results.length} results, ${entries.length} entries) — this should not happen, please report.`
+            )
+        }
+        // Failed metric queries surface as `data: null` so callers can see "metric N
+        // exists and failed" instead of having the row erased and subsequent metric
+        // positions shift relative to *_metrics_ordered_uuids.
+        return {
+            count: results.length,
+            results: results.map((result, index) => ({
+                index,
+                metric: entries[index]!.summary,
+                data: stripBulkFields(result),
+            })),
+        }
+    }
+
     return {
         experiment: transformedExperiment,
         exposures,
         metrics: {
-            primary: {
-                count: primaryMetricsResults.length,
-                results: primaryMetricsResults
-                    .map((result, index) => ({
-                        index,
-                        data: result,
-                    }))
-                    .filter((item) => item.data !== null),
-            },
-            secondary: {
-                count: secondaryMetricsResults.length,
-                results: secondaryMetricsResults
-                    .map((result, index) => ({
-                        index,
-                        data: result,
-                    }))
-                    .filter((item) => item.data !== null),
-            },
+            primary: buildRows(primaryMetricsResults, primaryMetricEntries),
+            secondary: buildRows(secondaryMetricsResults, secondaryMetricEntries),
         },
     }
 }
-
-/**
- * Schema for updating existing experiments
- * All fields are optional to support partial updates
- */
-export const ExperimentUpdatePayloadSchema = z
-    .object({
-        name: z.string().optional(),
-        description: z.string().nullish(),
-        start_date: z.string().nullish(),
-        end_date: z.string().nullish(),
-
-        // Parameters
-        parameters: z
-            .object({
-                feature_flag_variants: z
-                    .array(
-                        z.object({
-                            key: z.string(),
-                            name: z.string().optional(),
-                            rollout_percentage: z.number(),
-                        })
-                    )
-                    .optional(),
-                minimum_detectable_effect: z.number().nullish(),
-                recommended_running_time: z.number().nullish(),
-                recommended_sample_size: z.number().nullish(),
-                variant_screenshot_media_ids: z.record(z.string(), z.array(z.string())).optional(),
-            })
-            .optional(),
-
-        // Metrics
-        metrics: z.array(ExperimentMetricSchema).optional(),
-        metrics_secondary: z.array(ExperimentMetricSchema).optional(),
-        primary_metrics_ordered_uuids: z.array(z.string()).nullish(),
-        secondary_metrics_ordered_uuids: z.array(z.string()).nullish(),
-
-        // State management
-        archived: z.boolean().optional(),
-        conclusion: z.enum(ExperimentConclusion).nullish(),
-        conclusion_comment: z.string().nullish(),
-
-        // Configuration
-        exposure_criteria: ExperimentExposureCriteriaSchema.optional(),
-        saved_metrics_ids: z.array(z.any()).nullish(),
-        stats_config: z.any().optional(),
-        scheduling_config: z.any().optional(),
-    })
-    .strict()
-
-export type ExperimentUpdatePayload = z.infer<typeof ExperimentUpdatePayloadSchema>

@@ -43,7 +43,19 @@ from gates import (
     test_only,
 )
 from github import PRData, check_team_membership, fetch_pr
+from migration_risk import migration_check_pending, safe_migration_files
 from reviewer import Reviewer
+
+try:
+    import os
+
+    import posthoganalytics
+
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")  # ty: ignore[invalid-assignment]
+    _POSTHOG_AVAILABLE = bool(posthoganalytics.api_key)
+except ImportError:
+    _POSTHOG_AVAILABLE = False
 
 # ── Repo root detection ──────────────────────────────────────────
 
@@ -117,6 +129,9 @@ class Pipeline:
         self._classify()
         self._run_gates()
 
+        if self._only_pending_migration_check():
+            return self._refuse_pending_migration_check()
+
         gate_verdict = self._gate_verdict()
 
         if self.dry_run:
@@ -124,6 +139,36 @@ class Pipeline:
             return self.final_verdict
 
         self._llm_review(gate_verdict)
+        return self.final_verdict
+
+    def _only_pending_migration_check(self) -> bool:
+        """True when the only thing blocking approval is a pending Migration risk check.
+
+        Lets us emit a specific deny reason ("wait for the check, re-label")
+        instead of the generic deny-list one. Other denies (auth, crypto) or
+        gate failures (size, prerequisites) won't clear when the analyzer
+        finishes, so we shouldn't promise a re-label will help.
+        """
+        if self.classification.get("deny_categories", []) != ["migrations"]:
+            return False
+        if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
+            return False
+        return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+
+    def _refuse_pending_migration_check(self) -> str:
+        self.final_verdict = "REFUSED"
+        self.reviewer_output = {
+            "verdict": "REFUSE",
+            "reasoning": (
+                "The `Migration risk` check has not completed for this commit. "
+                "Wait for it to finish (visible in the PR's Checks tab), then "
+                "re-apply the `stamphog` label to retry."
+            ),
+            "risk": "unknown",
+            "issues": [],
+        }
+        print(f"\n{_warn('REFUSED')} — Migration risk check pending; re-label after it completes")
+        self._capture_review_completed("DENIED", "PENDING-MIGRATION-CHECK")
         return self.final_verdict
 
     def _gate_verdict(self) -> str:
@@ -155,7 +200,8 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        deny = detect_deny_categories(file_paths, pr.title)
+        safe_migrations = safe_migration_files(pr.check_runs, file_paths)
+        deny = detect_deny_categories(file_paths, pr.title, ignored_files=safe_migrations)
         allow_only = is_allow_listed_only(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
@@ -187,6 +233,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -305,6 +352,7 @@ class Pipeline:
 
         print(_dim("  Calling reviewer..."))
         max_retries = 3
+        reviewer_unavailable = False
         for attempt in range(max_retries):
             try:
                 self.reviewer_output = reviewer.review(
@@ -321,9 +369,22 @@ class Pipeline:
                     time.sleep(wait)
                 else:
                     print(_fail(f"Reviewer failed after {max_retries} attempts: {e}"))
+                    print(
+                        _warn(
+                            "  This is an LLM backend failure (credentials, credit, or outage), "
+                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
+                            "secret (or local ANTHROPIC_API_KEY)."
+                        )
+                    )
+                    reviewer_unavailable = True
                     self.reviewer_output = {
-                        "verdict": "ESCALATE",
-                        "reasoning": f"Review agent failed after {max_retries} attempts — needs human review.",
+                        "verdict": "ERROR",
+                        "reasoning": (
+                            "The review agent couldn't reach its LLM backend — an infrastructure "
+                            "or credentials issue, not a problem with this PR. The `stamphog` label "
+                            "has been kept; the review retries automatically on the next push, or "
+                            "re-apply the label once the backend recovers."
+                        ),
                         "risk": "unknown",
                         "issues": [str(e)],
                     }
@@ -336,10 +397,17 @@ class Pipeline:
         for issue in issues:
             print(_warn(f"  {issue}"))
 
-        # Gates are authoritative — LLM can tighten but never loosen
+        # Gates are authoritative — LLM can tighten but never loosen. A real
+        # gate denial outranks an unavailable reviewer: still REFUSE (and let
+        # the label strip), because the deny is deterministic and actionable.
         if gate_verdict == "DENIED":
             self.final_verdict = "REFUSED"
             print(f"\n{_fail('REFUSED')} — gates denied")
+        elif reviewer_unavailable:
+            # Distinct from a substantive REFUSE/ESCALATE: the workflow keeps
+            # the label so a transient outage doesn't drop it across every PR.
+            self.final_verdict = "ERROR"
+            print(f"\n{_warn('ERROR')} — review agent unavailable; label retained for retry")
         elif gate_verdict == "AUTO-APPROVED" and llm_verdict in ("REFUSE", "ESCALATE"):
             self.final_verdict = "ESCALATE"
             print(f"\n{_warn('ESCALATE')} — gates auto-approved but LLM disagrees")
@@ -353,6 +421,39 @@ class Pipeline:
             self.final_verdict = "ESCALATE"
             print(f"\n{_warn('ESCALATE')} — needs human review")
 
+        self._capture_review_completed(gate_verdict, llm_verdict)
+
+    def _capture_review_completed(self, gate_verdict: str, llm_verdict: str) -> None:
+        """Send a stamphog_review_completed event with all verdict data."""
+        if not _POSTHOG_AVAILABLE:
+            return
+
+        cl = self.classification
+        pr = self.pr
+        posthoganalytics.capture(
+            distinct_id=pr.author,
+            event="stamphog_review_completed",
+            properties={
+                "ai_product": "stamphog",
+                "stamphog_pr_number": pr.number,
+                "stamphog_repo": pr.repo,
+                "stamphog_author": pr.author,
+                "stamphog_pr_title": pr.title,
+                "stamphog_tier": cl.get("tier", ""),
+                "stamphog_t1_subclass": cl.get("t1_subclass", ""),
+                "stamphog_breadth": cl.get("breadth", ""),
+                "stamphog_commit_type": cl.get("commit_type") or "",
+                "stamphog_files_changed": len(pr.files),
+                "stamphog_lines_total": pr.lines_total,
+                "stamphog_gate_verdict": gate_verdict,
+                "stamphog_llm_verdict": llm_verdict,
+                "stamphog_final_verdict": self.final_verdict,
+                "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
+                "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
+                "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+            },
+        )
+
     # ── Output ───────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
@@ -361,6 +462,7 @@ class Pipeline:
             "repo": self.pr.repo,
             "title": self.pr.title,
             "author": self.pr.author,
+            "head_sha": self.pr.head_sha,
             "classification": {
                 "tier": self.classification["tier"],
                 "t1_subclass": self.classification.get("t1_subclass", ""),
@@ -369,6 +471,7 @@ class Pipeline:
                 "breadth": self.classification["breadth"],
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
+                "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
             },
             "gates": [
@@ -406,6 +509,9 @@ def main() -> None:
 
     if args.output_json:
         pipeline.save_json(args.output_json)
+
+    if _POSTHOG_AVAILABLE:
+        posthoganalytics.flush()
 
 
 if __name__ == "__main__":

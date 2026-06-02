@@ -15,6 +15,7 @@ use crate::{
     flags::flag_group_type_mapping::GroupTypeCacheManager,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
+        flag_definitions_cache::FlagDefinitionsCache,
         flag_models::{
             EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
             HypercacheFlagsWrapper,
@@ -218,6 +219,8 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -300,6 +303,8 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -327,6 +332,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
     let legacy_response = LegacyFlagsResponse::from_response(result);
@@ -343,7 +349,7 @@ fn test_decode_request() {
     let result = decoding::decode_request(&headers, body, &meta);
 
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -445,7 +451,7 @@ fn test_decode_request_form_urlencoded() {
 
     let result = decoding::decode_request(&headers, body, &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 }
@@ -473,7 +479,7 @@ fn test_decode_form_data_kludges() {
 
         if should_succeed {
             assert!(result.is_ok(), "Failed to decode: {input}");
-            let request = result.unwrap();
+            let (request, _decoded) = result.unwrap();
             if input.contains("bio") {
                 // Verify we can handle newlines in the decoded JSON
                 let person_properties = request.person_properties.unwrap();
@@ -506,7 +512,7 @@ fn test_handle_unencoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, None, None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -533,7 +539,7 @@ fn test_decode_base64_encoded_form_data_with_emojis() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
     assert!(result.is_ok(), "Failed to decode emoji content");
 
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("test_id".to_string()));
 
@@ -600,7 +606,7 @@ fn test_decode_form_data_real_world_payload() {
     let result = decoding::decode_form_data(body, Some(Compression::Base64), None);
 
     assert!(result.is_ok(), "Failed to decode real world payload");
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
 
     // Verify key fields from the decoded request
     assert_eq!(request.token, Some("sTMFPsFhdP1Ssg".to_string()));
@@ -681,6 +687,8 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -761,6 +769,8 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -788,6 +798,7 @@ async fn test_evaluate_feature_flags_details() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
     assert_eq!(
@@ -808,6 +819,7 @@ async fn test_evaluate_feature_flags_details() {
                 description: None,
                 payload: None,
             },
+            conditions: None,
         }
     );
 }
@@ -910,6 +922,8 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -989,6 +1003,8 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1073,7 +1089,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1082,7 +1098,7 @@ fn test_decode_request_content_types() {
     headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1094,7 +1110,7 @@ fn test_decode_request_content_types() {
     );
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1102,7 +1118,7 @@ fn test_decode_request_content_types() {
     let headers = HeaderMap::new();
     let result = decoding::decode_request(&headers, body.clone(), &meta);
     assert!(result.is_ok());
-    let request = result.unwrap();
+    let (request, _decoded) = result.unwrap();
     assert_eq!(request.token, Some("test_token".to_string()));
     assert_eq!(request.distinct_id, Some("user123".to_string()));
 
@@ -1124,6 +1140,7 @@ async fn test_fetch_and_filter_flags() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
         NegativeCache::new(100, 300),
         false,
     );
@@ -1179,6 +1196,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1206,6 +1224,7 @@ async fn test_fetch_and_filter_flags() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1218,6 +1237,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1240,6 +1260,7 @@ async fn test_fetch_and_filter_flags() {
         team.id,
         &query_params,
         &axum::http::HeaderMap::new(),
+        None,
         None,
         None,
     )
@@ -1270,6 +1291,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         reader.clone(),
         team_hypercache_reader,
         hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
         NegativeCache::new(100, 300),
         false,
     );
@@ -1319,6 +1341,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         &axum::http::HeaderMap::new(),
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -1328,6 +1351,87 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     assert_eq!(ctx.dependency_stages, vec![vec![1], vec![2]]);
     assert!(ctx.flags_with_missing_deps.is_empty());
     assert!(ctx.transitive_deps.contains_key(&2));
+}
+
+/// Two `fetch_and_filter` calls against a primed `FlagDefinitionsCache` must
+/// share the same `Arc<[FeatureFlag]>` and `Arc<EvaluationMetadata>` — i.e.
+/// `fetch_and_filter` must not deep-clone either field.
+#[tokio::test]
+async fn test_fetch_and_filter_shares_prepared_arcs_across_requests() {
+    use crate::flags::test_helpers::update_flags_in_hypercache;
+    use crate::utils::test_utils::insert_new_team_in_redis;
+
+    let redis_client = setup_redis_client(None).await;
+    let pg_client: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+
+    let team = insert_new_team_in_redis(redis_client.clone())
+        .await
+        .expect("insert team");
+
+    // A real (non-disabled) cache; default config matches production.
+    let real_cache = Arc::new(FlagDefinitionsCache::new(None, None));
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        pg_client.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::clone(&real_cache),
+        NegativeCache::new(100, 300),
+        false,
+    );
+
+    let flags_vec = vec![mock!(FeatureFlag,
+        name: "Flag A".mock_into(),
+        id: 1,
+        key: "flag_a".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let mock_flags = crate::flags::flag_models::FeatureFlagList {
+        flags: crate::flags::feature_flag_list::PreparedFlags::seal(flags_vec.clone()),
+        evaluation_metadata: Arc::new(EvaluationMetadata::single_stage(&flags_vec)),
+        ..Default::default()
+    };
+    update_flags_in_hypercache(redis_client.clone(), team.id, &mock_flags, None)
+        .await
+        .expect("write hypercache");
+
+    let query_params = FlagsQueryParams::default();
+    let first = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &query_params,
+        &HeaderMap::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("first fetch");
+    let second = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &query_params,
+        &HeaderMap::new(),
+        None,
+        None,
+        None,
+    )
+    .await
+    .expect("second fetch");
+
+    assert!(
+        Arc::ptr_eq(first.flags.as_arc(), second.flags.as_arc()),
+        "second fetch_and_filter must share the cached flag slice (Arc::ptr_eq)",
+    );
+    assert!(
+        Arc::ptr_eq(&first.evaluation_metadata, &second.evaluation_metadata),
+        "second fetch_and_filter must share the cached evaluation_metadata Arc",
+    );
+    assert!(first.cohorts.is_none());
+    assert!(second.cohorts.is_none());
 }
 
 #[test]
@@ -1505,6 +1609,8 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1533,6 +1639,8 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
@@ -1622,6 +1730,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     // Test with realtime cohort evaluation ENABLED
@@ -1656,6 +1766,8 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        detailed_analysis: false,
+        only_use_override_person_properties: false,
     };
 
     let request_id = Uuid::new_v4();

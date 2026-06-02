@@ -15,7 +15,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUIDT } from '../../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
-import {
+import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionFilterGlobals,
@@ -407,8 +407,12 @@ export class HogExecutorService {
             let execRes: ExecResult | undefined = undefined
 
             try {
-                // NOTE: As of the mappings work, we added input generation to the caller, reducing the amount of data passed into the function
-                // This is just a fallback to support the old format - once fully migrated we can remove the building and just use the globals
+                // Build inputs here when the invocation arrives without them.
+                // This is a supported path, not a transitional fallback: the
+                // rerun pipeline deliberately re-enqueues invocations with only
+                // the bare globals so the run resolves inputs against the
+                // current hog function config. Callers that pre-resolve inputs
+                // (e.g. the mappings path) skip the rebuild.
                 if (invocation.state.globals.inputs) {
                     globals = invocation.state.globals
                 } else {
@@ -559,6 +563,11 @@ export class HogExecutorService {
                     if (!handler) {
                         throw new Error(`Unknown async function '${execRes.asyncFunctionName}'`)
                     }
+                    // Async handlers are responsible for ensuring the resumed VM stack contains
+                    // their return value before it next runs - either by pushing directly onto
+                    // result.invocation.state.vmState.stack (synchronous handlers) or by deferring
+                    // the push to executeFetch / executeSendEmail (queueing handlers). See the
+                    // RETURN-VALUE CONTRACT comment in cdp/async-functions/example.ts.
                     await handler.execute(
                         args,
                         { invocation: result.invocation, globals, ...this.asyncContext },
@@ -719,7 +728,7 @@ export class HogExecutorService {
             if (typeof body === 'string') {
                 try {
                     body = parseJSON(body)
-                } catch (e) {
+                } catch {
                     // Pass through the error
                 }
             }

@@ -27,8 +27,8 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.18-1~deb12u2" \
-    "libssl3=3.0.18-1~deb12u2" \
+    "libssl-dev=3.0.19-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -87,6 +87,7 @@ RUN apt-get update && \
     "ca-certificates" \
     "wget" \
     "gnupg" \
+    "unzip" \
     && \
     mkdir -p /etc/apt/keyrings && \
     wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
@@ -95,7 +96,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "libssl3=3.0.18-1~deb12u2" \
+    "libssl3=3.0.19-1~deb12u2" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
     # Shared libraries required by chrome-headless-shell
     libasound2 \
@@ -122,12 +123,13 @@ RUN apt-get update && \
 
 # Install chrome-headless-shell via @puppeteer/browsers CLI.
 # This provides the minimal Chrome binary that supports HeadlessExperimental.
-RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+# NOTE: Version is pinned to avoid upstream breakage. Bump periodically for security patches.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@148.0.7778.178 \
     --path /opt/chrome-headless-shell && \
     ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 
-RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
-    useradd -u 1000 -g posthog posthog || usermod -l posthog -d /code -g posthog $(getent passwd 1000 | cut -d: -f1) && \
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
     chown -R posthog:posthog /code
 USER posthog
 

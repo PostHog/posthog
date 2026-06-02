@@ -96,12 +96,9 @@ class CeleryQueue(Enum):
     LONG_RUNNING = "long_running"  # any task that has a good chance of taking more than a few seconds should go here
     ANALYTICS_QUERIES = "analytics_queries"
     ANALYTICS_LIMITED = "analytics_limited"
-    ALERTS = "alerts"
     EXPORTS = "exports"
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     USAGE_REPORTS = "usage_reports"
-    SESSION_REPLAY_EMBEDDINGS = "session_replay_embeddings"
-    SESSION_REPLAY_PERSISTENCE = "session_replay_persistence"
     INTEGRATIONS = "integrations"
     FEATURE_FLAGS = "feature_flags"
     FEATURE_FLAGS_LONG_RUNNING = "feature_flags_long_running"

@@ -11,9 +11,12 @@ No business logic here - that belongs in logic.py via the facade.
 """
 
 import json
+import base64
+import datetime as dt
 
+from drf_spectacular.utils import extend_schema
 from pydantic import ValidationError
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
@@ -21,31 +24,269 @@ from rest_framework.response import Response
 
 from posthog.schema import (
     CachedTraceSpansQueryResponse,
+    CompareFilter,
     DateRange,
+    ProductKey,
     PropertyGroupFilter,
     TraceSpansQuery,
     TraceSpansQueryResponse,
 )
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 
 from ..logic import (
     TraceSpansQueryRunner,
+    run_aggregation_query,
     run_attribute_names_query,
     run_attribute_values_query,
     run_service_names_query,
+    run_tree_query,
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 
+# Serializers below are used exclusively for OpenAPI spec generation via
+# drf-spectacular. They are NOT used for request validation — the existing
+# manual parsing in SpansViewSet is unchanged.
+
+
+class _TracingDateRangeSerializer(serializers.Serializer):
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text='End of the date range. Same format as date_from. Omit or null for "now".',
+    )
+
+
+_SPAN_PROPERTY_TYPE_CHOICES = ["span", "span_attribute", "span_resource_attribute"]
+_SPAN_STRING_OPERATORS = ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"]
+_SPAN_NUMERIC_OPERATORS = ["exact", "gt", "lt"]
+_SPAN_EXISTENCE_OPERATORS = ["is_set", "is_not_set"]
+_SPAN_ALL_OPERATORS = _SPAN_STRING_OPERATORS + _SPAN_NUMERIC_OPERATORS + _SPAN_EXISTENCE_OPERATORS
+
+
+class _SpanPropertyFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text='Attribute key. For type "span", use built-in fields (trace_id, span_id, duration, name, kind, status_code). For "span_attribute"/"span_resource_attribute", use the attribute key (e.g. "http.method").',
+    )
+    type = serializers.ChoiceField(
+        choices=_SPAN_PROPERTY_TYPE_CHOICES,
+        help_text='"span" filters built-in span fields. "span_attribute" filters span-level attributes. "span_resource_attribute" filters resource-level attributes.',
+    )
+    operator = serializers.ChoiceField(
+        choices=_SPAN_ALL_OPERATORS,
+        help_text="Comparison operator.",
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+    )
+
+
+class _TracingQueryBodySerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the query. Defaults to last hour.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    statusCodes = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Filter by HTTP status codes.",
+    )
+    orderBy = serializers.ChoiceField(
+        choices=["latest", "earliest"],
+        required=False,
+        help_text="Order results by timestamp. Defaults to latest.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters for the query.",
+    )
+    traceId = serializers.CharField(
+        required=False,
+        help_text="Filter to a specific trace ID (hex string).",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        help_text="Max results (1-1000). Defaults to 100.",
+    )
+    after = serializers.CharField(
+        required=False,
+        help_text="Pagination cursor from previous response.",
+    )
+    rootSpans = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Filter to root spans only. Defaults to true.",
+    )
+    prefetchSpans = serializers.IntegerField(
+        required=False,
+        help_text="Number of child spans to prefetch per trace (1-100).",
+    )
+
+
+class _TracingQueryRequestSerializer(serializers.Serializer):
+    query = _TracingQueryBodySerializer(help_text="The tracing spans query to execute.")
+
+
+class _TracingTraceRequestSerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the query. Defaults to last 24 hours.",
+    )
+
+
+class _TracingServiceNamesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, help_text="Search filter for service names.")
+    dateRange = serializers.CharField(
+        required=False,
+        help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
+    )
+
+
+class _TracingAttributesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
+    attribute_type = serializers.ChoiceField(
+        choices=["span_attribute", "span_resource_attribute"],
+        required=False,
+        help_text='Type of attributes: "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+    )
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
+    )
+    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
+
+
+class _TracingValuesQuerySerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="The attribute key to get values for.")
+    attribute_type = serializers.ChoiceField(
+        choices=["span", "span_attribute", "span_resource_attribute"],
+        required=False,
+        help_text='Type of attribute: "span" for built-in span fields (e.g. name), "span_attribute" for span-level attributes, "span_resource_attribute" for resource-level attributes.',
+    )
+    value = serializers.CharField(required=False, help_text="Search filter for attribute values.")
+    limit = serializers.IntegerField(
+        required=False, min_value=1, max_value=100, help_text="Max results (default: 100)."
+    )
+    offset = serializers.IntegerField(required=False, min_value=0, help_text="Pagination offset (default: 0).")
+
+
+class _CompareFilterSerializer(serializers.Serializer):
+    compare = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, also fetch results for a comparison window and return them under `compare`.",
+    )
+    compare_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Relative date offset for the comparison window (e.g. '-1h', '-1d', '-7d'). Defaults to the immediately previous period of equal length.",
+    )
+
+
+class _TracingAggregationQueryBodySerializer(serializers.Serializer):
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the primary window. Defaults to last hour.",
+    )
+    compareFilter = _CompareFilterSerializer(
+        required=False,
+        help_text="Optional comparison-window configuration. When omitted, only the primary window is returned.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Property filters applied to spans in both windows.",
+    )
+
+
+class _TracingAggregationRequestSerializer(serializers.Serializer):
+    query = _TracingAggregationQueryBodySerializer(help_text="The span aggregation query to execute.")
+
+
+class _TracingTreeQueryBodySerializer(serializers.Serializer):
+    spanName = serializers.CharField(
+        required=True,
+        help_text=(
+            "Span name to scope the matched trace set. Required because the "
+            "(trace_id, parent_span_id) self-join is unsafe without bounding the matched traces."
+        ),
+    )
+    serviceName = serializers.CharField(
+        required=True,
+        help_text=(
+            "Service name that scopes the returned tree. Applied to the spans CTE so "
+            "the call-tree only contains spans from this service, even when matched "
+            "traces span multiple services."
+        ),
+    )
+    dateRange = _TracingDateRangeSerializer(
+        required=False,
+        help_text="Date range for the primary window. Defaults to last hour.",
+    )
+    compareFilter = _CompareFilterSerializer(
+        required=False,
+        help_text="Optional comparison-window configuration. When omitted, only the primary window is returned.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Filter by service names.",
+    )
+    filterGroup = serializers.ListField(
+        child=_SpanPropertyFilterSerializer(),
+        required=False,
+        default=[],
+        help_text="Additional property filters applied to spans in both windows.",
+    )
+
+
+class _TracingTreeRequestSerializer(serializers.Serializer):
+    query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
+
 
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "tracing"
+    serializer_class = _FallbackSerializer
 
-    @action(detail=False, methods=["GET"], url_path="service-names")
+    @staticmethod
+    def _normalize_filter_group(filter_group: object) -> dict:
+        """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""
+        if isinstance(filter_group, list):
+            if len(filter_group) > 0:
+                return {"type": "AND", "values": [{"type": "AND", "values": filter_group}]}
+            return {"type": "AND", "values": []}
+        if isinstance(filter_group, dict):
+            return filter_group
+        return {"type": "AND", "values": []}
+
+    @extend_schema(parameters=[_TracingServiceNamesQuerySerializer])
+    @action(detail=False, methods=["GET"], url_path="service-names", required_scopes=["tracing:read"])
     def service_names(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         try:
             date_range = self.get_model(json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}')), DateRange)
@@ -55,8 +296,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"])
+    @extend_schema(request=_TracingQueryRequestSerializer)
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def query(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
         after_cursor = query_data.get("after", None)
@@ -72,7 +315,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetch_spans = min(int(prefetch_spans), 100)
 
         filter_group = (
-            self.get_model(query_data.get("filterGroup"), PropertyGroupFilter)
+            self.get_model(self._normalize_filter_group(query_data.get("filterGroup")), PropertyGroupFilter)
             if query_data.get("filterGroup")
             else None
         )
@@ -90,34 +333,54 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             prefetchSpans=prefetch_spans,
         )
 
-        def make_runner(dr: DateRange) -> TraceSpansQueryRunner:
-            return TraceSpansQueryRunner(TraceSpansQuery(**{**spans_query.model_dump(), "dateRange": dr}), self.team)
+        runner = TraceSpansQueryRunner(spans_query, self.team)
+        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        all_results = list(response.results)
 
-        results = list(
-            time_sliced_results(
-                runner=TraceSpansQueryRunner(spans_query, self.team),
-                order_by_earliest=order_by == "earliest",
-                make_runner=make_runner,
-            )
+        # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
+        # by start time; decide hasMore on the trace count, drop the spans of the overflow trace,
+        # and emit a cursor pointing at the last kept trace. `trace_start` is the SQL pagination key
+        # carried on every span row (see TraceSpansQueryRunner.to_query) — read it directly rather
+        # than re-deriving min() over the prefetched spans, which can disagree with the SQL key.
+        earliest_first = order_by == "earliest"
+        trace_start: dict[str, dt.datetime] = {span["trace_id"]: span["trace_start"] for span in all_results}
+
+        ordered_traces = sorted(
+            trace_start.items(),
+            key=lambda item: (item[1], base64.b64encode(bytes.fromhex(item[0])).decode("ascii")),
+            reverse=not earliest_first,
         )
+        has_more = len(ordered_traces) > requested_limit
+        kept_trace_ids = {tid for tid, _ in ordered_traces[:requested_limit]}
+        results = [span for span in all_results if span["trace_id"] in kept_trace_ids]
+
+        next_cursor = None
+        if has_more:
+            boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
+            next_cursor = base64.b64encode(
+                json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
+            ).decode("utf-8")
 
         return Response(
             {
                 "results": results,
-                "hasMore": False,  # TODO: tricky with the traces query as we prefetch an unknown number of spans
-                "nextCursor": None,
+                "hasMore": has_more,
+                "nextCursor": next_cursor,
             },
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["POST"])
+    @extend_schema(request=_TracingQueryRequestSerializer)
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
 
         try:
             filter_group = (
-                self.get_model(query_data["filterGroup"], PropertyGroupFilter)
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
                 if query_data.get("filterGroup")
                 else None
             )
@@ -137,8 +400,108 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)")
+    @extend_schema(request=_TracingAggregationRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="aggregate", required_scopes=["tracing:read"])
+    def aggregate(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        compare_filter: CompareFilter | None = None
+        compare_data = query_data.get("compareFilter")
+        if compare_data:
+            try:
+                compare_filter = self.get_model(compare_data, CompareFilter)
+            except (ValidationError, ValueError, ParseError):
+                compare_filter = None
+
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=date_range,
+            compare_filter=compare_filter,
+            filter_group=filter_group,
+            service_names=query_data.get("serviceNames", None),
+        )
+
+        return Response(
+            {
+                "results": [row.model_dump() for row in response.results],
+                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(request=_TracingTreeRequestSerializer)
+    @action(detail=False, methods=["POST"], url_path="tree", required_scopes=["tracing:read"])
+    def tree(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        query_data = request.data.get("query", {}) or {}
+        span_name = query_data.get("spanName")
+        if not span_name or not isinstance(span_name, str):
+            return Response(
+                {"detail": "`spanName` is required for tree aggregation queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        service_name = query_data.get("serviceName")
+        if not service_name or not isinstance(service_name, str):
+            return Response(
+                {"detail": "`serviceName` is required for tree aggregation queries."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        date_range = self.get_model(query_data.get("dateRange", {"date_from": "-1h"}), DateRange)
+
+        try:
+            filter_group = (
+                self.get_model(self._normalize_filter_group(query_data["filterGroup"]), PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
+        compare_filter: CompareFilter | None = None
+        compare_data = query_data.get("compareFilter")
+        if compare_data:
+            try:
+                compare_filter = self.get_model(compare_data, CompareFilter)
+            except (ValidationError, ValueError, ParseError):
+                compare_filter = None
+
+        response = run_tree_query(
+            team=self.team,
+            date_range=date_range,
+            span_name=span_name,
+            service_name=service_name,
+            compare_filter=compare_filter,
+            filter_group=filter_group,
+            service_names=query_data.get("serviceNames", None),
+        )
+
+        return Response(
+            {
+                "results": [row.model_dump() for row in response.results],
+                "compare": [row.model_dump() for row in (response.compare or [])] if response.compare else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(request=_TracingTraceRequestSerializer)
+    @action(
+        detail=False, methods=["POST"], url_path="trace/(?P<trace_id>[a-zA-Z0-9]+)", required_scopes=["tracing:read"]
+    )
     def trace(self, request: Request, trace_id: str, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         query_data = request.data or {}
         date_range = self.get_model(query_data.get("dateRange", {"date_from": "-24h"}), DateRange)
         try:
@@ -147,10 +510,23 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except ValueError:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
+        try:
+            filter_group = (
+                self.get_model(query_data["filterGroup"], PropertyGroupFilter)
+                if query_data.get("filterGroup")
+                else None
+            )
+        except (ValidationError, ValueError, ParseError):
+            filter_group = None
+
         spans_query = TraceSpansQuery(
             dateRange=date_range,
             traceId=trace_id,
+            serviceNames=query_data.get("serviceNames", None),
+            statusCodes=query_data.get("statusCodes", None),
+            filterGroup=filter_group,
             limit=1000,
+            prefetchSpans=2000,
             rootSpans=False,
         )
 
@@ -163,8 +539,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=False, methods=["get"])
+    @extend_schema(parameters=[_TracingAttributesQuerySerializer])
+    @action(detail=False, methods=["get"], required_scopes=["tracing:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
@@ -174,9 +552,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (json.JSONDecodeError, ValidationError, ValueError):
             date_range = DateRange(date_from="-1h")
 
-        attribute_type = request.GET.get("attribute_type", "span")
-        if attribute_type not in ("span", "resource"):
-            attribute_type = "span"
+        attribute_type = request.GET.get("attribute_type", "span_attribute")
+        if attribute_type not in ("span_attribute", "span_resource_attribute"):
+            attribute_type = "span_attribute"
 
         results, count = run_attribute_names_query(
             team=self.team,
@@ -189,8 +567,10 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         return Response({"results": results, "count": count}, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=["GET"])
+    @extend_schema(parameters=[_TracingValuesQuerySerializer])
+    @action(detail=False, methods=["GET"], required_scopes=["tracing:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         attribute_key = request.GET.get("key", "")
         if not attribute_key:
             return Response({"error": "key is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -204,9 +584,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except (json.JSONDecodeError, ValidationError, ValueError):
             date_range = DateRange(date_from="-1h")
 
-        attribute_type = request.GET.get("attribute_type", "span")
-        if attribute_type not in ("span", "resource"):
-            attribute_type = "span"
+        attribute_type = request.GET.get("attribute_type", "span_attribute")
+        if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):
+            attribute_type = "span_attribute"
 
         results = run_attribute_values_query(
             team=self.team,

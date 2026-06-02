@@ -21,8 +21,8 @@ try:
 
     import posthoganalytics
 
-    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")
-    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
+    posthoganalytics.api_key = os.environ.get("POSTHOG_API_KEY", "")  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")  # ty: ignore[invalid-assignment]
 
     if posthoganalytics.api_key:
         from posthoganalytics.ai.claude_agent_sdk import query  # type: ignore[no-redef]  # noqa: F811
@@ -240,9 +240,11 @@ class Reviewer:
             # against weird unicode landing in analytics).
             reviewers = sorted({_sanitize_untrusted(r["user"], max_len=50) for r in pr.reviews if r.get("user")})
             safe_labels = [_sanitize_untrusted(label, max_len=100) for label in pr.labels]
+            trace_name = f"stamphog PR #{pr.number}: {_sanitize_untrusted(pr.title, max_len=100)}"
             posthog_kwargs = {
                 "posthog_distinct_id": pr.author,
                 "posthog_properties": {
+                    "$ai_trace_name": trace_name,
                     "ai_product": "stamphog",
                     "stamphog_pr_number": pr.number,
                     "stamphog_pr_title": _sanitize_untrusted(pr.title, max_len=200),
@@ -267,9 +269,15 @@ class Reviewer:
                     "stamphog_commit_type": classification.get("commit_type") or "",
                     "stamphog_deny_categories": classification.get("deny_categories", []),
                     "stamphog_author_on_owning_team": classification.get("author_on_owning_team"),
-                    "stamphog_verdict": gate_context.get("gate_verdict", ""),
+                    "stamphog_gate_verdict": gate_context.get("gate_verdict", ""),
+                    "stamphog_llm_verdict": "",
                 },
             }
+
+        # Keep a reference so we can mutate it when the verdict arrives —
+        # the SDK sends the $ai_trace event after the generator completes,
+        # so updates here propagate to the trace.
+        props = posthog_kwargs.get("posthog_properties", {})
 
         structured_output = None
         async for message in query(prompt=prompt, options=options, **posthog_kwargs):
@@ -280,6 +288,8 @@ class Reviewer:
                     raise RuntimeError("Agent could not produce valid structured output after retries")
                 if message.structured_output:
                     structured_output = message.structured_output
+                    # Stamp the LLM verdict onto the trace properties
+                    props["stamphog_llm_verdict"] = structured_output.get("verdict", "")
             elif isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, ToolUseBlock) and self.verbose:

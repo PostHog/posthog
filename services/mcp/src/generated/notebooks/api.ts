@@ -27,8 +27,14 @@ export const NotebooksListQueryParams = /* @__PURE__ */ zod.object({
             'Filter for notebooks that match a provided filter.\n                Each match pair is separated by a colon,\n                multiple match pairs can be sent separated by a space or a comma'
         ),
     created_by: zod.string().optional().describe("The UUID of the Notebook's creator"),
-    date_from: zod.iso.datetime({}).optional().describe('Filter for notebooks created after this date & time'),
-    date_to: zod.iso.datetime({}).optional().describe('Filter for notebooks created before this date & time'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Filter for notebooks created after this date & time'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Filter for notebooks created before this date & time'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     user: zod
@@ -55,7 +61,7 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -99,7 +105,7 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().nullish().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()

@@ -2,12 +2,12 @@ import pytest
 
 from posthog.schema import ReplayInactivityPeriod
 
-from posthog.temporal.session_replay.session_summary.summarize_session import (
+from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionSummaryInputs
+from posthog.temporal.session_replay.session_summary.types.video import VideoSegmentSpec
+from posthog.temporal.session_replay.session_summary.workflow import (
     SESSION_VIDEO_CHUNK_DURATION_S,
     calculate_video_segment_specs,
 )
-from posthog.temporal.session_replay.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.session_replay.session_summary.types.video import VideoSegmentSpec
 
 DUMMY_INPUTS = SingleSessionSummaryInputs(
     session_id="test-session",
@@ -180,6 +180,54 @@ class TestCalculateVideoSegmentSpecsWithInactivityData:
                     ),
                 ],
             ),
+            # Period shorter than MIN_SESSION_PERIOD_DURATION_S (1s) is skipped silently
+            (
+                100,
+                SESSION_VIDEO_CHUNK_DURATION_S,
+                [
+                    ReplayInactivityPeriod(
+                        active=True, ts_from_s=10, ts_to_s=10.5, recording_ts_from_s=10, recording_ts_to_s=10.5
+                    ),
+                    ReplayInactivityPeriod(
+                        active=True, ts_from_s=20, ts_to_s=50, recording_ts_from_s=20, recording_ts_to_s=50
+                    ),
+                ],
+                [
+                    VideoSegmentSpec(
+                        segment_index=0, start_time=20, end_time=50, recording_start_time=20, recording_end_time=50
+                    ),
+                ],
+            ),
+            # Recording end exceeds video_duration — warns but still produces a segment
+            (
+                50,
+                SESSION_VIDEO_CHUNK_DURATION_S,
+                [
+                    ReplayInactivityPeriod(
+                        active=True, ts_from_s=10, ts_to_s=60, recording_ts_from_s=10, recording_ts_to_s=60
+                    ),
+                ],
+                [
+                    VideoSegmentSpec(
+                        segment_index=0, start_time=10, end_time=60, recording_start_time=10, recording_end_time=60
+                    ),
+                ],
+            ),
+            # Recording duration differs from session duration — warns but still produces segment
+            (
+                100,
+                SESSION_VIDEO_CHUNK_DURATION_S,
+                [
+                    ReplayInactivityPeriod(
+                        active=True, ts_from_s=10, ts_to_s=80, recording_ts_from_s=10, recording_ts_to_s=40
+                    ),
+                ],
+                [
+                    VideoSegmentSpec(
+                        segment_index=0, start_time=10, end_time=80, recording_start_time=10, recording_end_time=40
+                    ),
+                ],
+            ),
         ],
         ids=[
             "single_small_active_period",
@@ -187,6 +235,9 @@ class TestCalculateVideoSegmentSpecsWithInactivityData:
             "multiple_active_periods_with_recording_offset",
             "last_period_infers_end_from_video_duration",
             "skips_period_without_recording_start",
+            "skips_period_below_min_duration",
+            "warns_when_recording_exceeds_video_duration",
+            "warns_on_recording_session_duration_mismatch",
         ],
     )
     def test_activity_based_splitting(

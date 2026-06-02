@@ -13,8 +13,10 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.batch_exports.http import resolve_and_validate_url
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.batch_import_utils import (
     extract_batch_import_info,
@@ -52,7 +54,18 @@ class BatchImportSerializer(serializers.ModelSerializer):
             "updated_at",
             "state",
             "display_status_message",
+            "import_config",
+            "status",
         ]
+
+    def validate_endpoint_url(self, value: str | None) -> str | None:
+        if not value or not value.strip():
+            return None
+        try:
+            resolve_and_validate_url(value)
+        except ValueError:
+            raise serializers.ValidationError(f"Invalid endpoint URL: '{value}'")
+        return value
 
     def create(self, validated_data: dict) -> BatchImport:
         validated_data["team_id"] = self.context["team_id"]
@@ -91,6 +104,13 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
+    endpoint_url = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
+    )
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -113,6 +133,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "endpoint_url",
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
@@ -149,6 +170,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
+            endpoint_url=validated_data.get("endpoint_url"),
         )
 
         if content_type == ContentType.AMPLITUDE:
@@ -182,6 +204,13 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
     s3_region = serializers.CharField(write_only=True, required=False)
     access_key = serializers.CharField(write_only=True, required=False)
     secret_key = serializers.CharField(write_only=True, required=False)
+    endpoint_url = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default=None,
+        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
+    )
     import_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
     generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -204,6 +233,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "endpoint_url",
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
@@ -240,6 +270,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
             region=validated_data["s3_region"],
             access_key_id=validated_data["access_key"],
             secret_access_key=validated_data["secret_key"],
+            endpoint_url=validated_data.get("endpoint_url"),
         )
 
         if content_type == ContentType.AMPLITUDE:
@@ -326,6 +357,10 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                 raise serializers.ValidationError(
                     "Date range cannot exceed 1 year. Please create multiple migration jobs for longer periods."
                 )
+
+            source_type = data.get("source_type")
+            if source_type == "amplitude" and (end_date - start_date) < timedelta(hours=1):
+                raise serializers.ValidationError("Date range must be at least 1 hour for Amplitude migrations.")
 
         # For Amplitude, ensure at least one of import_events or generate_identify_events is enabled
         source_type = data.get("source_type")
@@ -446,7 +481,7 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "INTERNAL"
     queryset = BatchImport.objects.all()
-    serializer_class = BatchImportSerializer
+    serializer_class = _FallbackSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["status"]
     search_fields = ["status_message"]
@@ -463,6 +498,10 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return BatchImportS3GzipSourceCreateSerializer
             elif source_type in ["mixpanel", "amplitude"]:
                 return BatchImportDateRangeSourceCreateSerializer
+            elif source_type is not None:
+                raise serializers.ValidationError("Invalid source type")
+            elif getattr(self, "swagger_fake_view", False):
+                return BatchImportSerializer
             else:
                 raise serializers.ValidationError("Invalid source type")
         return BatchImportSerializer

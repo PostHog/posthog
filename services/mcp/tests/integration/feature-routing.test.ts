@@ -8,11 +8,11 @@ const createMockContext = (): Context => ({
     api: {} as any,
     cache: {} as any,
     env: {
-        INKEEP_API_KEY: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_ANALYTICS_API_KEY: undefined,
         POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
@@ -21,6 +21,8 @@ const createMockContext = (): Context => ({
         getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
+    getDistinctId: async () => 'test-distinct-id',
+    trackEvent: async () => {},
 })
 
 describe('Feature Routing Integration', () => {
@@ -31,9 +33,9 @@ describe('Feature Routing Integration', () => {
             expectedTools: [
                 'feature-flag-get-definition',
                 'dashboard-create',
-                'insights-get-all',
-                'organizations-get',
-                'query-error-tracking-issues',
+                'insights-list',
+                'organizations-list',
+                'query-error-tracking-issues-list',
             ],
         },
         {
@@ -55,7 +57,6 @@ describe('Feature Routing Integration', () => {
                 'feature-flag-get-definition',
                 'create-feature-flag',
                 'feature-flag-get-all',
-                'organizations-get',
                 'switch-organization',
                 'projects-get',
             ],

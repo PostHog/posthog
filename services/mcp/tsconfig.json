@@ -4,7 +4,7 @@
         "lib": ["es2021", "dom", "dom.iterable"],
         "jsx": "react-jsx",
         "module": "es2022",
-        "moduleResolution": "Bundler",
+        "moduleResolution": "bundler",
         "resolveJsonModule": true,
         "allowJs": true,
         "checkJs": false,
@@ -18,17 +18,18 @@
         "noUncheckedIndexedAccess": true,
         "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
-        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts"],
-        "baseUrl": ".",
+        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
         "paths": {
             "products/*": ["../../products/*"],
-            "@/*": ["src/*", "tests/*"],
-            "@shared/*": ["shared/*"],
-            "@posthog/mosaic": ["../../common/mosaic/src/index.ts"],
-            "@posthog/mosaic/*": ["../../common/mosaic/src/*"],
+            "@/*": ["./src/*", "./tests/*"],
+            "@shared/*": ["./shared/*"],
+            "@posthog/mcp-ui": ["./src/ui-apps/lib/index.ts"],
+            "@posthog/mcp-ui/*": ["./src/ui-apps/lib/*"],
+            "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],
+            "lucide-react": ["./node_modules/lucide-react"],
             "@common/*": ["../../common/*"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
-    "exclude": ["node_modules", "dist"]
+    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**"]
 }

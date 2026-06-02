@@ -8,6 +8,7 @@ from time import monotonic
 from typing import Optional
 from urllib.parse import quote
 
+from django.conf import settings
 from django.core import exceptions
 from django.core.management.base import BaseCommand
 
@@ -19,7 +20,7 @@ from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
 from posthog.models.file_system.user_product_list import UserProductList
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
 from posthog.products import Products
@@ -28,6 +29,10 @@ from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
+
+# Deterministic project token for the locally seeded demo team, so SDKs/tools can target it without
+# looking up the random token. Only used for the freshly created demo account (not existing projects).
+DEMO_PROJECT_API_TOKEN = "phc_localposthogprojecttoken"
 
 
 class Command(BaseCommand):
@@ -141,7 +146,7 @@ class Command(BaseCommand):
             days_future=options["days_future"],
             n_clusters=options["n_clusters"],
             group_type_index_offset=(
-                GroupTypeMapping.objects.filter(project_id=existing_team.project_id).count() if existing_team else 0
+                len(get_group_types_for_project(existing_team.project_id)) if existing_team else 0
             ),
         )
         print("Running simulation...")
@@ -166,8 +171,14 @@ class Command(BaseCommand):
                     else:
                         team = Team.objects.get(pk=existing_team_id)
                         user = team.organization.members.first()
+                        if user is None:
+                            raise ValueError(f"Project {existing_team_id} has no organization members")
                         matrix_manager.run_on_team(team, user)
                 else:
+                    # Hand the demo team a deterministic token in local dev only. In tests (e.g. Playwright
+                    # setup, which seeds many workspaces) and shared/cloud environments, keep random tokens
+                    # so runs don't fight over the unique token or mutate unrelated projects.
+                    demo_api_token = DEMO_PROJECT_API_TOKEN if (settings.DEBUG and not settings.TEST) else None
                     _organization, team, user = matrix_manager.ensure_account_and_save(
                         email,
                         "Employee 427",
@@ -175,6 +186,7 @@ class Command(BaseCommand):
                         is_staff=bool(options.get("staff")),
                         password=password,
                         email_collision_handling="disambiguate",
+                        api_token=demo_api_token,
                     )
 
                     # Optionally generate demo issues for issue tracker if extension is available
@@ -225,14 +237,15 @@ class Command(BaseCommand):
                 "\nMaster project reset!\n"
                 if existing_team_id == 0
                 else (
-                    f"\nDemo data ready for project {team.name}!\n"
+                    f"\nDemo data ready for project {(team.name if team is not None else 'unknown project')}!\n"
                     if existing_team_id is not None
-                    else f"\nDemo data ready for {user.email}!\n\n"
+                    else f"\nDemo data ready for {(user.email if user is not None else 'unknown user')}!\n\n"
                     "Pre-fill the login form with this link:\n"
-                    f"http://localhost:8010/login?email={quote(user.email)}\n"
+                    f"http://localhost:8010/login?email={quote(user.email if user is not None else '')}\n"
                     f"The password is:\n{password}\n\n"
+                    f"The project API token is:\n{team.api_token if team is not None else 'unknown'}\n\n"
                     "If running demo mode (DEMO=1), log in instantly with this link:\n"
-                    f"http://localhost:8010/signup?email={quote(user.email)}\n"
+                    f"http://localhost:8010/signup?email={quote(user.email if user is not None else '')}\n"
                 )
             )
 

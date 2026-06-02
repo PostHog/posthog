@@ -11,18 +11,20 @@ from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
-from posthog.models import FeatureFlag, Insight, Project, Team, User
+from posthog.models import Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
 from ee.models.rbac.access_control import AccessControl
@@ -970,6 +972,7 @@ class TestFileSystemAPI(APIBaseTest):
         fs = FileSystem.objects.get(team=self.team, path=path)
         self.assertEqual(fs.created_by_id, self.user.pk)
         self.assertEqual(fs.created_at, ts_1)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_by"], self.user.pk)
         self.assertEqual(fs.meta["created_at"], ts_1.isoformat())
 
@@ -990,6 +993,7 @@ class TestFileSystemAPI(APIBaseTest):
 
         fs.refresh_from_db()
         self.assertEqual(fs.created_at, ts_2)
+        assert fs.meta is not None
         self.assertEqual(fs.meta["created_at"], ts_2.isoformat())
 
     def test_meta_sync_via_unfiled_endpoint(self):
@@ -1023,6 +1027,7 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(fs.created_by_id, flag.created_by_id)
 
         # meta mirrors those values
+        assert fs.meta is not None
         self.assertEqual(fs.meta.get("created_by"), flag.created_by_id)
         self.assertTrue(fs.meta.get("created_at").startswith(flag.created_at.isoformat().replace("T", " ")[:19]))
 
@@ -1079,9 +1084,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        # Enable advanced permissions & role-based access
+        # Enable access control & role-based access
         self.organization.available_product_features = [
-            {"key": "advanced_permissions", "name": "advanced_permissions"},
+            {"key": "access_control", "name": "access_control"},
             {"key": "role_based_access", "name": "role_based_access"},
         ]
         self.organization.save()

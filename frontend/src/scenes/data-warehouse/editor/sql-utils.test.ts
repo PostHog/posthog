@@ -1,4 +1,9 @@
-import { buildQueryForColumnClick, normalizeIdentifier, parseQueryTablesAndColumns } from './sql-utils'
+import {
+    buildQueryForColumnClick,
+    normalizeIdentifier,
+    parseQueryTablesAndColumns,
+    queryUsesFiltersPlaceholder,
+} from './sql-utils'
 
 describe('sql-utils', () => {
     describe('normalizeIdentifier', () => {
@@ -11,6 +16,23 @@ describe('sql-utils', () => {
             ['identifier with underscores is lowercased', 'My_Table', 'my_table'],
         ])('%s', (_name, input, expected) => {
             expect(normalizeIdentifier(input)).toEqual(expected)
+        })
+    })
+
+    describe('queryUsesFiltersPlaceholder', () => {
+        test.each([
+            ['plain placeholder', 'SELECT * FROM events WHERE {filters}', true],
+            ['field placeholder', 'SELECT * FROM events WHERE {filters.properties}', true],
+            ['line-commented placeholder', 'SELECT * FROM events\n-- {filters}', false],
+            ['inline line-commented placeholder', 'SELECT * FROM events -- WHERE {filters}', false],
+            ['block-commented placeholder', 'SELECT * FROM events /* WHERE {filters} */', false],
+            ['single-quoted placeholder', "SELECT '{filters}' FROM events", false],
+            ['double-quoted placeholder', 'SELECT "{filters}" FROM events', false],
+            ['backtick-quoted placeholder', 'SELECT `{filters}` FROM events', false],
+            ['real placeholder after comment', 'SELECT * FROM events -- {filters}\nWHERE {filters}', true],
+            ['real placeholder after block comment', 'SELECT * FROM events /* {filters} */ WHERE {filters}', true],
+        ])('%s', (_name, query, expected) => {
+            expect(queryUsesFiltersPlaceholder(query)).toBe(expected)
         })
     })
 
@@ -37,7 +59,7 @@ describe('sql-utils', () => {
 
         it('falls back to star when removing the only remaining column', async () => {
             const result = await buildQueryForColumnClick('SELECT id FROM events LIMIT 100', 'events', 'id')
-            expect(result).toEqual('SELECT "*" FROM events LIMIT 100')
+            expect(result).toEqual('SELECT * FROM events LIMIT 100')
         })
 
         it('returns fallback query when table in query differs from clicked table', async () => {
@@ -72,6 +94,30 @@ describe('sql-utils', () => {
         it('uses default LIMIT 100 when query has no LIMIT', async () => {
             const result = await buildQueryForColumnClick('SELECT * FROM events', 'events', 'id')
             expect(result).toEqual('SELECT id FROM events LIMIT 100')
+        })
+
+        it('keeps dotted table names unquoted when building a new column query', async () => {
+            const result = await buildQueryForColumnClick(null, 'demo.orders', 'id')
+            expect(result).toEqual('SELECT id FROM demo.orders LIMIT 100')
+        })
+
+        it('keeps dotted table names unquoted when toggling columns in an existing query', async () => {
+            const result = await buildQueryForColumnClick('SELECT * FROM demo.orders LIMIT 100', 'demo.orders', 'id')
+            expect(result).toEqual('SELECT id FROM demo.orders LIMIT 100')
+        })
+
+        it('quotes dotted field paths by segment instead of as a single identifier', async () => {
+            const result = await buildQueryForColumnClick(null, 'demo.orders', 'orders.item count')
+            expect(result).toEqual('SELECT orders."item count" FROM demo.orders LIMIT 100')
+        })
+
+        it('matches dotted field paths even when an existing query already quotes a segment', async () => {
+            const result = await buildQueryForColumnClick(
+                'SELECT orders."item count" FROM demo.orders LIMIT 100',
+                'demo.orders',
+                'orders.item count'
+            )
+            expect(result).toEqual('SELECT * FROM demo.orders LIMIT 100')
         })
     })
 

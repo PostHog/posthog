@@ -12,8 +12,8 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestTable(APIBaseTest):
@@ -92,7 +92,7 @@ class TestTable(APIBaseTest):
 
         with (
             patch(
-                "products.data_warehouse.backend.models.util.socket.getaddrinfo",
+                "products.warehouse_sources.backend.models.util.socket.getaddrinfo",
                 side_effect=side_effect,
                 return_value=return_value,
             ),
@@ -134,14 +134,14 @@ class TestTable(APIBaseTest):
         assert "internal IP ranges" in str(response.json())
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -162,6 +162,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -169,18 +171,18 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=False,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -201,6 +203,8 @@ class TestTable(APIBaseTest):
         data: dict[str, Any] = response.json()
 
         table = DataWarehouseTable.objects.get(id=data["id"])
+        credential = table.credential
+        assert credential is not None
 
         assert table.name == "whatever"
         assert table.columns == {
@@ -208,10 +212,10 @@ class TestTable(APIBaseTest):
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
         }
 
-        assert table.credential.access_key, "_accesskey"
-        assert table.credential.access_secret, "_accesssecret"
+        assert credential.access_key, "_accesskey"
+        assert credential.access_secret, "_accesssecret"
 
-    @patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns")
+    @patch("products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns")
     def test_credentialerror(self, patch_get_columns):
         patch_get_columns.side_effect = ServerException(
             message="""DB::Exception: The AWS Access Key Id you provided does not exist in our records.: Cannot extract table structure from Parquet format file. You can specify the structure manually. Stack trace:\n\n0. DB::Exception::Exception(std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > const&, int, bool) @ 0x8e25488 in /u""",
@@ -233,7 +237,7 @@ class TestTable(APIBaseTest):
         response = response.json()
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     def test_update_schema_200_old_column_style(self, patch_validate_column_type):
@@ -247,10 +251,12 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     def test_update_schema_200_new_column_style(self, patch_validate_column_type):
@@ -268,7 +274,9 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
 
         assert response.status_code == 200
-        assert table.columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
+        columns = table.columns
+        assert columns is not None
+        assert columns["id"] == {"clickhouse": "Nullable(Float64)", "hogql": "FloatDatabaseField", "valid": True}
 
     def test_update_schema_200_no_updates(self):
         columns = {"id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"}}
@@ -360,14 +368,14 @@ class TestTable(APIBaseTest):
         assert table.columns == columns
 
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
         return_value={
             "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             "a_column": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
         },
     )
     @patch(
-        "products.data_warehouse.backend.models.table.DataWarehouseTable.validate_column_type",
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.validate_column_type",
         return_value=True,
     )
     @patch("posthog.tasks.warehouse.get_client")
@@ -581,7 +589,7 @@ class TestTable(APIBaseTest):
         assert table.url_pattern == "https://your-org.s3.amazonaws.com/bucket/whatever.pqt"
 
     def test_update_table_credential_blank_access_key(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -604,7 +612,7 @@ class TestTable(APIBaseTest):
         assert credential.access_key == "original_key"
 
     def test_update_table_credential_blank_access_secret(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -627,7 +635,7 @@ class TestTable(APIBaseTest):
         assert credential.access_secret == "original_secret"
 
     def test_update_table_credential_null_field_values_rejected(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -652,7 +660,7 @@ class TestTable(APIBaseTest):
         assert credential.access_secret == "original_secret"
 
     def test_update_table_credential_null_rejected(self):
-        from products.data_warehouse.backend.models import DataWarehouseCredential
+        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="original_key", access_secret="original_secret"
@@ -687,7 +695,9 @@ class TestTable(APIBaseTest):
         file_content = b"id,name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -774,7 +784,9 @@ class TestTable(APIBaseTest):
         file_content = b"id,new_name,value\n1,Test,100\n2,Test2,200"
         test_file = SimpleUploadedFile("updated_file.csv", file_content, content_type="text/csv")
 
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
                 "new_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
@@ -847,7 +859,9 @@ class TestTable(APIBaseTest):
         test_file = SimpleUploadedFile("test_file.csv", file_content, content_type="text/csv")
 
         # Patch get_columns to return test columns
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
                 "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": False},
@@ -899,7 +913,9 @@ class TestTable(APIBaseTest):
         # Our regex then converts spaces and parens to underscores
         test_file = SimpleUploadedFile("evil file (1).csv", b"col1\nval1", content_type="text/csv")
 
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             }
@@ -933,7 +949,9 @@ class TestTable(APIBaseTest):
 
         test_file = SimpleUploadedFile("my data (2).csv", b"col1\nval1", content_type="text/csv")
 
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             }
@@ -965,7 +983,9 @@ class TestTable(APIBaseTest):
         # Filename without extension or special chars → valid as table name
         test_file = SimpleUploadedFile("my_data", b"col1\nval1", content_type="text/csv")
 
-        with patch("products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+        with patch(
+            "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns"
+        ) as mock_get_columns:
             mock_get_columns.return_value = {
                 "col1": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True},
             }

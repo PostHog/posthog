@@ -1,9 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
-
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Tasks',
@@ -12,7 +10,6 @@ export const manifest: ProductManifest = {
             name: 'Tasks',
             import: () => import('./frontend/TaskTracker'),
             projectBased: true,
-            defaultDocsPath: '/docs/tasks',
             activityScope: 'TaskTracker',
             description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
             iconType: 'task',
@@ -23,15 +20,23 @@ export const manifest: ProductManifest = {
             projectBased: true,
             activityScope: 'TaskDetail',
         },
+        // Hidden internal debug scene. No nav entry — reachable only by typing the URL.
+        SlackTaskContext: {
+            name: 'Slack task context',
+            import: () => import('./frontend/SlackTaskContextScene'),
+            projectBased: true,
+        },
     },
     routes: {
         '/tasks': ['TaskTracker', 'taskTracker'],
         '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
+        '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     },
     redirects: {},
     urls: {
         taskTracker: (): string => '/tasks',
         taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+        slackTaskContext: (): string => '/slack-task-context',
     },
     fileSystemTypes: {
         task: {
@@ -44,18 +49,5 @@ export const manifest: ProductManifest = {
         },
     },
     treeItemsNew: [],
-    treeItemsProducts: [
-        {
-            path: 'Tasks',
-            intents: [ProductKey.TASKS],
-            category: 'Unreleased',
-            type: 'task',
-            href: urls.taskTracker(),
-            flag: FEATURE_FLAGS.TASKS,
-            iconType: 'task',
-            tags: ['alpha'],
-            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
-            sceneKey: 'TaskTracker',
-        },
-    ],
+    treeItemsProducts: [],
 }

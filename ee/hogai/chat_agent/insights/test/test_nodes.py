@@ -20,7 +20,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.insights.nodes import InsightDict, InsightSearchNode, NoInsightsException
@@ -833,8 +833,8 @@ class TestInsightSearchNode(BaseTest):
             "source": {
                 "kind": "RetentionQuery",
                 "retentionFilter": {
-                    "targetEntity": {"name": "$pageview"},
-                    "returningEntity": {"name": "$pageview"},
+                    "targetEntity": {"id": "$pageview", "type": "events"},
+                    "returningEntity": {"id": "$pageview", "type": "events"},
                 },
                 "dateRange": {"date_from": "-7d"},
                 "filterTestAccounts": False,

@@ -1,7 +1,7 @@
 import os
 
-from posthog.settings.base_variables import DEBUG
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
@@ -32,6 +32,7 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
+TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
@@ -39,6 +40,29 @@ SANDBOX_PROVIDER: str | None = get_from_env(
 SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=True)
 SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
+
+# When True, cloud-to-cloud resume boots from a Modal filesystem snapshot taken at
+# end-of-run. When False, no Modal snapshot is taken and resume relies on the
+# git-checkpoint mechanism in the agent server (same path as local-to-cloud handoff).
+# Modal image storage is not EU-compliant, so this is forced off in EU.
+TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
+    "TASKS_USE_MODAL_RESUME_SNAPSHOTS",
+    CLOUD_DEPLOYMENT != "EU",
+    type_cast=str_to_bool,
+)
+
+# Override the process_task workflow's inactivity timeout (default 2 hours).
+# Set this to e.g. 30 for local testing of the shutdown / resume flow. When
+# set, the CI-follow-up floor is also bypassed so the timer actually fires
+# fast.
+TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
+
+# Override the delay before the first in-sandbox credential refresh (default 20
+# minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
+# quickly instead of waiting out the GitHub token's lifetime.
+TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
+    "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
+)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -82,10 +106,12 @@ VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
+REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
 LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
+DEPLOYMENTS_TASK_QUEUE = _set_temporal_task_queue("deployments-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process

@@ -32,7 +32,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import Person
-from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
@@ -48,6 +47,8 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.actions.backend.models.action import Action
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
@@ -2974,6 +2975,41 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_two],
         )
 
+    @snapshot_clickhouse_queries
+    def test_recording_property_in_properties_is_routed_to_having_predicates(self):
+        """
+        Recording-type property filters sent via `properties` (as an MCP agent would)
+        are automatically routed to `having_predicates` since recording metrics are
+        aggregated columns that only exist after GROUP BY.
+        """
+        user = "test_recording_prop_routing-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        short_session = f"test_recording_prop_routing-short-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=short_session,
+            team_id=self.team.id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=30)),
+        )
+
+        long_session = f"test_recording_prop_routing-long-{str(uuid4())}"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=long_session,
+            team_id=self.team.id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=90)),
+        )
+
+        # Sending recording filter via `properties` (not `having_predicates`) — this is
+        # how MCP agents submit recording filters through AssistantRecordingsQuery
+        self._assert_query_matches_session_ids(
+            {"properties": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]'},
+            [long_session],
+        )
+
     def test_filter_for_recordings_by_visited_page(self):
         user = "test_visited_page_filter-user"
         Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
@@ -3989,6 +4025,60 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             }
         ]
 
+    def test_test_account_filter_is_anded_even_in_or_operand(self):
+        # Regression: the "filter out internal/test users" toggle must always be AND'd,
+        # even when the user's filter operand is OR. Otherwise internal-user sessions
+        # leak in whenever they match any user-specified filter.
+        self.team.test_account_filters = [
+            {"key": "$host", "type": "event", "value": "^(localhost|127\\.0\\.0\\.1)($|:)", "operator": "not_regex"},
+        ]
+        self.team.save()
+
+        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        # session "1": internal (localhost) AND matches a user filter ($pageview)
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="1",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": "1", "$window_id": "1", "$host": "localhost"},
+        )
+
+        # session "2": external (example.com) AND matches a user filter ($pageview)
+        produce_replay_summary(
+            distinct_id="user",
+            session_id="2",
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id="user",
+            timestamp=self.an_hour_ago,
+            event_name="$autocapture",
+            properties={"$session_id": "2", "$window_id": "1", "$host": "example.com"},
+        )
+
+        # With OR operand and test accounts filtered out, session "1" must NOT leak
+        # in just because it matches a user filter — the test account filter is AND'd.
+        self._assert_query_matches_session_ids(
+            {
+                "events": [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {"id": "$autocapture", "type": "events", "order": 1, "name": "$autocapture"},
+                ],
+                "operand": "OR",
+                "filter_test_accounts": True,
+            },
+            ["2"],
+        )
+
     @parameterized.expand(
         [
             ("single_distinct_id", ["test-user-1"], ["session1"]),
@@ -4030,6 +4120,59 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
         # Test filtering
         self._assert_query_matches_session_ids(query={"distinct_ids": distinct_ids}, expected=expected)
+
+    @snapshot_clickhouse_queries
+    def test_person_profile_finds_anonymous_distinct_id_sessions(self):
+        """
+        Regression test: the person profile replay tab sends both distinct_ids
+        (from person.distinct_ids) and person_uuid. Before the fix, distinct_ids
+        took priority and sessions recorded under an anonymous distinct_id that
+        wasn't in person.distinct_ids were missed. With the OR fix, both paths
+        are used so the anonymous session is found via the POE person_id lookup.
+        """
+        identified_id = "identified-user"
+        anonymous_id = "anon-uuid-123"
+
+        person = Person.objects.create(team=self.team, distinct_ids=[identified_id, anonymous_id])
+
+        identified_session = f"identified-session-{uuid4()}"
+        anonymous_session = f"anonymous-session-{uuid4()}"
+
+        # session recorded under the identified distinct_id
+        produce_replay_summary(
+            distinct_id=identified_id,
+            session_id=identified_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # session recorded under the anonymous distinct_id
+        produce_replay_summary(
+            distinct_id=anonymous_id,
+            session_id=anonymous_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+
+        # an event linking the anonymous distinct_id to the person (for POE)
+        create_event(
+            distinct_id=anonymous_id,
+            timestamp=self.an_hour_ago,
+            team=self.team,
+            event_name="$pageview",
+            properties={"$session_id": anonymous_session, "$window_id": "1"},
+        )
+
+        # simulate the person profile replay tab: sends only the identified
+        # distinct_id (as if the anonymous one isn't in person.distinct_ids)
+        # plus the person_uuid
+        self._assert_query_matches_session_ids(
+            query={
+                "distinct_ids": [identified_id],
+                "person_uuid": str(person.uuid),
+            },
+            expected=[identified_session, anonymous_session],
+        )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
@@ -4211,6 +4354,29 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    def test_session_property_filter_is_applied_to_query(self) -> None:
+        # Regression test for the cross-sell flow: web analytics opens session replay
+        # with a session-scoped UTM filter, which previously got stripped from the
+        # recordings query and silently returned all sessions.
+        query = RecordingsQuery.model_validate(
+            {
+                "properties": [
+                    {
+                        "key": "$entry_utm_source",
+                        "value": ["google"],
+                        "operator": "exact",
+                        "type": "session",
+                    }
+                ]
+            },
+        )
+        session_recording_list_instance = SessionRecordingListFromQuery(
+            query=query, team=self.team, hogql_query_modifiers=None
+        )
+        printed_query = self._print_query(session_recording_list_instance.get_query())
+
+        assert "entry_utm_source" in printed_query
 
     @property
     def base_time(self):
