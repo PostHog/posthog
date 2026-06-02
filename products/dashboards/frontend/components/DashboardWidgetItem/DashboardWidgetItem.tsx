@@ -68,6 +68,63 @@ type DashboardWidgetItemContentProps = Omit<
     setEditOpen: (open: boolean) => void
 }
 
+function DashboardWidgetItemInner({
+    tile,
+    placement,
+    widget,
+    dashboardId,
+    result,
+    loading,
+    error,
+    lastFetchedAt,
+    onRefresh,
+    onUpdateWidgetTile,
+    toggleShowDescription,
+    onDragHandleMouseDown,
+    showEditingControls,
+    onDuplicate,
+    onRemove,
+    onMoveToDashboard,
+    onCopyToDashboard,
+    copyToDestinations,
+    editOpen,
+    setEditOpen,
+}: Omit<DashboardWidgetItemContentProps, 'definition' | 'catalogEntry'> & {
+    dashboardId?: number | null
+}): JSX.Element {
+    const definition = getDashboardWidgetDefinition(widget.widget_type, {
+        tileId: tile.id,
+        dashboardId: dashboardId ?? undefined,
+    })
+    const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
+
+    return (
+        <DashboardWidgetItemContent
+            tile={tile}
+            placement={placement}
+            widget={widget}
+            definition={definition}
+            catalogEntry={catalogEntry}
+            result={result}
+            loading={loading}
+            error={error}
+            lastFetchedAt={lastFetchedAt}
+            onRefresh={onRefresh}
+            onUpdateWidgetTile={onUpdateWidgetTile}
+            toggleShowDescription={toggleShowDescription}
+            onDragHandleMouseDown={onDragHandleMouseDown}
+            showEditingControls={showEditingControls}
+            onDuplicate={onDuplicate}
+            onRemove={onRemove}
+            onMoveToDashboard={onMoveToDashboard}
+            onCopyToDashboard={onCopyToDashboard}
+            copyToDestinations={copyToDestinations}
+            editOpen={editOpen}
+            setEditOpen={setEditOpen}
+        />
+    )
+}
+
 function DashboardWidgetItemContent({
     tile,
     placement,
@@ -292,11 +349,6 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             return null
         }
 
-        const definition = getDashboardWidgetDefinition(widget.widget_type, {
-            tileId: tile.id,
-            dashboardId: dashboardId ?? undefined,
-        })
-
         // react-grid-layout injects className/style via cloneElement — WidgetCard must be the root node
         // so decorative resize handles and RGL's .react-resizable-handle siblings share a parent (see InsightCard).
         return (
@@ -318,12 +370,11 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                         tile_id: tile.id,
                     }}
                 >
-                    <DashboardWidgetItemContent
+                    <DashboardWidgetItemInner
                         tile={tile}
                         placement={placement}
                         widget={widget}
-                        definition={definition}
-                        catalogEntry={getDashboardWidgetCatalogEntry(widget.widget_type)}
+                        dashboardId={dashboardId}
                         result={result}
                         loading={loading}
                         error={error}

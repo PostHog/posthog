@@ -17,6 +17,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -52,13 +53,13 @@ jest.mock('../../widgets/registry', () => ({
 }))
 
 jest.mock('../../widget_types/catalog', () => ({
-    getDashboardWidgetCatalogEntry: () => ({
+    getDashboardWidgetCatalogEntry: jest.fn(() => ({
         titleHref: '/error_tracking',
         headerLayout: 'dashboard_tile',
         groupId: 'error_tracking',
         label: 'Top issues',
         headerTitle: 'Top issues',
-    }),
+    })),
     getDashboardWidgetGroupLabel: () => 'Error tracking',
 }))
 
@@ -262,5 +263,34 @@ describe('DashboardWidgetItem', () => {
 
         expect(container.querySelector('[data-attr="widget-card-title"] .EditableField')).toBeNull()
         expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent('My issues')
+    })
+
+    it('contains unknown widget errors inside the widget card', () => {
+        const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
+        catalogEntryMock.mockImplementation(() => {
+            throw new Error('Unknown dashboard widget type: session_replay_list')
+        })
+
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+            />
+        )
+
+        expect(within(container).getByText('An error has occurred')).toBeInTheDocument()
+        expect(within(container).getByText(/Unknown dashboard widget type: session_replay_list/)).toBeInTheDocument()
+
+        catalogEntryMock.mockImplementation(() => ({
+            titleHref: '/error_tracking',
+            headerLayout: 'dashboard_tile',
+            groupId: 'error_tracking',
+            label: 'Top issues',
+            headerTitle: 'Top issues',
+        }))
     })
 })
