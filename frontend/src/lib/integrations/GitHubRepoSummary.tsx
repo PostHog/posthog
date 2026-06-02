@@ -85,7 +85,7 @@ export function GitHubRepoSummary({
                     title="Accessible repositories"
                     width={600}
                 >
-                    <LemonTable dataSource={repos} columns={repoColumns} rowKey="id" size="small" />
+                    <LemonTable dataSource={repos} columns={repoColumns} rowKey="id" size="small" loading={loading} />
                 </LemonModal>
             </div>
         )
