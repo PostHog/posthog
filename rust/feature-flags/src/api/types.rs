@@ -1234,12 +1234,8 @@ mod tests {
         property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
 
         // Build condition analysis
-        let analysis = FlagDetails::build_condition_analysis(
-            &flag,
-            &flag_match,
-            Some(&property_values),
-            None,
-        );
+        let analysis =
+            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values), None);
 
         // Verify we have analysis for both conditions
         assert_eq!(analysis.len(), 2);
