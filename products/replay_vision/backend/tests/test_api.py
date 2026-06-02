@@ -187,10 +187,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("monitor", ScannerType.MONITOR, {"prompt": "p"}),
+            ("monitor-allow-inconclusive", ScannerType.MONITOR, {"prompt": "p", "allow_inconclusive": True}),
             ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
-            ("summarizer-with-embeddings", ScannerType.SUMMARIZER, {"prompt": "p", "emits_embeddings": True}),
         ]
     )
     def test_create_accepts_valid_scanner_config_per_type(

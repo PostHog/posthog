@@ -72,7 +72,6 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         scanner_config: {
             prompt: 'Summarize what the user did in this session. Mention the main pages they visited, the primary actions they took, and any notable moments (errors, confusion, completed flows). Be concrete and avoid speculation.',
             length: 'medium',
-            emits_embeddings: false,
         },
     },
     {

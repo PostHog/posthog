@@ -79,14 +79,14 @@ export function CitedText({
                 const label = colonDelimitedDuration(seconds, null)
                 if (onSeek) {
                     return (
-                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)}>
+                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)} className="ml-0.5">
                             <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
                             <span className="font-mono">{label}</span>
                         </Link>
                     )
                 }
                 return (
-                    <span key={i} className="text-muted font-mono">
+                    <span key={i} className="text-muted font-mono ml-0.5">
                         {label}
                     </span>
                 )
@@ -128,11 +128,21 @@ export function ObservationPrimaryOutput({
     const promptClass = 'text-xs text-muted'
 
     if (scannerType === 'monitor') {
-        const verdict = Boolean(result.verdict)
+        const verdict = result.verdict
+        const tagType =
+            verdict === 'yes'
+                ? 'success'
+                : verdict === 'no'
+                  ? 'default'
+                  : verdict === 'inconclusive'
+                    ? 'muted'
+                    : 'muted'
+        const tagLabel =
+            verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
         return (
             <div className="flex flex-col gap-1">
-                <LemonTag size="medium" type={verdict ? 'success' : 'default'} className="self-start">
-                    {verdict ? 'Yes' : 'No'}
+                <LemonTag size="medium" type={tagType} className="self-start">
+                    {tagLabel}
                 </LemonTag>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
@@ -157,22 +167,26 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'classifier') {
         const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
         const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+        const configuredTags = Array.isArray(config.tags) ? (config.tags as string[]) : []
+        const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
-        const renderFixed = (): JSX.Element[] =>
-            fixedTags.map((tag) => (
-                <LemonTag key={`fixed-${tag}`} size="medium" type="option" title="From the configured tag list">
-                    {tag}
-                </LemonTag>
-            ))
+        const renderVocab = (): JSX.Element[] =>
+            configuredTags.map((tag) => {
+                const isChosen = chosen.has(tag)
+                return (
+                    <LemonTag
+                        key={`fixed-${tag}`}
+                        size="medium"
+                        type={isChosen ? 'option' : 'default'}
+                        className={isChosen ? undefined : 'opacity-50 line-through'}
+                    >
+                        {tag}
+                    </LemonTag>
+                )
+            })
         const renderFreeform = (): JSX.Element[] =>
             freeformTags.map((tag) => (
-                <LemonTag
-                    key={`freeform-${tag}`}
-                    size="medium"
-                    type="default"
-                    icon={<IconSparkles />}
-                    title="Free-form tag from the model"
-                >
+                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
                     {tag}
                 </LemonTag>
             ))
@@ -184,7 +198,11 @@ export function ObservationPrimaryOutput({
                             <span className="text-muted text-sm">No tags</span>
                         ) : (
                             <>
-                                {renderFixed()}
+                                {fixedTags.map((tag) => (
+                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                        {tag}
+                                    </LemonTag>
+                                ))}
                                 {renderFreeform()}
                             </>
                         )}
@@ -193,7 +211,7 @@ export function ObservationPrimaryOutput({
                 </div>
             )
         }
-        if (empty) {
+        if (configuredTags.length === 0 && empty) {
             return (
                 <div className="flex flex-col gap-1">
                     <span className="text-muted text-sm">No tags</span>
@@ -203,23 +221,10 @@ export function ObservationPrimaryOutput({
         }
         return (
             <div className="flex flex-col gap-3">
-                {fixedTags.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                        <div className="text-xs font-medium uppercase tracking-wide text-muted">Fixed</div>
-                        <p className="text-xs text-muted m-0">Tags from the scanner's configured list.</p>
-                        <div className="flex flex-wrap gap-1">{renderFixed()}</div>
-                    </div>
-                )}
-                {freeformTags.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted">
-                            <IconSparkles className="text-sm" />
-                            <span>Freeform</span>
-                        </div>
-                        <p className="text-xs text-muted m-0">Emitted by the model outside the configured tags.</p>
-                        <div className="flex flex-wrap gap-1">{renderFreeform()}</div>
-                    </div>
-                )}
+                <div className="flex flex-wrap items-center gap-1">
+                    {renderVocab()}
+                    {renderFreeform()}
+                </div>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
         )

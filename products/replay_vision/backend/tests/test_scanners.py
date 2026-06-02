@@ -17,7 +17,6 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerScanner,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerWithFacetsLlmResponse
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -157,33 +156,55 @@ class TestMonitorScanner:
 
     def test_finalize_stamps_scanner_type_onto_llm_response(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
-        llm_response = MonitorLlmResponse(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
+        llm_response = MonitorLlmResponse(verdict="yes", reasoning="user clicked Export at 0:42", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, MonitorOutput)
         assert finalized.scanner_type == ScannerType.MONITOR
-        assert finalized.verdict is True
+        assert finalized.verdict == "yes"
         assert finalized.reasoning == "user clicked Export at 0:42"
         assert finalized.confidence == 0.9
 
     def test_validate_semantics_passes_for_well_formed_output(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
-        out = MonitorOutput(verdict=False, reasoning="no checkout button visible", confidence=0.8)
+        out = MonitorOutput(verdict="no", reasoning="no checkout button visible", confidence=0.8)
         assert scanner.validate_semantics(out) is None
 
     def test_output_round_trip_includes_confidence(self) -> None:
         out = MonitorOutput.model_validate_json(
-            '{"verdict": true, "reasoning": "user clicked Export at 0:42", "confidence": 0.85}'
+            '{"verdict": "yes", "reasoning": "user clicked Export at 0:42", "confidence": 0.85}'
         )
-        assert out.verdict is True
+        assert out.verdict == "yes"
         assert out.confidence == 0.85
 
     def test_output_rejects_confidence_out_of_range(self) -> None:
         with pytest.raises(ValidationError):
-            MonitorOutput(verdict=True, reasoning="x", confidence=1.5)
+            MonitorOutput(verdict="yes", reasoning="x", confidence=1.5)
 
     def test_output_rejects_invalid_shape(self) -> None:
         with pytest.raises(ValidationError):
             MonitorOutput.model_validate_json('{"verdict": "yes", "confidence": 1}')
+
+    def test_output_rejects_unknown_verdict_value(self) -> None:
+        with pytest.raises(ValidationError):
+            MonitorOutput(verdict="maybe", reasoning="x", confidence=0.5)  # type: ignore[arg-type]
+
+    def test_validate_semantics_rejects_inconclusive_when_disallowed(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        assert scanner.allow_inconclusive is False
+        out = MonitorOutput(verdict="inconclusive", reasoning="not sure", confidence=0.4)
+        assert scanner.validate_semantics(out) is not None
+
+    def test_validate_semantics_accepts_inconclusive_when_allowed(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        assert scanner.allow_inconclusive is True
+        out = MonitorOutput(verdict="inconclusive", reasoning="ambiguous", confidence=0.4)
+        assert scanner.validate_semantics(out) is None
+
+    def test_prompt_context_propagates_allow_inconclusive(self) -> None:
+        on_scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        off_scanner = scanner_from_db(_build_replay_scanner())
+        assert on_scanner.prompt_context()["allow_inconclusive"] is True
+        assert off_scanner.prompt_context()["allow_inconclusive"] is False
 
 
 class TestClassifierScanner:
@@ -493,21 +514,12 @@ class TestSummarizerScanner:
 
 
 class TestSummarizerScannerFacets:
-    def test_emits_embeddings_defaults_to_false(self) -> None:
+    def test_llm_response_schema_is_summarizer_response(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         assert isinstance(scanner, SummarizerScanner)
-        assert scanner.emits_embeddings is False
-
-    def test_emits_embeddings_propagates_into_prompt_context(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert scanner.prompt_context()["emits_embeddings"] is True
+        assert scanner.llm_response_schema is SummarizerLlmResponse
 
     def test_output_round_trip_carries_facets(self) -> None:
         out = SummarizerOutput(
@@ -529,27 +541,11 @@ class TestSummarizerScannerFacets:
         assert out.friction_points == []
         assert out.keywords == []
 
-    def test_llm_response_schema_branches_on_flag(self) -> None:
-        without_facets = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        with_facets = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert without_facets.llm_response_schema is SummarizerLlmResponse
-        assert with_facets.llm_response_schema is SummarizerWithFacetsLlmResponse
-
     def test_finalize_lowercases_keywords_and_friction_points(self) -> None:
         scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
-        response = SummarizerWithFacetsLlmResponse(
+        response = SummarizerLlmResponse(
             title="Auth",
             summary="Tried to log in",
             intent="Authenticate",
@@ -578,7 +574,7 @@ class TestSummarizerOutputHasAnyFacet:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        out = MonitorOutput(verdict=True, reasoning="found it", confidence=0.9)
+        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
         props = out.to_event_properties()
         assert props == {
             "scanner_output_verdict": True,
@@ -589,7 +585,7 @@ class TestToEventProperties:
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.
-        out = MonitorOutput(verdict=False, reasoning="nope", confidence=0.5)
+        out = MonitorOutput(verdict="no", reasoning="nope", confidence=0.5)
         props = out.to_event_properties()
         assert "scanner_output_scanner_type" not in props
         assert "scanner_type" not in props
