@@ -90,7 +90,11 @@ _FILE_DOWNLOAD_MODEL_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="FileDownloadModel",
-        serializers=_FILE_DOWNLOAD_MODEL_SERIALIZERS,
+        serializers={
+            "events": FileDownloadEventsModelSerializer,
+            "persons": FileDownloadPersonsModelSerializer,
+            "sessions": FileDownloadSessionsModelSerializer,
+        },
         resource_type_field_name="type",
     )
 )
@@ -107,13 +111,13 @@ class FileDownloadModelField(serializers.Field):
         if not isinstance(data, dict):
             raise ValidationError("Expected an object describing the model to export.")
 
-        serializer_class = _FILE_DOWNLOAD_MODEL_SERIALIZERS.get(data.get("type"))
-        if serializer_class is None:
+        model_type = data.get("type")
+        if not isinstance(model_type, str) or model_type not in _FILE_DOWNLOAD_MODEL_SERIALIZERS:
             raise ValidationError(
                 {"type": f"Unknown model type. Expected one of {sorted(_FILE_DOWNLOAD_MODEL_SERIALIZERS)}."}
             )
 
-        serializer = serializer_class(data=data)
+        serializer = _FILE_DOWNLOAD_MODEL_SERIALIZERS[model_type](data=data)
         serializer.is_valid(raise_exception=True)
         return dict(serializer.validated_data)
 
