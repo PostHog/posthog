@@ -663,7 +663,7 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RechargeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
