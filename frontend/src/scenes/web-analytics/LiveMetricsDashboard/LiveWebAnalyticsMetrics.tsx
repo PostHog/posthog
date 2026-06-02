@@ -12,8 +12,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 
-import { IconDrag, IconFilter, IconGlobe, IconPencil, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Popover } from '@posthog/lemon-ui'
+import { IconDrag, IconFilter, IconGlobe, IconPencil, IconWarning, IconX } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, Link, Popover } from '@posthog/lemon-ui'
 
 import { FilterBar } from 'lib/components/FilterBar'
 import { liveUserCountLogic } from 'lib/components/LiveUserCount/liveUserCountLogic'
@@ -26,8 +26,11 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
 import { isLiveStreamFilter } from '../webAnalyticsFilterLogic'
@@ -260,6 +263,17 @@ const SortableCard = ({
     )
 }
 
+const QuotaExceededEmptyState = (): JSX.Element => (
+    <div className="flex flex-col justify-center items-center gap-2 p-6 text-center">
+        <IconWarning className="text-4xl text-warning" />
+        <span className="text-lg font-title font-semibold leading-tight">Live events paused</span>
+        <span className="text-secondary max-w-md">
+            Your organization has exceeded its events quota, so new events aren't being ingested and won't appear here.{' '}
+            <Link to={urls.organizationBilling()}>Review your billing</Link> to resume ingestion.
+        </span>
+    </div>
+)
+
 export const LiveWebAnalyticsMetrics = (): JSX.Element => {
     const {
         chartData,
@@ -294,6 +308,8 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { isProductOverUsageLimit } = useValues(billingLogic)
+    const isEventsQuotaExceeded = isProductOverUsageLimit(ProductKey.PRODUCT_ANALYTICS)
     const canEditLayout = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_EDIT_LAYOUT]
     const drillDownEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN]
     const liveFeedColumns = currentTeam?.session_recording_opt_in
@@ -499,7 +515,11 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
             case 'live_events':
                 return (
                     <LiveChartCard title="Live events" isLoading={false} contentClassName="max-h-80 overflow-y-auto">
-                        <LiveEventsFeed events={recentEvents} columns={liveFeedColumns} />
+                        <LiveEventsFeed
+                            events={recentEvents}
+                            columns={liveFeedColumns}
+                            emptyState={isEventsQuotaExceeded ? <QuotaExceededEmptyState /> : undefined}
+                        />
                     </LiveChartCard>
                 )
         }
