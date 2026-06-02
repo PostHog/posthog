@@ -1,9 +1,10 @@
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.temporal.data_imports.sources.generated_configs import WebflowSourceConfig
 from posthog.temporal.data_imports.sources.webflow.settings import STATIC_ENDPOINTS
 from posthog.temporal.data_imports.sources.webflow.source import WebflowSource
 from posthog.temporal.data_imports.sources.webflow.webflow import WebflowResumeConfig
@@ -13,7 +14,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 SOURCE_MODULE = "posthog.temporal.data_imports.sources.webflow.source"
 
 
-def _config() -> object:
+def _config() -> WebflowSourceConfig:
     return WebflowSource().parse_config({"api_token": "token", "site_id": "site-1"})
 
 
@@ -44,7 +45,8 @@ class TestWebflowSource:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         assert config.unreleasedSource is True
 
-        fields = {field.name: field for field in config.fields}
+        assert all(isinstance(field, SourceFieldInputConfig) for field in config.fields)
+        fields = {field.name: field for field in config.fields if isinstance(field, SourceFieldInputConfig)}
         assert set(fields) == {"api_token", "site_id"}
         assert fields["api_token"].type == SourceFieldInputConfigType.PASSWORD
         assert fields["api_token"].secret is True
