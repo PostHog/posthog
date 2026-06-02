@@ -290,7 +290,7 @@ impl Lz4PayloadError {
 
 fn decompress_lz4_payload(payload: &[u8], limit: usize) -> Result<Vec<u8>, Lz4PayloadError> {
     let decoder = Decoder::new(payload)?;
-    let mut decompressed = Vec::new();
+    let mut decompressed = Vec::with_capacity(payload.len().saturating_mul(4).min(limit));
     decoder
         .take((limit as u64).saturating_add(1))
         .read_to_end(&mut decompressed)?;
