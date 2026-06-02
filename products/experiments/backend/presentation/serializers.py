@@ -602,6 +602,38 @@ class CreateFromPromptInputSerializer(serializers.Serializer):
         return attrs
 
 
+class MetricRecalculationResultSerializer(serializers.Serializer):
+    """One metric's recalculated result row, read back from ExperimentMetricResult."""
+
+    metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
+    status = serializers.ChoiceField(
+        choices=["pending", "completed", "failed"],
+        read_only=True,
+        help_text="Status of this metric's calculation in the run",
+    )
+    # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
+    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    result = serializers.JSONField(
+        read_only=True,
+        allow_null=True,
+        help_text="The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed",
+    )
+    error_message = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Error message when status is failed; otherwise null"
+    )
+
+
+class RecalculateMetricsRequestSerializer(serializers.Serializer):
+    """Request body for triggering a metrics recalculation."""
+
+    trigger = serializers.ChoiceField(
+        choices=["manual", "experiment_launch", "experiment_stop", "experiment_update"],
+        required=False,
+        default="manual",
+        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+    )
+
+
 class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
     """Serializer for metrics recalculation status responses."""
 
