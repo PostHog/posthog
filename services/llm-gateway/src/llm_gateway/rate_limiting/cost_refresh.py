@@ -89,6 +89,9 @@ class CostRefreshService:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
             set_litellm_model_cost(model_cost)
+            # Provider sets (anthropic_models, etc.) back get_llm_provider's inference
+            # for bare names — without re-running this they stay frozen at import time.
+            litellm.add_known_models(model_cost)
             self._last_refresh = time.monotonic()
             logger.info("model_cost_refreshed", model_count=len(model_cost))
         except Exception:

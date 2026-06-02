@@ -226,6 +226,19 @@ class PostHogCallback(InstrumentedCallback):
         if response_cost is not None:
             properties["$ai_total_cost_usd"] = response_cost
 
+        # Forward LiteLLM's cost_breakdown so ingestion passes the per-side
+        # numbers through instead of rederiving them and mispricing cache.
+        cost_breakdown = standard_logging_object.get("cost_breakdown") or {}
+        for breakdown_key, property_key in (
+            ("input_cost", "$ai_input_cost_usd"),
+            ("output_cost", "$ai_output_cost_usd"),
+            ("cache_read_cost", "$ai_cache_read_cost_usd"),
+            ("cache_creation_cost", "$ai_cache_creation_cost_usd"),
+        ):
+            cost_value = cost_breakdown.get(breakdown_key)
+            if cost_value is not None:
+                properties[property_key] = cost_value
+
         response = standard_logging_object.get("response")
         if response:
             properties["$ai_output_choices"] = response

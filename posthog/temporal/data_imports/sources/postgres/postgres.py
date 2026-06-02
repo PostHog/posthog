@@ -1860,7 +1860,9 @@ def postgres_source(
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
                 try:
-                    with connection.cursor() as setup_cursor:
+                    # Use psycopg.Cursor directly to bypass cursor_factory (which may be
+                    # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
+                    with psycopg.Cursor(connection) as setup_cursor:
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)

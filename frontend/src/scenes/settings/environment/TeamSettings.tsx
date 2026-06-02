@@ -96,7 +96,11 @@ function DebugInfoPanel(): JSX.Element | null {
             <h3 id="debug-info" className="min-w-[25rem]">
                 Debug information
             </h3>
-            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            <p>
+                Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
+                admin links inside it are internal references the PostHog team uses to look into your report — they only
+                resolve for PostHog staff.
+            </p>
             {anyLoading ? (
                 <LemonSkeleton repeat={2} active={true} />
             ) : (

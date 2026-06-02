@@ -35,7 +35,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, TIMEZONES
+from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS, S3_FAMILY_TYPES, TIMEZONES
 from posthog.event_usage import groups
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
@@ -490,7 +490,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
 
-    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+    def validate(self, attrs: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
         """Validate the destination configuration based on workflow inputs.
 
         Ensure that the submitted destination configuration passes the following checks:
@@ -501,7 +501,10 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         Raises:
             A `serializers.ValidationError` if any of these checks fail.
         """
-        export_type, config = data["type"], data["config"]
+        export_type, config = attrs["type"], attrs["config"]
+        request = self.context.get("request")
+        is_patch = request is not None and request.method == "PATCH"
+
         _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
         base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
         workflow_fields = dataclasses.fields(workflow_inputs)
@@ -518,8 +521,6 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
                 and destination_field.default_factory == dataclasses.MISSING
             )
             if destination_field.name not in config:
-                request = self.context.get("request")
-                is_patch = request is not None and request.method == "PATCH"
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
                     # error on missing required fields.
@@ -547,7 +548,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
                 config[destination_field.name] = config_value
 
-        return data
+        return attrs
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
@@ -694,14 +695,18 @@ def resolve_and_validate_url(url: str) -> None:
     resolve_and_validate_host(host)
 
 
+def is_local_dev_or_test() -> bool:
+    return settings.DEBUG or settings.TEST
+
+
 def resolve_and_validate_host(host: str) -> None:
     """Ensure provided host resolves to a non-internal IP."""
-    if host == "localhost" and (settings.TEST or settings.DEBUG):
+    if host == "localhost" and is_local_dev_or_test():
         return
 
     # Host may already be an IP literal
     try:
-        if is_ip_internal(host):
+        if is_ip_internal(host) and not is_local_dev_or_test():
             raise ValueError("Host resolved to internal IP")
         return
     except ValueError:
@@ -718,7 +723,7 @@ def resolve_and_validate_host(host: str) -> None:
     resolved_ips = {str(r[4][0]) for r in results}
 
     for ip in resolved_ips:
-        if is_ip_internal(ip):
+        if is_ip_internal(ip) and not is_local_dev_or_test():
             raise ValueError("Host resolved to internal IP")
 
 
@@ -927,8 +932,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
             existing_config = {}
 
         if instance is not None and destination_type != instance.destination.type:
-            # Start fresh if this is changing the batch export type
-            existing_config = {}
+            raise serializers.ValidationError(
+                f"Cannot change destination type from '{instance.destination.type}' to '{destination_type}'. "
+                "Delete this batch export and create a new one with the new destination type."
+            )
+
         merged_config = recursive_dict_merge(existing_config, config)
 
         # SSRF protection for HTTP batch exports
@@ -943,7 +951,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
 
-        if destination_type == BatchExportDestination.Destination.S3:
+        if destination_type in S3_FAMILY_TYPES:
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
             required_non_empty_inputs = (
@@ -1246,11 +1254,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
-                if destination_data.get("type", batch_export.destination.type) != batch_export.destination.type:
-                    # Start fresh if this is changing the destination type
-                    batch_export.destination.config = {}
-
-                batch_export.destination.type = destination_data.get("type", batch_export.destination.type)
+                # Type changes are rejected by `validate_destination` — the incoming `type`
+                # (if any) always equals the existing type by the time we get here.
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),

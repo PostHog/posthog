@@ -21,6 +21,7 @@ from posthog.api.team import (
     TeamSerializer,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_logs_config,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -432,6 +433,10 @@ class ProjectBackwardCompatSerializer(
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
 
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return TeamSerializer.validate_test_account_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -656,7 +661,7 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),
@@ -907,6 +912,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
+
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this project's canonical environment.
+        Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+        alongside the legacy /api/environments/:id/logs_config/ alias."""
+        project = self.get_object()
+        return handle_logs_config(request, project.passthrough_team)
 
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):

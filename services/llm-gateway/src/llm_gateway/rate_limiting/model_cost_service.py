@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Final, TypedDict, cast
 
+import litellm
 import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
@@ -77,6 +78,8 @@ class ModelCostService:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
             set_litellm_model_cost(model_cost)
+            # Keep provider sets in sync — see cost_refresh.py.
+            litellm.add_known_models(model_cost)
             self._costs = cast(dict[str, ModelCost], model_cost)
             new_limits: dict[str, ModelLimits] = {}
             for model, cost in self._costs.items():

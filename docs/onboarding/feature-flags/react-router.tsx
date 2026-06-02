@@ -41,7 +41,7 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                                     import type { Route } from './+types/example'
 
                                     export async function loader({ request }: Route.LoaderArgs) {
-                                        const posthog = new PostHog(process.env.VITE_POSTHOG_TOKEN!, {
+                                        const posthog = new PostHog(process.env.VITE_POSTHOG_PROJECT_TOKEN!, {
                                             host: process.env.VITE_POSTHOG_HOST
                                         })
 

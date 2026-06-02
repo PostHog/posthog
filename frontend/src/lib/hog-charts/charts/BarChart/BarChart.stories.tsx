@@ -50,7 +50,7 @@ export const Grouped: Story = {
 export const WithBarTrack: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barTrack: true, barCornerRadius: 6 }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { track: true, cornerRadius: 6 } }
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -242,7 +242,7 @@ export const LargeDataset: Story = {
 export const CustomCornerRadius: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 12 }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { cornerRadius: 12 } }
         return (
             <Stage>
                 <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme} />
