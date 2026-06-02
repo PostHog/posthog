@@ -11,7 +11,7 @@ use cymbal::stages::resolution::frame::FrameResolver;
 use cymbal::stages::resolution::ResolutionStage;
 use cymbal::types::Exception;
 use cymbal_proto::cymbal::resolution::v1::{
-    resolve_outcome, Done, Error as ItemError, ResolveItem, ResolveOutcome,
+    resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
 };
 
 use super::codes;
@@ -71,6 +71,11 @@ pub(super) async fn run_resolve(
 
         let item_tx = tx.clone();
         let item_stage = stage.clone();
+        if !send_accepted(&tx, item.id).await {
+            load_monitor.decrement_in_flight();
+            record_resolve_duration(started_at, "cancelled");
+            return;
+        }
         let in_flight_guard = InFlightGuard::new(load_monitor.clone());
         tokio::spawn(async move {
             let processed = process_item(item_stage, item, in_flight_guard).await;
@@ -84,6 +89,15 @@ pub(super) async fn run_resolve(
     }
 
     record_resolve_duration(started_at, "completed");
+}
+
+async fn send_accepted(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, id: u64) -> bool {
+    tx.send(Ok(ResolveOutcome {
+        id,
+        result: Some(resolve_outcome::Result::Accepted(Accepted {})),
+    }))
+    .await
+    .is_ok()
 }
 
 async fn send_overloaded(
