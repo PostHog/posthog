@@ -25,13 +25,14 @@ Completed in this branch:
 - Fixed `FloatArrayDatabaseField.get_constant_type()` so float arrays resolve as `ArrayType(FloatType)` instead of losing the array dimension.
 - Added type algebra for least-common-supertypes across common numeric, date/datetime, array, tuple, and string-ish families.
 - Added comparison compatibility classification so optimizers can distinguish definitely-compatible comparisons, cheap casts, expensive parse/cast cases, incompatible comparisons, and unknowns.
-- Added generic function return inference for high-value functions that the old tuple signature format could not express, including comparisons, logical functions, `if`, `multiIf`, `coalesce`, nullability helpers, casts/conversions, array constructors/accessors, tuple constructors/accessors, and common aggregate functions.
+- Added generic function return inference for high-value functions that the old tuple signature format could not express, including comparisons, logical functions, `if`, `multiIf`, `coalesce`, nullability helpers, casts/conversions, common string helpers, array constructors/accessors, tuple constructors/accessors, and common aggregate functions.
 - Kept existing legacy function signatures working as a fallback path.
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
-- Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper.
+- Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
+- Added emitted-SQL coverage showing typed string helpers such as `base64Encode(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
@@ -61,7 +62,7 @@ Concrete symptoms in the current codebase:
 
 - `posthog/hogql/resolver.py` assigns `CallType` only after matching `func_meta.signatures`.
   Missing signatures fall back to `UnknownType`, and the stricter error path is commented out until the mappings are complete.
-- `posthog/hogql/printer/test/test_printer.py` has tests showing `base64Encode` has no type signature, so comparisons need `ifNull(...)` wrapping unless the user writes `assumeNotNull(...)`.
+- `posthog/hogql/printer/test/test_printer.py` has tests showing missing function type inference makes comparisons need `ifNull(...)` wrapping unless the user writes `assumeNotNull(...)`.
 - `posthog/hogql/transforms/property_types.py` manually attaches a `DateTimeType` return type to a generated `toDateTime(...)` call so an outer `toDateTime(...)` can avoid reparsing an already-datetime expression.
 - `posthog/hogql/printer/clickhouse.py` has to look through aliases because a transform can rewrite an inner expression while the alias's declared type is stale.
 - `posthog/hogql/test/test_property_skip_indexes.py` documents cases where typed property conversion makes a query execute correctly, but wrapping a materialized column in `toFloat(...)` or `toDateTime(...)` hides that column from minmax skip indexes.
@@ -601,7 +602,8 @@ TODO:
 - [ ] Add regression tests for current edge cases:
   - [ ] `toDateTime(properties.dt_prop)` does not double-parse
   - [ ] aliases rewritten by `PropertySwapper` do not keep stale return types
-  - [ ] `assumeNotNull(base64Encode(...))` avoids unnecessary comparison wrapping
+  - [x] typed string helpers such as `base64Encode(...)` avoid unnecessary comparison wrapping
+  - [ ] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
   - [ ] property access control does not leak materialized property values
 
 Acceptance criteria:
@@ -660,6 +662,7 @@ TODO:
 - [ ] Type casts and conversion functions.
 - [ ] Type `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`, `assumeNotNull`, and `toNullable`.
 - [ ] Type common aggregate functions.
+- [x] Type common string helpers that unblock nullability-wrapper simplification in emitted SQL.
 - [ ] Type array element access and common higher-order array functions.
 - [ ] Type JSON extraction functions with parsed return type literals.
 - [ ] Type core PostHog extension functions.

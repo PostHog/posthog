@@ -45,12 +45,15 @@ class FunctionCatalogInventory:
     total_entries: int
     entries_by_dialect: dict[str, int]
     entries_with_legacy_signatures: int
+    entries_with_generic_inference: int
+    entries_with_precise_generic_inference: int
     entries_with_precise_signatures: int
     entries_with_wildcard_signatures: int
     entries_with_unknown_return_signatures: int
     aggregate_entries: int
     aggregate_entries_without_return_types: int
     functions_without_signatures: list[str]
+    functions_without_type_inference: list[str]
     aggregate_functions_without_return_types: list[str]
 
 
@@ -75,8 +78,11 @@ def function_catalog_inventory() -> FunctionCatalogInventory:
 
     function_catalog = {**HOGQL_CLICKHOUSE_FUNCTIONS, **HOGQL_AGGREGATIONS}
     functions_without_signatures: list[str] = []
+    functions_without_type_inference: list[str] = []
     aggregate_functions_without_return_types: list[str] = []
     entries_with_legacy_signatures = 0
+    entries_with_generic_inference = 0
+    entries_with_precise_generic_inference = 0
     entries_with_precise_signatures = 0
     entries_with_wildcard_signatures = 0
     entries_with_unknown_return_signatures = 0
@@ -85,9 +91,22 @@ def function_catalog_inventory() -> FunctionCatalogInventory:
     for name, meta in function_catalog.items():
         if meta.aggregate:
             aggregate_entries += 1
+
+        generic_return_type = _generic_catalog_return_type(name, min_args=meta.min_args)
+        has_generic_inference = generic_return_type is not None
+        has_precise_generic_inference = generic_return_type is not None and not isinstance(
+            generic_return_type, ast.UnknownType
+        )
+        if has_generic_inference:
+            entries_with_generic_inference += 1
+        if has_precise_generic_inference:
+            entries_with_precise_generic_inference += 1
+
         if not meta.signatures:
             functions_without_signatures.append(name)
-            if meta.aggregate:
+            if not has_precise_generic_inference:
+                functions_without_type_inference.append(name)
+            if meta.aggregate and not has_precise_generic_inference:
                 aggregate_functions_without_return_types.append(name)
             continue
 
@@ -109,21 +128,39 @@ def function_catalog_inventory() -> FunctionCatalogInventory:
             entries_with_wildcard_signatures += 1
         if has_unknown_return:
             entries_with_unknown_return_signatures += 1
-        if meta.aggregate and has_unknown_return and not has_precise_signature:
+        if meta.aggregate and has_unknown_return and not has_precise_signature and not has_precise_generic_inference:
             aggregate_functions_without_return_types.append(name)
 
     return FunctionCatalogInventory(
         total_entries=len(function_catalog),
         entries_by_dialect={"clickhouse": len(function_catalog)},
         entries_with_legacy_signatures=entries_with_legacy_signatures,
+        entries_with_generic_inference=entries_with_generic_inference,
+        entries_with_precise_generic_inference=entries_with_precise_generic_inference,
         entries_with_precise_signatures=entries_with_precise_signatures,
         entries_with_wildcard_signatures=entries_with_wildcard_signatures,
         entries_with_unknown_return_signatures=entries_with_unknown_return_signatures,
         aggregate_entries=aggregate_entries,
         aggregate_entries_without_return_types=len(aggregate_functions_without_return_types),
         functions_without_signatures=sorted(functions_without_signatures),
+        functions_without_type_inference=sorted(functions_without_type_inference),
         aggregate_functions_without_return_types=sorted(aggregate_functions_without_return_types),
     )
+
+
+def _generic_catalog_return_type(name: str, min_args: int) -> ast.ConstantType | None:
+    from posthog.hogql.type_system import infer_function_return_type  # noqa: PLC0415 - keeps diagnostics import-light
+
+    inference = infer_function_return_type(
+        name,
+        [ast.UnknownType(nullable=False) for _ in range(min_args)],
+        args=None,
+        meta=None,
+        dialect="clickhouse",
+    )
+    if inference.source != "generic":
+        return None
+    return inference.return_type
 
 
 class _UnknownTypeCollector(TraversingVisitor):

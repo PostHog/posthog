@@ -154,6 +154,63 @@ _INTEGER_RE = re.compile(r"^(U?Int)(8|16|32|64|128|256)$", re.IGNORECASE)
 _FLOAT_RE = re.compile(r"^Float(32|64)$", re.IGNORECASE)
 _DECIMAL_RE = re.compile(r"^Decimal(?:32|64|128|256)?$", re.IGNORECASE)
 
+_STRING_RESULT_FUNCTIONS = frozenset(
+    {
+        "appendtrailingcharifabsent",
+        "base58decode",
+        "base58encode",
+        "base64decode",
+        "base64encode",
+        "concat",
+        "concatwithseparator",
+        "convertcharset",
+        "decodexmlcomponent",
+        "encodexmlcomponent",
+        "extract",
+        "extracttextfromhtml",
+        "format",
+        "hex",
+        "leftpad",
+        "leftpadutf8",
+        "lower",
+        "lowerutf8",
+        "regexpextract",
+        "regexpquotemeta",
+        "repeat",
+        "replace",
+        "replaceall",
+        "replaceone",
+        "replaceregexpall",
+        "replaceregexpone",
+        "reverseutf8",
+        "rightpad",
+        "rightpadutf8",
+        "substring",
+        "substringutf8",
+        "tostring",
+        "tojsonstring",
+        "trybase58decode",
+        "trybase64decode",
+        "unhex",
+        "upper",
+        "upperutf8",
+    }
+)
+
+_STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
+    {
+        "alphatokens",
+        "extractall",
+        "ngrams",
+        "splitbychar",
+        "splitbynonalpha",
+        "splitbyregexp",
+        "splitbystring",
+        "splitbywhitespace",
+        "tokens",
+    }
+)
+
 
 def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeType:
     nullable = constant_type.nullable
@@ -699,8 +756,17 @@ def _infer_generic_function_type(
         result.nullable = normalized_name == "tonullable"
         return result
 
-    if normalized_name == "tostring" or normalized_name == "totypename" or normalized_name.endswith("tostring"):
+    if normalized_name == "totypename" or normalized_name.endswith("tostring"):
         return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _STRING_RESULT_FUNCTIONS:
+        return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
+
+    if normalized_name in _STRING_ARRAY_RESULT_FUNCTIONS:
+        return ast.ArrayType(
+            nullable=any(arg_type.nullable for arg_type in arg_types),
+            item_type=ast.StringType(nullable=False),
+        )
 
     if (
         normalized_name in {"toint", "tointorzero"}

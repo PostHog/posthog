@@ -1376,7 +1376,7 @@ class TestResolver(BaseTest):
 
     def test_assume_not_null_with_unknown_arg_type(self):
         # When the inner function has no signatures (returns UnknownType), assumeNotNull should still force nullable=False
-        node = self._select("SELECT assumeNotNull(base64Encode(unhex('DEADBEEF')))")
+        node = self._select("SELECT assumeNotNull(protocol('https://posthog.com'))")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         [selected] = node.select

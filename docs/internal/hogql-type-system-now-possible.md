@@ -157,6 +157,7 @@ Newly inferred function groups include:
 - conditionals: `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`
 - nullability helpers: `assumeNotNull`, `toNullable`
 - conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`
+- common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
 - array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - tuple functions: `tuple`, `tupleElement`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `groupArray`, `array_agg`
@@ -238,7 +239,7 @@ The report records unknown-type occurrences and groups them by source.
 Example:
 
 ```python
-diagnostics = resolve_with_type_diagnostics(parse_select("SELECT base64Encode('test')"), context)
+diagnostics = resolve_with_type_diagnostics(parse_select("SELECT protocol('https://posthog.com')"), context)
 diagnostics.report.unknowns_by_source()
 # {"missing_function_signature": 1}
 ```
@@ -248,16 +249,20 @@ diagnostics.report.unknowns_by_source()
 - total function metadata entries
 - entries by dialect
 - entries with legacy signatures
+- entries with generic inference rules
+- entries with precise generic inference rules
 - entries with precise signatures
 - entries with wildcard signatures
 - entries with unknown return signatures
 - aggregate entries
 - aggregate entries without return types
 - functions without signatures
+- functions without type inference
 - aggregate functions without return types
 
 This is the Phase 0 measurement hook from the TODO.
 It gives developers a way to track whether type coverage is improving without requiring strict mode.
+The distinction between `functions_without_signatures` and `functions_without_type_inference` matters: a function such as `base64Encode` may have no legacy catalog signature while still being safe for optimizer work because generic inference knows its return family and nullability.
 
 ## Optimizer Hooks Now Available
 
@@ -283,6 +288,7 @@ Nullability simplification:
 - comparisons between definitely non-nullable expressions can avoid defensive `ifNull(...)`
 - known nullable expressions can preserve current wrapper behavior
 - unknown expressions remain barriers
+- common non-null string helper calls such as `base64Encode('test')` now stay non-null through resolution, so emitted comparisons no longer need manual `assumeNotNull(...)` to avoid nullable boolean wrappers
 
 Set-query planning:
 
@@ -312,9 +318,10 @@ Strict mode is not enabled.
 Unknowns remain printable.
 That is intentional until catalog coverage and compatibility baselines are stronger.
 
-No optimizer rewrite is enabled by this slice.
+No broad AST rewrite is enabled by default.
 The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind `HogQLContext.enable_type_aware_cast_simplification`.
 It remains disabled by default.
+One practical printer payoff is now live: when generic function inference proves a string helper returns a non-null string, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
 Moving conversions across comparisons or simplifying generated property wrappers should still be done in separate guarded changes with emitted-SQL tests and ClickHouse integration tests where planner behavior matters.
 
 ## How To Extend The New System

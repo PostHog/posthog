@@ -118,6 +118,14 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT count() FROM events", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT sum(1.0) FROM events", ast.FloatType(nullable=False))
 
+    def test_resolver_infers_common_string_function_types(self) -> None:
+        self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT hex(unhex('DEADBEEF'))", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT splitByChar('.', '1.2.3')",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+
     def test_select_set_query_unifies_output_column_types(self) -> None:
         node = cast(
             ast.SelectSetQuery,
@@ -131,14 +139,23 @@ class TestHogQLTypeSystem:
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
-            self._select("SELECT base64Encode('test')"),
+            self._select("SELECT protocol('https://posthog.com')"),
             self.context,
             dialect="clickhouse",
         )
 
         assert diagnostics.report.unknown_count == 1
         assert diagnostics.report.unknowns_by_source() == {"missing_function_signature": 1}
-        assert diagnostics.report.unknowns[0].detail == "base64Encode"
+        assert diagnostics.report.unknowns[0].detail == "protocol"
+
+    def test_type_diagnostics_treats_typed_string_functions_as_known(self) -> None:
+        diagnostics = resolve_with_type_diagnostics(
+            self._select("SELECT base64Encode('test'), hex(unhex('DEADBEEF')), splitByChar('.', '1.2.3')"),
+            self.context,
+            dialect="clickhouse",
+        )
+
+        assert diagnostics.report.unknown_count == 0
 
     def test_function_catalog_inventory(self) -> None:
         inventory = function_catalog_inventory()
@@ -146,9 +163,13 @@ class TestHogQLTypeSystem:
         assert inventory.total_entries > 0
         assert inventory.entries_by_dialect["clickhouse"] == inventory.total_entries
         assert inventory.entries_with_legacy_signatures > 0
+        assert inventory.entries_with_generic_inference > 0
+        assert inventory.entries_with_precise_generic_inference > 0
         assert inventory.entries_with_precise_signatures > 0
         assert inventory.aggregate_entries > 0
         assert "base64Encode" in inventory.functions_without_signatures
+        assert "base64Encode" not in inventory.functions_without_type_inference
+        assert "protocol" in inventory.functions_without_type_inference
 
     def test_type_aware_simplification_is_opt_in(self) -> None:
         resolved = cast(

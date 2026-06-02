@@ -2396,22 +2396,31 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 
-    def test_assume_not_null_prevents_ifnull_wrapping_in_comparison(self):
-        # base64Encode has no type signatures → returns UnknownType(nullable=True)
-        # Without assumeNotNull, one side is considered nullable → comparison gets ifNull wrapping
-        sql_without = self._expr("event = base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_for_unknown_function(self):
+        sql_without = self._expr("event = protocol('https://posthog.com')")
         self.assertIn("ifNull(", sql_without)
 
-        # assumeNotNull forces nullable=False → both sides non-nullable → no wrapping
-        sql_with = self._expr("event = assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event = assumeNotNull(protocol('https://posthog.com'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("equals("))
 
-    def test_assume_not_null_prevents_ifnull_wrapping_not_equals(self):
-        sql_without = self._expr("event != base64Encode('test')")
+    def test_typed_string_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != base64Encode('test')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
+    def test_assume_not_null_prevents_ifnull_wrapping_unknown_function_not_equals(self):
+        sql_without = self._expr("event != protocol('https://posthog.com')")
         self.assertIn("ifNull(", sql_without)
 
-        sql_with = self._expr("event != assumeNotNull(base64Encode('test'))")
+        sql_with = self._expr("event != assumeNotNull(protocol('https://posthog.com'))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 
