@@ -45356,6 +45356,10 @@ export namespace Schemas {
 
     export type CohortsListParams = {
     /**
+     * Opt into the optimised list query path (gated otherwise by the `cohorts-list-fast-path` feature flag). Returns the same rows in the same order; only the underlying query shape differs.
+     */
+    fast_list?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45363,6 +45367,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return a trimmed payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    slim?: boolean;
     };
 
     export type CohortsPersonsRetrieveParams = {

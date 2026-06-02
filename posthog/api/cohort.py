@@ -11,7 +11,8 @@ from django.db import DatabaseError
 from django.db.models import OuterRef, Prefetch, QuerySet, Subquery, prefetch_related_objects
 
 import structlog
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+import posthoganalytics
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 from pydantic import (
@@ -504,6 +505,16 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
             "experiment_set",
         ]
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Slim list payload (opt-in via `?slim=true` on the list endpoint): drop
+        # the heavy JSON columns the cohort picker never reads. Keeps the
+        # response small for teams with thousands of cohorts. Default output is
+        # unchanged; only callers that explicitly ask get the trimmed shape.
+        if self.context.get("slim_cohort_list"):
+            for field_name in ("filters", "query", "groups"):
+                self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
         # Prefer the annotated last_error_code when available
@@ -1122,16 +1133,88 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation["filters"] = (
-            instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
-        )
+        # Skip when the slim list dropped `filters`; computing
+        # `properties.to_dict()` is the expensive part we're avoiding there.
+        if "filters" in self.fields:
+            representation["filters"] = (
+                instance.filters if instance.filters else {"properties": instance.properties.to_dict()}
+            )
         return representation
 
 
+# Server-side rollout flag for the cohort list fast path. The query optimisations
+# it gates are output-identical, so this can be flipped on broadly to derisk before
+# making them the default. `?fast_list=true` forces it on per-request for testing.
+COHORTS_LIST_FAST_PATH_FLAG = "cohorts-list-fast-path"
+
+
+def _cohort_list_fast_path_enabled(request) -> bool:
+    """Whether to use the optimised cohort list queryset for this request.
+
+    Enabled by an explicit `?fast_list=true` argument (short-circuits so direct
+    API testing needs no flag evaluation) or the `cohorts-list-fast-path`
+    feature flag. The fast path returns the same rows in the same order; only
+    the query shape differs, so it's safe to gate broadly.
+    """
+    if request.query_params.get("fast_list", "false").lower() == "true":
+        return True
+    try:
+        user = getattr(request, "user", None)
+        if user is None or user.is_anonymous:
+            return False
+        return bool(
+            posthoganalytics.feature_enabled(
+                COHORTS_LIST_FAST_PATH_FLAG,
+                user.distinct_id,
+                groups={"organization": str(user.organization.id)},
+                group_properties={"organization": {"id": str(user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="fast_list",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Opt into the optimised list query path (gated otherwise by the "
+                    "`cohorts-list-fast-path` feature flag). Returns the same rows in the "
+                    "same order; only the underlying query shape differs."
+                ),
+            ),
+            OpenApiParameter(
+                name="slim",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Return a trimmed payload that omits the heavy `filters`, `query`, and "
+                    "`groups` fields. Useful for pickers that only need id/name/count."
+                ),
+            ),
+        ]
+    )
+)
 class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Cohort.objects.all()
     serializer_class = CohortSerializer
     scope_object = "cohort"
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # Trim the list payload only when explicitly requested on the list endpoint.
+        context["slim_cohort_list"] = (
+            self.action == "list" and self.request.query_params.get("slim", "false").lower() == "true"
+        )
+        return context
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -1151,6 +1234,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        fast_path = self.action == "list" and _cohort_list_fast_path_enabled(self.request)
+
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1162,8 +1247,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                all_cohorts = {cohort.id: cohort for cohort in queryset.all()}
-                behavioral_cohort_ids = self._find_behavioral_cohorts(
+                # The dependency graph only reads these columns; on the fast path
+                # defer the heavy `query`/`groups`/etc. JSON so we don't haul full
+                # rows for every cohort in the team just to compute the exclusion set.
+                graph_source = (
+                    queryset.only("id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at")
+                    if fast_path
+                    else queryset
+                )
+                all_cohorts = {cohort.id: cohort for cohort in graph_source.all()}
+                find_behavioral = self._find_behavioral_cohorts_fast if fast_path else self._find_behavioral_cohorts
+                behavioral_cohort_ids = find_behavioral(
                     all_cohorts, allow_realtime_backfilled=allow_realtime_backfilled
                 )
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
@@ -1181,11 +1275,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .values("error_code")[:1]
         )
 
-        return (
-            queryset.annotate(last_error_code=last_error_code_subquery)
-            .prefetch_related("experiment_set", "created_by", "team")
-            .order_by("-created_at")
-        )
+        queryset = queryset.annotate(last_error_code=last_error_code_subquery)
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
+        # one query instead of the two extra round-trips `prefetch_related` costs.
+        # `experiment_set` is a reverse relation, so it stays prefetched.
+        if fast_path:
+            return (
+                queryset.select_related("created_by", "team").prefetch_related("experiment_set").order_by("-created_at")
+            )
+        return queryset.prefetch_related("experiment_set", "created_by", "team").order_by("-created_at")
 
     def _find_behavioral_cohorts(
         self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
@@ -1221,6 +1319,43 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         find_affected_cohorts()
         return affected_cohorts
+
+    def _find_behavioral_cohorts_fast(
+        self, all_cohorts: dict[int, Cohort], *, allow_realtime_backfilled: bool = False
+    ) -> set[int]:
+        """Linear equivalent of `_find_behavioral_cohorts`.
+
+        A cohort is affected if it's behavioral, or references (transitively) an
+        affected cohort. The original does this with an O(V²·E) fixed-point loop
+        that re-scans every node each pass. This walks the *reverse* dependency
+        graph once from the behavioral seeds (O(V+E)); every node that can reach
+        a seed via forward edges is exactly the set the loop converges to.
+        """
+        graph, behavioral_cohorts = self._build_cohort_dependency_graph(all_cohorts)
+
+        flag_compatible: set[int] = set()
+        if allow_realtime_backfilled:
+            flag_compatible = {
+                cid for cid in behavioral_cohorts if (cohort := all_cohorts.get(cid)) and cohort.is_flag_compatible
+            }
+        seeds = behavioral_cohorts - flag_compatible
+
+        # Reverse adjacency: target -> sources that reference it.
+        reverse: dict[int, set[int]] = defaultdict(set)
+        for source_id, targets in graph.items():
+            for target_id in targets:
+                reverse[target_id].add(source_id)
+
+        affected = set(seeds)
+        stack = list(seeds)
+        while stack:
+            node = stack.pop()
+            for source_id in reverse.get(node, ()):
+                if source_id not in affected:
+                    affected.add(source_id)
+                    stack.append(source_id)
+
+        return affected
 
     def _build_cohort_dependency_graph(self, all_cohorts: dict[int, Cohort]) -> tuple[dict[int, set[int]], set[int]]:
         """

@@ -17,8 +17,20 @@ export const CohortsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
+    fast_list: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Opt into the optimised list query path (gated otherwise by the `cohorts-list-fast-path` feature flag). Returns the same rows in the same order; only the underlying query shape differs.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    slim: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return a trimmed payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.'
+        ),
 })
 
 export const CohortsCreateParams = /* @__PURE__ */ zod.object({

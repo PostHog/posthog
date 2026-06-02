@@ -1655,6 +1655,64 @@ email@example.org,
         self.assertEqual(results[0]["id"], regular_cohort.id)
 
     @patch("posthog.api.cohort.report_user_action")
+    def test_fast_list_path_returns_identical_results(self, patch_capture):
+        # Regular + behavioral cohort so both the plain and hide_behavioral paths are exercised.
+        Cohort.objects.create(
+            team=self.team,
+            name="regular cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+        Cohort.objects.create(
+            team=self.team,
+            name="behavioral cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 30,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+
+        def ids(query: str) -> list[int]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts{query}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return [row["id"] for row in response.json()["results"]]
+
+        # The fast path is a query-shape optimisation only — same rows, same order.
+        self.assertEqual(ids(""), ids("?fast_list=true"))
+        self.assertEqual(
+            ids("?hide_behavioral_cohorts=true"),
+            ids("?hide_behavioral_cohorts=true&fast_list=true"),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_slim_list_omits_heavy_fields(self, patch_capture):
+        Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+
+        full = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()["results"][0]
+        self.assertIn("filters", full)
+
+        slim = self.client.get(f"/api/projects/{self.team.id}/cohorts?slim=true").json()["results"][0]
+        for dropped in ("filters", "query", "groups"):
+            self.assertNotIn(dropped, slim)
+        # The fields pickers actually read are still present.
+        for kept in ("id", "name", "count"):
+            self.assertIn(kept, slim)
+
+    @patch("posthog.api.cohort.report_user_action")
     def test_list_cohorts_excludes_nested_behavioral_cohorts(self, patch_capture):
         # Create a behavioral cohort
         behavioral_cohort = Cohort.objects.create(

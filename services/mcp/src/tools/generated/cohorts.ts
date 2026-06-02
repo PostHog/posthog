@@ -94,8 +94,10 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
+                    fast_list: params.fast_list,
                     limit: params.limit,
                     offset: params.offset,
+                    slim: params.slim,
                 },
             })
             const filtered = {
