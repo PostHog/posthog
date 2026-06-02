@@ -856,23 +856,7 @@ class TestOAuthAPI(APIBaseTest):
         jwks = response.json()
         self.assertIn("keys", jwks)
 
-        jwks = response.json()
-
-        key_data = jwks["keys"][0]
-        public_numbers = rsa.RSAPublicNumbers(
-            e=int.from_bytes(base64.urlsafe_b64decode(key_data["e"] + "=="), "big"),
-            n=int.from_bytes(base64.urlsafe_b64decode(key_data["n"] + "=="), "big"),
-        )
-
-        public_key = public_numbers.public_key()
-
-        public_key_pem_bytes = public_key.public_bytes(
-            encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-
-        public_key_pem_str = public_key_pem_bytes.decode("utf-8")
-
-        self.assertEqual(public_key_pem_str, self.public_key)
+        self.assertEqual(public_pem(jwks_entry_to_public_key(jwks["keys"][0])), self.public_key)
 
     def test_jwks_endpoint_publishes_active_and_inactive_keys(self):
         inactive_key_1 = generate_rsa_key()
