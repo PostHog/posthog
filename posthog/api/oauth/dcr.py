@@ -28,6 +28,7 @@ from rest_framework.views import APIView
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import PRIVILEGED_SCOPES
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +36,23 @@ logger = structlog.get_logger(__name__)
 # These prevent malicious apps from impersonating official PostHog applications
 BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
 BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
+
+
+def filter_dcr_scopes(scope: str) -> list[str]:
+    """Parse an RFC 7591 space-delimited `scope` string into a deduped list with
+    PRIVILEGED_SCOPES stripped. Order is preserved so the response echo matches
+    what the client sent (minus privileged scopes).
+
+    Self-serve DCR clients can never grant themselves a privileged scope (e.g.
+    `llm_gateway:*`); those land on an app only via an admin-driven path."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for token in scope.split():
+        if token in PRIVILEGED_SCOPES or token in seen:
+            continue
+        seen.add(token)
+        result.append(token)
+    return result
 
 
 def validate_client_name(value: str) -> None:
@@ -102,6 +120,15 @@ class DCRRequestSerializer(serializers.Serializer):
         default="none",
         help_text="How the client authenticates at the token endpoint: 'none' for public clients, 'client_secret_post' for confidential clients",
     )
+    # RFC 7591 standard `scope`: a flat, space-delimited string (NOT the CIMD
+    # `com.posthog` namespace). Sets the app's scope ceiling. Privileged scopes
+    # are stripped on registration; if omitted the ceiling is left empty and
+    # /authorize resolves it to the broad UNPRIVILEGED_SCOPES default.
+    scope = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Space-delimited OAuth scopes (RFC 7591). Sets the client's scope ceiling; privileged scopes are stripped.",
+    )
 
 
 class DynamicClientRegistrationView(APIView):
@@ -141,6 +168,9 @@ class DynamicClientRegistrationView(APIView):
         # the create() call simple -- we just don't return it in the response.
         plaintext_secret = generate_client_secret()
 
+        requested_scope = data.get("scope")
+        app_scopes = filter_dcr_scopes(requested_scope) if requested_scope else []
+
         try:
             app = OAuthApplication.objects.create(
                 name=data.get("client_name", "MCP Client"),
@@ -152,6 +182,7 @@ class DynamicClientRegistrationView(APIView):
                 skip_authorization=False,
                 is_dcr_client=True,
                 dcr_client_id_issued_at=now,
+                scopes=app_scopes,
                 organization=None,
                 user=None,
             )
@@ -217,5 +248,10 @@ class DynamicClientRegistrationView(APIView):
 
         if data.get("client_name"):
             response_data["client_name"] = data["client_name"]
+
+        # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
+        # returns the registered `scope` so the client sees the privileged-strip.
+        if app_scopes:
+            response_data["scope"] = " ".join(app_scopes)
 
         return Response(response_data, status=status.HTTP_201_CREATED)
