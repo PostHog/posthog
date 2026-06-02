@@ -78,9 +78,8 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """Probe the cheapest authenticated endpoint to confirm the token is genuine."""
     url = f"{SHORTCUT_BASE_URL}/member"
     try:
-        response = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,)).get(
-            url, timeout=10
-        )
+        with make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,)) as session:
+            response = session.get(url, timeout=10)
     except RequestException as e:
         return False, str(e)
 
@@ -102,26 +101,27 @@ def get_rows(
     incremental_field: str | None = None,
 ) -> Iterator[Any]:
     config = SHORTCUT_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
     url = f"{SHORTCUT_BASE_URL}{config.path}"
 
-    @retry(
-        retry=retry_if_exception_type((ShortcutRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(MAX_RETRIES),
-        wait=wait_exponential_jitter(initial=1, max=60),
-        reraise=True,
-    )
-    def fetch(method: str, body: Optional[dict[str, Any]]) -> Any:
-        response = session.request(method, url, json=body, timeout=REQUEST_TIMEOUT)
-        return _parse_response(response, url, logger)
+    with make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,)) as session:
 
-    if config.method == "POST":
-        body = _build_search_body(
-            config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+        @retry(
+            retry=retry_if_exception_type((ShortcutRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+            stop=stop_after_attempt(MAX_RETRIES),
+            wait=wait_exponential_jitter(initial=1, max=60),
+            reraise=True,
         )
-        data = fetch("POST", body)
-    else:
-        data = fetch("GET", None)
+        def fetch(method: str, body: Optional[dict[str, Any]]) -> Any:
+            response = session.request(method, url, json=body, timeout=REQUEST_TIMEOUT)
+            return _parse_response(response, url, logger)
+
+        if config.method == "POST":
+            body = _build_search_body(
+                config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
+            )
+            data = fetch("POST", body)
+        else:
+            data = fetch("GET", None)
 
     # Every Shortcut list endpoint (and the stories search) returns a bare JSON array.
     if not isinstance(data, list):
