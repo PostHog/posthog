@@ -1,17 +1,33 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconWarning } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
+
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Metric } from 'lib/hog-charts'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, isNotNil } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
-import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
+import {
+    formatItem,
+    getOverviewItemTooltip,
+    OverviewGrid,
+    OverviewItem,
+    OverviewItemRenderHelpers,
+} from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+
+// Sentinel value the backend emits for changeFromPreviousPct when the previous period was 0
+const CHANGE_UNAVAILABLE = 999999
 
 let uniqueNode = 0
 
@@ -77,7 +93,69 @@ export function WebOverview(props: {
             usedPreAggregatedTables={usedWebAnalyticsPreAggregatedTables}
             usedLazyPrecompute={usedWebAnalyticsLazyPrecompute}
             labelFromKey={labelFromKey}
+            renderItem={(item, helpers) => <WebOverviewMetric item={item} helpers={helpers} />}
         />
+    )
+}
+
+function WebOverviewMetric({ item, helpers }: { item: OverviewItem; helpers: OverviewItemRenderHelpers }): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
+    const { label, usedPreAggregatedTables, usedLazyPrecompute } = helpers
+
+    const numericValue = typeof item.value === 'number' ? item.value : undefined
+
+    // The change pill is hidden when there's nothing to compare against or the backend signals it's unavailable
+    const hasChange = isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < CHANGE_UNAVAILABLE
+    const change = hasChange ? { value: item.changeFromPreviousPct as number } : null
+
+    const title = (
+        <span className="inline-flex items-center gap-1">
+            {label}
+            {item.warning && (
+                <Tooltip
+                    interactive={!!item.warningLink}
+                    title={
+                        <div>
+                            {item.warning}
+                            {item.warningLink && (
+                                <>
+                                    {' '}
+                                    <Link to={item.warningLink} className="text-link">
+                                        Learn more
+                                    </Link>
+                                </>
+                            )}
+                        </div>
+                    }
+                >
+                    <IconWarning className="text-warning h-3.5 w-3.5 cursor-pointer" />
+                </Tooltip>
+            )}
+        </span>
+    )
+
+    return (
+        <Tooltip title={getOverviewItemTooltip(item, label, baseCurrency)}>
+            <div className="relative flex-1 min-w-[10rem] border bg-surface-primary rounded p-3">
+                {usedLazyPrecompute ? (
+                    <PreAggregatedBadge variant="precomputed" />
+                ) : usedPreAggregatedTables ? (
+                    <PreAggregatedBadge variant="preagg" />
+                ) : null}
+                <Metric
+                    title={title}
+                    value={numericValue ?? 0}
+                    change={change}
+                    goodDirection={item.isIncreaseBad ? 'down' : 'up'}
+                    formatValue={(v) => (numericValue == null ? '-' : formatItem(v, item.kind, { currency: baseCurrency }))}
+                    subtitle={
+                        isNotNil(item.previous)
+                            ? `vs. ${formatItem(item.previous, item.kind, { currency: baseCurrency })} previous`
+                            : undefined
+                    }
+                />
+            </div>
+        </Tooltip>
     )
 }
 

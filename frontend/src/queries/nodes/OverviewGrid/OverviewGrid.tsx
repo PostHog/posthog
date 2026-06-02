@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { Fragment } from 'react'
 
 import { IconTrending, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton, Link } from '@posthog/lemon-ui'
@@ -50,6 +51,15 @@ interface OverviewGridProps {
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
+    /** Optional override for how each item is rendered. When omitted, the default centered cell is used. */
+    renderItem?: (item: OverviewItem, helpers: OverviewItemRenderHelpers) => JSX.Element
+}
+
+export interface OverviewItemRenderHelpers {
+    label: string
+    usedPreAggregatedTables: boolean
+    usedLazyPrecompute: boolean
+    compact: boolean
 }
 
 export function OverviewGrid({
@@ -62,6 +72,7 @@ export function OverviewGrid({
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
+    renderItem,
 }: OverviewGridProps): JSX.Element {
     const filteredItems = items.filter(filterEmptyItems)
 
@@ -78,16 +89,27 @@ export function OverviewGrid({
             >
                 {loading
                     ? range(numSkeletons).map((i) => <OverviewItemCellSkeleton key={i} compact={compact} />)
-                    : filteredItems.map((item) => (
-                          <OverviewItemCell
-                              key={item.key}
-                              item={item}
-                              usedPreAggregatedTables={usedPreAggregatedTables}
-                              usedLazyPrecompute={usedLazyPrecompute}
-                              labelFromKey={labelFromKey}
-                              compact={compact}
-                          />
-                      ))}
+                    : filteredItems.map((item) =>
+                          renderItem ? (
+                              <Fragment key={item.key}>
+                                  {renderItem(item, {
+                                      label: labelFromKey(item.key),
+                                      usedPreAggregatedTables,
+                                      usedLazyPrecompute,
+                                      compact,
+                                  })}
+                              </Fragment>
+                          ) : (
+                              <OverviewItemCell
+                                  key={item.key}
+                                  item={item}
+                                  usedPreAggregatedTables={usedPreAggregatedTables}
+                                  usedLazyPrecompute={usedLazyPrecompute}
+                                  labelFromKey={labelFromKey}
+                                  compact={compact}
+                              />
+                          )
+                      )}
             </EvenlyDistributedRows>
             {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
                 <LemonBanner type="info" className="my-4">
@@ -159,29 +181,7 @@ const OverviewItemCell = ({
                     }
             : undefined
 
-    // Handle tooltip logic with special cases for zero values and small changes
-    const tooltip =
-        isNotNil(item.value) &&
-        isNotNil(item.previous) &&
-        isNotNil(item.changeFromPreviousPct) &&
-        Math.abs(item.changeFromPreviousPct) < 999999
-            ? item.value === 0 && item.previous === 0
-                ? `${label}: No change (0 in both periods)`
-                : Math.abs(item.changeFromPreviousPct) < 1
-                  ? `${label}: No impactful change, less than 1%`
-                  : `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
-                        Math.abs(item.changeFromPreviousPct),
-                        { precise: true }
-                    )}, to ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} from ${formatItem(
-                        item.previous,
-                        item.kind,
-                        { precise: true, currency: baseCurrency }
-                    )}`
-            : isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999
-              ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} (was 0 in previous period)`
-              : isNotNil(item.value)
-                ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
-                : 'No data'
+    const tooltip = getOverviewItemTooltip(item, label, baseCurrency)
 
     return (
         <div
@@ -251,6 +251,37 @@ const OverviewItemCell = ({
     )
 }
 
+// Builds the hover tooltip for an overview metric, with special cases for zero values and small changes
+export const getOverviewItemTooltip = (item: OverviewItem, label: string, currency: string): string => {
+    if (
+        isNotNil(item.value) &&
+        isNotNil(item.previous) &&
+        isNotNil(item.changeFromPreviousPct) &&
+        Math.abs(item.changeFromPreviousPct) < 999999
+    ) {
+        if (item.value === 0 && item.previous === 0) {
+            return `${label}: No change (0 in both periods)`
+        }
+        if (Math.abs(item.changeFromPreviousPct) < 1) {
+            return `${label}: No impactful change, less than 1%`
+        }
+        return `${label}: ${item.value >= item.previous ? 'increased' : 'decreased'} by ${formatPercentage(
+            Math.abs(item.changeFromPreviousPct),
+            { precise: true }
+        )}, to ${formatItem(item.value, item.kind, { precise: true, currency })} from ${formatItem(item.previous, item.kind, {
+            precise: true,
+            currency,
+        })}`
+    }
+    if (isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999) {
+        return `${label}: ${formatItem(item.value, item.kind, { precise: true, currency })} (was 0 in previous period)`
+    }
+    if (isNotNil(item.value)) {
+        return `${label}: ${formatItem(item.value, item.kind, { precise: true, currency })}`
+    }
+    return 'No data'
+}
+
 const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     if (options?.precise) {
         return x.toLocaleString()
@@ -258,7 +289,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
+export const formatItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }
