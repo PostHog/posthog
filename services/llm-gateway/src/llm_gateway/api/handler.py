@@ -65,18 +65,12 @@ def normalize_litellm_model_name(model: str, provider: str) -> str:
     return f"{provider}/{model}"
 
 
-# Block model prefixes that would route to a provider this gateway doesn't intend
-# to call through the generic path. Two reasons:
-# - Google providers require litellm[google] (not installed) and would crash deep
-#   in vertex_llm_base with an ImportError if we let them through.
-# - Cloudflare's native litellm provider (`cloudflare/...`) would bypass the
-#   per-call credential injection and the CLOUDFLARE_ALLOWED_MODELS allowlist
-#   that the gateway-routed `@cf/...` path enforces. Reject at the edge so
-#   callers can't smuggle in arbitrary Workers AI models on gateway credentials.
-# Match both explicit provider prefixes (gemini/foo, vertex_ai/foo) and bare names
-# that litellm will route to vertex/gemini — most commonly anything starting with
-# "gemini-" (e.g. "gemini-3-pro-preview") — since those may not yet be in the cost
-# registry when brand new.
+# Block model prefixes that would route to a provider we don't call via the generic path:
+# - Google needs litellm[google] (not installed) — would crash in vertex_llm_base with ImportError.
+# - Native `cloudflare/...` bypasses per-call credential injection and the CLOUDFLARE_ALLOWED_MODELS
+#   allowlist the `@cf/...` path enforces — reject so callers can't smuggle models onto gateway creds.
+# Matches explicit prefixes (gemini/, vertex_ai/) and bare gemini- names litellm routes to vertex/gemini,
+# which may not be in the cost registry yet when brand new.
 _UNSUPPORTED_PROVIDERS = frozenset({"vertex_ai", "vertex_ai-language-models", "gemini", "cloudflare"})
 _UNSUPPORTED_MODEL_PREFIXES = (
     *(f"{p}/" for p in _UNSUPPORTED_PROVIDERS),
@@ -107,18 +101,15 @@ def _raise_if_unsupported_model(model: str) -> None:
         _raise_unsupported_model(model)
 
 
-# Parameters that control LLM client routing/authentication.
-# These must never be accepted from user input to prevent request
-# redirection and API key exfiltration.
+# LLM routing/auth params — never accept from user input (request redirection, key exfiltration).
 FORBIDDEN_REQUEST_PARAMS = frozenset(
     {"api_key", "api_base", "base_url", "api_version", "organization", "model_list", "fallbacks", "custom_llm_provider"}
 )
 
 
 def _sanitize_request_value(value: Any) -> Any:
-    # Recursively strip forbidden params from nested dicts and lists.
-    # litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
-    # to the upstream provider, so a shallow filter is insufficient.
+    # Strip recursively: litellm forwards nested params (e.g. model_list[*].litellm_params.api_key)
+    # to the provider, so a shallow filter is insufficient.
     if isinstance(value, dict):
         return {k: _sanitize_request_value(v) for k, v in value.items() if k not in FORBIDDEN_REQUEST_PARAMS}
     if isinstance(value, list):

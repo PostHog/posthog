@@ -14,13 +14,10 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 from llm_gateway.config import Settings
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 
-# The CF Workers AI catalog is large and any `@cf/...` model would otherwise route
-# through the gateway's CF credentials. Restrict routing to the subset we've
-# explicitly priced via COST_ALIASES — otherwise unknown models fall through to
-# `default_fallback_cost_usd` in the rate-limit callback and the gateway eats the
-# real CF bill while billing the user a flat fallback. Derived from COST_ALIASES
-# so the price-list and routing-list can't drift: registering a new alias
-# auto-allows it, and you can't route a model without first pricing it.
+# Restrict `@cf/...` routing to models we've priced in COST_ALIASES. Unpriced models fall through
+# to `default_fallback_cost_usd`, so the gateway would eat the real CF bill while charging the user
+# a flat fallback. Derived from COST_ALIASES so the two can't drift — registering an alias auto-allows
+# it, and you can't route a model without pricing it first.
 CLOUDFLARE_ALLOWED_MODELS: frozenset[str] = frozenset(
     alias.removeprefix("openai/") for alias in COST_ALIASES if alias.startswith("openai/@cf/")
 )

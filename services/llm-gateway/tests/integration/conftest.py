@@ -142,10 +142,9 @@ def run_gateway_server(configure_all_providers: bool = False, bedrock_region_nam
         env_patches["ANTHROPIC_API_KEY"] = "sk-ant-test-fake-key"
         env_patches["OPENROUTER_API_KEY"] = "or-test-fake-key"
         env_patches["FIREWORKS_API_KEY"] = "fw-test-fake-key"
-    # Only the LLM_GATEWAY_-prefixed vars are needed — Pydantic Settings reads them
-    # to populate `settings.cloudflare_*`. The raw CLOUDFLARE_* env vars are NOT
-    # exported because the CF path injects credentials per-call; exporting them
-    # would let litellm's native `cloudflare/...` provider pick them up.
+    # Only LLM_GATEWAY_-prefixed vars are needed — Pydantic Settings reads them into
+    # `settings.cloudflare_*`. Raw CLOUDFLARE_* vars aren't exported: the CF path injects creds
+    # per-call, and exporting them would let litellm's native `cloudflare/...` provider pick them up.
     if CLOUDFLARE_API_KEY:
         env_patches["LLM_GATEWAY_CLOUDFLARE_API_KEY"] = CLOUDFLARE_API_KEY
     if CLOUDFLARE_ACCOUNT_ID:

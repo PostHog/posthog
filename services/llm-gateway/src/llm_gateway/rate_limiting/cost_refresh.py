@@ -12,23 +12,19 @@ logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 300
 
-# Models routed through non-canonical litellm providers (e.g. Cloudflare via
-# openai/ prefix) won't match their cost map entry. Map the key we actually
-# pass to litellm → the canonical key in the cost map.
+# Models on non-canonical litellm providers (e.g. Cloudflare via openai/ prefix) don't match their
+# cost map entry. Map the key we pass to litellm → the canonical cost-map key.
 #
-# Note on Cloudflare entries: litellm doesn't publish per-model CF prices for
-# anything beyond a few legacy Llama-2/Mistral variants. We alias to the model
-# vendor's direct rate (e.g. moonshot/kimi-k2.6) as a proxy; this is *not* CF's
-# actual resold rate, and may drift if CF introduces markup or flat-rate billing.
+# CF entries: litellm publishes per-model CF prices only for a few legacy Llama-2/Mistral variants,
+# so we alias to the vendor's direct rate (e.g. moonshot/kimi-k2.6) as a proxy — not CF's actual
+# resold rate, and may drift if CF adds markup or flat-rate billing.
 COST_ALIASES: dict[str, str] = {
     "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
 }
 
-# For the same aliased models, the (provider, model) labels litellm reports
-# don't match what the user asked for. Map the litellm-view model key → the
-# user-facing (provider, model) pair we want to emit in metrics. Kept separate
-# from COST_ALIASES because cost lookups go through litellm.model_cost (keyed
-# on the litellm-view model), while metric labels should reflect user intent.
+# For aliased models, litellm's reported (provider, model) labels don't match what the user asked
+# for. Map the litellm-view model key → the user-facing (provider, model) pair to emit in metrics.
+# Separate from COST_ALIASES: cost lookups key on litellm.model_cost, metric labels on user intent.
 ALIAS_METRIC_LABELS: dict[str, tuple[str, str]] = {
     "openai/@cf/moonshotai/kimi-k2.6": ("cloudflare", "@cf/moonshotai/kimi-k2.6"),
 }

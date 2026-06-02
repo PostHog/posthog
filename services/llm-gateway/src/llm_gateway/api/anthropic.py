@@ -302,10 +302,9 @@ async def _handle_count_tokens(
 
     if provider == "cloudflare":
         ensure_cloudflare_model_allowed(body.model)
-        # CF Workers AI has no count_tokens endpoint. Approximate with litellm's
-        # tokenizer on the serialised payload — a slight over-count is safe for
-        # the Claude Agent SDK / posthog-code callers, which use this for
-        # context-window budgeting (under-count overflows, over-count just trims).
+        # CF Workers AI has no count_tokens endpoint. Approximate via litellm's tokenizer on the
+        # serialised payload — callers use this for context-window budgeting, where over-counting
+        # just trims and only under-counting would overflow.
         aliased_model = f"openai/{body.model}"
         try:
             count = litellm.token_counter(model=aliased_model, text=json.dumps(data))
