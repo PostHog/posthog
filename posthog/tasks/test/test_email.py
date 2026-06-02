@@ -27,6 +27,7 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_mfa_link,
     send_email_verification,
     send_fatal_plugin_error,
     send_hog_function_disabled,
@@ -390,6 +391,76 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthoganalytics.capture")
+    def test_send_email_verification_without_organization_still_sends(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = email_verification_token_generator.make_token(self.user)
+        user.current_organization = None
+        user.save()
+
+        send_email_verification(user.id, token)
+
+        # email is delivered and analytics capture omits groups rather than crashing
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        mock_capture.assert_called_once_with(
+            event="verification email sent",
+            distinct_id=user.distinct_id,
+            groups=None,
+        )
+
+    @patch("posthoganalytics.capture")
+    def test_send_email_verification_does_not_fail_when_capture_raises(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        token = email_verification_token_generator.make_token(self.user)
+        mock_capture.side_effect = Exception("analytics is down")
+
+        # a failing analytics capture must not break the email-send path
+        send_email_verification(user.id, token)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+    @patch("posthoganalytics.capture")
+    def test_send_email_mfa_link(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+
+        send_email_mfa_link(user.id, "some-token")
+
+        mock_capture.assert_called_once_with(
+            event="email mfa link sent",
+            distinct_id=user.distinct_id,
+            groups={"organization": str(user.current_organization_id)},
+        )
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+
+    @patch("posthoganalytics.capture")
+    def test_send_email_mfa_link_without_organization_still_sends(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        user.current_organization = None
+        user.save()
+
+        send_email_mfa_link(user.id, "some-token")
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        mock_capture.assert_called_once_with(
+            event="email mfa link sent",
+            distinct_id=user.distinct_id,
+            groups=None,
+        )
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

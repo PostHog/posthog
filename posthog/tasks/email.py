@@ -439,6 +439,20 @@ def send_password_changed_email(user_id: int) -> None:
     message.send()
 
 
+def _capture_email_event(user: User, event: str) -> None:
+    """Best-effort analytics capture that must never block email delivery."""
+    try:
+        organization = user.current_organization
+        capture_groups = {"organization": str(organization.id)} if organization is not None else None
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event=event,
+            groups=capture_groups,
+        )
+    except Exception:
+        logger.exception("Failed to capture email analytics event", event=event, user_id=user.pk)
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_email_verification(user_id: int, token: str, next_url: str | None = None) -> None:
@@ -458,11 +472,7 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     )
     message.add_user_recipient(user, email_override=user.pending_email)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    _capture_email_event(user, "verification email sent")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -487,11 +497,7 @@ def send_email_mfa_link(user_id: int, token: str) -> None:
     )
     message.add_user_recipient(user)
     message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="email mfa link sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    _capture_email_event(user, "email mfa link sent")
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
