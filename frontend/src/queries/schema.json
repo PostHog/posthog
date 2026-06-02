@@ -14595,6 +14595,10 @@
                     "description": "Name of the ExternalDataSchema responsible for syncing the table",
                     "type": "string"
                 },
+                "source_id": {
+                    "description": "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables.",
+                    "type": ["string", "null"]
+                },
                 "source_type": {
                     "description": "Source type, e.g. \"Stripe\", \"Hubspot\"",
                     "type": "string"
@@ -20055,6 +20059,7 @@
                 "Plain",
                 "Resend",
                 "PgAnalyze",
+                "WorkOS",
                 "Custom"
             ],
             "type": "string"
@@ -20337,8 +20342,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports",
-                "deployments"
+                "exports"
             ],
             "type": "string"
         },
@@ -28935,7 +28939,8 @@
                 "vercel_integration",
                 "endpoint_created",
                 "endpoint_created_from_insight",
-                "endpoint_created_from_sql_editor"
+                "endpoint_created_from_sql_editor",
+                "tracing_docs_viewed"
             ],
             "type": "string"
         },
@@ -28999,7 +29004,6 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
-                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
@@ -35439,6 +35443,11 @@
                     },
                     "type": "array"
                 },
+                "hide_viewed_recordings": {
+                    "description": "Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set.",
+                    "enum": ["current-user", "any-user", null],
+                    "type": ["string", "null"]
+                },
                 "kind": {
                     "const": "RecordingsQuery",
                     "type": "string"
@@ -41114,6 +41123,11 @@
                 "smoothingIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 1
+                },
+                "stackBreakdownValues": {
+                    "default": false,
+                    "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
+                    "type": "boolean"
                 },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",

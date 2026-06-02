@@ -292,14 +292,6 @@ pub struct FlagsCanonicalLogLine {
     /// `team_id` is resolved.
     pub phases: PhaseDurations,
 
-    /// Duration of the synchronous Redis HINCRBY billing increment in
-    /// milliseconds. Only populated from endpoints that run inside a canonical
-    /// log scope (currently `/flags` and `/decide`). `None` when billing was
-    /// skipped (no billable flags or `skip_writes`), or when called from an
-    /// endpoint that does not emit a canonical log line (e.g.
-    /// `/flags/definitions`).
-    pub billing_duration_ms: Option<u64>,
-
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
     pub team_cache_source: Option<&'static str>,
@@ -361,7 +353,6 @@ impl Default for FlagsCanonicalLogLine {
             concurrency_limit_wait_ms: None,
             body_read_ms: None,
             phases: PhaseDurations::default(),
-            billing_duration_ms: None,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -434,7 +425,6 @@ impl FlagsCanonicalLogLine {
             pre_handler_duration_ms = self.pre_handler_duration_ms,
             concurrency_limit_wait_ms = self.concurrency_limit_wait_ms,
             body_read_ms = self.body_read_ms,
-            billing_duration_ms = self.billing_duration_ms,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             is_bot = self.is_bot,

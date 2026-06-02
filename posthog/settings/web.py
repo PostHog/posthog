@@ -75,7 +75,6 @@ PRODUCTS_APPS = [
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
-    "products.deployments.backend.apps.DeploymentsConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
@@ -633,20 +632,6 @@ CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
 CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
 CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 CLOUDFLARE_PROXY_BASE_CNAME = get_from_env("CLOUDFLARE_PROXY_BASE_CNAME", "")
-
-# Single-tenant Cloudflare Pages settings for the Deployments product.
-# Separate from the SaaS proxy block above: different account scope (Pages,
-# not Workers + DNS for posthog.com) and a different zone (hog.dev).
-DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID = get_from_env("DEPLOYMENTS_CLOUDFLARE_ACCOUNT_ID", "")
-DEPLOYMENTS_CLOUDFLARE_API_TOKEN = get_from_env("DEPLOYMENTS_CLOUDFLARE_API_TOKEN", "")
-DEPLOYMENTS_HOG_DEV_ZONE_ID = get_from_env("DEPLOYMENTS_HOG_DEV_ZONE_ID", "")
-DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX = get_from_env("DEPLOYMENTS_CLOUDFLARE_PROJECT_PREFIX", "hogdev-")
-
-# Base URL the deployments Temporal worker uses when calling back into
-# the internal API. Worker pods in the same cluster set this to the
-# cluster-internal Service URL (e.g. http://posthog-web-django.posthog
-# .svc.cluster.local:8000). Empty value falls back to SITE_URL.
-DEPLOYMENTS_INTERNAL_API_BASE_URL = get_from_env("DEPLOYMENTS_INTERNAL_API_BASE_URL", "")
 
 # Domain Connect (automated DNS configuration)
 DOMAIN_CONNECT_PRIVATE_KEY: str | None = os.getenv("DOMAIN_CONNECT_PRIVATE_KEY", "").replace("\\n", "\n") or None

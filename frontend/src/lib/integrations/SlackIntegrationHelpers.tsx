@@ -16,6 +16,7 @@ import { IconSlackExternal } from 'lib/lemon-ui/icons'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
+import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 export function SlackNotConfiguredBanner(): JSX.Element {
@@ -79,6 +80,7 @@ export type SlackChannelPickerProps = {
 export function SlackChannelPicker({ onChange, value, integration, disabled }: SlackChannelPickerProps): JSX.Element {
     const {
         slackChannels,
+        slackChannelsForPicker,
         allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
@@ -94,12 +96,15 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     usePeriodicRerender(channelRefreshButtonDisabledReason ? 1000 : 60_000)
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
-    const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
+    const rawSlackChannelOptions = useMemo(
+        () => getSlackChannelOptions(slackChannelsForPicker),
+        [slackChannelsForPicker]
+    )
 
     const slackChannelOptions = (): LemonInputSelectOption[] | null => {
         return rawSlackChannelOptions
             ? rawSlackChannelOptions.filter((x) => {
-                  const [id] = x.key.split('|#')
+                  const id = slackChannelId(x.key)
                   // Only show a private channel if searching for the exact channelId or it's currently selected
                   return !isPrivateChannelWithoutAccess(id) || id === value || id === localValue
               })
