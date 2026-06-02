@@ -94,23 +94,50 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(new Set(labels).size).toBe(4)
     })
 
-    it('groups same-label breakdown rows of one series onto one band (overlap layout preserved)', () => {
-        // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of
-        // the same formula share it, so they share a band and the overlap-on-top visual holds.
-        const spec: [string, number][] = [
-            ['Binary Size', 0],
-            ['Binary Size', 0],
-            ['Binary Size', 0],
-            ['Embedded Assets', 1],
-            ['Embedded Assets', 1],
-            ['Runtime & Code', 2],
-            ['Runtime & Code', 2],
+    // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of the
+    // same formula share both the formula label and the order. They must NOT collapse by default.
+    const formulaBreakdownSpec: [string, number][] = [
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Embedded Assets', 1],
+        ['Embedded Assets', 1],
+        ['Runtime & Code', 2],
+        ['Runtime & Code', 2],
+    ]
+
+    it.each([
+        { name: 'separate by default — one band per breakdown value', stackBreakdowns: undefined, expectedBands: 7 },
+        { name: 'one band per formula when stackBreakdowns is set', stackBreakdowns: true, expectedBands: 3 },
+    ])('formula breakdown rows: $name', ({ stackBreakdowns, expectedBands }) => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns })
+        expect(new Set(labels).size).toBe(expectedBands)
+    })
+
+    it('keeps each result label as its band display label in separate mode', () => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
+        expect(displayLabels).toEqual(formulaBreakdownSpec.map(([label]) => label))
+    })
+
+    it('keeps current and previous on separate bands in stacked mode even at the same order', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Chrome' }),
+            mkResult({ id: 'b', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Safari' }),
+            mkResult({ id: 'c', label: 'F', order: 0, compare_label: 'previous', breakdown_value: 'Chrome' }),
         ]
-        const results = spec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
-        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(displayLabels).toEqual(spec.map(([label]) => label))
-        // 7 results, but only 3 distinct band slots — one per formula.
-        expect(new Set(labels).size).toBe(3)
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        expect(new Set(labels).size).toBe(2)
+    })
+
+    it('uses getDisplayLabel for the category label when provided', () => {
+        const results = [mkResult({ id: 'a', label: 'Formula (A + B)', breakdown_value: 'Chrome' })]
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getDisplayLabel: (r) => String(r.breakdown_value),
+        })
+        expect(displayLabels).toEqual(['Chrome'])
     })
 
     it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
@@ -167,67 +194,6 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(displayLabels).toEqual(expected)
         // Distinct display labels → distinct band keys after the series-id suffix.
         expect(new Set(labels).size).toBe(labels.length)
-    })
-
-    it.each([
-        {
-            name: 'prefers the series custom name over the event name when no breakdown',
-            results: [
-                { id: 'a', label: 'Job Created', action: { order: 0, custom_name: 'Articles' }, aggregated_value: 1 },
-                { id: 'b', label: 'Job Created', action: { order: 1, custom_name: 'Products' }, aggregated_value: 2 },
-            ] satisfies Partial<TrendsBarResultLike>[],
-            expected: ['Articles', 'Products'],
-            distinctBands: 2,
-        },
-        {
-            name: 'appends compare_label to the custom name',
-            results: [
-                {
-                    id: 'a',
-                    label: 'Job Created',
-                    action: { order: 0, custom_name: 'Articles' },
-                    compare_label: 'current',
-                    aggregated_value: 1,
-                },
-            ] satisfies Partial<TrendsBarResultLike>[],
-            expected: ['Articles - current'],
-            distinctBands: 1,
-        },
-        {
-            name: 'falls back to the event label when no custom name is set',
-            results: [
-                { id: 'a', label: 'Job Created', action: { order: 0 }, aggregated_value: 1 },
-            ] satisfies Partial<TrendsBarResultLike>[],
-            expected: ['Job Created'],
-            distinctBands: 1,
-        },
-        {
-            name: 'keeps the breakdown value when a custom name and a breakdown coexist (bands stay distinct)',
-            results: [
-                {
-                    id: 'a',
-                    label: 'Chrome',
-                    breakdown_value: 'Chrome',
-                    action: { order: 0, custom_name: 'Job Created' },
-                    aggregated_value: 1,
-                },
-                {
-                    id: 'b',
-                    label: 'Safari',
-                    breakdown_value: 'Safari',
-                    action: { order: 0, custom_name: 'Job Created' },
-                    aggregated_value: 2,
-                },
-            ] satisfies Partial<TrendsBarResultLike>[],
-            expected: ['Chrome', 'Safari'],
-            distinctBands: 2,
-        },
-    ])('$name', ({ results, expected, distinctBands }) => {
-        const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results.map(mkResult), {
-            getColor: () => RED,
-        })
-        expect(displayLabels).toEqual(expected)
-        expect(new Set(labels).size).toBe(distinctBands)
     })
 
     it('drops hidden results so visible bars are densely packed', () => {

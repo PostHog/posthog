@@ -18,7 +18,7 @@ export interface TrendsBarResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number; custom_name?: string | null } | null
+    action?: { order?: number } | null
     // Formula rows carry a top-level `order` instead of `action.order`.
     order?: number | null
     breakdown_value?: unknown
@@ -29,6 +29,14 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+}
+
+export interface BuildTrendsBarAggregatedSeriesOpts<
+    R extends TrendsBarResultLike,
+    M = unknown,
+> extends BuildTrendsBarSeriesOpts<R, M> {
+    stackBreakdowns?: boolean
+    getDisplayLabel?: (r: R, index: number) => string
 }
 
 function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
@@ -98,7 +106,7 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
     }
 }
 
-/** Separator between display label and series id in synthetic band keys. */
+/** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
 
 // Sparse-stacked: hog-charts BarChart allows one color per series, so we emit N series with
@@ -106,22 +114,25 @@ const BAND_KEY_SEP = '\u001f'
 // Trade-off: only the last series gets rounded-corner caps.
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
-    opts: BuildTrendsBarSeriesOpts<R, M>
+    opts: BuildTrendsBarAggregatedSeriesOpts<R, M>
 ): { series: Series<M>[]; labels: string[]; displayLabels: string[] } {
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
-    const displayLabels = visible.map((r) => {
-        // Custom name wins over the event name, but a breakdown keeps its value (carried in `r.label`).
-        const hasBreakdown = r.breakdown_value !== undefined && r.breakdown_value !== null
-        const base = !hasBreakdown && r.action?.custom_name ? r.action.custom_name : (r.label ?? '')
+    const displayLabels = visible.map((r, i) => {
+        const base = opts.getDisplayLabel ? opts.getDisplayLabel(r, i) : (r.label ?? '')
         return r.compare_label ? `${base} - ${r.compare_label}` : base
     })
-    // Suffix the band key with the series identity so duplicate display labels from
-    // different series get distinct bands (breakdowns of one series still share a band).
+    // Band key strategy:
+    // - separate (default): unique per result, so every breakdown value gets its own band.
+    // - stacked: one band per series/formula (keyed by order + compare_label) so a series'
+    //   breakdown values collapse onto one band and stack into a single bar.
     const labels = visible.map((r, i) => {
+        if (!opts.stackBreakdowns) {
+            return String(i)
+        }
         const seriesId = r.action?.order ?? r.order ?? 0
-        return `${displayLabels[i]}${BAND_KEY_SEP}${seriesId}`
+        return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })
     const n = visible.length
     const series = visible.map((r, index) => {
