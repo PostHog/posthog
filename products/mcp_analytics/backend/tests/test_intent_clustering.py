@@ -7,25 +7,36 @@ shape we promise the frontend.
 
 import math
 import uuid
+import asyncio
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 import numpy as np
 from parameterized import parameterized
 
+from posthog.api.embedding_worker import EmbeddingResponse
+
+from products.mcp_analytics.backend import intent_clustering
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
+    EMBEDDING_MODEL,
     NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
+    _content_hash,
+    _decode_embedding,
+    _encode_embedding,
     _medoid_index,
     _routing_entropy,
     build_snapshot,
     cluster_embeddings,
+    embed_intents_async,
     fetch_intent_corpus,
 )
-from products.mcp_analytics.backend.models import MCPSession
+from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 # Helpers
@@ -338,3 +349,171 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert [r.intent_text for r in records] == ["look up feature flag rollout"]
         assert intent_by_session == {"real": "look up feature flag rollout"}
+
+
+# Embedding helpers -----------------------------------------------------
+
+
+class TestEmbeddingHelpers:
+    def test_content_hash_includes_prefix(self) -> None:
+        # The prefix is what we actually embed, so the hash must include it.
+        assert _content_hash("hello") != _content_hash("ello")
+        assert _content_hash("hello") == _content_hash("hello")  # stable
+
+    def test_encode_decode_round_trips_to_float32(self) -> None:
+        vec = [0.1, -0.2, 0.5, 1.5e-3]
+        blob = _encode_embedding(vec)
+        decoded = _decode_embedding(blob)
+        assert decoded.dtype == np.float32
+        assert np.allclose(decoded, np.asarray(vec, dtype=np.float32))
+
+
+# embed_intents_async (cache integration, mocked ORM) ------------------------
+
+
+def _fake_embedding(text: str) -> EmbeddingResponse:
+    seed = int.from_bytes(text.encode("utf-8")[:4].ljust(4, b"\x00"), "little")
+    rng = np.random.default_rng(seed)
+    vec = rng.standard_normal(1536).astype(np.float32)
+    vec /= np.linalg.norm(vec)
+    return EmbeddingResponse(embedding=vec.tolist(), tokens_used=0, did_truncate=False)
+
+
+class TestEmbedIntentsAsyncCacheLogic:
+    """Cache hit/miss logic with the Postgres helpers mocked.
+
+    The ORM round-trip is covered separately by ``TestEmbeddingCacheModel``
+    so the async logic can be exercised without TransactionTestCase setup —
+    mirrors the pattern in ``test_tasks.py`` (mock the IO, assert the call
+    shape).
+    """
+
+    @staticmethod
+    def _call(texts: list[str], cached: dict[str, np.ndarray], worker: Any) -> tuple[np.ndarray, list[int]]:
+        async def _load(team, hashes, model):  # noqa: ARG001
+            return cached
+
+        async def _persist(team, content_hash, model, vector):  # noqa: ARG001
+            cached[content_hash] = np.asarray(vector, dtype=np.float32)
+
+        with (
+            patch.object(intent_clustering, "_load_cached_embeddings", side_effect=_load),
+            patch.object(intent_clustering, "_persist_embedding", side_effect=_persist),
+            patch.object(intent_clustering, "async_generate_embedding", side_effect=worker),
+        ):
+            return asyncio.run(embed_intents_async(object(), texts))  # type: ignore[arg-type]
+
+    def test_first_run_populates_cache(self) -> None:
+        cached: dict[str, np.ndarray] = {}
+
+        async def _fake_call(_team, text, model):  # noqa: ARG001
+            return _fake_embedding(text)
+
+        embeddings, valid_indices = self._call(["intent A", "intent B"], cached, _fake_call)
+
+        assert embeddings.shape == (2, 1536)
+        assert valid_indices == [0, 1]
+        # Both intents persisted into the cache.
+        assert set(cached.keys()) == {_content_hash("intent A"), _content_hash("intent B")}
+
+    def test_full_cache_hit_skips_worker(self) -> None:
+        # Pre-populate the cache with both intents.
+        cached = {_content_hash(t): np.asarray(_fake_embedding(t).embedding, dtype=np.float32) for t in ("a", "b")}
+
+        async def _explode(_team, _text, model):  # noqa: ARG001
+            raise AssertionError("worker must not be called on cache hit")
+
+        embeddings, valid_indices = self._call(["a", "b"], cached, _explode)
+
+        assert valid_indices == [0, 1]
+        assert embeddings.shape == (2, 1536)
+
+    def test_partial_cache_only_embeds_missing(self) -> None:
+        cached = {_content_hash("a"): np.asarray(_fake_embedding("a").embedding, dtype=np.float32)}
+        worker_calls: list[str] = []
+
+        async def _fake_call(_team, text, model):  # noqa: ARG001
+            worker_calls.append(text)
+            return _fake_embedding(text)
+
+        embeddings, valid_indices = self._call(["a", "b"], cached, _fake_call)
+
+        assert len(worker_calls) == 1
+        assert worker_calls[0].endswith("b")
+        assert embeddings.shape == (2, 1536)
+        assert valid_indices == [0, 1]
+
+    def test_worker_failure_skips_intent(self) -> None:
+        cached: dict[str, np.ndarray] = {}
+
+        async def _fail(_team, _text, model):  # noqa: ARG001
+            raise RuntimeError("worker down")
+
+        embeddings, valid_indices = self._call(["a", "b"], cached, _fail)
+
+        assert valid_indices == []
+        assert embeddings.shape == (0, 0)
+        assert cached == {}
+
+    def test_duplicate_texts_each_call_the_worker(self) -> None:
+        # Documents intentional production behaviour: dedup happens upstream
+        # (fetch_intent_corpus aggregates by distinct intent_text), so
+        # embed_intents_async itself does not dedup. If the caller passes the
+        # same text twice, each call independently misses the in-memory cache
+        # and hits the worker. The unique constraint on the cache row makes
+        # the persist-side race harmless.
+        cached: dict[str, np.ndarray] = {}
+        worker_calls: list[str] = []
+
+        async def _fake_call(_team, text, model):  # noqa: ARG001
+            worker_calls.append(text)
+            # Real httpx suspends here on the HTTP round-trip; the mock must
+            # yield too, otherwise Task A runs to completion (including its
+            # persist writeback into `cached`) before Task B's cache check
+            # ever runs, and the test would observe spurious dedup that
+            # doesn't happen in production.
+            await asyncio.sleep(0)
+            return _fake_embedding(text)
+
+        embeddings, valid_indices = self._call(["dup", "dup"], cached, _fake_call)
+
+        assert len(worker_calls) == 2
+        assert valid_indices == [0, 1]
+        assert embeddings.shape == (2, 1536)
+
+
+# Cache model round-trip ----------------------------------------------------
+
+
+class TestEmbeddingCacheModel(_MCPAnalyticsTeamScopedTestMixin, BaseTest):
+    """Pure ORM coverage — proves the model and unique constraint work as expected."""
+
+    def test_round_trip_via_encode_decode(self) -> None:
+        vec = _fake_embedding("alpha").embedding
+        MCPIntentEmbeddingCache.objects.create(
+            team=self.team,
+            content_hash=_content_hash("alpha"),
+            model=EMBEDDING_MODEL,
+            embedding=_encode_embedding(vec),
+        )
+        row = MCPIntentEmbeddingCache.objects.get(team=self.team, content_hash=_content_hash("alpha"))
+        decoded = _decode_embedding(bytes(row.embedding))
+        assert decoded.shape == (1536,)
+        assert np.allclose(decoded, np.asarray(vec, dtype=np.float32))
+
+    def test_unique_constraint_blocks_duplicate(self) -> None:
+        from django.db.utils import IntegrityError
+
+        MCPIntentEmbeddingCache.objects.create(
+            team=self.team,
+            content_hash="abc",
+            model=EMBEDDING_MODEL,
+            embedding=_encode_embedding([0.0]),
+        )
+        with pytest.raises(IntegrityError):
+            MCPIntentEmbeddingCache.objects.create(
+                team=self.team,
+                content_hash="abc",
+                model=EMBEDDING_MODEL,
+                embedding=_encode_embedding([1.0]),
+            )

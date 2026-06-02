@@ -1,3 +1,4 @@
+# Workflows in this module run on the max-ai temporal task queue.
 import re
 import json
 import asyncio
@@ -416,7 +417,28 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 if cascade.mode == "auto":
                     repository = cascade.repository
                 elif cascade.mode == "no_repo":
+                    # Cascade only emits `no_repo` when neither the team nor the
+                    # mentioning user has any GitHub install. Classify first so
+                    # non-coding asks ("how do I configure retention?") still
+                    # answer with no repo; coding asks surface the connect-personal-
+                    # GitHub prompt instead of silently no-op'ing.
                     repository = None
+                    if workflow.patched("posthog-code-classify-before-gate-2026-06"):
+                        needs_repo = await _execute_posthog_code_activity(
+                            classify_posthog_code_task_needs_repo_activity,
+                            event.get("text", ""),
+                            thread_messages,
+                        )
+                        if needs_repo:
+                            blocked = await _execute_posthog_code_activity(
+                                block_posthog_code_task_if_no_personal_github_activity,
+                                inputs,
+                                channel,
+                                thread_ts,
+                                user_id,
+                            )
+                            if blocked:
+                                return
                 elif cascade.mode == "needs_user_github":
                     # Team has GitHub, but the mentioning user hasn't connected their
                     # personal install. Fire the gate so they get the Connect button
