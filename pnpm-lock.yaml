@@ -636,9 +636,6 @@ importers:
       '@posthog/products-data-warehouse':
         specifier: workspace:*
         version: link:../products/data_warehouse
-      '@posthog/products-deployments':
-        specifier: workspace:*
-        version: link:../products/deployments
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
@@ -2500,37 +2497,6 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
-
-  products/deployments:
-    dependencies:
-      '@posthog/icons':
-        specifier: '*'
-        version: 0.36.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@types/react':
-        specifier: 18.3.27
-        version: 18.3.27
-      kea:
-        specifier: 'catalog:'
-        version: 4.0.0-pre.5(react@18.3.1)
-      kea-loaders:
-        specifier: 'catalog:'
-        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
-      kea-router:
-        specifier: 'catalog:'
-        version: 3.4.1(kea@4.0.0-pre.5(react@18.3.1))
-      posthog-js:
-        specifier: 'catalog:'
-        version: 1.378.1
-      react:
-        specifier: 18.3.1
-        version: 18.3.1
-    devDependencies:
-      '@storybook/react':
-        specifier: 'catalog:'
-        version: 7.6.24(encoding@0.1.13)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@6.0.3)
-      kea-test-utils:
-        specifier: 'catalog:'
-        version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
   products/desktop_recordings: {}
 
@@ -23097,8 +23063,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.417.0:
-    resolution: {integrity: sha512-G+yAoOO4d+OwRq/XEoDWwRAF/qniqPMhQNd8Obb3p4GTyPEwKLgzuEzDCab+mXJhmdREh57EoMfqm0aJko3oyw==}
+  unlayer-types@1.419.0:
+    resolution: {integrity: sha512-Yl4/EK+aafqO0a2+NRECq3+T1r+PIVJchAuDKVaAGR4YvGGe9npC0d+LkPag6n22+U/bxGHaf1WxnhrZzR3rKw==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -47080,7 +47046,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.417.0
+      unlayer-types: 1.419.0
 
   react-grid-layout@2.2.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -49565,7 +49531,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.417.0: {}
+  unlayer-types@1.419.0: {}
 
   unpipe@1.0.0: {}
 
