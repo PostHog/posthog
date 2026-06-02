@@ -339,6 +339,12 @@ const UNSAFE_HOST_PATTERNS: ReadonlyArray<RegExp> = [
     // literal v6 addresses (`[::1]`), but `URL.hostname` strips the
     // brackets — match the unbracketed form.
     /^::1$/,
+    // IPv4-mapped IPv6 (`::ffff:x.x.x.x`). Node's WHATWG URL parser rewrites
+    // the dotted-decimal tail to hex groups, so `[::ffff:169.254.169.254]`
+    // and `[::ffff:10.0.0.1]` arrive here as `::ffff:a9fe:a9fe` / `::ffff:a00:1`.
+    // On dual-stack hosts these route to the embedded IPv4 address — block the
+    // whole prefix to cover every form rather than chasing each literal.
+    /^::ffff:/i,
     /^fe[89ab][0-9a-f]:/i,
     /^fc[0-9a-f][0-9a-f]:/i,
     /^fd[0-9a-f][0-9a-f]:/i,

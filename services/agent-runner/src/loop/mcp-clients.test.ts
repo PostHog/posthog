@@ -480,6 +480,10 @@ describe('openMcpClients', () => {
             { label: 'GCP metadata DNS name', url: 'https://metadata.google.internal/computeMetadata/v1/' },
             { label: '.internal TLD', url: 'https://api.internal/mcp' },
             { label: 'IPv6 loopback', url: 'https://[::1]/mcp' },
+            { label: 'IPv4-mapped IPv6 metadata IP', url: 'https://[::ffff:169.254.169.254]/mcp' },
+            { label: 'IPv4-mapped IPv6 metadata IP (hex form)', url: 'https://[::ffff:a9fe:a9fe]/mcp' },
+            { label: 'IPv4-mapped IPv6 loopback', url: 'https://[::ffff:127.0.0.1]/mcp' },
+            { label: 'IPv4-mapped IPv6 RFC1918', url: 'https://[::ffff:10.0.0.1]/mcp' },
         ])('rejects the unsafe host: $label', async ({ url }) => {
             const { factory, pairs } = await buildEchoFactory()
             await expect(
