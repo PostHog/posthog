@@ -884,9 +884,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"message": str(e)},
             )
 
-        # Match by name rather than taking schemas[0]: some sources (e.g. Slack) ignore the `names`
-        # filter and return every schema, so the first element is an unrelated table — which made the
-        # webhook option vanish and reported the wrong incremental/append/column metadata.
+        # Not every source honors the `names` filter (e.g. Slack returns all schemas regardless), so
+        # `schemas` may contain unrelated tables in any order. Pick the one that matches this schema
+        # instead of trusting `schemas[0]`, whose metadata could belong to a different table.
         schema = next((s for s in schemas if s.name == instance.name), None)
         if schema is None:
             return Response(
