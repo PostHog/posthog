@@ -8,6 +8,7 @@ import { LemonButton, LemonButtonProps, Link, Spinner, Tooltip } from '@posthog/
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -305,6 +306,9 @@ export function useRecordingButton({
             const timestampMs = timestamp ? dayjs(timestamp).valueOf() - 5000 : undefined
             const urlParams = timestampMs ? { unixTimestampMillis: Math.max(timestampMs, 0) } : undefined
             newInternalTab(urls.replaySingle(sessionId ?? '', urlParams))
+            // The replay opens in a background tab, so the source page never mutates. Surface an
+            // immediate cue so the interaction reads as responsive instead of an unresponsive click.
+            lemonToast.info('Opening recording in a new tab')
         }
     }
 
