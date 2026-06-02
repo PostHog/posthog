@@ -121,6 +121,38 @@ class TestHogQLTypeSystem:
         resolved = cast(ast.TupleAccess, resolve_types(node, self.context, dialect="clickhouse"))
         assert resolved.type == ast.StringType(nullable=False)
 
+    def test_resolver_infers_structural_array_function_types(self) -> None:
+        self._assert_first_column_type(
+            "SELECT arrayZip([1], ['a'])",
+            ast.ArrayType(
+                nullable=False,
+                item_type=ast.TupleType(
+                    nullable=False,
+                    item_types=[ast.IntegerType(nullable=False), ast.StringType(nullable=False)],
+                ),
+            ),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayFlatten([[1], [2.0]])",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayDistinct([1, 2.0])",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arraySort([1, 2.0])",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+        self._assert_first_column_type(
+            "SELECT arrayReverse([1, 2.0])",
+            ast.ArrayType(nullable=False, item_type=ast.FloatType(nullable=False)),
+        )
+        self._assert_first_column_type("SELECT arraySum([1, 2])", ast.IntegerType(nullable=False))
+        self._assert_first_column_type("SELECT arrayAvg([1, 2])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayMin([1, 2.0])", ast.FloatType(nullable=False))
+        self._assert_first_column_type("SELECT arrayMax([1, 2.0])", ast.FloatType(nullable=False))
+
     def test_resolver_infers_map_function_types(self) -> None:
         self._assert_first_column_type(
             "SELECT map('a', 1, 'b', 2.0)",

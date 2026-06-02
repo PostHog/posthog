@@ -880,8 +880,14 @@ def _infer_generic_function_type(
     if normalized_name in {"mapkeys", "mapvalues"} and arg_types:
         return _infer_map_items_type(arg_types[0], keys=normalized_name == "mapkeys")
 
-    if normalized_name in {"arrayconcat", "arrayzip"}:
+    if normalized_name == "arrayconcat":
         return _infer_array_concat_type(arg_types, dialect=dialect)
+
+    if normalized_name == "arrayzip":
+        return _infer_array_zip_type(arg_types)
+
+    if normalized_name == "arrayflatten" and arg_types:
+        return _infer_array_flatten_type(arg_types[0])
 
     if (
         normalized_name
@@ -1012,13 +1018,44 @@ def _infer_array_concat_type(arg_types: list[ast.ConstantType], dialect: HogQLDi
     nullable = False
     for arg_type in arg_types:
         nullable = nullable or arg_type.nullable
-        if isinstance(arg_type, ast.ArrayType):
-            item_types.append(arg_type.item_type)
-        elif isinstance(arg_type, ast.StringArrayType):
-            item_types.append(ast.StringType(nullable=False))
-        else:
-            item_types.append(ast.UnknownType())
+        item_types.append(_array_element_type(arg_type))
     return ast.ArrayType(nullable=nullable, item_type=least_common_supertype(item_types, dialect=dialect))
+
+
+def _infer_array_zip_type(arg_types: list[ast.ConstantType]) -> ast.ArrayType:
+    return ast.ArrayType(
+        nullable=any(arg_type.nullable for arg_type in arg_types),
+        item_type=ast.TupleType(nullable=False, item_types=[_array_element_type(arg_type) for arg_type in arg_types]),
+    )
+
+
+def _infer_array_flatten_type(array_type: ast.ConstantType) -> ast.ConstantType:
+    if isinstance(array_type, ast.StringArrayType):
+        return ast.ArrayType(nullable=array_type.nullable, item_type=ast.StringType(nullable=False))
+    if not isinstance(array_type, ast.ArrayType):
+        return ast.UnknownType()
+
+    nullable = array_type.nullable
+    item_type = array_type.item_type
+    while isinstance(item_type, ast.ArrayType):
+        nullable = nullable or item_type.nullable
+        item_type = item_type.item_type
+
+    if isinstance(item_type, ast.StringArrayType):
+        return ast.ArrayType(
+            nullable=nullable or item_type.nullable,
+            item_type=ast.StringType(nullable=False),
+        )
+
+    return ast.ArrayType(nullable=nullable, item_type=dataclasses.replace(item_type))
+
+
+def _array_element_type(array_type: ast.ConstantType) -> ast.ConstantType:
+    if isinstance(array_type, ast.ArrayType):
+        return dataclasses.replace(array_type.item_type)
+    if isinstance(array_type, ast.StringArrayType):
+        return ast.StringType(nullable=False)
+    return ast.UnknownType()
 
 
 def _infer_map_type(arg_types: list[ast.ConstantType], dialect: HogQLDialect) -> ast.ConstantType:

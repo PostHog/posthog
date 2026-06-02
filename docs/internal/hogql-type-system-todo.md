@@ -30,6 +30,8 @@ Completed in this branch:
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
 - Added `MapType` compatibility metadata and generic inference for `map(...)`, `mapFromArrays(...)`, `mapKeys(...)`, `mapValues(...)`, map access, and parsed `Map(K, V)` return types.
+- Added structural array function inference for `arrayZip(...)` and `arrayFlatten(...)`.
+- Added array helper inference for array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)`, plus scalar helpers such as `arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)`.
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
@@ -42,7 +44,7 @@ Completed in this branch:
 Still intentionally left as follow-up work:
 
 - Full ClickHouse parity for every function signature and aggregate combinator.
-- Full higher-order array parity beyond common lambda-first functions, especially `arrayReduce` aggregate-name binding and strict lambda arity/return validation.
+- Full higher-order array parity beyond common lambda-first functions, especially `arrayReduce` aggregate-name binding, lambda-aware array sorting, and strict lambda arity/return validation.
 - Full higher-order map parity, including lambda argument binding for `mapFilter(...)` and lambda-return typing for `mapApply(...)`.
 - Property-definition planning metadata and materialized-property comparison rewrites.
 - Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
@@ -400,11 +402,11 @@ TODO:
   - [ ] `JSONHas`, `JSONType`, `JSONLength`
   - [ ] PostHog property extraction wrappers if any are introduced
 - [ ] Cover array functions:
-  - [ ] constructors and element access
+  - [x] constructors and element access
   - [x] `arrayConcat`, `arraySlice`, `arrayJoin`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arrayFirst`, `arrayLast`
   - [ ] `arrayReduce` with supported aggregate names
-  - [ ] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
-  - [ ] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
+  - [x] `arrayZip`, `arrayFlatten`, `arrayDistinct`, `arraySort`, `arrayReverse`
+  - [x] `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - [ ] Cover tuple and map functions:
   - [x] tuple construction and access
   - [ ] named tuple access

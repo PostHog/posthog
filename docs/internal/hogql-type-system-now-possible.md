@@ -212,6 +212,10 @@ TupleAccess(tuple=Tuple(exprs=[Constant(1), Constant("two")]), index=2)
 Array slices preserve array element type.
 Array access resolves to the array element type.
 `StringArrayType` remains supported as a compatibility alias, but structured runtime adapters can represent it as `Array(String)`.
+`arrayZip(...)` now returns an array of tuples using the element type of each input array.
+`arrayFlatten(...)` preserves the flattened item type across nested arrays.
+Array-preserving transforms such as `arrayDistinct(...)`, `arraySort(...)`, and `arrayReverse(...)` keep their input element type.
+`arraySum(...)`, `arrayAvg(...)`, `arrayMin(...)`, and `arrayMax(...)` resolve to scalar numeric element types.
 
 Common higher-order array functions now bind lambda arguments from surrounding array element types.
 For example, `arrayMap(x -> x + 0.5, [1, 2])` resolves `x` as `Integer` and the call as `Array(Float)`.
