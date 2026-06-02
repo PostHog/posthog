@@ -72,11 +72,23 @@ export const TriggerSchema = z.discriminatedUnion('type', [
  * `approvers` is a closed set in v0 (`team_admins` only); see plan §6.1 for
  * why richer scopes are deferred.
  */
+/**
+ * Approver scopes accepted in v0:
+ *   - `team_admins` — any user with the `org_admin` / `team_admin` role on
+ *     the owning team. The default scope on every gated tool.
+ *   - `session_principal` — the auth-time principal stored on the session
+ *     row (NOT the most recent /send sender — see B1 in
+ *     `runtime-mcps.md` "Resolved design"). Used by the concierge so the
+ *     session owner can authorise their own destructive call without
+ *     round-tripping through a team admin; a second user posting to a
+ *     resumed session can't bypass the gate. v0 is per-asker fast-path
+ *     only — queued-approval routing to the session principal widens
+ *     later via approver-scope routing in `approval-gated-tools.md` §6.
+ */
+export const ApproverScopeSchema = z.enum(['team_admins', 'session_principal'])
+
 export const ApprovalPolicySchema = z.object({
-    approvers: z
-        .array(z.enum(['team_admins']))
-        .min(1)
-        .default(['team_admins']),
+    approvers: z.array(ApproverScopeSchema).min(1).default(['team_admins']),
     allow_edit: z.boolean().default(false),
     ttl_ms: z
         .number()
@@ -170,6 +182,26 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
 ])
 
 /**
+ * Per-tool selection + approval-gating entry for `external` MCP refs. The
+ * bare-string form is the inclusion-only case (was `allowlist[]` pre-PR 7);
+ * the object form adds approval gating using the same primitives as
+ * `ToolRefSchema` (`requires_approval` + `approval_policy`). The dispatcher
+ * looks the entry up by name when wrapping the model-visible
+ * `<prefix>__<remoteName>` tool — see
+ * `services/agent-runner/src/loop/mcp-tool-lookup.ts` and the approval-wrap
+ * fallback in `driver.ts`.
+ */
+export const McpToolEntrySchema = z.union([
+    z.string().min(1),
+    z.object({
+        /** Raw remote tool name (pre-prefix). Must match an entry from `client.listTools()`. */
+        name: z.string().min(1),
+        requires_approval: z.boolean().default(false),
+        approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+    }),
+])
+
+/**
  * Runtime MCP servers an agent connects to at session start. The runner opens
  * one client per entry, exposes each remote tool as a regular `AgentTool` to
  * pi-ai (name-prefixed `<id>__<toolName>`), and routes dispatch back through
@@ -181,12 +213,15 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
  *     the runner resolves the route from the local revision store. Acts as
  *     the in-platform composability shortcut (see
  *     `docs/agent-platform/plans/agent-as-mcp-server.md` §9). Uses `slug` as
- *     the tool-name prefix.
+ *     the tool-name prefix. No per-tool gating: the target agent owns its
+ *     own approval policy via its own `spec.tools[]`, so re-gating at the
+ *     caller side would be redundant.
  *   - `external` — a third-party MCP server reachable over HTTP. `auth.integration`
  *     plugs into PostHog's integrations registry (OAuth-style); `secrets[]`
  *     is the simpler per-MCP token case, resolved through the same
  *     encrypted-env path the agent's main `spec.secrets` uses. Uses `id` as
- *     the tool-name prefix.
+ *     the tool-name prefix. `tools[]` selects + gates: bare string = inclusion
+ *     only; object form adds `requires_approval` + `approval_policy`.
  *
  * **Future migration (not blocking):** the runtime-mcps plan describes a
  * flatter shape `{ id, endpoint, tools[], secrets[] }` with no discriminator,
@@ -225,12 +260,37 @@ export const McpRefSchema = z.discriminatedUnion('kind', [
          */
         secrets: z.array(z.string()).default([]),
         /**
-         * Allowlist of tool names from the remote server. Omitted/empty array
-         * means "expose every tool the server lists." Names match against
-         * the raw remote tool name (pre-prefix), so an entry like
-         * `create-issue` filters in `mcp.callTool('create-issue', ...)`.
+         * Per-tool selection AND approval gating. Bare string is a passthrough
+         * (gates inclusion, no approval); object form carries
+         * `requires_approval` + `approval_policy`. Omitted / empty = expose
+         * every tool the server lists. Replaces the earlier `allowlist[]`
+         * field (PR 7 hard-break — no production specs used it).
+         *
+         * Names must be unique within the array. A duplicate would be a
+         * silent first-match-wins footgun — e.g. an author who appends a
+         * gated copy of an already-listed bare-string entry would see the
+         * gated version ignored. Better to reject at parse time.
          */
-        allowlist: z.array(z.string()).optional(),
+        tools: z
+            .array(McpToolEntrySchema)
+            .optional()
+            .refine(
+                (entries) => {
+                    if (!entries) {
+                        return true
+                    }
+                    const seen = new Set<string>()
+                    for (const e of entries) {
+                        const name = typeof e === 'string' ? e : e.name
+                        if (seen.has(name)) {
+                            return false
+                        }
+                        seen.add(name)
+                    }
+                    return true
+                },
+                { message: 'mcps[].tools[] entries must have unique names' }
+            ),
     }),
 ])
 
@@ -410,7 +470,57 @@ export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type Trigger = z.infer<typeof TriggerSchema>
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
+export type ApproverScope = z.infer<typeof ApproverScopeSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
+export type McpToolEntry = z.infer<typeof McpToolEntrySchema>
+
+/**
+ * Strict principal match: same kind + same identifying key. Used at the
+ * trigger edge (`/send`, Slack-thread resumes) to keep one user's session
+ * scoped to that user, and by the runner's per-asker approval shortcut to
+ * recognise the session principal posting follow-ups to their own session.
+ * Lifted into agent-shared from ingress in PR 7 so the runner can reuse it
+ * without crossing the ingress boundary.
+ */
+export function principalsMatch(stored: SessionPrincipal | null, incoming: SessionPrincipal | null): boolean {
+    if (!stored && !incoming) {
+        return true
+    }
+    if (!stored || !incoming) {
+        return false
+    }
+    if (stored.kind !== incoming.kind) {
+        return false
+    }
+    switch (stored.kind) {
+        case 'anonymous':
+            return true
+        case 'posthog':
+            return (
+                incoming.kind === 'posthog' &&
+                stored.user_id === incoming.user_id &&
+                stored.team_id === incoming.team_id
+            )
+        case 'jwt':
+            return incoming.kind === 'jwt' && stored.sub === incoming.sub
+        case 'slack':
+            return (
+                incoming.kind === 'slack' &&
+                stored.workspace_id === incoming.workspace_id &&
+                stored.slack_user_id === incoming.slack_user_id
+            )
+        case 'posthog_internal':
+        case 'shared_secret':
+            return incoming.kind === stored.kind && stored.team_id === incoming.team_id
+        case 'service':
+            return (
+                incoming.kind === 'service' &&
+                (stored.id != null && incoming.id != null
+                    ? stored.id === incoming.id
+                    : stored.team_id === incoming.team_id)
+            )
+    }
+}
 export type SkillRef = z.infer<typeof SkillRefSchema>
 export type ReasoningEffort = z.infer<typeof ReasoningEffortSchema>
 export type FrameworkPromptSection = z.infer<typeof FrameworkPromptSectionSchema>

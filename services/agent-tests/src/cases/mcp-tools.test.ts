@@ -8,7 +8,8 @@
  * Covers the v1 surface described in
  * `docs/agent-platform/plans/runtime-mcps.md`:
  *   - Round-trip dispatch through an `external` MCP.
- *   - `allowlist` filtering of remote tools.
+ *   - `tools[]` filtering of remote tools (bare-string passthrough form,
+ *     and object form for per-tool approval gating — PR 7).
  *   - `${SECRET_NAME}` substitution in the connect URL.
  *   - Remote-side errors land as `isError` tool_results the model can recover from.
  *   - The agent-variant resolver is wired (the runner still owns the URL build).
@@ -19,6 +20,7 @@
  * `captured` array so we can assert on the args the remote actually saw.
  */
 
+import { fauxToolCall } from '@earendil-works/pi-ai'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
@@ -28,6 +30,7 @@ import { z } from 'zod'
 import type { McpTransportFactory } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
+import { fauxToolUse } from '../harness/faux'
 
 interface ToolDef {
     description: string
@@ -117,7 +120,9 @@ describe('runtime MCPs: real e2e', () => {
         ])
     })
 
-    it('hides remote tools not on the allowlist (model that calls a filtered one gets an error tool_result)', async () => {
+    it('hides remote tools not listed in tools[] (model that calls a filtered one gets an error tool_result)', async () => {
+        // PR 7: `tools[]` replaced `allowlist[]`. Bare-string entries
+        // preserve the old inclusion-only semantics.
         const { factory } = buildFactory({
             'create-issue': { description: 'd', handler: () => ({ ok: true }) },
             'list-issues': { description: 'd', handler: () => ({ items: [] }) },
@@ -125,19 +130,19 @@ describe('runtime MCPs: real e2e', () => {
         c = await buildCluster({ mcpTransportFactory: factory })
         c.setScript([fauxCallTool('linear__list-issues', {}), fauxText('here')])
         await c.deployAgent({
-            slug: 'mcp-allowlisted',
+            slug: 'mcp-filtered',
             spec: {
                 mcps: [
                     {
                         kind: 'external',
                         id: 'linear',
                         url: 'https://example.com/linear',
-                        allowlist: ['list-issues'],
+                        tools: ['list-issues'],
                     },
                 ],
             },
         })
-        const res = await request(c.ingress).post('/agents/mcp-allowlisted/run').send({ message: 'list' })
+        const res = await request(c.ingress).post('/agents/mcp-filtered/run').send({ message: 'list' })
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         expect(session!.state).toBe('completed')
@@ -146,7 +151,7 @@ describe('runtime MCPs: real e2e', () => {
             | undefined
         expect(toolResult?.isError).toBe(false)
         // The model would have errored if it tried `linear__create-issue` —
-        // belt-and-braces check that the allowlisted one round-tripped.
+        // belt-and-braces check that the filtered one round-tripped.
     })
 
     it('substitutes ${SECRET_NAME} placeholders in the connect URL', async () => {
@@ -248,6 +253,140 @@ describe('runtime MCPs: real e2e', () => {
                 target: { url: 'https://ingress.local/teams/1/agents/weekly-digest/mcp' },
             },
         ])
+    })
+
+    it('a gated MCP tool queues an approval row instead of calling the remote', async () => {
+        // PR 7 — tools[] object form gates per-tool approval. The
+        // dispatcher decomposes `<prefix>__<remoteName>` against
+        // `spec.mcps[].tools[]`, finds the matching entry's policy, and
+        // wraps the tool's execute with the same `queueApprovalResult`
+        // path native/custom gated tools take. The remote is never
+        // called. (driver.test.ts covers the unit path; this case proves
+        // the wire-up holds end-to-end through Pg + janitor.)
+        let remoteHits = 0
+        const { factory } = buildFactory({
+            'promote-revision': {
+                description: 'Promote a draft to live.',
+                handler: () => {
+                    remoteHits += 1
+                    return { promoted: true }
+                },
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([
+            fauxCallTool('posthog__promote-revision', { revision_id: 'rev-123' }),
+            fauxText('queued for approval'),
+        ])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-gated',
+            spec: {
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        tools: [
+                            {
+                                name: 'promote-revision',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['team_admins'], ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        const run = await request(c.ingress).post('/agents/mcp-gated/run').send({ message: 'promote' })
+        expect(run.status).toBe(200)
+        await c.drain()
+
+        // The remote tool was never hit — the wrap intercepted before
+        // reaching the open MCP client.
+        expect(remoteHits).toBe(0)
+
+        // A queued approval row exists for the gated MCP tool with its
+        // exposed `<prefix>__<remoteName>` name (what the model called).
+        const approvalsRes = await request(c.janitor)
+            .get('/approvals')
+            .query({ application_id: application.id, state: 'queued' })
+        expect(approvalsRes.status).toBe(200)
+        const rows = (approvalsRes.body.results as Array<{ id: string; state: string; tool_name: string }>).filter(
+            (r) => r.tool_name === 'posthog__promote-revision'
+        )
+        expect(rows).toHaveLength(1)
+        expect(rows[0].state).toBe('queued')
+
+        // Session should have a synthetic queued-result message — that's
+        // the signal the model gets back instead of the real result.
+        const session = await c.queue.get(run.body.session_id)
+        expect(session!.state).not.toBe('failed')
+        const toolResult = session!.conversation.find((m) => m.role === 'toolResult') as
+            | { role: 'toolResult'; content: string | Array<{ type: string; text?: string }> }
+            | undefined
+        expect(toolResult).not.toBeUndefined()
+        const txt = Array.isArray(toolResult!.content) ? toolResult!.content[0]?.text : toolResult!.content
+        const parsed = JSON.parse(String(txt))
+        expect(parsed.approval?.state).toBe('queued')
+        expect(parsed.approval?.request_id).toBe(rows[0].id)
+    })
+
+    it('a duplicate gated MCP call with identical args dedupes via the unique args_hash index', async () => {
+        // Same shape as the gated-MCP case above, but the model emits TWO
+        // tool_use calls in the SAME turn with identical args. The
+        // platform's `UPSERT by (session_id, tool_name, args_hash) WHERE
+        // state='queued'` semantics in `PgApprovalStore.upsertQueued`
+        // should collapse them to ONE row. This is the MCP-side proof of
+        // the same dedupe property `approval-gated.test.ts` pins for
+        // native tools — without it, an agent that retries a gated call
+        // creates parallel approval requests.
+        const { factory } = buildFactory({
+            'promote-revision': {
+                description: 'Promote a draft to live.',
+                handler: () => ({ promoted: true }),
+            },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([
+            fauxToolUse([
+                fauxToolCall('posthog__promote-revision', { revision_id: 'rev-123' }),
+                // Same name, same args — must dedupe.
+                fauxToolCall('posthog__promote-revision', { revision_id: 'rev-123' }),
+            ]),
+            fauxText('queued'),
+        ])
+        const { application } = await c.deployAgent({
+            slug: 'mcp-gated-dedupe',
+            spec: {
+                mcps: [
+                    {
+                        kind: 'external',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        tools: [
+                            {
+                                name: 'promote-revision',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['team_admins'], ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-gated-dedupe/run').send({ message: 'promote' })
+        expect(res.status).toBe(200)
+        await c.drain()
+
+        const approvalsRes = await request(c.janitor)
+            .get('/approvals')
+            .query({ application_id: application.id, state: 'queued' })
+        expect(approvalsRes.status).toBe(200)
+        const rows = (approvalsRes.body.results as Array<{ id: string; state: string; tool_name: string }>).filter(
+            (r) => r.tool_name === 'posthog__promote-revision'
+        )
+        // ONE row, not two — the unique index collapsed the duplicate.
+        expect(rows).toHaveLength(1)
     })
 
     it('fails fast when a kind: agent ref is declared but no resolver is wired', async () => {

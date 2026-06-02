@@ -88,8 +88,11 @@ def log(msg: str) -> None:
 
 def load_v0_spec() -> dict:
     """Load the forward-looking spec.json and strip features the platform
-    doesn't accept yet (approval_policies on mcps, resume block). Auth
-    is now multi-mode natively; we pass spec.auth.modes through verbatim.
+    doesn't accept yet (resume block). Auth is now multi-mode natively;
+    we pass spec.auth.modes through verbatim. `mcps[]` is now accepted
+    in the discriminated `{ kind: 'external', tools[] }` shape post-PR 7
+    — destructive remote tools carry inline approval gating via
+    `tools[].approval_policy`.
     """
     spec = json.loads(SPEC_FILE.read_text())
 
@@ -108,12 +111,6 @@ def load_v0_spec() -> dict:
     elif "modes" not in spec.get("auth", {}):
         # Backstop for older bundles that still use single-mode shape.
         spec["auth"] = {"modes": [{"type": "public"}]}
-
-    # Today's McpRefSchema only accepts { kind: "agent", slug } or
-    # { kind: "external", url, auth?, allowlist? }. The forward-looking
-    # bundle uses an ad-hoc { id, endpoint, tools, approval_policies }
-    # shape (see plan §8.2 + §8.11). Until those land, drop mcps[] entirely.
-    spec["mcps"] = []
 
     spec.pop("resume", None)
 

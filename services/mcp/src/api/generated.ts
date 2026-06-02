@@ -7661,11 +7661,29 @@ export namespace Schemas {
       slug: string;
     } | {
       kind: 'external';
+      /** @minLength 1 */
+      id: string;
       url: string;
       auth?: {
       integration?: string;
     };
-      allowlist?: string[];
+      secrets?: string[];
+      tools?: (string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    })[];
     };
 
     export type AgentRevisionSpecSkillsItem = {
@@ -28347,11 +28365,29 @@ export namespace Schemas {
       slug: string;
     } | {
       kind: 'external';
+      /** @minLength 1 */
+      id: string;
       url: string;
       auth?: {
       integration?: string;
     };
-      allowlist?: string[];
+      secrets?: string[];
+      tools?: (string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    })[];
     };
 
     export type PatchedAgentRevisionSpecSkillsItem = {

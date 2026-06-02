@@ -267,13 +267,17 @@ describe('buildAgentTools', () => {
             expect(names).toContain('linear__list-issues')
         })
 
-        it('filters remote tools through ref.allowlist (empty/omitted = expose all)', async () => {
+        it('filters remote tools through ref.tools[] bare-string entries (empty/omitted = expose all)', async () => {
+            // Post-PR-7: bare-string entries in `tools[]` preserve the old
+            // `allowlist[]` inclusion semantics. Object-form entries also
+            // count toward inclusion via their `name` field — covered in the
+            // approval-wrap suite (commit B).
             const ref: McpRef = {
                 kind: 'external',
                 id: 'linear',
                 url: 'https://example.com/linear',
                 secrets: [],
-                allowlist: ['list-issues'],
+                tools: ['list-issues'],
             }
             const mcp = makeFakeMcp('linear', ref, {
                 'create-issue': { description: 'Open a new Linear issue.', handler: async () => ({}) },

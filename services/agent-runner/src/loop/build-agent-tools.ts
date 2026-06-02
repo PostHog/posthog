@@ -215,12 +215,19 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
         )
         for (const { client, tools: remoteTools } of listings) {
-            const allowlist =
-                client.ref.kind === 'external' && client.ref.allowlist && client.ref.allowlist.length > 0
-                    ? new Set(client.ref.allowlist)
+            // PR 7: inclusion filter migrated from `allowlist[]` to `tools[]`,
+            // which carries both bare-string entries (passthrough — was
+            // allowlist) and object entries `{ name, requires_approval?, ... }`.
+            // We only need the entry NAMES here; the approval-wrap fallback
+            // lives in `driver.ts` and pulls the per-tool policy via
+            // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
+            // still means "expose every tool the server lists."
+            const includedNames =
+                client.ref.kind === 'external' && client.ref.tools && client.ref.tools.length > 0
+                    ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
                     : null
             for (const remote of remoteTools) {
-                if (allowlist && !allowlist.has(remote.name)) {
+                if (includedNames && !includedNames.has(remote.name)) {
                     continue
                 }
                 // `<prefix>__<remoteName>` is the model-visible identifier; the
