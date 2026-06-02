@@ -5,9 +5,13 @@
 
 import type { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
+import { ZodError } from 'zod'
 
+import { createLogger } from '../runtime/logger'
 import { AgentApplication, AgentRevision, AgentSpec, AgentSpecSchema, RevisionState } from '../spec/spec'
 import { NewApplication, NewRevision, RevisionStore } from './revision-store'
+
+const log = createLogger('pg-revision-store')
 
 export class PgRevisionStore implements RevisionStore {
     constructor(private readonly pool: Pool) {}
@@ -78,7 +82,7 @@ export class PgRevisionStore implements RevisionStore {
              ORDER BY created_at ASC`,
             [applicationId]
         )
-        return r.rows.map(rowToRev)
+        return parseRowsResilient(r.rows)
     }
 
     async listRevisionsByIdPrefix(applicationId: string, idPrefix: string): Promise<AgentRevision[]> {
@@ -100,7 +104,7 @@ export class PgRevisionStore implements RevisionStore {
                AND replace(lower(id::text), '-', '') LIKE $2 || '%'`,
             [applicationId, needle]
         )
-        return r.rows.map(rowToRev)
+        return parseRowsResilient(r.rows)
     }
 
     async createRevision(input: NewRevision): Promise<AgentRevision> {
@@ -174,7 +178,12 @@ export class PgRevisionStore implements RevisionStore {
              JOIN agent_application a ON a.live_revision_id = r.id
              WHERE a.archived = false`
         )
-        const revs = r.rows.map(rowToRev)
+        // Resilient parse is load-bearing here: this runs every janitor tick
+        // across the WHOLE fleet, so a single live spec that no longer parses
+        // (e.g. a field the schema later made required) must not throw and
+        // abort the entire cron sweep — one poisoned spec would silently stop
+        // every agent's cron. `parseRowsResilient` skips + logs the bad row.
+        const revs = parseRowsResilient(r.rows)
         return revs.filter((rev) => rev.spec.triggers.some((t) => t.type === 'cron'))
     }
 }
@@ -201,7 +210,7 @@ function rowToApp(row: {
     }
 }
 
-function rowToRev(row: {
+type RevisionRow = {
     id: string
     application_id: string
     parent_revision_id: string | null
@@ -211,7 +220,9 @@ function rowToRev(row: {
     bundle_uri: string
     bundle_sha256: string | null
     spec: unknown
-}): AgentRevision {
+}
+
+function rowToRev(row: RevisionRow): AgentRevision {
     return {
         id: row.id,
         application_id: row.application_id,
@@ -223,4 +234,48 @@ function rowToRev(row: {
         bundle_sha256: row.bundle_sha256,
         spec: AgentSpecSchema.parse(row.spec ?? {}),
     }
+}
+
+/**
+ * Parse a revision row, returning `null` instead of throwing when its stored
+ * spec no longer satisfies `AgentSpecSchema`. The only way a live row reaches
+ * an unparseable state is schema drift — a field the spec schema later made
+ * stricter than it was when the revision was frozen. Single-revision reads
+ * (`getRevision`) deliberately stay strict so a direct fetch surfaces the real
+ * error; this tolerant variant is for the bulk/fleet reads where one bad row
+ * must not take out the rest. Exported for unit testing.
+ *
+ * Only `ZodError` (schema drift) is tolerated — any other throw (a real bug in
+ * `rowToRev`, e.g. a null `created_at`) re-raises so it surfaces loudly rather
+ * than silently dropping rows across every fleet read.
+ */
+export function safeRowToRev(row: RevisionRow): AgentRevision | null {
+    try {
+        return rowToRev(row)
+    } catch (err) {
+        if (!(err instanceof ZodError)) {
+            throw err
+        }
+        log.warn(
+            {
+                revision_id: row.id,
+                application_id: row.application_id,
+                err: err.message,
+            },
+            'agent.revision.spec_unparseable'
+        )
+        return null
+    }
+}
+
+/** Map rows through `safeRowToRev`, dropping (and logging) any that fail to parse. */
+function parseRowsResilient(rows: RevisionRow[]): AgentRevision[] {
+    const out: AgentRevision[] = []
+    for (const row of rows) {
+        const rev = safeRowToRev(row)
+        if (rev) {
+            out.push(rev)
+        }
+    }
+    return out
 }

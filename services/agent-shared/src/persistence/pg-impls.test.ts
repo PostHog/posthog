@@ -111,6 +111,52 @@ maybeDescribe('Postgres impls (real PG)', () => {
         await expect(store.updateSpec(rev.id, AgentSpecSchema.parse({ model: 'y' }))).rejects.toThrow(/not a draft/)
     })
 
+    it('listLiveCronRevisions skips a live spec that no longer parses (schema drift) instead of throwing', async () => {
+        if (!reachable) {
+            return
+        }
+        const store = new PgRevisionStore(pool)
+
+        // A healthy live cron agent.
+        const good = await store.createApplication({ team_id: 1, slug: 'good-cron', name: 'Good', description: '' })
+        const goodRev = await store.createRevision({
+            application_id: good.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({
+                model: 'x',
+                triggers: [{ type: 'cron', config: { name: 'sweep', schedule: '0 * * * *', prompt: 'go' } }],
+            }),
+        })
+        await store.setRevisionState(goodRev.id, 'live')
+        await store.setLiveRevision(good.id, goodRev.id)
+
+        // A live agent whose stored spec drifted out of schema: a cron trigger
+        // frozen before `prompt` was required. Create it valid, then corrupt
+        // the jsonb directly to simulate a schema tightening after it went live.
+        const bad = await store.createApplication({ team_id: 1, slug: 'bad-cron', name: 'Bad', description: '' })
+        const badRev = await store.createRevision({
+            application_id: bad.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'x' }),
+        })
+        await pool.query(`UPDATE agent_revision SET spec = $2::jsonb WHERE id = $1`, [
+            badRev.id,
+            JSON.stringify({ triggers: [{ type: 'cron', config: { schedule: '0 9 * * *', timezone: 'UTC' } }] }),
+        ])
+        await store.setRevisionState(badRev.id, 'live')
+        await store.setLiveRevision(bad.id, badRev.id)
+
+        // The poisoned row must not take down the whole fleet read.
+        const live = await store.listLiveCronRevisions()
+        const ids = live.map((r) => r.id)
+        expect(ids).toContain(goodRev.id)
+        expect(ids).not.toContain(badRev.id)
+    })
+
     it('PgSessionQueue enqueue/claim with SKIP LOCKED across concurrent claimers', async () => {
         if (!reachable) {
             return
