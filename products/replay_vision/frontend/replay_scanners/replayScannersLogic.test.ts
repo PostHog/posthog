@@ -50,6 +50,9 @@ describe('replayScannersLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [] },
             },
+            patch: {
+                '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
+            },
         })
         initKeaTests()
         logic = replayScannersLogic({ tabId: 'test' })
@@ -122,12 +125,24 @@ describe('replayScannersLogic', () => {
         })
     })
 
-    it('toggleScannerEnabledSuccess flips the scanner row', async () => {
+    it('toggleScannerEnabled optimistically flips the row and marks it in-flight', async () => {
         await expectLogic(logic, () => {
             logic.actions.loadScannersSuccess(scanners)
-            logic.actions.toggleScannerEnabledSuccess('a')
+            logic.actions.toggleScannerEnabled('a')
         }).toMatchValues({
             scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+            togglingIds: ['a'],
+        })
+    })
+
+    it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadScannersSuccess(scanners)
+            logic.actions.toggleScannerEnabled('a')
+            logic.actions.revertScannerEnabled('a')
+        }).toMatchValues({
+            scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: true })]),
+            togglingIds: [],
         })
     })
 })
