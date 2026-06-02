@@ -324,6 +324,8 @@ export function createBarScales(
         stackedSeries?: Series[]
         /** Cap on the band-axis range in px — clusters bars at the start of the plot when set. */
         maxBandRange?: number
+        /** Fixed value-axis domain — bypasses data-derived range + `nice()`. */
+        valueDomain?: [number, number]
     } = {}
 ): BarScaleSet {
     const {
@@ -334,6 +336,7 @@ export function createBarScales(
         groupPadding = 0.1,
         stackedSeries,
         maxBandRange,
+        valueDomain,
     } = options
 
     const isHorizontal = axisOrientation === 'horizontal'
@@ -361,7 +364,7 @@ export function createBarScales(
 
     return {
         band,
-        value: buildBarValueScale(series, valueRange, tickCount, barLayout, scaleType, stackedSeries),
+        value: buildBarValueScale(series, valueRange, tickCount, barLayout, scaleType, stackedSeries, valueDomain),
         group,
     }
 }
@@ -372,8 +375,12 @@ function buildBarValueScale(
     tickCount: number,
     barLayout: 'stacked' | 'grouped' | 'percent',
     scaleType: 'linear' | 'log',
-    stackedSeries: Series[] | undefined
+    stackedSeries: Series[] | undefined,
+    valueDomain: [number, number] | undefined
 ): D3YScale {
+    if (valueDomain) {
+        return d3.scaleLinear().domain(valueDomain).range(valueRange)
+    }
     if (barLayout === 'percent') {
         return d3.scaleLinear().domain([0, 1]).nice(tickCount).range(valueRange)
     }
