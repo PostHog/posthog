@@ -162,6 +162,44 @@ jobs:
                   path: /tmp/digest-${{ matrix.image }}.txt
                   retention-days: 1
 
+            # The production bundle (esbuild .mjs in a slim node image) runs a
+            # different code path than local `tsx src/index.ts` — different
+            # module resolution, no node_modules, no source-map magic. Smoke
+            # the image once per build so import / path / native-dep issues
+            # fail here instead of in dev.
+            - name: Smoke test image
+              env:
+                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  IMAGE_NAME: ${{ matrix.image }}
+                  IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  IMAGE_REF="${IMAGE_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  echo "::group::Pull image"
+                  docker pull "$IMAGE_REF"
+                  echo "::endgroup::"
+
+                  case "$IMAGE_NAME" in
+                      posthog-agents)
+                          # Four entrypoints baked into the same image; each
+                          # has its own .mjs and config schema, so each gets
+                          # its own smoke pass.
+                          for entrypoint in ingress runner janitor migrate; do
+                              echo "::group::Smoke test ${entrypoint}"
+                              .github/scripts/smoke-test-agent-bundle.sh "$IMAGE_REF" "$entrypoint"
+                              echo "::endgroup::"
+                          done
+                          ;;
+                      posthog-agent-console)
+                          echo "::group::Smoke test agent-console"
+                          .github/scripts/smoke-test-agent-console.sh "$IMAGE_REF"
+                          echo "::endgroup::"
+                          ;;
+                      *)
+                          echo "No smoke test configured for ${IMAGE_NAME}; skipping."
+                          ;;
+                  esac
+
             - name: Report failure
               if: failure()
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
