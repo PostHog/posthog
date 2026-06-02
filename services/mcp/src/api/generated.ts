@@ -16884,6 +16884,41 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `pending` - pending
+    * `completed` - completed
+    * `failed` - failed
+     */
+    export type MetricRecalculationResultStatusEnum = typeof MetricRecalculationResultStatusEnum[keyof typeof MetricRecalculationResultStatusEnum];
+
+
+    export const MetricRecalculationResultStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * One metric's recalculated result row, read back from ExperimentMetricResult.
+     */
+    export interface MetricRecalculationResult {
+      /** UUID of the metric this result belongs to */
+      readonly metric_uuid: string;
+      /** Status of this metric's calculation in the run
+
+      * `pending` - pending
+      * `completed` - completed
+      * `failed` - failed */
+      readonly status: MetricRecalculationResultStatusEnum;
+      /** The computed metric result (ExperimentQueryResponse shape); null when status is pending or failed */
+      readonly result: unknown;
+      /**
+         * Error message when status is failed; otherwise null
+         * @nullable
+         */
+      readonly error_message: string | null;
+    }
+
+    /**
      * Serializer for metrics recalculation status responses.
      */
     export interface ExperimentMetricsRecalculation {
@@ -16927,6 +16962,8 @@ export namespace Schemas {
       readonly completed_at: string | null;
       /** True if returning an existing job rather than a newly created one */
       readonly is_existing: boolean;
+      /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
+      readonly results: readonly MetricRecalculationResult[];
     }
 
     /**
