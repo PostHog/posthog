@@ -8,7 +8,7 @@ import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager, contextmanager
 from datetime import UTC, date, datetime
-from typing import TYPE_CHECKING, Any, Literal, LiteralString, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, LiteralString, NoReturn, Optional, cast
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -94,6 +94,60 @@ class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+class PostgresSourceConnectionError(Exception):
+    """Connecting to the user's *source* Postgres failed (bad host, firewall, DNS).
+
+    Tagged distinctly so the same connectivity errors raised from PostHog's own
+    Postgres during a transient DNS blip while serving an ORM lookup mid-sync
+    aren't misclassified as non-retryable user errors. Only failures from a
+    connection to the user's source DB are wrapped — see `get_non_retryable_errors`.
+    """
+
+    # Stable marker embedded in the message so the substring-based non-retryable
+    # classifier in `import_data_sync` can recognise source-side failures.
+    MARKER = "Failed to connect to your source database"
+
+    def __init__(self, original_message: str) -> None:
+        self.original_message = original_message
+        super().__init__(f"{self.MARKER}: {original_message}")
+
+
+# Substrings of a psycopg OperationalError that mean the *source* database was
+# unreachable (bad host, firewall, DNS). These are user-fixable, so they're
+# classified as non-retryable — but only when raised from a connection to the
+# user's own DB. The identical strings can surface from PostHog's internal
+# Postgres during a transient DNS blip while an ORM lookup runs mid-sync, which
+# must stay retryable, so we tag source-side failures with the exception above.
+SOURCE_CONNECTIVITY_ERROR_SUBSTRINGS = (
+    "could not translate host name",
+    "Name or service not known",
+    "Network is unreachable",
+    "Connection refused",
+    "No route to host",
+)
+
+
+def _handle_source_connect_error(e: psycopg.OperationalError, *, require_ssl: bool) -> NoReturn:
+    """Re-raise a source-side connect failure as the right typed exception.
+
+    Called from the `except psycopg.OperationalError` block of the row-streaming
+    connections we open against the user's source Postgres (the connections used
+    during a retry-classified sync), so the failure carries enough context for the
+    non-retryable classifier to tell source-side faults apart from transient
+    failures hitting PostHog's own Postgres. The validation/discovery path
+    (`_connect_to_postgres`) keeps raising the raw error for its own messaging.
+    """
+    message = str(e)
+    if require_ssl and "SSL" in message:
+        raise SSLRequiredError(
+            "SSL/TLS connection is required but your database does not support it. "
+            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+        ) from e
+    if any(substring in message for substring in SOURCE_CONNECTIVITY_ERROR_SUBSTRINGS):
+        raise PostgresSourceConnectionError(message) from e
+    raise e
 
 
 # Substrings PgBouncer / libpq use when the upstream backend connection died
@@ -1633,12 +1687,7 @@ def postgres_source(
                 keepalives_count=5,
             )
         except psycopg.OperationalError as e:
-            if require_ssl and "SSL" in str(e):
-                raise SSLRequiredError(
-                    "SSL/TLS connection is required but your database does not support it. "
-                    "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-                ) from e
-            raise
+            _handle_source_connect_error(e, require_ssl=require_ssl)
 
         with connection:
             with connection.cursor() as cursor:
@@ -1840,12 +1889,7 @@ def postgres_source(
                         keepalives_count=5,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e):
-                        raise SSLRequiredError(
-                            "SSL/TLS connection is required but your database does not support it. "
-                            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
-                        ) from e
-                    raise
+                    _handle_source_connect_error(e, require_ssl=require_ssl)
                 connection.adapters.register_loader("json", JsonAsStringLoader)
                 connection.adapters.register_loader("jsonb", JsonAsStringLoader)
                 connection.adapters.register_loader("int4range", RangeAsStringLoader)

@@ -2,6 +2,7 @@ import json
 import asyncio
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import orjson
 import pyarrow as pa
@@ -86,6 +87,14 @@ class CDPProducer:
 
         @database_sync_to_async_pool
         def _check():
+            # This runs from a Temporal worker thread after the sync has been
+            # streaming for minutes, so the Django connection can be stale
+            # (closed server-side). Reusing it can raise a transient connection
+            # error that would otherwise be misclassified as a non-retryable
+            # source fault — close stale connections so the lookup grabs a fresh
+            # one. Mirrors `close_old_connections()` in the google_ads source.
+            close_old_connections()
+
             schema = ExternalDataSchema.objects.get(id=self.schema_id, team_id=self.team_id)
 
             raw_table_name = build_table_name(schema.source, schema.name)

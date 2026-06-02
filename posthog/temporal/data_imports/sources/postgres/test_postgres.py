@@ -41,6 +41,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
+    PostgresSourceConnectionError,
     _build_count_query,
     _build_query,
     _get_estimated_row_count_for_partitioned_table,
@@ -49,6 +50,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_primary_keys,
     _get_sslmode,
     _get_table,
+    _handle_source_connect_error,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
     _is_partitioned_table,
@@ -116,6 +118,16 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: MaxClientsInSessionMode: max clients reached',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            # Bare DNS / connectivity errors are retryable: when they come from
+            # PostHog's *own* Postgres during a transient blip mid-sync (e.g. an
+            # ORM lookup in CDPProducer.should_produce_table) the user's source
+            # connection is fine, so giving up permanently would be wrong. Genuine
+            # source-side failures are wrapped in PostgresSourceConnectionError and
+            # covered by test_source_side_connection_errors_are_non_retryable.
+            "OperationalError: [Errno -2] Name or service not known",
+            'psycopg2.OperationalError: could not connect to server: Connection refused\n\tIs the server running on host "10.0.0.1" and accepting TCP/IP connections on port 5432?',
+            'psycopg2.OperationalError: could not connect to server: No route to host\n\tIs the server running on host "10.0.0.1"?',
+            'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -126,12 +138,8 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            'psycopg2.OperationalError: could not connect to server: Connection refused\n\tIs the server running on host "10.0.0.1" and accepting TCP/IP connections on port 5432?',
-            'psycopg2.OperationalError: could not connect to server: No route to host\n\tIs the server running on host "10.0.0.1"?',
-            'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
-            "Name or service not known",
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
         ],
     )
@@ -139,6 +147,24 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "original_message",
+        [
+            'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
+            "Name or service not known",
+            "could not connect to server: Connection refused",
+            "could not connect to server: No route to host",
+            "Network is unreachable",
+        ],
+    )
+    def test_source_side_connection_errors_are_non_retryable(self, source, original_message):
+        # Once tagged as a source-side failure, the same connectivity errors stay
+        # non-retryable — they mean the user's own DB is misconfigured/unreachable.
+        error_msg = str(PostgresSourceConnectionError(original_message))
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Source-side connection error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -163,6 +189,48 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Widened integer column error should be non-retryable: {error_msg}"
+
+
+class TestHandleSourceConnectError:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            'could not translate host name "bad.example.com" to address: Name or service not known',
+            "connection failed: Name or service not known",
+            "could not connect to server: Connection refused",
+            "could not connect to server: No route to host",
+            "Network is unreachable",
+        ],
+    )
+    def test_source_connectivity_errors_are_wrapped(self, message):
+        with pytest.raises(PostgresSourceConnectionError) as exc_info:
+            _handle_source_connect_error(psycopg.OperationalError(message), require_ssl=False)
+        # Original message is preserved for debugging and the marker is prepended.
+        assert message in str(exc_info.value)
+        assert PostgresSourceConnectionError.MARKER in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "FATAL: password authentication failed for user",
+            "server closed the connection unexpectedly",
+            "FATAL: too many connections for role",
+        ],
+    )
+    def test_non_connectivity_errors_are_reraised_unchanged(self, message):
+        original = psycopg.OperationalError(message)
+        with pytest.raises(psycopg.OperationalError) as exc_info:
+            _handle_source_connect_error(original, require_ssl=False)
+        assert exc_info.value is original
+        assert not isinstance(exc_info.value, PostgresSourceConnectionError)
+
+    def test_ssl_errors_take_priority_when_ssl_required(self):
+        from posthog.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
+
+        with pytest.raises(SSLRequiredError):
+            _handle_source_connect_error(
+                psycopg.OperationalError("SSL connection is required"), require_ssl=True
+            )
 
 
 class TestIsConnectionDroppedError:

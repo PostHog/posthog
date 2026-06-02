@@ -30,6 +30,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCD
 from posthog.temporal.data_imports.sources.postgres.cdc.slot_manager import cdc_pg_connection, drop_slot_and_publication
 from posthog.temporal.data_imports.sources.postgres.postgres import (
     PostgresImplementation,
+    PostgresSourceConnectionError,
     SSLRequiredError,
     filter_postgres_incremental_fields,
     get_connection_metadata as get_postgres_connection_metadata,
@@ -154,7 +155,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "Tenant or user not found connection to server": None,
             "FATAL: Tenant or user not found": None,
             "error received from server in SCRAM exchange: Wrong password": None,
-            "could not translate host name": None,
             "timeout expired connection to server at": None,
             "password authentication failed for user": None,
             "No primary key defined for table": None,
@@ -166,12 +166,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "timestamp too small": None,
             "QueryTimeoutException": None,
             "TemporaryFileSizeExceedsLimitException": None,
-            "Name or service not known": None,
-            "Network is unreachable": None,
             "InsufficientPrivilege": None,
-            "Connection refused": None,
-            "No route to host": None,
             "password authentication failed connection": None,
+            # Source-side connectivity failures (bad host, firewall, DNS) are tagged
+            # with this marker so they stay non-retryable, while the same raw DNS
+            # errors raised by PostHog's own Postgres mid-sync stay retryable.
+            PostgresSourceConnectionError.MARKER: None,
             "connection timeout expired": None,
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,

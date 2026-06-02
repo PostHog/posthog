@@ -51,6 +51,28 @@ async def test_should_produce_table_no_hog_function(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+@patch("posthog.temporal.data_imports.pipelines.pipeline.cdp_producer.close_old_connections")
+async def test_should_produce_table_closes_stale_connections_first(mock_close_old_connections, team):
+    # The lookup runs from a worker thread after streaming for minutes, so we
+    # close stale Django connections before the ORM query to avoid a transient
+    # connection error being misclassified as a non-retryable source fault.
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    producer = CDPProducer(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.should_produce_table() is False
+    mock_close_old_connections.assert_called_once_with()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_should_produce_table_with_matching_hog_function(team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
