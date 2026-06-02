@@ -172,6 +172,14 @@ class TestEvaluateCandidate:
         assert finding is not None
         assert finding.impact == pytest.approx(0.5 * math.sqrt(100.0))
 
+    def test_series_captured_for_sparkline(self):
+        series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
+        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        assert finding is not None
+        # Partial current week (999) dropped; recent completed weeks kept, ending at the current value.
+        assert finding.series == [100.0, 100.0, 100.0, 100.0, 50.0]
+        assert finding.series[-1] == finding.current_value
+
     def test_change_pct_is_primary_gate_z_alone_does_not_fire(self):
         # ~5% change but a large robust_z: must NOT fire (change_pct below min, z is secondary).
         series = [98.0, 100.0, 102.0, 100.0, 105.0, 999.0]
@@ -1048,6 +1056,26 @@ class TestEnrichOneSetsEvidence:
             )
 
         assert result.evidence is None
+
+    async def test_evidence_carries_series(self):
+        finding = _finding_with_event("purchase").model_copy(update={"series": [10.0, 12.0, 8.0]})
+        with (
+            patch("posthog.temporal.ai.pulse.narrative._attribute_finding", new_callable=AsyncMock) as mock_attr,
+            patch("posthog.temporal.ai.pulse.narrative._collect_replay_evidence", new_callable=AsyncMock) as mock_evi,
+            patch("posthog.temporal.ai.pulse.narrative._generate_narrative", new_callable=AsyncMock) as mock_narr,
+        ):
+            mock_attr.return_value = None
+            mock_evi.return_value = []
+            mock_narr.return_value = ("Purchases dropped.", [])
+            result = await _enrich_one(
+                team=MagicMock(id=1),
+                user=MagicMock(),
+                finding=finding,
+                enrichment_semaphore=asyncio.Semaphore(1),
+                attribution_semaphore=asyncio.Semaphore(1),
+            )
+
+        assert result.evidence == {"series": [10.0, 12.0, 8.0]}
 
     async def test_evidence_none_when_no_sessions(self):
         with (

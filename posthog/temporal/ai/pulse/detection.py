@@ -129,6 +129,9 @@ def _evaluate_candidate(
         change_pct=result.change_pct,
         impact=result.impact,
         robust_z=result.robust_z,
+        # The recent completed weeks (baseline window + current) drive the card's trend sparkline; kept
+        # unrounded so the last point equals current_value exactly (matters for avg/median/p90 metrics).
+        series=[float(v) for v in completed[-(MAX_BASELINE_WEEKS + 1) :]],
     )
 
 

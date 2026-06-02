@@ -48,6 +48,8 @@ class Finding(BaseModel):
     change_pct: float
     impact: float
     robust_z: float
+    # Recent completed-week values (oldest→newest, current week last) for the card's trend sparkline.
+    series: list[float] | None = None
 
 
 class EnrichedFinding(BaseModel):

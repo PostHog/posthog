@@ -5,11 +5,9 @@ import {
     SENSITIVITY_PRESETS,
     buildFindingInsightContext,
     buildMaxSeedPrompt,
-    describeAbsoluteChange,
     describeChange,
     describeReference,
     findingShortId,
-    formatSignedNumber,
     formatSignedPct,
     suggestedNextStep,
 } from './utils'
@@ -44,20 +42,6 @@ describe('pulse utils', () => {
         [-0.1, { direction: 'down' as const, tone: 'danger' as const, label: '-10%' }],
     ])('describeChange(%s)', (pct, expected) => {
         expect(describeChange(pct)).toEqual(expected)
-    })
-
-    it('formats signed numbers, abbreviating large values', () => {
-        expect(formatSignedNumber(94)).toBe('+94')
-        expect(formatSignedNumber(-61)).toBe('-61')
-        expect(formatSignedNumber(0)).toBe('0') // a flat delta stays unsigned, not "+0"
-        expect(formatSignedNumber(21_849_087_616)).toBe('+21.8B')
-    })
-
-    it('describes absolute change with human-readable numbers', () => {
-        expect(describeAbsoluteChange(FINDING)).toBe('64 this week vs 125/wk typical (-61)')
-        expect(
-            describeAbsoluteChange({ ...FINDING, current_value: 43_106_067_556, baseline_value: 21_256_979_940 })
-        ).toBe('43.1B this week vs 21.3B/wk typical (+21.8B)')
     })
 
     it('describes references as labelled deep links', () => {

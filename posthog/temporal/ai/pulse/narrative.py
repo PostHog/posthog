@@ -387,8 +387,10 @@ async def _enrich_one(
                 error=str(exc),
             )
             narrative = _fallback_narrative(finding, attribution)
-        # Evidence carries both example replays and the linkable same-period changes the UI turns into chips.
+        # Evidence carries the trend sparkline series, example replays, and the linkable same-period changes.
         evidence: dict[str, Any] = {}
+        if finding.series:
+            evidence["series"] = finding.series
         if session_ids:
             evidence["session_ids"] = session_ids
         if references:

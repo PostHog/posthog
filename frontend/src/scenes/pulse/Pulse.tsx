@@ -1,28 +1,33 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconBell, IconChevronRight, IconPulse, IconRefresh } from '@posthog/icons'
+import { IconBell, IconChevronRight, IconPlay, IconPulse, IconRefresh, IconTrending } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCard,
     LemonCollapse,
+    LemonDivider,
     LemonInput,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonSwitch,
     LemonTag,
     Spinner,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
+import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyLargeNumber } from 'lib/utils'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -38,10 +43,8 @@ import { pulseLogic } from './pulseLogic'
 import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
 import {
     SENSITIVITY_PRESETS,
-    ROBUST_Z_TOOLTIP,
     buildFindingInsightContext,
     buildMaxSeedPrompt,
-    describeAbsoluteChange,
     describeChange,
     describeReference,
     suggestedNextStep,
@@ -78,14 +81,34 @@ function statusTone(status: PulseDigestStatus): LemonTagType {
 // The digest synthesis is written as a "- " bullet list so it's skimmable; LemonMarkdown renders it (and
 // still renders older paragraph-style summaries fine).
 function DigestReadBanner({ summary, className }: { summary: string; className?: string }): JSX.Element {
+    // type="ai" gives the premium AI-styled banner + icon; the body stays normal weight (LemonBanner
+    // forces font-weight:500 on its content) while the "PostHog's read" header stays bold.
     return (
-        <LemonBanner type="info" className={className}>
+        <LemonBanner type="ai" className={className}>
             <div className="font-semibold mb-1">PostHog's read</div>
-            {/* LemonBanner sets font-weight:500 on all its content; keep the read body at normal weight. */}
             <div className="font-normal">
                 <LemonMarkdown>{summary}</LemonMarkdown>
             </div>
         </LemonBanner>
+    )
+}
+
+// Skeleton mirroring the FindingCard layout (title / delta+sparkline / narrative) so loading reads as
+// "cards coming" rather than generic bars.
+function FindingCardSkeleton(): JSX.Element {
+    return (
+        <LemonCard className="border-l-4 border-muted">
+            <div className="flex items-center justify-between mb-2">
+                <LemonSkeleton className="h-5 w-48" />
+                <LemonSkeleton className="h-6 w-28" />
+            </div>
+            <div className="flex items-end justify-between gap-4 mb-2">
+                <LemonSkeleton className="h-8 w-32" />
+                <LemonSkeleton className="h-10 w-28" />
+            </div>
+            <LemonSkeleton className="h-4 w-full mb-1" />
+            <LemonSkeleton className="h-4 w-3/4" />
+        </LemonCard>
     )
 }
 
@@ -106,15 +129,30 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
     // task when we have a high-confidence lead (e.g. dive into the segment), else a generic explain.
     const exploreSeed = suggestedNextStep(finding)?.seed ?? buildMaxSeedPrompt(finding)
 
+    // Left-border accent + sparkline + delta tag all share the change's tone (danger=drop, success=rise),
+    // so a red/green left edge makes the list scannable at a glance.
+    const TrendIcon =
+        change.direction === 'up' ? IconTrending : change.direction === 'down' ? IconTrendingDown : IconTrendingFlat
+    const sparklineColor = change.tone === 'danger' ? 'danger' : change.tone === 'success' ? 'success' : 'muted'
+    const series = finding.evidence?.series
+    const breakdown = finding.attribution_breakdown
+    const references = finding.evidence?.references ?? []
+    const sessionIds = finding.evidence?.session_ids ?? []
+
     return (
-        <LemonCard>
-            <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-base font-semibold mb-0">{finding.metric_label}</h3>
-                <LemonTag type={change.tone}>{change.label}</LemonTag>
-                <Tooltip title={ROBUST_Z_TOOLTIP}>
-                    <span className="text-muted-alt text-xs cursor-help">Why flagged?</span>
-                </Tooltip>
-                <div className="ml-auto flex items-center gap-1">
+        <LemonCard
+            className={clsx(
+                'border-l-4',
+                change.tone === 'danger' && 'border-danger',
+                change.tone === 'success' && 'border-success',
+                change.tone === 'muted' && 'border-muted'
+            )}
+        >
+            <div className="flex items-start gap-2 mb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <h3 className="text-base font-semibold mb-0 truncate">{finding.metric_label}</h3>
+                </div>
+                <div className="ml-auto flex items-center gap-1 shrink-0">
                     {finding.metric_descriptor?.url ? (
                         <LemonButton
                             type="tertiary"
@@ -137,12 +175,50 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     </AIConsentPopoverWrapper>
                 </div>
             </div>
-            <div className="text-muted-alt text-xs mb-2">{describeAbsoluteChange(finding)}</div>
+            <div className="flex items-end justify-between gap-4 mb-2">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-2xl font-bold leading-none">
+                        {humanFriendlyLargeNumber(finding.current_value)}
+                    </span>
+                    <LemonTag type={change.tone} icon={<TrendIcon />}>
+                        {change.label}
+                    </LemonTag>
+                    <span className="text-muted-alt text-xs">
+                        vs {humanFriendlyLargeNumber(finding.baseline_value)}/wk typical
+                    </span>
+                </div>
+                {/* Decorative trend — pointer-events-none so its tooltip doesn't fight the card; the
+                    headline number carries the values. */}
+                {series && series.length > 1 ? (
+                    <div className="w-28 h-10 shrink-0 pointer-events-none">
+                        <Sparkline
+                            type="line"
+                            data={series}
+                            labels={series.map((_, i) =>
+                                i === series.length - 1 ? 'This week' : `${series.length - 1 - i}w ago`
+                            )}
+                            color={sparklineColor}
+                            maximumIndicator={false}
+                            className="h-10 w-full"
+                        />
+                    </div>
+                ) : null}
+            </div>
             <p className="text-sm mb-0">{finding.narrative}</p>
-            {finding.evidence?.references?.length ? (
-                <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
+            {breakdown?.value ? (
+                <div className="flex items-center gap-1 text-muted-alt text-xs mt-2">
+                    <span>Concentrated in</span>
+                    {/* PropertyIcon.WithLabel's className styles only the icon wrapper, so render the icon and
+                        the emphasized value separately — the icon is simply omitted for unmapped properties. */}
+                    <PropertyIcon property={breakdown.property as string} value={String(breakdown.value)} />
+                    <span className="font-medium text-default">{String(breakdown.value)}</span>
+                </div>
+            ) : null}
+            {references.length || sessionIds.length ? <LemonDivider className="my-3" /> : null}
+            {references.length ? (
+                <div className="flex items-center flex-wrap gap-2 text-xs">
                     <span className="text-muted-alt">Related changes:</span>
-                    {finding.evidence.references.map((ref, index) => {
+                    {references.map((ref, index) => {
                         const { label, to } = describeReference(ref)
                         const key = `${ref.type}-${ref.id || index}`
                         return to ? (
@@ -157,18 +233,19 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     })}
                 </div>
             ) : null}
-            {finding.evidence?.session_ids?.length ? (
+            {sessionIds.length ? (
                 <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
-                    <span className="text-muted-alt">Example sessions:</span>
-                    {finding.evidence.session_ids.map((sessionId, index) => (
+                    <span className="text-muted-alt">Sessions:</span>
+                    {sessionIds.map((sessionId, index) => (
                         <LemonButton
                             key={sessionId}
-                            type="tertiary"
+                            type="secondary"
                             size="xsmall"
+                            icon={<IconPlay />}
                             to={urls.replaySingle(sessionId)}
                             targetBlank
                         >
-                            Replay {index + 1}
+                            Session {index + 1}
                         </LemonButton>
                     ))}
                 </div>
@@ -305,8 +382,13 @@ function WatchedPanel(): JSX.Element | null {
 
     return (
         <LemonCard className="mb-6">
-            <h3 className="text-base font-semibold mb-2">What PostHog is watching</h3>
-            <p className="text-muted-alt text-sm mb-3">These metrics are scanned each cycle for notable changes.</p>
+            <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-base font-semibold mb-0">What PostHog is watching</h3>
+                <LemonTag type="warning">Staff debug</LemonTag>
+            </div>
+            <p className="text-muted-alt text-sm mb-3">
+                Internal: the metric set scanned each cycle. Hidden from non-staff while we tune it.
+            </p>
             <div className="flex flex-wrap gap-2">
                 {watchedCandidates.map((c, i) => (
                     <LemonTag key={c.source_id ?? `${c.source}-${i}`} type="muted">
@@ -406,8 +488,10 @@ export function Pulse(): JSX.Element {
         loadDigests()
         loadFindings()
         loadSubscription()
-        loadWatched()
-    }, [flagEnabled, loadDigests, loadFindings, loadSubscription, loadWatched])
+        if (user?.is_staff) {
+            loadWatched() // staff-only debug panel; don't fetch the watched set for non-staff
+        }
+    }, [flagEnabled, user?.is_staff, loadDigests, loadFindings, loadSubscription, loadWatched])
 
     if (!flagEnabled) {
         return (
@@ -474,7 +558,8 @@ export function Pulse(): JSX.Element {
             />
 
             <SubscriptionPanel />
-            <WatchedPanel />
+            {/* The watched-metric set is internal "magic sauce" we'll keep tuning — staff-only debug for now. */}
+            {user?.is_staff && <WatchedPanel />}
 
             {digestsError && (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadDigests() }} className="mb-4">
@@ -501,10 +586,10 @@ export function Pulse(): JSX.Element {
             )}
 
             {digestsLoading && digests.length === 0 ? (
-                <div className="space-y-3">
+                <div className="space-y-4">
                     <LemonSkeleton className="h-8 w-48" />
-                    <LemonSkeleton className="h-32 w-full" />
-                    <LemonSkeleton className="h-32 w-full" />
+                    <FindingCardSkeleton />
+                    <FindingCardSkeleton />
                 </div>
             ) : (
                 <>
@@ -540,7 +625,7 @@ export function Pulse(): JSX.Element {
                                     {findingsForLatest.length === 0 ? (
                                         <p className="text-muted">No findings in the latest digest.</p>
                                     ) : (
-                                        <div className="grid grid-cols-1 gap-3">
+                                        <div className="grid grid-cols-1 gap-4">
                                             {findingsForLatest.map((finding) => (
                                                 <FindingCard key={finding.id} finding={finding} />
                                             ))}

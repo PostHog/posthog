@@ -33,7 +33,7 @@ export interface PulseFindingType {
     robust_z: number
     impact: number
     attribution_breakdown: Record<string, any> | null
-    evidence: { session_ids?: string[]; references?: PulseReference[] } | null
+    evidence: { series?: number[]; session_ids?: string[]; references?: PulseReference[] } | null
     narrative: string
     chart_thumbnail_url: string
     rank: number

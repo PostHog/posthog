@@ -1,4 +1,4 @@
-import { humanFriendlyLargeNumber, percentage } from 'lib/utils'
+import { percentage } from 'lib/utils'
 import { InsightWithQuery } from 'scenes/max/maxTypes'
 import { urls } from 'scenes/urls'
 
@@ -10,22 +10,6 @@ export function formatSignedPct(pct: number): string {
     return `${pct >= 0 ? '+' : ''}${percentage(pct, 0)}`
 }
 
-export function formatSignedNumber(value: number): string {
-    // humanFriendlyLargeNumber abbreviates large values (43,106,067,556 -> "43.1B") and already
-    // prefixes negatives with "-"; we add "+" only for positives (a flat 0 stays unsigned).
-    return `${value > 0 ? '+' : ''}${humanFriendlyLargeNumber(value)}`
-}
-
-// Compact absolute-change line shown on a finding card, e.g. "179 this week vs 85/wk typical (+94)"
-// or "43.1B this week vs 21.3B/wk typical (+21.8B)". Carries the real numbers so the narrative can
-// focus on where the change concentrated and why.
-export function describeAbsoluteChange(finding: PulseFindingType): string {
-    const current = humanFriendlyLargeNumber(finding.current_value)
-    const baseline = humanFriendlyLargeNumber(finding.baseline_value)
-    const delta = formatSignedNumber(finding.current_value - finding.baseline_value)
-    return `${current} this week vs ${baseline}/wk typical (${delta})`
-}
-
 export type ChangeDirection = 'up' | 'down' | 'flat'
 
 export interface ChangeDescriptor {
@@ -34,6 +18,10 @@ export interface ChangeDescriptor {
     label: string
 }
 
+// Tone is DIRECTIONAL, not sentiment: up=success/down=danger matches PostHog's web-analytics default. Pulse
+// doesn't model per-metric polarity, so a rising error_rate reads "success" and a falling one "danger" — read
+// the colour as "rose/fell", not "good/bad". Per-metric polarity (cf. web-analytics' reverseColors) is a
+// tracked follow-up; the signed % label + arrow always state the literal direction regardless of colour.
 export function describeChange(pct: number): ChangeDescriptor {
     if (pct === 0) {
         return { direction: 'flat', tone: 'muted', label: 'flat' }
@@ -151,10 +139,6 @@ export function suggestedNextStep(finding: PulseFindingType): { label: string; s
     }
     return null
 }
-
-export const ROBUST_Z_TOOLTIP =
-    'Robust z-score: how far this week sits from the typical week, measured against normal week-to-week noise. ' +
-    'Higher means more unusual. Informational only — the change threshold decides what gets flagged.'
 
 // Frontend mirror of the backend SENSITIVITY_PRESETS. Selecting a preset applies these thresholds locally.
 export const SENSITIVITY_PRESETS: Record<
