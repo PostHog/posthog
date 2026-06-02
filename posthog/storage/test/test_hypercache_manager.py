@@ -376,8 +376,8 @@ class TestPushHypercacheStatsMetrics(BaseTest):
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_size_gauge_when_size_bytes_is_none(self, mock_registry_cm):
         """Test that size gauge is not created when size_bytes is None."""
-        mock_registry = MagicMock()
-        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
         mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
 
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
@@ -391,6 +391,11 @@ class TestPushHypercacheStatsMetrics(BaseTest):
             )
 
         mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata_team_metadata")
+        labels = {"namespace": "team_metadata", "cache_name": "team_metadata"}
+        assert registry.get_sample_value("posthog_hypercache_size_bytes", labels) is None
+        assert registry.get_sample_value("posthog_hypercache_coverage_percent", labels) == 90.0
+        assert registry.get_sample_value("posthog_hypercache_entries_total", labels) == 500
+        assert registry.get_sample_value("posthog_hypercache_expiry_tracked_total", labels) == 500
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     @patch("posthog.storage.hypercache_manager.logger")
