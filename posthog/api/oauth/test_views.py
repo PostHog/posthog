@@ -2293,7 +2293,9 @@ class TestOAuthAPI(APIBaseTest):
             response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         rejection_calls = [
-            call for call in mock_logger.warning.call_args_list if call.args and call.args[0] == "oauth_scope_ceiling_rejected"
+            call
+            for call in mock_logger.warning.call_args_list
+            if call.args and call.args[0] == "oauth_scope_ceiling_rejected"
         ]
         self.assertEqual(len(rejection_calls), 1)
         kwargs = rejection_calls[0].kwargs
