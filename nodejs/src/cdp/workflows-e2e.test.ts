@@ -37,6 +37,7 @@ import { createHogExecutionGlobals, insertHogFunctionTemplate } from './_tests/f
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
+import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
@@ -66,6 +67,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     let team: Team
     let globals: HogFunctionInvocationGlobals
     let cyclotronPool: Pool
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeAll(() => {
         cyclotronPool = new Pool({
@@ -113,7 +115,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             ],
         })
 
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
@@ -266,6 +268,14 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     const exitAction = () => ({ type: 'exit' as const, config: {} })
+
+    // Mirrors what HogFlowSerializer compiles for {events: [{id: <name>}]}: a single
+    // equality check on the `event` global. The matcher is fail-closed when bytecode
+    // is absent, so fixtures must supply it the same way Django would on save.
+    const eventNameBytecode = (eventName: string): any[] => ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11]
+    const eventNameFilter = (eventName: string) => ({
+        filters: { events: [{ id: eventName }], bytecode: eventNameBytecode(eventName) },
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -586,6 +596,128 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
 
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-wait-timeout', expect.anything())
+        })
+    })
+
+    // The matcher reads parked jobs via `CYCLOTRON_NODE_DATABASE_URL` (the postgres-v2 backend).
+    // In legacy `postgres` mode the worker parks the job in a different DB the matcher cannot see,
+    // so wakes are postgres-v2-only.
+    const describeMatcher = mode === 'postgres-v2' ? describe : describe.skip
+    describeMatcher('wait_until_condition: subscription matcher wakes parked jobs', () => {
+        let matcher: CdpHogflowSubscriptionMatcherConsumer
+
+        // trigger → wait_condition → (matched branch | timeout continue) → exit
+        const createWaitUntilWorkflow = (waitConfig: Record<string, any>): Promise<string> =>
+            createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_condition: { type: 'wait_until_condition', config: waitConfig },
+                    function_matched: fetchAction('https://example.com/condition-matched'),
+                    function_timeout: fetchAction('https://example.com/timed-out'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'function_timeout', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                    { from: 'function_timeout', to: 'exit', type: 'continue' },
+                ],
+            })
+
+        // The job is parked when it is available with a scheduled time in the future.
+        const expectParked = async (): Promise<void> => {
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 5000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        }
+
+        beforeEach(() => {
+            matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+        })
+
+        afterEach(async () => {
+            await matcher?.stop().catch(() => {})
+        })
+
+        it('wakes a parked job and takes the matched branch when a subscribed event fires', async () => {
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A subscribed event fires for this person — the matcher wakes the job.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('wakes a parked job when a later event satisfies the property condition', async () => {
+            await createWaitUntilWorkflow({
+                // No events list — only a property-based condition. The matcher evaluates the
+                // condition against every incoming event, making property waits event-driven.
+                condition: { filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters },
+                max_wait_duration: '5m',
+            })
+            // Trigger with an event that does not satisfy the condition, so the job parks.
+            await triggerWorkflow(createGlobals({ event: 'custom_trigger', properties: {} }))
+            await expectParked()
+
+            // A later $pageview with a posthog URL satisfies the property condition.
+            await matcher.processBatch([
+                createGlobals({ event: '$pageview', properties: { $current_url: 'https://posthog.com' } }),
+            ])
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('takes the timeout branch when neither events nor the condition match before max_wait', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('never_fires')],
+                max_wait_duration: '2s',
+            })
+            await triggerWorkflow(createGlobals())
+
+            // An unrelated event passes through the matcher but must not wake the job.
+            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+
+            // After max_wait expires the job advances down the continue (timeout) branch.
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 15000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/timed-out', expect.anything())
+        })
+
+        it('leaves the job parked when an event matches neither the events nor the condition', async () => {
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('wakeup_event')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // An unrelated event must not wake the job.
+            await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
+
+            // Give the worker room to (incorrectly) pick the job up — it must not.
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
         })
     })
 

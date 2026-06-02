@@ -2662,6 +2662,20 @@
             "readOnlyHint": true
         }
     },
+    "inbox-reports-set-state": {
+        "description": "Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g. 'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions again later. Returns 409 if the transition is not allowed from the report's current status.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Dismiss or snooze a signal report",
+        "title": "Dismiss or snooze a signal report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-list": {
         "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
         "category": "Signals",

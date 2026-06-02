@@ -355,11 +355,6 @@ _task_queue_specs = [
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
     ),
-    (
-        settings.DEPLOYMENTS_TASK_QUEUE,
-        DEPLOYMENTS_WORKFLOWS,
-        DEPLOYMENTS_ACTIVITIES,
-    ),
 ]
 
 # Note: When running locally, many task queues resolve to the same queue name.
