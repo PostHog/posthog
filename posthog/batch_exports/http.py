@@ -1260,9 +1260,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             if destination_data:
-                # Type changes are rejected by `validate_destination` — the
-                # incoming `type` (if any) always equals the existing type by
-                # the time we get here.
+                # Type changes are rejected by `BatchExportDestinationSerializer.validate_type` —
+                # the incoming `type` (if any) always equals the existing type by the time we get
+                # here.
                 batch_export.destination.config = recursive_dict_merge(
                     batch_export.destination.config,
                     destination_data.get("config", {}),
