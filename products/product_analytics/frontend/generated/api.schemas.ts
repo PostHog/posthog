@@ -6594,7 +6594,7 @@ export interface AccountsQueryApi {
     filterExpression?: string | null
     kind?: 'AccountsQuery'
     limit?: number | null
-    /** Aggregation expressions evaluated against the filtered account set. When set, the runner skips the regular row fetch and returns one value per metric in `metricsResults`. */
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
     metrics?: string[] | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
