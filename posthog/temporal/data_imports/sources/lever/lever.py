@@ -46,10 +46,13 @@ def _normalize_item(item: dict[str, Any]) -> dict[str, Any]:
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     url = f"{LEVER_BASE_URL}/postings"
+    session = make_tracked_session()
     try:
-        response = make_tracked_session().get(url, auth=_auth(api_key), params={"limit": 1}, timeout=10)
+        response = session.get(url, auth=_auth(api_key), params={"limit": 1}, timeout=10)
     except Exception as e:
         return False, str(e)
+    finally:
+        session.close()
 
     if response.status_code == 200:
         return True, None
@@ -118,28 +121,31 @@ def get_rows(
 
         return response.json()
 
-    while True:
-        params = dict(base_params)
-        if offset:
-            params["offset"] = offset
+    try:
+        while True:
+            params = dict(base_params)
+            if offset:
+                params["offset"] = offset
 
-        data = fetch_page(params)
+            data = fetch_page(params)
 
-        items = data.get("data", [])
-        if items:
-            yield [_normalize_item(item) for item in items]
+            items = data.get("data", [])
+            if items:
+                yield [_normalize_item(item) for item in items]
 
-        if not data.get("hasNext"):
-            break
+            if not data.get("hasNext"):
+                break
 
-        next_offset = data.get("next")
-        if not next_offset:
-            break
+            next_offset = data.get("next")
+            if not next_offset:
+                break
 
-        # Save state after yielding so a crash re-yields the last batch (merge dedupes
-        # on the primary key) rather than skipping it.
-        offset = next_offset
-        resumable_source_manager.save_state(LeverResumeConfig(offset=offset))
+            # Save state after yielding so a crash re-yields the last batch (merge dedupes
+            # on the primary key) rather than skipping it.
+            offset = next_offset
+            resumable_source_manager.save_state(LeverResumeConfig(offset=offset))
+    finally:
+        session.close()
 
 
 def lever_source(

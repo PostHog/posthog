@@ -95,19 +95,24 @@ class TestLeverSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "mock_return, expected_valid, expected_error",
         [
             ((True, None), True, None),
-            ((False, "Invalid Lever API key. Please check your key and try again."), False, None),
+            (
+                (False, "Invalid Lever API key. Please check your key and try again."),
+                False,
+                "Invalid Lever API key. Please check your key and try again.",
+            ),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.lever.source.validate_lever_credentials")
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_error):
         mock_validate.return_value = mock_return
 
-        is_valid, _ = self.source.validate_credentials(self.config, self.team_id)
+        is_valid, error = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
+        assert error == expected_error
         mock_validate.assert_called_once_with(self.config.api_key)
 
     def test_get_resumable_source_manager_binds_resume_config(self):
