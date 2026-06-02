@@ -13,11 +13,7 @@ from posthog.temporal.data_imports.sources.postmark.postmark import (
     postmark_source,
     validate_credentials,
 )
-from posthog.temporal.data_imports.sources.postmark.settings import (
-    ENDPOINTS,
-    POSTMARK_ENDPOINTS,
-    POSTMARK_MAX_WINDOW,
-)
+from posthog.temporal.data_imports.sources.postmark.settings import ENDPOINTS, POSTMARK_ENDPOINTS, POSTMARK_MAX_WINDOW
 
 
 def _mock_manager(can_resume: bool = False, state: PostmarkResumeConfig | None = None) -> MagicMock:
