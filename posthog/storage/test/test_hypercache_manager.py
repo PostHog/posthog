@@ -10,11 +10,14 @@ Covers:
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from prometheus_client import CollectorRegistry
+
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
     HyperCacheManagementConfig,
     get_cache_stats,
     push_hypercache_stats_metrics,
+    push_hypercache_teams_processed_metrics,
     warm_caches,
 )
 
@@ -333,9 +336,9 @@ class TestPushHypercacheStatsMetrics(BaseTest):
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_pushes_metrics_to_pushgateway(self, mock_registry_cm):
-        """Test that metrics are pushed to Pushgateway when configured."""
-        mock_registry = MagicMock()
-        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        """Metrics are pushed to the namespace+cache_name group, labeled by both."""
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
         mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
 
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
@@ -349,6 +352,11 @@ class TestPushHypercacheStatsMetrics(BaseTest):
             )
 
         mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags_flags")
+        labels = {"namespace": "feature_flags", "cache_name": "flags"}
+        assert registry.get_sample_value("posthog_hypercache_coverage_percent", labels) == 85.5
+        assert registry.get_sample_value("posthog_hypercache_entries_total", labels) == 1000
+        assert registry.get_sample_value("posthog_hypercache_expiry_tracked_total", labels) == 950
+        assert registry.get_sample_value("posthog_hypercache_size_bytes", labels) == 1024000
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
@@ -437,6 +445,80 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         assert group_names == [
             "hypercache_stats_team_metadata_team_metadata",
             "hypercache_stats_team_metadata_llm_gateway_policy",
+        ]
+
+
+class TestPushHypercacheTeamsProcessedMetrics(BaseTest):
+    """Test push_hypercache_teams_processed_metrics functionality."""
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_pushes_metrics_to_pushgateway(self, mock_registry_cm):
+        """Teams-processed counts are pushed to the namespace+cache_name group, labeled by both."""
+        registry = CollectorRegistry()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+            )
+
+        mock_registry_cm.assert_called_once_with("hypercache_teams_processed_feature_flags_flags")
+        base = {"namespace": "feature_flags", "cache_name": "flags"}
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "success"})
+            == 900
+        )
+        assert (
+            registry.get_sample_value("posthog_hypercache_teams_processed_last_run", {**base, "result": "failure"})
+            == 100
+        )
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
+        """No push happens when PROM_PUSHGATEWAY_ADDRESS is not set."""
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS=None):
+            push_hypercache_teams_processed_metrics(
+                namespace="feature_flags",
+                cache_name="flags",
+                successful=900,
+                failed=100,
+            )
+
+        mock_registry_cm.assert_not_called()
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_caches_sharing_namespace_use_distinct_groups(self, mock_registry_cm):
+        """Caches sharing a namespace must push to distinct Pushgateway groups.
+
+        team_metadata and llm_gateway_policy both use namespace="team_metadata";
+        without cache_name in the group key they would overwrite each other.
+        """
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_teams_processed_metrics(
+                namespace="team_metadata",
+                cache_name="team_metadata",
+                successful=409000,
+                failed=0,
+            )
+            push_hypercache_teams_processed_metrics(
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                successful=10900,
+                failed=0,
+            )
+
+        group_names = [call.args[0] for call in mock_registry_cm.call_args_list]
+        assert group_names == [
+            "hypercache_teams_processed_team_metadata_team_metadata",
+            "hypercache_teams_processed_team_metadata_llm_gateway_policy",
         ]
 
 
