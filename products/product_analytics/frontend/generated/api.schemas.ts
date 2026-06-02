@@ -788,6 +788,8 @@ export interface DataWarehouseSyncWarningApi {
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
     schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -1563,6 +1565,8 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */

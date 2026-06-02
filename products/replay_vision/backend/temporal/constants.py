@@ -9,6 +9,15 @@ SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 # Children are ABANDONed and don't count against this budget.
 SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 
+SCANNER_SCHEDULE_ID_PREFIX = "replay-vision-scanner"
+# Search-attribute value stamped on every per-scanner schedule so the reconciler can list them.
+SCANNER_SCHEDULE_TYPE = "replay-vision-scanner-sweep"
+
+
+def scanner_schedule_id(scanner_id: UUID) -> str:
+    return f"{SCANNER_SCHEDULE_ID_PREFIX}-{scanner_id}"
+
+
 # Capped so `replay-vision-apply-scanner-{scanner_uuid:36}-{session_id}` fits the 255-char `ReplayObservation.workflow_id` column.
 MAX_SESSION_ID_LENGTH = 128
 
