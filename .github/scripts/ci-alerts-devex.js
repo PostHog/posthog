@@ -30,6 +30,9 @@ const INCIDENT_EVENT_TYPE = 'master_ci_incident'
 // One page of channel history. #alerts-devex is low-traffic, so the open anchor
 // reliably stays within the newest 100 messages; a busier channel would need paging.
 const HISTORY_LIMIT = 100
+// Attachment side-bar colors (Slack's red / green).
+const ACTIVE_COLOR = '#E01E5A'
+const RESOLVED_COLOR = '#2EB67D'
 
 // ---------------------------------------------------------------------------
 // GitHub data
@@ -206,6 +209,15 @@ function formatDuration(mins) {
 // Slack mrkdwn requires escaping these three in user-supplied text.
 const slackEscape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+// A workflow's run history on master — where you can see all of its runs at a glance.
+function runsUrlFor(owner, repo, workflowFile) {
+    return `https://github.com/${owner}/${repo}/actions/workflows/${workflowFile}?query=branch%3Amaster`
+}
+
+// Read-boundary normalizer for persisted incident workflows: tolerate an older
+// bare-name format so a metadata schema change can't break the resolve/diff path.
+const normalizeWorkflows = (list) => (list || []).map((w) => (typeof w === 'string' ? { name: w } : w))
+
 // Critical workflows first, then by streak length descending.
 function sortBlocking(blocking, criticalWorkflows) {
     return [...blocking].sort((a, b) => {
@@ -215,44 +227,74 @@ function sortBlocking(blocking, criticalWorkflows) {
     })
 }
 
-function buildAnchorText({ blocking, commitActive, commitStreakCount, latestCommit, durationMins, runsUrl }) {
-    const lines = [`:red_circle:  *Master is red* · ${formatDuration(durationMins)}`]
-    for (const wf of blocking) {
-        lines.push(
-            `• <${wf.run_url}|${slackEscape(wf.name)}> — ${plural(wf.consecutive_failures, 'failed run')} in a row`
-        )
-    }
+// Bold, linked workflow name → its master run history.
+const workflowLink = (wf) => `*<${wf.runsUrl}|${slackEscape(wf.name)}>*`
+
+// The anchor: a red-barred Block Kit message. `text` is the notification/a11y fallback;
+// the rich content lives in one attachment so it gets the colored side bar.
+function buildAnchorMessage({
+    blocking,
+    commitActive,
+    commitStreakCount,
+    latestCommit,
+    durationMins,
+    allFailingRunsUrl,
+}) {
+    const lines = blocking.map(
+        (wf) => `• ${workflowLink(wf)} — ${plural(wf.consecutive_failures, 'failed run')} in a row`
+    )
     if (commitActive) {
-        lines.push(`_${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
+        lines.push(`• _${plural(commitStreakCount, 'commit')} in a row failed a required check_`)
     }
+
+    const meta = [`failing for *${formatDuration(durationMins)}*`]
     if (latestCommit) {
         const sha = latestCommit.sha.slice(0, 7)
         const msg = slackEscape((latestCommit.message || '').slice(0, 80))
-        const tail = `Latest: <${latestCommit.html_url}|${sha}> ${msg} · ${slackEscape(latestCommit.author)} · <${runsUrl}|View failing runs>`
-        lines.push(tail)
-    } else {
-        lines.push(`<${runsUrl}|View failing runs>`)
+        meta.push(`latest <${latestCommit.html_url}|\`${sha}\`> ${msg} · *${slackEscape(latestCommit.author)}*`)
     }
-    return lines.join('\n')
+    meta.push(`<${allFailingRunsUrl}|all failing runs ↗>`)
+
+    const blocks = [
+        { type: 'header', text: { type: 'plain_text', text: ':red_circle: Master is red', emoji: true } },
+        { type: 'section', text: { type: 'mrkdwn', text: lines.join('\n') } },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: meta.join('  ·  ') }] },
+    ]
+    const summary = blocking.length
+        ? `Master is red — ${plural(blocking.length, 'workflow')} failing (${formatDuration(durationMins)})`
+        : `Master is red — ${plural(commitStreakCount, 'commit')} in a row failed a required check (${formatDuration(durationMins)})`
+    return { text: summary, attachments: [{ color: ACTIVE_COLOR, blocks }] }
 }
 
-function buildResolvedText({ previousWorkflows, durationMins }) {
-    const cleared = previousWorkflows.length ? previousWorkflows.join(', ') : 'required-check failures'
-    return [
-        `:large_green_circle:  *Master recovered* · was red ${formatDuration(durationMins)}`,
-        `~*Master is red* — ${slackEscape(cleared)}~`,
-    ].join('\n')
+// The resolved anchor: green bar, recovery header, and the cleared workflows struck through.
+function buildResolvedMessage({ previousWorkflows, durationMins }) {
+    const cleared = previousWorkflows.length
+        ? previousWorkflows.map((w) => slackEscape(w.name)).join(', ')
+        : 'required-check failures'
+    const blocks = [
+        { type: 'header', text: { type: 'plain_text', text: ':large_green_circle: Master recovered', emoji: true } },
+        {
+            type: 'context',
+            elements: [
+                { type: 'mrkdwn', text: `was red for *${formatDuration(durationMins)}* · cleared: ~${cleared}~` },
+            ],
+        },
+    ]
+    return {
+        text: `Master recovered — was red ${formatDuration(durationMins)}`,
+        attachments: [{ color: RESOLVED_COLOR, blocks }],
+    }
 }
 
 // One thread reply summarizing what changed this tick — the initial failing set on
-// create, or the delta on later ticks. Returns '' when nothing changed.
+// create, or the delta on later ticks. Workflow names link to their run history.
 function buildThreadReply({ created = [], added = [], removed = [], commitStarted = false }) {
     const parts = []
     if (created.length) {
-        parts.push(...created.map((w) => `:red_circle: ${slackEscape(w)} crossed the failure threshold`))
+        parts.push(...created.map((wf) => `:red_circle: ${workflowLink(wf)} crossed the failure threshold`))
     }
-    if (added.length) parts.push(`:heavy_plus_sign: now also failing: ${slackEscape(added.join(', '))}`)
-    if (removed.length) parts.push(`:white_check_mark: recovered: ${slackEscape(removed.join(', '))}`)
+    if (added.length) parts.push(`:heavy_plus_sign: now also failing: ${added.map(workflowLink).join(', ')}`)
+    if (removed.length) parts.push(`:white_check_mark: recovered: ${removed.map(workflowLink).join(', ')}`)
     if (commitStarted) parts.push(`:red_circle: commit-failure streak crossed the threshold`)
     return parts.join('\n')
 }
@@ -303,7 +345,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const blocking = sortBlocking(
         Object.values(failing).filter((f) => f.consecutive_failures >= workflowThreshold),
         criticalWorkflows
-    )
+    ).map((b) => ({ ...b, runsUrl: runsUrlFor(owner, repo, b.workflow_file) }))
 
     const latestCommit = commits[0] || null
     const { count: commitStreakCount, since: commitStreakSince } = leadingRedStreak(
@@ -312,7 +354,7 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const commitActive = commitStreakCount >= commitThreshold
     const unhealthy = blocking.length > 0 || commitActive
 
-    const runsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
+    const allFailingRunsUrl = `https://github.com/${owner}/${repo}/actions?query=branch%3Amaster+is%3Afailure`
 
     // Earliest start across both active signals (preserve original on update).
     const computeSince = () => {
@@ -324,30 +366,39 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     let action = 'none'
 
     if (unhealthy) {
-        const blockingNames = blocking.map((b) => b.name)
+        // Carry name + runs link in metadata so later ticks can diff and re-link by name.
+        const workflows = blocking.map((b) => ({ name: b.name, runsUrl: b.runsUrl }))
         const since = active?.payload?.since || computeSince()
         const durationMins = Math.round((now.getTime() - new Date(since).getTime()) / 60000)
-        const text = buildAnchorText({ blocking, commitActive, commitStreakCount, latestCommit, durationMins, runsUrl })
+        const message = buildAnchorMessage({
+            blocking,
+            commitActive,
+            commitStreakCount,
+            latestCommit,
+            durationMins,
+            allFailingRunsUrl,
+        })
         const metadata = {
             event_type: INCIDENT_EVENT_TYPE,
-            event_payload: { status: 'active', since, workflows: blockingNames, commitActive },
+            event_payload: { status: 'active', since, workflows, commitActive },
         }
 
         if (!active) {
-            const posted = await slack.postMessage({ channel, text, metadata, unfurl_links: false })
+            const posted = await slack.postMessage({ channel, ...message, metadata, unfurl_links: false })
             await slack.postMessage({
                 channel,
                 thread_ts: posted.ts,
-                text: buildThreadReply({ created: blockingNames, commitStarted: commitActive }),
+                text: buildThreadReply({ created: workflows, commitStarted: commitActive }),
             })
             action = 'create'
         } else {
-            await slack.update({ channel, ts: active.ts, text, metadata, unfurl_links: false })
+            await slack.update({ channel, ts: active.ts, ...message, metadata, unfurl_links: false })
             // Diff against the previous set to decide whether the timeline moved.
-            const prev = new Set(active.payload?.workflows || [])
-            const curr = new Set(blockingNames)
-            const added = [...curr].filter((n) => !prev.has(n))
-            const removed = [...prev].filter((n) => !curr.has(n))
+            const prevWorkflows = normalizeWorkflows(active.payload?.workflows)
+            const prevNames = new Set(prevWorkflows.map((w) => w.name))
+            const currNames = new Set(workflows.map((w) => w.name))
+            const added = workflows.filter((w) => !prevNames.has(w.name))
+            const removed = prevWorkflows.filter((w) => !currNames.has(w.name))
             const commitStarted = commitActive && !active.payload?.commitActive
             if (added.length || removed.length || commitStarted) {
                 await slack.postMessage({
@@ -361,11 +412,12 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     } else if (active) {
         const since = active.payload?.since
         const durationMins = since ? Math.round((now.getTime() - new Date(since).getTime()) / 60000) : 0
-        const previousWorkflows = active.payload?.workflows || []
+        const previousWorkflows = normalizeWorkflows(active.payload?.workflows)
+        const message = buildResolvedMessage({ previousWorkflows, durationMins })
         await slack.update({
             channel,
             ts: active.ts,
-            text: buildResolvedText({ previousWorkflows, durationMins }),
+            ...message,
             metadata: { event_type: INCIDENT_EVENT_TYPE, event_payload: { status: 'resolved' } },
             unfurl_links: false,
         })

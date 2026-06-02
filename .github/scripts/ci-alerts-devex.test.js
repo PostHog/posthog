@@ -141,16 +141,23 @@ describe('ci-alerts-devex', () => {
             assert.equal(slack.postMessage.calls.length, 2)
 
             const anchor = slack.postMessage.calls[0][0]
-            assert.match(anchor.text, /Master is red/)
-            assert.match(anchor.text, /Backend CI/)
-            assert.match(anchor.text, /— 5 failed runs in a row/)
+            assert.match(anchor.text, /Master is red/) // notification fallback
+            assert.equal(anchor.attachments[0].color, '#E01E5A')
+            const body = JSON.stringify(anchor.attachments)
+            assert.match(body, /Backend CI/)
+            assert.match(body, /5 failed runs in a row/)
+            assert.match(body, /actions\/workflows\/ci-backend\.yml\?query=branch/) // per-workflow runs link
             assert.equal(anchor.metadata.event_type, 'master_ci_incident')
             assert.equal(anchor.metadata.event_payload.status, 'active')
-            assert.deepEqual(anchor.metadata.event_payload.workflows, ['Backend CI'])
+            assert.deepEqual(
+                anchor.metadata.event_payload.workflows.map((w) => w.name),
+                ['Backend CI']
+            )
 
             const thread = slack.postMessage.calls[1][0]
             assert.equal(thread.thread_ts, '111.222')
-            assert.match(thread.text, /Backend CI crossed the failure threshold/)
+            assert.match(thread.text, /Backend CI/)
+            assert.match(thread.text, /crossed the failure threshold/)
         })
     }
 
@@ -166,6 +173,7 @@ describe('ci-alerts-devex', () => {
         // Same failing set → anchor refresh only, no thread spam, no new anchor.
         assert.equal(slack.postMessage.calls.length, 0)
         assert.equal(slack.update.calls[0][0].ts, '999.000')
+        assert.equal(slack.update.calls[0][0].attachments[0].color, '#E01E5A')
         assert.equal(slack.update.calls[0][0].metadata.event_payload.status, 'active')
     })
 
@@ -179,7 +187,10 @@ describe('ci-alerts-devex', () => {
         assert.equal(outputs.action, 'update')
         assert.equal(slack.update.calls.length, 1)
         assert.equal(slack.postMessage.calls.length, 1)
-        assert.match(slack.postMessage.calls[0][0].text, /now also failing: Frontend CI/)
+        const thread = slack.postMessage.calls[0][0].text
+        assert.match(thread, /now also failing/)
+        assert.match(thread, /Frontend CI/)
+        assert.match(thread, /actions\/workflows\/ci-frontend\.yml\?query=branch/)
     })
 
     it('strikes through the anchor and threads recovery on resolve', async () => {
@@ -190,8 +201,11 @@ describe('ci-alerts-devex', () => {
         assert.equal(outputs.action, 'resolve')
         const resolved = slack.update.calls[0][0]
         assert.equal(resolved.ts, '999.000')
-        assert.match(resolved.text, /Master recovered/)
-        assert.match(resolved.text, /~\*Master is red\* — Backend CI, E2E CI Playwright~/)
+        assert.match(resolved.text, /Master recovered/) // notification fallback
+        assert.equal(resolved.attachments[0].color, '#2EB67D')
+        const body = JSON.stringify(resolved.attachments)
+        assert.match(body, /Master recovered/)
+        assert.match(body, /~Backend CI, E2E CI Playwright~/) // struck-through cleared list
         assert.equal(resolved.metadata.event_payload.status, 'resolved')
         assert.match(slack.postMessage.calls[0][0].text, /master green again/)
     })
@@ -213,9 +227,10 @@ describe('ci-alerts-devex', () => {
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.commit_streak, '10')
         const anchor = slack.postMessage.calls[0][0]
-        assert.match(anchor.text, /10 commits in a row failed a required check/)
-        // No workflow crossed its own threshold → no bullet lines.
-        assert.doesNotMatch(anchor.text, /failed runs? in a row/)
+        const body = JSON.stringify(anchor.attachments)
+        assert.match(body, /10 commits in a row failed a required check/)
+        // No workflow crossed its own threshold → no per-workflow bullet lines.
+        assert.doesNotMatch(body, /failed runs? in a row/)
         assert.equal(anchor.metadata.event_payload.commitActive, true)
     })
 
@@ -224,10 +239,10 @@ describe('ci-alerts-devex', () => {
         const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
 
         assert.equal(outputs.action, 'create')
-        const anchor = slack.postMessage.calls[0][0]
-        assert.match(anchor.text, /Backend CI/)
-        assert.match(anchor.text, /— 10 failed runs in a row/)
-        assert.match(anchor.text, /10 commits in a row failed a required check/)
+        const body = JSON.stringify(slack.postMessage.calls[0][0].attachments)
+        assert.match(body, /Backend CI/)
+        assert.match(body, /10 failed runs in a row/)
+        assert.match(body, /10 commits in a row failed a required check/)
     })
 
     it('filters cancelled and skipped runs from the consecutive count', async () => {
@@ -246,7 +261,7 @@ describe('ci-alerts-devex', () => {
         })
         const { slack, outputs } = await run(github)
         assert.equal(outputs.action, 'create')
-        assert.match(slack.postMessage.calls[0][0].text, /— 5 failed runs in a row/)
+        assert.match(JSON.stringify(slack.postMessage.calls[0][0].attachments), /5 failed runs in a row/)
     })
 
     it('stays quiet below threshold with no open incident', async () => {
