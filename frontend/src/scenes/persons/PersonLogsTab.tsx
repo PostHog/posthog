@@ -14,6 +14,7 @@ import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, logsConfigLogic } from 'product
 export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
     const { logsConfig } = useValues(logsConfigLogic)
     const distinctIdAttributeKey = logsConfig?.logs_distinct_id_attribute_key ?? DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
+    const isCustomizedKey = distinctIdAttributeKey !== DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
 
     const pinnedFilters = useMemo(
         () => ({
@@ -32,6 +33,15 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
 
     return (
         <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
+            <p className="text-muted text-xs mb-2">
+                Scoped to this person via the <code>{distinctIdAttributeKey}</code> log attribute.
+                {isCustomizedKey && (
+                    <>
+                        {' '}
+                        Customised from default <code>{DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY}</code>.
+                    </>
+                )}
+            </p>
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
                 pinnedFilters={pinnedFilters}
