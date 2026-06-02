@@ -277,7 +277,8 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
 
 
 @config.config
