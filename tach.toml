@@ -751,6 +751,7 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+    "backend\\.temporal.*",
 ]
 from = [
     "products.business_knowledge",
