@@ -105,7 +105,7 @@ class TestExternalDataSchema(APIBaseTest):
             "append_available": True,
             "cdc_available": None,
             "full_refresh_available": True,
-            "supports_webhooks": False,
+            "supports_webhooks": True,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -492,6 +492,12 @@ class TestExternalDataSchema(APIBaseTest):
             table=table,
         )
 
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function=mock.MagicMock(),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
         with (
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
@@ -499,6 +505,10 @@ class TestExternalDataSchema(APIBaseTest):
             mock.patch(
                 "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
                 return_value=True,
+            ),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
             ),
         ):
             response = self.client.patch(

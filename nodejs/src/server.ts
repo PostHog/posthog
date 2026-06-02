@@ -14,7 +14,7 @@ import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehou
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp/consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
-import { CdpLegacyEventsConsumer, CdpLegacyEventsConsumerDeps } from './cdp/consumers/cdp-legacy-event.consumer'
+import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
 import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
@@ -40,7 +40,6 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupTypeManager } from './worker/ingestion/group-type-manager'
 import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
 import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
 import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
@@ -186,12 +185,8 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpLegacyOnEvent) {
-            const legacyDeps: CdpLegacyEventsConsumerDeps = {
-                ...cdpDeps!,
-                groupTypeManager: new GroupTypeManager(cdpServices!.groupRepository, teamManager),
-            }
             serviceLoaders.push(async () => {
-                const consumer = new CdpLegacyEventsConsumer(this.config, legacyDeps)
+                const consumer = new CdpLegacyEventsConsumer(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })

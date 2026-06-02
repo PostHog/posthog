@@ -593,7 +593,8 @@ export interface ProjectBackwardCompatApi {
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
-    readonly updated_at: string
+    /** @nullable */
+    readonly updated_at: string | null
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
@@ -1386,7 +1387,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
-    readonly updated_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
@@ -2141,6 +2143,14 @@ export interface PatchedProjectBackwardCompatApi {
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
+}
+
+export interface PromotedProductIntentApi {
+    /**
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * @nullable
+     */
+    product_key: string | null
 }
 
 export interface SharePasswordApi {
