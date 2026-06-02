@@ -25,6 +25,7 @@ class Migration(migrations.Migration):
                 ("media_location", models.TextField(blank=True, max_length=1000, null=True)),
                 ("content_type", models.TextField(blank=True, max_length=100, null=True)),
                 ("file_name", models.TextField(blank=True, max_length=1000, null=True)),
+                ("enabled", models.BooleanField(default=True)),
                 (
                     "created_by",
                     models.ForeignKey(
@@ -45,7 +46,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
-                "abstract": False,
+                "unique_together": {("organization", "key")},
             },
         ),
     ]

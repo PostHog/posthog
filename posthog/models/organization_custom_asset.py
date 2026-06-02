@@ -23,9 +23,17 @@ logger = structlog.get_logger(__name__)
 class OrganizationCustomAsset(UUIDModel, CreatedMetaFields):
     """A custom image asset (logo, hog, etc.) attached to an organization so we can brand its UI.
 
+    Each asset is addressed by a free-form ``key`` that is unique within the organization, so callers
+    can fetch "the logo" (or any slot) for an org. Certain keys carry product meaning — an enabled
+    asset under ``KEY_LOGO`` substitutes the PostHog logo in that org's UI.
+
     Assets are uploaded by staff through Django admin, stored in object storage, and served back
     through the unauthenticated /organization_custom_asset/<id> proxy view — mirroring UploadedMedia.
     """
+
+    # Well-known key whose enabled asset substitutes the PostHog logo. Keep in sync with the
+    # frontend organizationLogic `customLogo` selector.
+    KEY_LOGO = "logo"
 
     organization = models.ForeignKey(
         "posthog.Organization",
@@ -33,16 +41,26 @@ class OrganizationCustomAsset(UUIDModel, CreatedMetaFields):
         related_name="custom_assets",
         related_query_name="custom_asset",
     )
-    # Free-form slot identifier (e.g. "logo", "hog", "sidebar-banner"). Not unique — an org can hold several.
+    # Free-form slot identifier (e.g. "logo", "hog", "sidebar-banner"), unique per organization.
     key = models.CharField(max_length=200)
 
     # path in object storage for the asset — same shape as UploadedMedia
     media_location = models.TextField(null=True, blank=True, max_length=1000)
     content_type = models.TextField(null=True, blank=True, max_length=100)
     file_name = models.TextField(null=True, blank=True, max_length=1000)
+    # When False the asset stays uploaded but its product behaviour (e.g. logo substitution) is off.
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("organization", "key")]
 
     def get_absolute_url(self) -> str:
         return absolute_uri(f"/organization_custom_asset/{self.id}")
+
+    @classmethod
+    def get_by_key(cls, organization: "Organization", key: str) -> Optional["OrganizationCustomAsset"]:
+        """Fetch an organization's asset for a given key, or None. At most one exists per (org, key)."""
+        return cls.objects.filter(organization=organization, key=key).first()
 
     @classmethod
     def save_content(

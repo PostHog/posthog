@@ -4,13 +4,14 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.admin.inlines.organization_custom_asset_inline import OrganizationCustomAssetInlineForm
-from posthog.models import OrganizationCustomAsset
+from posthog.models import Organization, OrganizationCustomAsset
 from posthog.models.organization import OrganizationMembership
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.models.utils import uuid7
@@ -63,6 +64,25 @@ class TestOrganizationCustomAsset(APIBaseTest):
                     content_type="image/png",
                     content=b"image-bytes",
                 )
+
+    def test_get_by_key_returns_org_scoped_asset(self) -> None:
+        logo = self._create_asset(key="logo")
+        hog = self._create_asset(key="hog")
+
+        assert OrganizationCustomAsset.get_by_key(self.organization, "logo") == logo
+        assert OrganizationCustomAsset.get_by_key(self.organization, "hog") == hog
+        assert OrganizationCustomAsset.get_by_key(self.organization, "missing") is None
+
+    def test_get_by_key_is_scoped_to_the_organization(self) -> None:
+        self._create_asset(key="logo")
+        other_org = Organization.objects.create(name="Other org")
+        assert OrganizationCustomAsset.get_by_key(other_org, "logo") is None
+
+    def test_key_is_unique_per_organization(self) -> None:
+        self._create_asset(key="logo")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                OrganizationCustomAsset.objects.create(organization=self.organization, key="logo")
 
     def test_download_returns_image_with_immutable_cache(self) -> None:
         asset = self._create_asset(content_type="image/png")
@@ -137,6 +157,7 @@ class TestOrganizationCustomAsset(APIBaseTest):
         assert returned["id"] == str(asset.id)
         assert returned["key"] == "logo"
         assert returned["file_name"] == "logo.png"
+        assert returned["enabled"] is True
         assert returned["url"].endswith(f"/organization_custom_asset/{asset.id}")
 
     def test_custom_assets_cannot_be_written_via_api(self) -> None:

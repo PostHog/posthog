@@ -78,4 +78,39 @@ describe('organizationLogic', () => {
             })
         })
     })
+
+    describe('custom asset selectors', () => {
+        const mountWithAssets = (custom_assets: unknown[]): void => {
+            window.POSTHOG_APP_CONTEXT = {
+                current_user: { organization: { id: 'WXYZ', custom_assets } },
+            } as unknown as AppContext
+            initKeaTests()
+            logic = organizationLogic()
+            logic.mount()
+        }
+
+        it('customAssetByKey fetches an asset by key, scoped to the org', async () => {
+            mountWithAssets([
+                { id: '1', key: 'logo', url: '/organization_custom_asset/1', file_name: 'logo.png', enabled: true },
+                { id: '2', key: 'hog', url: '/organization_custom_asset/2', file_name: 'hog.png', enabled: true },
+            ])
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.customAssetByKey('logo')?.id).toBe('1')
+            expect(logic.values.customAssetByKey('hog')?.id).toBe('2')
+            expect(logic.values.customAssetByKey('missing')).toBeNull()
+        })
+
+        it('customLogo returns the enabled logo asset', async () => {
+            mountWithAssets([{ id: '1', key: 'logo', url: '/x', file_name: null, enabled: true }])
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.customLogo?.id).toBe('1')
+        })
+
+        it('customLogo ignores a disabled logo asset, but it stays fetchable by key', async () => {
+            mountWithAssets([{ id: '1', key: 'logo', url: '/x', file_name: null, enabled: false }])
+            await expectLogic(logic).toDispatchActions(['loadCurrentOrganizationSuccess'])
+            expect(logic.values.customLogo).toBeNull()
+            expect(logic.values.customAssetByKey('logo')?.id).toBe('1')
+        })
+    })
 })

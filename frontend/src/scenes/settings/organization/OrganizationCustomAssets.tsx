@@ -23,7 +23,10 @@ export function OrganizationCustomAssets(): JSX.Element | null {
                             title={asset.file_name ?? asset.key}
                             className="h-10 w-auto rounded border object-contain"
                         />
-                        <span className="text-muted text-xs">{asset.key}</span>
+                        <span className="text-muted text-xs">
+                            {asset.key}
+                            {!asset.enabled && ' (off)'}
+                        </span>
                     </div>
                 ))}
             </div>

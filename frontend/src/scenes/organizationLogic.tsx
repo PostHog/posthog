@@ -12,7 +12,10 @@ import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { OrganizationType } from '~/types'
+import { OrganizationCustomAsset, OrganizationType } from '~/types'
+
+/** Well-known custom-asset key whose enabled asset substitutes the PostHog logo. Mirrors OrganizationCustomAsset.KEY_LOGO. */
+export const ORGANIZATION_CUSTOM_ASSET_LOGO_KEY = 'logo'
 
 import type { organizationLogicType } from './organizationLogicType'
 import { urls } from './urls'
@@ -158,6 +161,19 @@ export const organizationLogic = kea<organizationLogicType>([
         isNotActiveReason: [
             (s) => [s.currentOrganization],
             (currentOrganization): string | null => currentOrganization?.is_not_active_reason ?? null,
+        ],
+        customAssetByKey: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): ((key: string) => OrganizationCustomAsset | null) => {
+                return (key: string) => currentOrganization?.custom_assets?.find((asset) => asset.key === key) ?? null
+            },
+        ],
+        customLogo: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): OrganizationCustomAsset | null =>
+                currentOrganization?.custom_assets?.find(
+                    (asset) => asset.key === ORGANIZATION_CUSTOM_ASSET_LOGO_KEY && asset.enabled
+                ) ?? null,
         ],
     }),
     listeners(({ actions, values }) => ({

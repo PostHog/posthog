@@ -19,7 +19,7 @@ import { ZenModeButton } from './ZenModeButton'
 
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+    const { currentOrganization, customLogo } = useValues(organizationLogic)
     const { hasOnboardedAnyProduct, currentTeam } = useValues(teamLogic)
     const { titleAndIcon } = useValues(sceneLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -27,13 +27,24 @@ export function MinimalNavigation(): JSX.Element {
     const shouldShowOnboarding = !hasOnboardedAnyProduct && !currentTeam?.ingested_event
     const logoUrl = shouldShowOnboarding ? urls.onboarding() : urls.projectRoot()
 
+    // An enabled "logo" custom asset substitutes the PostHog logomark for this org.
+    const logoIcon = customLogo ? (
+        <img
+            src={customLogo.url}
+            alt={currentOrganization?.name ?? 'Logo'}
+            className="h-6 w-auto max-w-32 mx-2 object-contain"
+        />
+    ) : (
+        <IconLogomark className="text-3xl mx-2" />
+    )
+
     const iconType: FileSystemIconType | undefined = ['loading', 'blank'].includes(titleAndIcon.iconType)
         ? undefined
         : (titleAndIcon.iconType as FileSystemIconType)
 
     return (
         <nav className="flex items-center gap-2 p-2 border-b">
-            <LemonButton noPadding icon={<IconLogomark className="text-3xl mx-2" />} to={logoUrl} />
+            <LemonButton noPadding icon={logoIcon} to={logoUrl} />
             {zenMode && (
                 <span className="font-semibold text-base flex items-center gap-2">
                     {iconType ? iconForType(iconType) : null}

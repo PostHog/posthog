@@ -489,11 +489,13 @@ interface OrganizationMetadata {
 
 export interface OrganizationCustomAsset {
     id: string
-    /** Free-form slot identifier for the asset, e.g. 'logo' or 'hog'. */
+    /** Free-form slot identifier for the asset, e.g. 'logo' or 'hog'. Unique within the organization. */
     key: string
     /** URL the image can be loaded from. */
     url: string
     file_name: string | null
+    /** Whether the asset's product behaviour is active (e.g. an enabled 'logo' substitutes the PostHog logo). */
+    enabled: boolean
 }
 
 export interface OrganizationType extends OrganizationBasicType {

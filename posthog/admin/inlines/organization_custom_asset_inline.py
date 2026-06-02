@@ -15,7 +15,7 @@ class OrganizationCustomAssetInlineForm(forms.ModelForm):
 
     class Meta:
         model = OrganizationCustomAsset
-        fields = ("key",)
+        fields = ("key", "enabled")
 
     def clean_image(self):
         image = self.cleaned_data.get("image")
@@ -49,7 +49,7 @@ class OrganizationCustomAssetInline(admin.TabularInline):
     extra = 1
     model = OrganizationCustomAsset
     form = OrganizationCustomAssetInlineForm
-    fields = ("key", "image", "preview", "file_name", "created_by", "created_at")
+    fields = ("key", "enabled", "image", "preview", "file_name", "created_by", "created_at")
     readonly_fields = ("preview", "file_name", "created_by", "created_at")
 
     @admin.display(description="Preview")

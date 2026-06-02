@@ -252,6 +252,10 @@ class OrganizationCustomAssetSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Original file name of the uploaded asset.",
     )
+    enabled = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the asset's product behaviour is active (e.g. an enabled 'logo' substitutes the PostHog logo).",
+    )
 
     @extend_schema_field(serializers.CharField())
     def get_url(self, asset: OrganizationCustomAsset) -> str:
