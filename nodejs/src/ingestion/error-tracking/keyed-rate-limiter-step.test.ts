@@ -201,6 +201,34 @@ describe('createKeyedRateLimiterStep', () => {
         })
     })
 
+    it('collapses high-cardinality keys under getAppSourceId for app_metrics2', async () => {
+        const aggregator = mkAggregator()
+        const step = createKeyedRateLimiterStep<Input>(
+            baseOpts({
+                rateLimiter: mkLimiter({}),
+                appMetricsAggregator: aggregator,
+                reportingMode: true,
+                getAppSourceId: (i) => `${i.teamId}:exceptions:per_issue`,
+            })
+        )
+
+        await step([
+            { teamId: 1, key: '1:exceptions:issue:aaa' },
+            { teamId: 1, key: '1:exceptions:issue:bbb' },
+            { teamId: 1, key: '1:exceptions:issue:ccc' },
+        ])
+
+        expect(aggregator.queue).toHaveBeenCalledTimes(1)
+        expect(aggregator.queue).toHaveBeenCalledWith({
+            team_id: 1,
+            app_source: 'exceptions',
+            app_source_id: '1:exceptions:per_issue',
+            metric_kind: 'rate_limiting',
+            metric_name: 'allowed',
+            count: 3,
+        })
+    })
+
     it('does not emit metrics when aggregator is undefined', async () => {
         const limiter = mkLimiter({ a: true })
         const step = createKeyedRateLimiterStep<Input>(
