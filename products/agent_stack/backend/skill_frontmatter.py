@@ -166,6 +166,12 @@ def assemble_skill_md(
     is the bundle-dir alias (so it matches the parent directory). Optional
     fields are omitted when empty rather than emitted blank.
     """
+    # The alias is emitted verbatim as the spec `name`, so enforce the spec
+    # slug here at the point of emission — not only at the freeze call site.
+    # This keeps the alias→name invariant intact for any future caller
+    # (admin re-render, backfill, repair script) that doesn't route through
+    # `_require_alias`.
+    validate_skill_name(alias)
     front: dict[str, Any] = {"name": alias, "description": description}
     if license:
         front["license"] = license

@@ -160,6 +160,13 @@ class TestAssembleSkillMd:
         assert front == {"name": "research", "description": "d"}
         assert md.rstrip().endswith("# Hello")
 
+    @parameterized.expand([("uppercase", "Bad"), ("underscore", "bad_name"), ("slash", "a/b"), ("traversal", "..")])
+    def test_rejects_invalid_alias_at_emission(self, _name: str, alias: str) -> None:
+        # The alias becomes the spec `name`; an invalid one is rejected here,
+        # independent of the freeze-time `_require_alias` gate.
+        with pytest.raises(SkillSpecError):
+            assemble_skill_md(alias=alias, description="d", body="b")
+
     def test_omits_empty_optionals(self) -> None:
         md = assemble_skill_md(alias="r", description="d", body="b", license="", compatibility="")
         front = self._front(md)
