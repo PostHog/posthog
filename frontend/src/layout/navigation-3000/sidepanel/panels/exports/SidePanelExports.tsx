@@ -119,7 +119,7 @@ function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
                         data-attr="export-editor"
                         disabledReason={disabledReason}
                         type={isNotDownloaded ? 'primary' : 'secondary'}
-                        icon={<IconPencil />}
+                        icon={stillCalculating ? <Spinner /> : <IconPencil />}
                         onClick={() => {
                             void handleEdit(asset)
                         }}
