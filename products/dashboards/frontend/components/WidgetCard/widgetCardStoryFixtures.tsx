@@ -6,6 +6,7 @@ import React from 'react'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay, type LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
@@ -80,6 +81,7 @@ export const dashboardTileTopHeading = <CardTopHeadingRow typeLabel="Analytics" 
 
 export function seedErrorTrackingProjectState(configured: boolean): void {
     teamLogic.mount()
+    filterTestAccountsDefaultsLogic.mount()
     teamLogic.actions.loadCurrentTeamSuccess({
         ...MOCK_DEFAULT_TEAM,
         autocapture_exceptions_opt_in: configured,

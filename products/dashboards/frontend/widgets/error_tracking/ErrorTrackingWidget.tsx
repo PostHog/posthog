@@ -59,8 +59,9 @@ function ErrorTrackingWidgetSetupGate({ children }: { children: ReactNode }): JS
             <WidgetCardContent>
                 <ErrorTrackingIngestionPrompt
                     className="border-none mb-0 mt-0 p-4"
+                    introductionStacked
                     IntroductionComponent={WidgetCardProductIntroduction}
-                    actionElementClassName="flex flex-col items-center gap-4 @min-[36rem]/widget-card:items-start"
+                    actionElementClassName="flex flex-col items-center gap-4"
                 />
             </WidgetCardContent>
         )

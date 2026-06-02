@@ -10,6 +10,7 @@ import {
 } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import androidImage from 'scenes/onboarding/sdks/logos/android.svg'
 import flutterImage from 'scenes/onboarding/sdks/logos/flutter.svg'
 import javascriptImage from 'scenes/onboarding/sdks/logos/javascript_web.svg'
@@ -68,12 +69,18 @@ export const ErrorTrackingSetupPrompt = ({
 
 export type ErrorTrackingIngestionPromptProps = {
     className?: string
+    /** Passed to `IntroductionComponent` (e.g. `WidgetCardProductIntroduction--stacked`). */
+    introductionClassName?: string
+    /** When true, passed through to `WidgetCardProductIntroduction` for always-vertical layout. */
+    introductionStacked?: boolean
     IntroductionComponent?: ComponentType<ProductIntroductionProps>
     actionElementClassName?: string
 }
 
 export function ErrorTrackingIngestionPrompt({
     className,
+    introductionClassName,
+    introductionStacked,
     IntroductionComponent = ProductIntroduction,
     actionElementClassName = 'flex flex-col items-start gap-4',
 }: ErrorTrackingIngestionPromptProps): JSX.Element {
@@ -98,7 +105,8 @@ export function ErrorTrackingIngestionPrompt({
             description="PostHog captures exceptions from any of our SDKs. JavaScript apps can flip on exception autocapture; other platforms wire it up in code – the docs have per-SDK instructions."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
-            className={className}
+            className={cn(introductionClassName, className)}
+            {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
             mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
