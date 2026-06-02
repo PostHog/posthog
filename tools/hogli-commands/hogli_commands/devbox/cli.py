@@ -21,7 +21,6 @@ from typing import Any
 import click
 from hogli.manifest import get_manifest
 
-from . import mutagen
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
     DEFAULT_PRESET,
@@ -246,10 +245,6 @@ def _print_connection_info(name: str) -> None:
     for label, command in commands:
         click.echo(f"  {label:<8} hogli {command}{suffix}")
 
-    if not mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        click.echo()
-        click.echo(f"  Tip: run `hogli devbox:sync{suffix}` to mirror your local checkout to this devbox.")
-
 
 def _workspace_arg_suffix(name: str) -> str:
     """Return the optional CLI suffix for a named workspace."""
@@ -269,40 +264,6 @@ def _get_workspace_or_fail(name: str, workspaces: list[dict[str, Any]] | None = 
 def _workspace_status_color(status: str) -> str:
     """Return the display color for a workspace status."""
     return WORKSPACE_STATUS_COLORS.get(status, "white")
-
-
-def _ljust_styled(text: str, width: int) -> str:
-    """Left-justify a click-styled string to ``width`` *visible* columns.
-
-    A plain ``f"{text:<width}"`` counts the invisible ANSI escape codes toward
-    the width and under-pads colored cells; measure off the unstyled text so
-    columns line up with their (unstyled) headers.
-    """
-    return text + " " * max(0, width - len(click.unstyle(text)))
-
-
-def _render_sync_status(workspace_name: str) -> str:
-    """Return a single-line summary of the mutagen sync state for a workspace.
-
-    Reads the first session matching the workspace label. If multiple sessions
-    happen to share the label (shouldn't happen via hogli, but possible via
-    direct mutagen use), only the first is rendered -- intentionally simple.
-    """
-    sessions = mutagen.sync_list(label_selector=mutagen.workspace_label_selector(workspace_name))
-    if not sessions:
-        return click.style("○ not configured", fg="white")
-    session = sessions[0]
-    if session.get("paused"):
-        return click.style("⚠ paused", fg="yellow")
-    conflicts = mutagen.conflict_count(session)
-    if conflicts:
-        return click.style(f"⚠ {conflicts} conflict{'s' if conflicts != 1 else ''}", fg="red")
-    status = str(session.get("status", "")).strip() or "running"
-    # mutagen reports a stalled sync (box stopped, remote root gone) as a
-    # `disconnected`/`halted-*` status; a green dot there would read as healthy.
-    if status == "disconnected" or status.startswith("halted"):
-        return click.style(f"✗ {status}", fg="red")
-    return click.style(f"● {status}", fg="green")
 
 
 def _sync_workspace_parameters(name: str) -> None:
@@ -1009,7 +970,6 @@ def _confirm_run_setup() -> bool:
     click.echo("hogli devbox:setup will check or configure:")
     click.echo("  - Tailscale + Coder reachability")
     click.echo("  - Local SSH config for Coder hosts")
-    click.echo("  - File sync tooling (mutagen) for devbox:sync")
     click.echo("  - Git identity (name/email) for new workspaces")
     click.echo("  - Git commit signing key propagation")
     click.echo("  - Preferred region for new workspaces (optional)")
@@ -1093,9 +1053,6 @@ def devbox_setup(
         click.echo("Aborted. Re-run `hogli devbox:setup` when ready.")
         return
 
-    mutagen.ensure_mutagen_installed(verbose=verbose)
-    mutagen.register_daemon()
-    mutagen.ensure_user_mutagen_config()
     maybe_configure_ssh(
         configure_ssh=configure_ssh,
         identity_agent_socket=_resolve_local_identity_agent_for_coder(),
@@ -1118,18 +1075,14 @@ def devbox_list() -> None:
     if not workspaces:
         click.echo("No devboxes found. Run 'hogli devbox:start' to create one.")
     else:
-        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'SYNC':<18} {'NAME'}")
+        click.echo(f"{'LABEL':<16} {'STATUS':<12} {'REGION':<14} {'NAME'}")
         for ws in workspaces:
             ws_name = ws.get("name", "")
             label = extract_workspace_label(ws_name) or "(default)"
             status = get_workspace_status(ws)
             region = get_workspace_region(ws) or "unknown"
             styled_status = click.style(status, fg=_workspace_status_color(status))
-            sync_state = _render_sync_status(ws_name)
-            click.echo(
-                f"  {label:<14} {_ljust_styled(styled_status, 12)} "
-                f"{region:<14} {_ljust_styled(sync_state, 18)} {ws_name}"
-            )
+            click.echo(f"  {label:<14} {styled_status:<20} {region:<14} {ws_name}")
 
     shared = list_shared_workspaces()
     if shared:
@@ -1373,10 +1326,6 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
     click.echo(f"Updating '{name}' to the latest template...")
     update_workspace(name, parameters=params, verbose=verbose)
     click.echo("Updated.")
-    click.echo(
-        "Note: if your local lockfiles differ from the new AMI's baked versions, "
-        "expect a one-time dep re-install on next workspace start (2-5 min)."
-    )
     _print_connection_info(name)
 
 
@@ -1429,15 +1378,6 @@ def devbox_open(workspace: str | None, vscode: bool, cursor: bool, web: bool) ->
 
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
-
-    if (vscode or cursor) and mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)):
-        ide = "VS Code" if vscode else "Cursor"
-        click.echo(
-            click.style(
-                f"⚠ Sync is active for '{name}'. Editing in {ide} Remote can conflict with the local source of truth.",
-                fg="yellow",
-            )
-        )
 
     if vscode:
         click.echo(f"Opening '{name}' in VS Code...")
@@ -1644,16 +1584,6 @@ def devbox_destroy(workspace: str | None, verbose: bool) -> None:
         click.echo("Cancelled.")
         return
 
-    label = mutagen.workspace_label_selector(name)
-    if mutagen.sync_list(label_selector=label):
-        try:
-            mutagen.sync_terminate(label)
-            click.echo("Sync session terminated.")
-        except SystemExit:
-            # Best-effort: a stuck mutagen daemon should not block the user
-            # from destroying their devbox. The session ends with the remote.
-            click.echo(click.style("Warning: failed to terminate sync session; continuing.", fg="yellow"))
-
     delete_workspace(name, verbose=verbose)
     click.echo("Destroyed.")
 
@@ -1675,7 +1605,6 @@ def devbox_status(workspace: str | None) -> None:
     click.echo(f"  Name:    {name}")
     click.echo(f"  Status:  {click.style(status, fg=_workspace_status_color(status))}")
     click.echo(f"  Region:  {get_workspace_region(ws) or 'unknown'}")
-    click.echo(f"  Sync:    {_render_sync_status(name)}")
 
     if ws.get("outdated"):
         click.echo(click.style("  Update:  template update available", fg="yellow"))

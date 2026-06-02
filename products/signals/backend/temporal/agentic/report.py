@@ -35,7 +35,6 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_suggested_reviewers,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.slack_inbox_notifications import POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -197,22 +196,18 @@ def _priority_rank(priority: Priority) -> int:
     }[priority]
 
 
-def _build_autostart_task_description(result: ReportResearchOutput, repository: str, report_id: str) -> str:
+def _build_autostart_task_description(result: ReportResearchOutput, repository: str) -> str:
     priority_line = (
         f"Priority: {result.priority.priority.value}\nReason: {result.priority.explanation}\n\n"
         if result.priority
         else ""
     )
-    report_deep_link = f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report_id}"
     return (
         f"{result.summary}\n\n"
         f"{priority_line}"
         f"Repository: {repository}\n\n"
-        "Act on this signal report. Investigate the root cause, implement the fix, and open a PR if appropriate.\n\n"
-        "When opening the PR, include this report deep link in the description footer, "
-        "making the footer '*Created with [PostHog Code](https://posthog.com/code?ref=pr) "
-        f"from [an inbox report]({report_deep_link}).' - "
-        "so the human reviewer can jump straight to it."
+        "Act on this signal report. Investigate the root cause, implement the fix, "
+        "and open a PR if appropriate."
     )
 
 
@@ -304,7 +299,7 @@ async def _maybe_autostart_task_for_report(
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,
         title=result.title,
-        description=_build_autostart_task_description(result, repository, report_id),
+        description=_build_autostart_task_description(result, repository),
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         user_id=task_user.id,
         repository=repository,

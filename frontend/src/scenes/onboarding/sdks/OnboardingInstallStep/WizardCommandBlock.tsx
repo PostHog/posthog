@@ -42,7 +42,7 @@ const WIZARD_FRAMEWORKS: { name: string; icon: string | ComponentType }[] = [
     { name: 'Python', icon: pythonImage },
 ]
 
-export const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
+const WIZARD_HOG_URL = 'https://res.cloudinary.com/dmukukwp6/image/upload/wizard_3f8bb7a240.png'
 
 export function WizardCommandBlock(): JSX.Element {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()

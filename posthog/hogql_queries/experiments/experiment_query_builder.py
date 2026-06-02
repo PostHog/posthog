@@ -11,6 +11,7 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentMetricMathType,
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -23,6 +24,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
@@ -31,21 +33,12 @@ from posthog.hogql_queries.experiments.base_query_utils import (
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
+    get_source_value_expr,
     is_session_property_metric,
     validate_session_property,
 )
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
-from posthog.hogql_queries.experiments.experiment_exposure_query_builder import ExposureQueryBuilder
-from posthog.hogql_queries.experiments.experiment_metric_values import (
-    build_conversion_window_predicate,
-    build_conversion_window_predicate_for_events,
-    build_metric_predicate,
-    build_session_conversion_window_predicate,
-    build_value_aggregation_expr,
-    build_value_expr,
-    get_conversion_window_seconds,
-)
 from posthog.hogql_queries.experiments.experiment_query_context import (
     ExperimentPrecomputationContext,
     ExperimentQueryContext,
@@ -53,6 +46,11 @@ from posthog.hogql_queries.experiments.experiment_query_context import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.funnel_step_builder import FunnelStepBuilder
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
+from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
+    aggregation_needs_numeric_input,
+    build_aggregation_call,
+    extract_aggregation_and_inner_expr,
+)
 from posthog.hogql_queries.experiments.metric_source import MetricSourceInfo
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -171,19 +169,6 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
-    def _exposure_query_builder(self) -> ExposureQueryBuilder:
-        """Construct an ExposureQueryBuilder from the current builder state.
-
-        Built fresh per call so it picks up the current ``preaggregation_job_ids``
-        (only known at build time).
-        """
-        return ExposureQueryBuilder(
-            context=self.context,
-            breakdown_injector=self.breakdown_injector,
-            maturity_having_builder=self._build_maturity_having_clause,
-            preaggregation_job_ids=self.preaggregation_job_ids,
-        )
-
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
         """
         Returns a query for exposure timeseries data.
@@ -194,14 +179,89 @@ class ExperimentQueryBuilder:
         Returns:
             SelectQuery with columns: day, variant, exposed_count
         """
-        return self._exposure_query_builder().timeseries_query()
+        query = parse_select(
+            """
+            WITH first_exposures AS (
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    toDate(toString(min(timestamp))) AS day
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+            )
+
+            SELECT
+                first_exposures.day AS day,
+                first_exposures.variant AS variant,
+                count(first_exposures.entity_id) AS exposed_count
+            FROM first_exposures
+            WHERE notEmpty(variant)
+            GROUP BY first_exposures.day, first_exposures.variant
+            ORDER BY first_exposures.day ASC
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.
         Used by the Exposures tab in the experiment UI.
         """
-        return self._exposure_query_builder().daily_exposures_from_precomputed(job_ids)
+        entity_id_expr = (
+            parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
+        query = parse_select(
+            """
+            WITH deduplicated AS (
+                SELECT
+                    {entity_id_expr} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
+                GROUP BY entity_id
+            )
+            SELECT
+                toDate(toString(first_exposure_time)) AS day,
+                variant AS variant,
+                count(entity_id) AS exposed_count
+            FROM deduplicated
+            WHERE notEmpty(variant)
+            GROUP BY day, variant
+            ORDER BY day ASC
+            """,
+            placeholders={
+                "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
     def _get_conversion_window_seconds(self) -> int:
         """
@@ -209,7 +269,12 @@ class ExperimentQueryBuilder:
         Returns 0 if no conversion window is configured.
         """
         assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
-        return get_conversion_window_seconds(self.metric)
+        if self.metric.conversion_window and self.metric.conversion_window_unit:
+            return conversion_window_to_seconds(
+                self.metric.conversion_window,
+                self.metric.conversion_window_unit,
+            )
+        return 0
 
     def _get_maturity_window_seconds(self) -> int:
         """
@@ -1472,21 +1537,48 @@ class ExperimentQueryBuilder:
         Build the predicate for limiting metric events to the conversion window for the user.
         Uses "metric_events" as the events alias.
         """
-        return build_conversion_window_predicate(self._get_conversion_window_seconds())
+        return self._build_conversion_window_predicate_for_events("metric_events")
 
     def _build_session_conversion_window_predicate(self) -> ast.Expr:
         """
         Build the predicate for limiting session metric events to the conversion window.
         Uses first_event_timestamp from metric_events_by_session for temporal filtering.
         """
-        return build_session_conversion_window_predicate(self._get_conversion_window_seconds())
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                """
+                metric_events_by_session.first_event_timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({conversion_window_seconds})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            # No conversion window limit - just return true since temporal filtering
+            # is already handled by the >= first_exposure_timestamp condition in the join
+            return ast.Constant(value=True)
 
     def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
         """
         Build the predicate for limiting metric events to the conversion window for the user.
         Parameterized to support different event table aliases (for ratio metrics).
         """
-        return build_conversion_window_predicate_for_events(events_alias, self._get_conversion_window_seconds())
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        if conversion_window_seconds > 0:
+            return parse_expr(
+                f"""
+                {events_alias}.timestamp >= exposures.first_exposure_time
+                AND {events_alias}.timestamp
+                    < exposures.last_exposure_time + toIntervalSecond({{conversion_window_seconds}})
+                """,
+                placeholders={
+                    "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                },
+            )
+        else:
+            return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
     def _build_cuped_pre_window_predicate(
         self,
@@ -1660,13 +1752,43 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        return build_metric_predicate(
-            team=self.team,
-            source=source,
-            date_range_query=self.date_range_query,
-            conversion_window_seconds=self._get_conversion_window_seconds(),
-            table_alias=table_alias,
-            cuped_lookback_days=cuped_lookback_days,
+        # Data warehouse sources use different table and predicate logic
+        timestamp_field_chain: list[str | int]
+        if isinstance(source, ExperimentDataWarehouseNode):
+            # For DW tables, don't prefix with table name since:
+            # 1. We're in a single-table CTE context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
+            timestamp_field_chain = [source.timestamp_field]
+            metric_event_filter = data_warehouse_node_to_filter(self.team, source)
+        else:
+            timestamp_field_chain = [table_alias, "timestamp"]
+            metric_event_filter = event_or_action_to_filter(self.team, source)
+
+        conversion_window_seconds = self._get_conversion_window_seconds()
+        date_from = self.date_range_query.date_from_as_hogql()
+        if cuped_lookback_days is not None:
+            date_from = parse_expr(
+                "{date_from} - toIntervalDay({lookback_days})",
+                placeholders={
+                    "date_from": date_from,
+                    "lookback_days": ast.Constant(value=cuped_lookback_days),
+                },
+            )
+
+        return parse_expr(
+            """
+            {timestamp_field} >= {date_from}
+            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
+            AND {metric_event_filter}
+            """,
+            placeholders={
+                "timestamp_field": ast.Field(chain=timestamp_field_chain),
+                "date_from": date_from,
+                "date_to": self.date_range_query.date_to_as_hogql(),
+                "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
+                "metric_event_filter": metric_event_filter,
+            },
         )
 
     def _build_value_expr(self, source=None, apply_coalesce: bool = True) -> ast.Expr:
@@ -1690,7 +1812,30 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        return build_value_expr(source, apply_coalesce=apply_coalesce)
+        base_expr = get_source_value_expr(source)
+
+        if not apply_coalesce:
+            return base_expr
+
+        # Don't coalesce values for count distinct types (IDs) or HOGQL (user controls the expression)
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+            ExperimentMetricMathType.HOGQL,
+        ]:
+            return base_expr
+
+        # Wrap numeric values with coalesce so NULL property values become 0
+        # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
+        # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
+        # Skip wrapping with toFloat if base_expr is already a toFloat call (e.g., continuous metrics)
+        if isinstance(base_expr, ast.Call) and base_expr.name == "toFloat":
+            float_expr = base_expr
+        else:
+            float_expr = ast.Call(name="toFloat", args=[base_expr])
+        return ast.Call(name="coalesce", args=[float_expr, ast.Constant(value=0)])
 
     def _build_value_aggregation_expr(
         self,
@@ -1718,19 +1863,102 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric, ExperimentMeanMetric)
             source = self.metric.source
 
-        return build_value_aggregation_expr(
-            source,
-            events_alias=events_alias,
-            column_name=column_name,
-            value_expr=value_expr,
-        )
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
+        column_ref = f"{events_alias}.{column_name}"
+
+        if math_type in [
+            ExperimentMetricMathType.UNIQUE_SESSION,
+            ExperimentMetricMathType.DAU,
+            ExperimentMetricMathType.UNIQUE_GROUP,
+        ]:
+            if value_expr is not None:
+                # Count distinct values, filtering out null UUIDs and empty strings.
+                # Conditional CUPED expressions can be Nullable, so handle NULL before
+                # applying the same empty-value filtering as the base path.
+                return parse_expr(
+                    """toFloat(count(distinct
+                        multiIf(
+                            isNull({value_expr}), NULL,
+                            toTypeName({value_expr}) IN ('UUID', 'Nullable(UUID)') AND reinterpretAsUInt128(assumeNotNull({value_expr})) = 0, NULL,
+                            toString({value_expr}) = '', NULL,
+                            {value_expr}
+                        )
+                    ))""",
+                    placeholders={"value_expr": value_expr},
+                )
+
+            # Count distinct values, filtering out null UUIDs and empty strings
+            return parse_expr(
+                f"""toFloat(count(distinct
+                    multiIf(
+                        toTypeName({column_ref}) = 'UUID' AND reinterpretAsUInt128({column_ref}) = 0, NULL,
+                        toString({column_ref}) = '', NULL,
+                        {column_ref}
+                    )
+                ))"""
+            )
+        elif math_type == ExperimentMetricMathType.MIN:
+            # Outer coalesce ensures 0 (not NULL) when entity has no events of this type
+            if value_expr is not None:
+                return parse_expr("coalesce(min(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
+            return parse_expr(f"coalesce(min(toFloat({column_ref})), 0)")
+        elif math_type == ExperimentMetricMathType.MAX:
+            if value_expr is not None:
+                return parse_expr("coalesce(max(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
+            return parse_expr(f"coalesce(max(toFloat({column_ref})), 0)")
+        elif math_type == ExperimentMetricMathType.AVG:
+            if value_expr is not None:
+                return parse_expr("coalesce(avg(toFloat({value_expr})), 0)", placeholders={"value_expr": value_expr})
+            return parse_expr(f"coalesce(avg(toFloat({column_ref})), 0)")
+        elif math_type == ExperimentMetricMathType.HOGQL:
+            math_hogql = getattr(source, "math_hogql", None)
+            if math_hogql is not None:
+                aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
+                if aggregation_function:
+                    inner_value_expr = value_expr or parse_expr(column_ref)
+                    if aggregation_needs_numeric_input(aggregation_function):
+                        inner_value_expr = ast.Call(name="toFloat", args=[inner_value_expr])
+                    agg_call = build_aggregation_call(
+                        aggregation_function, inner_value_expr, params=params, distinct=distinct
+                    )
+                    # Non-numeric aggregations (count, uniq, etc.) return UInt64, which is
+                    # incompatible with Float64 in ClickHouse greatest/least functions used
+                    # by winsorization. Wrap with toFloat to ensure consistent Float64 type.
+                    if not aggregation_needs_numeric_input(aggregation_function):
+                        agg_call = ast.Call(name="toFloat", args=[agg_call])
+                    return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
+            # Fallback to SUM
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
+            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
+        else:
+            # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
+            # For ratio metrics with combined_events, when there are no events of one type,
+            # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
+            if value_expr is not None:
+                return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
+            return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
-        return self._exposure_query_builder().build_test_accounts_filter()
+        if (
+            self.filter_test_accounts
+            and isinstance(self.team.test_account_filters, list)
+            and len(self.team.test_account_filters) > 0
+        ):
+            return ast.And(exprs=[property_to_expr(property, self.team) for property in self.team.test_account_filters])
+        return ast.Constant(value=True)
 
     def _build_variant_property(self) -> ast.Field:
         """Derive which event property that should be used for variants"""
-        return self._exposure_query_builder().build_variant_property()
+
+        # $feature_flag_called events are special as we can use the $feature_flag_response
+        if (
+            isinstance(self.exposure_config, ExperimentEventExposureConfig)
+            and self.exposure_config.event == "$feature_flag_called"
+        ):
+            return ast.Field(chain=["properties", "$feature_flag_response"])
+
+        return ast.Field(chain=["properties", f"$feature/{self.feature_flag_key}"])
 
     def _build_variant_expr_for_funnel(self) -> ast.Expr:
         """
@@ -1759,19 +1987,107 @@ class ExperimentQueryBuilder:
 
         Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
         """
-        return self._exposure_query_builder().build_exposure_event_predicate()
+        event_predicate = event_or_action_to_filter(self.team, self.exposure_config)
+
+        # $feature_flag_called events are special. We need to check that the property
+        # $feature_flag matches the flag
+        if (
+            isinstance(self.exposure_config, ExperimentEventExposureConfig)
+            and self.exposure_config.event == "$feature_flag_called"
+        ):
+            flag_property = f"$feature_flag"
+            event_predicate = ast.And(
+                exprs=[
+                    event_predicate,
+                    parse_expr(
+                        "{flag_property} = {feature_flag_key}",
+                        placeholders={
+                            "flag_property": ast.Field(chain=["properties", flag_property]),
+                            "feature_flag_key": ast.Constant(value=self.feature_flag_key),
+                        },
+                    ),
+                ]
+            )
+
+        return event_predicate
 
     def _build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
         """
-        return self._exposure_query_builder().build_exposure_predicate()
+        return _optimize_and_chain(
+            parse_expr(
+                """
+                timestamp >= {date_from}
+                AND timestamp <= {date_to}
+                AND {event_predicate}
+                AND {test_accounts_filter}
+                AND {variant_property} IN {variants}
+                """,
+                placeholders={
+                    "date_from": self.date_range_query.date_from_as_hogql(),
+                    "date_to": self.date_range_query.date_to_as_hogql(),
+                    "event_predicate": self._build_exposure_event_predicate(),
+                    "variant_property": self._build_variant_property(),
+                    "variants": ast.Constant(value=self.variants),
+                    "test_accounts_filter": self._build_test_accounts_filter(),
+                },
+            )
+        )
 
     def _get_exposure_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder().select_query()
+        if self.preaggregation_job_ids and not self.breakdowns:
+            return self._build_exposure_from_precomputed(self.preaggregation_job_ids)
+
+        return self._build_exposure_select_query()
 
     def _build_exposure_select_query(self) -> ast.SelectQuery:
-        return self._exposure_query_builder()._build_exposure_select_query()
+        exposure_query = parse_select(
+            """
+                SELECT
+                    {entity_key} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(timestamp) AS first_exposure_time,
+                    max(timestamp) AS last_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
+                    -- breakdown columns added programmatically below
+                FROM events
+                WHERE {exposure_predicate}
+                GROUP BY entity_id
+                -- breakdown columns added programmatically below
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.entity_key),
+                "variant_expr": self._build_variant_expr_for_mean(),
+                "exposure_predicate": self._build_exposure_predicate(),
+            },
+        )
+        assert isinstance(exposure_query, ast.SelectQuery)
+
+        # Inject breakdown columns into the exposure query if needed
+        if self.breakdown_injector:
+            breakdown_exprs = self.breakdown_injector.build_breakdown_exprs(table_alias="")
+
+            # Add breakdown columns to SELECT using argMin attribution
+            # This ensures each user is attributed to exactly one breakdown value
+            # (from their first exposure), preventing duplicate counting when users
+            # have multiple exposures with different breakdown property values
+            for alias, expr in breakdown_exprs:
+                # Use argMin to attribute breakdown value from first exposure
+                # This matches the variant attribution logic
+                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause()
+        if maturity_having is not None:
+            if exposure_query.having is None:
+                exposure_query.having = maturity_having
+            else:
+                exposure_query.having = ast.And(exprs=[exposure_query.having, maturity_having])
+
+        return exposure_query
 
     def _build_exposure_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
@@ -1784,7 +2100,56 @@ class ExperimentQueryBuilder:
         so we must filter by experiment start/end dates to avoid including exposures outside
         the experiment window.
         """
-        return self._exposure_query_builder().precomputed_select_query(job_ids)
+        # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
+        # Cast back to match the type expected by downstream JOINs.
+        entity_id_expr = (
+            parse_expr("toUUID(t.entity_id)") if self.entity_key == "person_id" else parse_expr("t.entity_id")
+        )
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            variant_expr = parse_expr("argMin(t.variant, t.first_exposure_time)")
+        else:
+            variant_expr = parse_expr(
+                "if(uniqExact(t.variant) > 1, {multiple_key}, argMin(t.variant, t.first_exposure_time))",
+                placeholders={"multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY)},
+            )
+
+        query = parse_select(
+            """
+                SELECT
+                    {entity_id_expr} AS entity_id,
+                    {variant_expr} AS variant,
+                    min(t.first_exposure_time) AS first_exposure_time,
+                    max(t.last_exposure_time) AS last_exposure_time,
+                    argMin(t.exposure_event_uuid, t.first_exposure_time) AS exposure_event_uuid,
+                    argMin(t.exposure_session_id, t.first_exposure_time) AS exposure_session_id
+                FROM experiment_exposures_preaggregated AS t
+                WHERE t.job_id IN {job_ids}
+                    AND t.team_id = {team_id}
+                    AND t.first_exposure_time >= {date_from}
+                    AND t.first_exposure_time <= {date_to}
+                GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_id_expr": entity_id_expr,
+                "variant_expr": variant_expr,
+                "job_ids": ast.Constant(value=job_ids),
+                "team_id": ast.Constant(value=self.team.id),
+                "date_from": self.date_range_query.date_from_as_hogql(),
+                "date_to": self.date_range_query.date_to_as_hogql(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+
+        # Filter out users whose conversion window hasn't elapsed yet
+        maturity_having = self._build_maturity_having_clause(timestamp_expr="t.last_exposure_time")
+        if maturity_having is not None:
+            if query.having is None:
+                query.having = maturity_having
+            else:
+                query.having = ast.And(exprs=[query.having, maturity_having])
+
+        return query
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -1798,7 +2163,47 @@ class ExperimentQueryBuilder:
         Returns:
             Tuple of (query_string, placeholders_dict)
         """
-        return self._exposure_query_builder().precomputation_query()
+        # Query template with placeholders
+        # Note: uses < for time_window_max (exclusive end for bucket boundaries)
+        # vs <= in normal query (inclusive end for experiment boundary)
+        # Keep in sync with _build_exposure_select_query
+        #
+        # The time_window_min/max placeholders define the job's cache window
+        # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
+        # the scan to the actual experiment dates so that variant aggregation
+        # only considers events within the experiment.
+        query_string = """
+            SELECT
+                {entity_key} AS entity_id,
+                {variant_expr} AS variant,
+                min(timestamp) AS first_exposure_time,
+                max(timestamp) AS last_exposure_time,
+                argMin(uuid, timestamp) AS exposure_event_uuid,
+                argMin(`$session_id`, timestamp) AS exposure_session_id,
+                [] AS breakdown_value
+            FROM events
+            WHERE timestamp >= {time_window_min}
+                AND timestamp < {time_window_max}
+                AND timestamp >= {experiment_date_from}
+                AND timestamp <= {experiment_date_to}
+                AND {event_predicate}
+                AND {test_accounts_filter}
+                AND {variant_property} IN {variants}
+            GROUP BY entity_id
+        """
+
+        placeholders = {
+            "entity_key": parse_expr(self.entity_key),
+            "variant_expr": self._build_variant_expr_for_mean(),
+            "event_predicate": self._build_exposure_event_predicate(),
+            "test_accounts_filter": self._build_test_accounts_filter(),
+            "variant_property": self._build_variant_property(),
+            "variants": ast.Constant(value=self.variants),
+            "experiment_date_from": self.date_range_query.date_from_as_hogql(),
+            "experiment_date_to": self.date_range_query.date_to_as_hogql(),
+        }
+
+        return query_string, placeholders
 
     def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
@@ -1863,7 +2268,22 @@ class ExperimentQueryBuilder:
         """
         Builds the variant selection expression for mean metrics based on multiple variant handling.
         """
-        return self._exposure_query_builder().build_variant_expr_for_mean()
+
+        if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
+            return parse_expr(
+                "argMin({variant_property}, timestamp)",
+                placeholders={
+                    "variant_property": self._build_variant_property(),
+                },
+            )
+        else:
+            return parse_expr(
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
+                placeholders={
+                    "variant_property": self._build_variant_property(),
+                    "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
+                },
+            )
 
     def _build_funnel_step_columns(self) -> list[ast.Alias]:
         """
@@ -2624,3 +3044,21 @@ class ExperimentQueryBuilder:
                 "retention_window_end_seconds": ast.Constant(value=buffered_window_end_seconds),
             },
         )
+
+
+def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
+    """
+    Remove True constants from AND chains to preserve ClickHouse index optimizations.
+    Keeps SQL templates readable while avoiding unnecessary conditions.
+    """
+    if not isinstance(expr, ast.And):
+        return expr
+
+    filtered = [e for e in expr.exprs if not (isinstance(e, ast.Constant) and e.value is True)]
+
+    if len(filtered) == 0:
+        return ast.Constant(value=True)
+    elif len(filtered) == 1:
+        return filtered[0]
+    else:
+        return ast.And(exprs=filtered)

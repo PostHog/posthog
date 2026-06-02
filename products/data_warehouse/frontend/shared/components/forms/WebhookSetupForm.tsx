@@ -13,8 +13,6 @@ import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general
 
 import { sourceFieldToElement } from './SourceForm'
 
-const MAX_VISIBLE_WEBHOOK_TABLES = 20
-
 export interface WebhookCreateResult {
     success: boolean
     webhook_url: string
@@ -58,20 +56,12 @@ export function WebhookSetupForm({
     const webhookTablesList =
         webhookTables && webhookTables.length > 0 ? (
             <div className="space-y-1">
-                <p className="font-semibold text-sm mb-1">
-                    {webhookTables.length.toLocaleString()} {webhookTables.length === 1 ? 'table' : 'tables'} using
-                    webhook sync:
-                </p>
+                <p className="font-semibold text-sm mb-1">Tables using webhook sync:</p>
                 <ul className="list-disc list-inside text-sm">
-                    {webhookTables.slice(0, MAX_VISIBLE_WEBHOOK_TABLES).map((t) => (
+                    {webhookTables.map((t) => (
                         <li key={t.name}>{t.label || t.name}</li>
                     ))}
                 </ul>
-                {webhookTables.length > MAX_VISIBLE_WEBHOOK_TABLES && (
-                    <p className="text-sm text-muted">
-                        …and {(webhookTables.length - MAX_VISIBLE_WEBHOOK_TABLES).toLocaleString()} more
-                    </p>
-                )}
             </div>
         ) : null
 

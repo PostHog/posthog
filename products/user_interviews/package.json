@@ -12,7 +12,7 @@
     },
     "peerDependencies": {
         "@posthog/icons": "*",
-        "@storybook/react": "catalog:",
+        "@storybook/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "jest": "*",

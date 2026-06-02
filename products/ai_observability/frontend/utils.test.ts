@@ -8,7 +8,7 @@ import {
     costContextFromTrace,
     formatAiErrorForDisplay,
     formatLLMEventTitle,
-    getInternalTagName,
+    getScaffoldTagName,
     getSessionID,
     getSessionStartTimestamp,
     getToolNamesCalled,
@@ -17,7 +17,7 @@ import {
     isEmptyJSONStructure,
     isInternalToolResultUserMessage,
     isLangChainMessage,
-    isInternalTagMessage,
+    isInternalScaffoldMessage,
     isTextContentItem,
     isToolResult,
     isToolStepItem,
@@ -1153,9 +1153,9 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
         })
     })
 
-    describe('getInternalTagName / isInternalTagMessage', () => {
+    describe('getScaffoldTagName / isInternalScaffoldMessage', () => {
         // The shape these tests pin: typed-parts content with a single text item
-        // whose entire body is a balanced internal tag wrapper.
+        // whose entire body is a balanced scaffold wrapper.
         const typedParts = (text: string): CompatMessage['content'] =>
             [{ type: 'text', text }] as unknown as CompatMessage['content']
 
@@ -1175,15 +1175,15 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ],
             ['flat string with voice_mode', '<voice_mode>off</voice_mode>', 'voice_mode'],
             [
-                'multi-line internal tag body',
+                'multi-line scaffold body',
                 '<system_reminder>\nyou are an agent\nmode: foo\n</system_reminder>',
                 'system_reminder',
             ],
             ['leading/trailing whitespace tolerated', '   \n<voice_mode>off</voice_mode>\n  ', 'voice_mode'],
         ])('returns the tag name for: %s', (_, body, expected) => {
             const message: CompatMessage = { role: 'user', content: body }
-            expect(getInternalTagName(message)).toBe(expected)
-            expect(isInternalTagMessage(message)).toBe(true)
+            expect(getScaffoldTagName(message)).toBe(expected)
+            expect(isInternalScaffoldMessage(message)).toBe(true)
         })
 
         it('matches the typed-parts shape (single text item)', () => {
@@ -1191,7 +1191,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: typedParts('<system_reminder>be concise</system_reminder>'),
             }
-            expect(getInternalTagName(message)).toBe('system_reminder')
+            expect(getScaffoldTagName(message)).toBe('system_reminder')
         })
 
         it('matches the {type, content: string} wrapper shape (Vercel SDK legacy)', () => {
@@ -1202,18 +1202,18 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                     content: '<system-reminder>foo</system-reminder>',
                 } as unknown as CompatMessage['content'],
             }
-            expect(getInternalTagName(message)).toBe('system-reminder')
+            expect(getScaffoldTagName(message)).toBe('system-reminder')
         })
 
         // ---- negative cases: role gate ----
 
-        it('returns undefined for an assistant-role message even with an internal tag wrapper', () => {
+        it('returns undefined for an assistant-role message even with a scaffold wrapper', () => {
             // Models can legitimately emit `<system_reminder>` in their reply. Don't hide.
             const message: CompatMessage = {
                 role: 'assistant',
                 content: '<system_reminder>foo</system_reminder>',
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined for a system-role message (system messages are filtered upstream anyway)', () => {
@@ -1221,7 +1221,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'system',
                 content: '<system_reminder>foo</system_reminder>',
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         // ---- negative cases: allowlist gate ----
@@ -1239,8 +1239,8 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ['HTML structural <code>', '<code>print("hi")</code>'],
         ])('returns undefined for non-allowlisted tag: %s', (_, body) => {
             const message: CompatMessage = { role: 'user', content: body }
-            expect(getInternalTagName(message)).toBeUndefined()
-            expect(isInternalTagMessage(message)).toBe(false)
+            expect(getScaffoldTagName(message)).toBeUndefined()
+            expect(isInternalScaffoldMessage(message)).toBe(false)
         })
 
         // ---- negative cases: shape gate ----
@@ -1251,7 +1251,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: 'foo <system_reminder>bar</system_reminder>',
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined when text content has trailing text after the wrapper', () => {
@@ -1259,7 +1259,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: '<system_reminder>foo</system_reminder> bar',
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined when content has two sibling wrappers (multi-block, not single)', () => {
@@ -1268,11 +1268,11 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 content: '<system_reminder>foo</system_reminder>\n<voice_mode>off</voice_mode>',
             }
             // Conservative — coalescing multi-wrapper bodies is out of scope.
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined for typed-parts with more than one item', () => {
-            // Two text items, even if each is itself an internal tag wrapper. The renderer
+            // Two text items, even if each is itself a scaffold wrapper. The renderer
             // would lose information if we collapsed this; keep it visible.
             const message: CompatMessage = {
                 role: 'user',
@@ -1281,7 +1281,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                     { type: 'text', text: '<voice_mode>off</voice_mode>' },
                 ] as unknown as CompatMessage['content'],
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined for typed-parts with a non-text item (image, tool_use, …)', () => {
@@ -1289,14 +1289,14 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: [{ type: 'image_url', image_url: { url: 'x' } }] as unknown as CompatMessage['content'],
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         // ---- negative cases: case-sensitivity + tag-mismatch guards ----
 
-        it('returns undefined for uppercase tag names (internal tags are lowercase by convention)', () => {
+        it('returns undefined for uppercase tag names (scaffold tags are lowercase by convention)', () => {
             const message: CompatMessage = { role: 'user', content: '<System_Reminder>foo</System_Reminder>' }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined when open and close tag names differ', () => {
@@ -1305,13 +1305,13 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: '<system_reminder>foo</voice_mode>',
             }
-            expect(getInternalTagName(message)).toBeUndefined()
+            expect(getScaffoldTagName(message)).toBeUndefined()
         })
 
         it('returns undefined for empty content', () => {
-            expect(getInternalTagName({ role: 'user', content: '' })).toBeUndefined()
-            expect(getInternalTagName({ role: 'user', content: [] })).toBeUndefined()
-            expect(getInternalTagName({ role: 'user', content: null as unknown as string })).toBeUndefined()
+            expect(getScaffoldTagName({ role: 'user', content: '' })).toBeUndefined()
+            expect(getScaffoldTagName({ role: 'user', content: [] })).toBeUndefined()
+            expect(getScaffoldTagName({ role: 'user', content: null as unknown as string })).toBeUndefined()
         })
 
         it('handles typed-parts content with a multi-line attached_context wrapper', () => {
@@ -1319,7 +1319,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 role: 'user',
                 content: typedParts('<attached_context>\nfoo\n\nbar: baz\nqux: 123\n</attached_context>'),
             }
-            expect(getInternalTagName(message)).toBe('attached_context')
+            expect(getScaffoldTagName(message)).toBe('attached_context')
         })
     })
 

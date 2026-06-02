@@ -71,7 +71,6 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'posthog_assignee',
         'posthog_ticket_tags',
         'posthog_business_hours',
-        'non_failure_status_codes',
     ]),
     key: z.string(),
     label: z.string(),

@@ -5,7 +5,6 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, ChartDisplayType, TeamType } from '~/types'
 
@@ -14,7 +13,6 @@ import {
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
     hogql,
-    supportsBarValueStacking,
 } from './utils'
 
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
@@ -165,47 +163,5 @@ describe('convertDataTableNodeToDataVisualizationNode', () => {
                 columns: [{ column: 'event' }],
             },
         })
-    })
-})
-
-describe('supportsBarValueStacking', () => {
-    const breakdown = { breakdown: '$browser', breakdown_type: 'event' as const }
-    const trends = (display: ChartDisplayType, withBreakdown: boolean): InsightQueryNode =>
-        ({
-            kind: NodeKind.TrendsQuery,
-            series: [],
-            trendsFilter: { display },
-            ...(withBreakdown ? { breakdownFilter: breakdown } : {}),
-        }) as InsightQueryNode
-
-    it.each([
-        {
-            name: 'trends + bar-value + breakdown',
-            query: trends(ChartDisplayType.ActionsBarValue, true),
-            expected: true,
-        },
-        {
-            name: 'trends + bar-value without breakdown',
-            query: trends(ChartDisplayType.ActionsBarValue, false),
-            expected: false,
-        },
-        {
-            name: 'trends + vertical bar + breakdown',
-            query: trends(ChartDisplayType.ActionsBar, true),
-            expected: false,
-        },
-        {
-            name: 'trends + line + breakdown',
-            query: trends(ChartDisplayType.ActionsLineGraph, true),
-            expected: false,
-        },
-        {
-            name: 'funnels + breakdown',
-            query: { kind: NodeKind.FunnelsQuery, series: [], breakdownFilter: breakdown } as InsightQueryNode,
-            expected: false,
-        },
-        { name: 'null query', query: null, expected: false },
-    ])('returns $expected for $name', ({ query, expected }) => {
-        expect(supportsBarValueStacking(query)).toBe(expected)
     })
 })

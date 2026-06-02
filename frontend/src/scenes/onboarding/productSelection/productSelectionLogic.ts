@@ -8,7 +8,6 @@ import { USE_CASE_OPTIONS, UseCaseOption, getRecommendedProducts } from 'scenes/
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { localStorageProductKey } from '~/layout/panel-layout/ai-first/promotedProductLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
@@ -292,20 +291,6 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                             : ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                 })
             })
-
-            // Mirror the primary onboarding choice into localStorage so the experimental
-            // 'Promoted product' sidebar entry can render immediately, without waiting
-            // for the ClickHouse-backed APP_CONTEXT value to catch up with ingestion lag.
-            if (values.firstProductOnboarding && values.currentTeam?.id) {
-                try {
-                    window.localStorage.setItem(
-                        localStorageProductKey(values.currentTeam.id),
-                        values.firstProductOnboarding
-                    )
-                } catch {
-                    // localStorage disabled — APP_CONTEXT will be the fallback after ingestion.
-                }
-            }
 
             // Analytics
             window.posthog?.capture('onboarding_products_confirmed', {

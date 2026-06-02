@@ -7,8 +7,6 @@ import {
     VisualReviewReposRetrieveParams,
     VisualReviewRunsApproveCreateBody,
     VisualReviewRunsApproveCreateParams,
-    VisualReviewRunsFinalizeCreateBody,
-    VisualReviewRunsFinalizeCreateParams,
     VisualReviewRunsListQueryParams,
     VisualReviewRunsRetrieveParams,
     VisualReviewRunsSnapshotHistoryListParams,
@@ -65,7 +63,10 @@ const VisualReviewRunsApproveCreateSchema = VisualReviewRunsApproveCreateParams.
     VisualReviewRunsApproveCreateBody.shape
 )
 
-const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApproveCreateSchema, Schemas.Run> => ({
+const visualReviewRunsApproveCreate = (): ToolBase<
+    typeof VisualReviewRunsApproveCreateSchema,
+    Schemas.AutoApproveResult
+> => ({
     name: 'visual-review-runs-approve-create',
     schema: VisualReviewRunsApproveCreateSchema,
     handler: async (context: Context, params: z.infer<typeof VisualReviewRunsApproveCreateSchema>) => {
@@ -74,7 +75,13 @@ const visualReviewRunsApproveCreate = (): ToolBase<typeof VisualReviewRunsApprov
         if (params.snapshots !== undefined) {
             body['snapshots'] = params.snapshots
         }
-        const result = await context.api.request<Schemas.Run>({
+        if (params.approve_all !== undefined) {
+            body['approve_all'] = params.approve_all
+        }
+        if (params.commit_to_github !== undefined) {
+            body['commit_to_github'] = params.commit_to_github
+        }
+        const result = await context.api.request<Schemas.AutoApproveResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/approve/`,
             body,
@@ -97,34 +104,6 @@ const visualReviewRunsCountsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.ReviewStateCounts>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/counts/`,
-        })
-        return result
-    },
-})
-
-const VisualReviewRunsFinalizeCreateSchema = VisualReviewRunsFinalizeCreateParams.omit({ project_id: true }).extend(
-    VisualReviewRunsFinalizeCreateBody.shape
-)
-
-const visualReviewRunsFinalizeCreate = (): ToolBase<
-    typeof VisualReviewRunsFinalizeCreateSchema,
-    Schemas.FinalizeResult
-> => ({
-    name: 'visual-review-runs-finalize-create',
-    schema: VisualReviewRunsFinalizeCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof VisualReviewRunsFinalizeCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.approve_all !== undefined) {
-            body['approve_all'] = params.approve_all
-        }
-        if (params.commit_to_github !== undefined) {
-            body['commit_to_github'] = params.commit_to_github
-        }
-        const result = await context.api.request<Schemas.FinalizeResult>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/finalize/`,
-            body,
         })
         return result
     },
@@ -284,7 +263,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-runs-approve-create': visualReviewRunsApproveCreate,
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
-    'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
     'visual-review-runs-list': visualReviewRunsList,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,

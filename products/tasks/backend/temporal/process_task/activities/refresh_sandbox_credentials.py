@@ -10,7 +10,6 @@ from products.tasks.backend.services.agent_command import send_refresh_session
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.sandbox import Sandbox
 from products.tasks.backend.temporal.exceptions import TaskNotFoundError
-from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     DEFAULT_REFRESH_INTERVAL_SECONDS,
@@ -96,9 +95,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     run_id=ctx.run_id,
                     exc_info=True,
                 )
-                increment_credential_refresh(credential.kind, "failed")
                 continue
-            increment_credential_refresh(credential.kind, "refreshed" if outcome.refreshed else "skipped")
             intervals.append(outcome.next_refresh_seconds)
             if outcome.refreshed:
                 refreshed_kinds.append(outcome.kind)

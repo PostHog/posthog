@@ -191,9 +191,6 @@ tools:
     organizations-projects-logs-config-retrieve:
         operation: organizations_projects_logs_config_retrieve
         enabled: false
-    organizations-projects-promoted-product-intent-retrieve:
-        operation: organizations_projects_promoted_product_intent_retrieve
-        enabled: false
     project-get:
         operation: organizations_projects_retrieve
         enabled: true

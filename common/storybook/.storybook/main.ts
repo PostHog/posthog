@@ -9,12 +9,9 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 
 const config: StorybookConfig = {
     stories: [
-        '../../../frontend/src/**/*.mdx',
-        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../products/**/frontend/**/*.mdx',
-        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx)',
-        '../../../products/**/mcp/**/*.mdx',
-        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx)',
+        '../../../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../products/**/frontend/**/*.stories.@(js|jsx|ts|tsx|mdx)',
+        '../../../products/**/mcp/**/*.stories.@(js|jsx|ts|tsx|mdx)',
     ],
 
     addons: [
@@ -72,6 +69,8 @@ const config: StorybookConfig = {
     docs: {
         autodocs: 'tag',
     },
+
+    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

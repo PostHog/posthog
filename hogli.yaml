@@ -189,9 +189,6 @@ devbox:
     devbox:cleanup:disk:
         click: hogli_commands.devbox.cli:devbox_cleanup_disk
         description: Free disk space by cleaning caches and build artifacts
-    devbox:sync:
-        click: hogli_commands.devbox.sync:cmd_sync
-        description: Mirror your local PostHog checkout to a devbox
     devbox:task:
         click: hogli_commands.devbox.cli:devbox_task
         description: Run a background agent task on a fresh devbox

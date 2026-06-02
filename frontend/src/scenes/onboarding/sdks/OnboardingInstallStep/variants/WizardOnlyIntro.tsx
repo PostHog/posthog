@@ -1,16 +1,23 @@
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 /**
- * Intro copy above the wizard command block.
+ * Intro for the wizard-only install variant.
  *
- * Experiment: ONBOARDING_WIZARD_INSTALLATION_IMPROVED_COPY (#team-growth)
- *   control — original one-line tagline.
- *   test    — expanded copy: enumerates what the wizard does, where to run it,
- *             and surfaces that PostHog covers LLM inference (no API key).
+ * Experiment: onboarding-wizard-installation-improved-copy (#team-growth)
+ *   control — original one-line tagline
+ *   test    — expanded copy that concretely enumerates what the wizard does,
+ *             adds short "how it works" instructions (run from project root,
+ *             follow prompts), and surfaces that PostHog covers LLM inference
+ *             (no user API key required)
  *
- * Flag lookup lives here so WizardInstallStep stays agnostic of the experiment.
+ * Hypothesis: users are more likely to try the wizard when they understand
+ * what it does, where to run it, and that it's free to run.
+ *
+ * Flag lookup is encapsulated here so WizardOnlyVariant stays agnostic of
+ * the experiment. When the experiment concludes, the winning variant
+ * replaces the dispatcher and this file collapses to a single component.
  */
-export function WizardInstallIntro(): JSX.Element {
+export function WizardOnlyIntro(): JSX.Element {
     const isImprovedCopy = useFeatureFlag('ONBOARDING_WIZARD_INSTALLATION_IMPROVED_COPY', 'test')
     return isImprovedCopy ? <ImprovedIntro /> : <ControlIntro />
 }
@@ -30,7 +37,7 @@ function ControlIntro(): JSX.Element {
 function ImprovedIntro(): JSX.Element {
     return (
         <div className="text-center max-w-xl mx-auto space-y-3">
-            <h2 className="text-2xl font-bold">Skip the install. Get 10–20 minutes back.</h2>
+            <h2 className="text-2xl font-bold">Let the AI wizard install PostHog for you</h2>
             <p className="text-muted">
                 Run this command from your project&apos;s root directory. The wizard detects your framework, installs
                 the right SDK, configures your environment variables, and wires up event capture automatically.

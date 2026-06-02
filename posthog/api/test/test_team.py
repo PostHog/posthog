@@ -1616,29 +1616,6 @@ def team_api_test_factory():
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
-
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
         def test_can_add_product_intent(self, mock_report_user_action: MagicMock) -> None:

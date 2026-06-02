@@ -49,16 +49,6 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
-# Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
-# constants print UTC-pinned, while bare DateTime columns read in the session tz; pinning both
-# sides keeps them on the same day grid so a non-UTC session can't drop same-day rows (which
-# previously emptied keyset page 2).
-TIME_BUCKET_DATE_RANGE_WHERE = (
-    "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
-    "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
-)
-
-
 def _normalise_to_base64(value: str) -> str:
     try:
         int(value, 16)
@@ -195,7 +185,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         exprs.append(
             parse_expr(
-                TIME_BUCKET_DATE_RANGE_WHERE,
+                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
@@ -402,13 +392,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         having_expr: ast.Expr | None = None
         if cursor is not None:
             cursor_ts, cursor_trace_id = cursor
-            # Coarse day bound on time_bucket lets ClickHouse prune parts via the primary index.
-            # Pin both sides to UTC for the same reason as the where() date bound: the cursor
-            # constant prints UTC-pinned, so an unpinned toStartOfDay would truncate on the
-            # session-tz day grid and drop same-day rows under a non-UTC session.
+            # Scalar bound on time_bucket lets ClickHouse prune parts via the primary index;
+            # min(timestamp) of any kept trace is always within this bound.
             subquery_where_exprs.append(
                 parse_expr(
-                    f"toStartOfDay(time_bucket, 'UTC') {ts_op} toStartOfDay({{cursor_ts}}, 'UTC')",
+                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
                     placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
                 )
             )
@@ -514,7 +502,7 @@ def run_service_names_query(
 
     exprs: list[ast.Expr] = [
         parse_expr(
-            TIME_BUCKET_DATE_RANGE_WHERE,
+            "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
             placeholders={**query_date_range.to_placeholders()},
         ),
         ast.Placeholder(expr=ast.Field(chain=["filters"])),

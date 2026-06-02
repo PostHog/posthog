@@ -13,7 +13,6 @@ import {
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
     visualReviewRunsApproveCreate,
-    visualReviewRunsFinalizeCreate,
     visualReviewRunsRecomputeCreate,
     visualReviewRunsTolerateCreate,
     visualReviewRunsRetrieve,
@@ -42,9 +41,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     })),
     actions({
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
-        finalizeRun: true,
-        finalizeRunSuccess: true,
-        finalizeRunFailure: true,
+        approveChanges: true,
+        approveChangesSuccess: true,
+        approveChangesFailure: true,
         approveSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
         approveSnapshotSuccess: true,
         approveSnapshotFailure: true,
@@ -73,12 +72,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
             },
         ],
-        isFinalizing: [
+        isApproving: [
             false,
             {
-                finalizeRun: () => true,
-                finalizeRunSuccess: () => false,
-                finalizeRunFailure: () => false,
+                approveChanges: () => true,
+                approveChangesSuccess: () => false,
+                approveChangesFailure: () => false,
             },
         ],
         isApprovingSnapshot: [
@@ -295,36 +294,32 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
-        finalizeRun: async () => {
+        approveChanges: async () => {
             const { run } = values
             if (!run) {
                 return
             }
 
             try {
-                // approve_all approves any still-pending changes (tolerated ones are left alone),
-                // commits the approved baseline, and greens the gate.
-                await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
+                await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
                 })
-                actions.finalizeRunSuccess()
-                lemonToast.success('Run finalized — baseline committed')
+                actions.approveChangesSuccess()
+                lemonToast.success('Changes approved successfully')
                 actions.loadRun()
-                // Patch in place — refetching all snapshots after finalize made the whole grid
-                // flash and lost the user's selection. Server is the source of truth on next mount;
-                // we only need the UI to reflect the change immediately.
+                // Patch in place — refetching all snapshots after a bulk approve made the whole
+                // grid flash and lost the user's selection. Server is the source of truth on
+                // next mount; we only need the UI to reflect the change immediately.
                 actions.loadSnapshotsSuccess(
                     values.snapshots.map((s) =>
-                        s.review_state === 'pending' &&
-                        s.result !== 'unchanged' &&
-                        !values.quarantinedIdentifierSet.has(s.identifier)
+                        s.review_state === 'pending' && s.result !== 'unchanged'
                             ? { ...s, review_state: 'approved' }
                             : s
                     )
                 )
             } catch (e: any) {
-                actions.finalizeRunFailure()
-                lemonToast.error(e?.detail || e?.message || 'Failed to finalize run')
+                actions.approveChangesFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to approve changes')
             }
         },
         approveSnapshot: async ({ snapshot }) => {

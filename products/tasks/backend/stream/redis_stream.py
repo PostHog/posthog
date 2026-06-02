@@ -47,15 +47,6 @@ def _normalize_redis_int(value: bytes | str | int | None) -> int:
     return int(value)
 
 
-def _stream_id_sort_key(stream_id: str) -> tuple[int, int]:
-    """Parse a Redis stream ID ('<ms>-<seq>') into a comparable (ms, seq) tuple."""
-    ms_part, _, seq_part = stream_id.partition("-")
-    try:
-        return (int(ms_part), int(seq_part) if seq_part else 0)
-    except ValueError:
-        return (0, 0)
-
-
 class TaskRunStreamError(Exception):
     pass
 
@@ -163,33 +154,6 @@ class TaskRunRedisStream:
             return None
         stream_id, _message = messages[0]
         return _normalize_stream_id(stream_id)
-
-    async def get_first_stream_id(self) -> str | None:
-        """Return the oldest surviving stream ID, or None if the stream is empty."""
-        messages = await self._redis_client.xrange(self._stream_key, count=1)
-        if not messages:
-            return None
-        stream_id, _message = messages[0]
-        return _normalize_stream_id(stream_id)
-
-    async def get_length(self) -> int:
-        """Return the current number of entries in the stream."""
-        return _normalize_redis_int(await self._redis_client.xlen(self._stream_key))
-
-    async def resume_point_trimmed(self, last_event_id: str) -> bool:
-        """Return True if a reconnect from last_event_id has lost trimmed events.
-
-        A client resumes via XREAD after its Last-Event-ID, which only returns
-        entries strictly newer than that ID. If the requested ID is older than
-        the oldest surviving entry, the events immediately after it were evicted
-        by the maxlen trim and are gone for good — an undetectable gap otherwise.
-        """
-        if last_event_id in ("", "0"):
-            return False
-        first_id = await self.get_first_stream_id()
-        if first_id is None:
-            return False
-        return _stream_id_sort_key(last_event_id) < _stream_id_sort_key(first_id)
 
     async def read_stream(
         self,

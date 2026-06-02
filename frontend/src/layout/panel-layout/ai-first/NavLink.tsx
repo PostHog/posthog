@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 
@@ -8,38 +8,24 @@ import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-export interface NavLinkSideAction {
-    onClick: (e: React.MouseEvent) => void
-    tooltip: string
-    'data-attr'?: string
-}
-
 interface NavLinkProps {
     to: string
     label: string
     icon: React.ReactNode
     isCollapsed: boolean
     'data-attr'?: string
-    onClick?: (e: React.MouseEvent) => void
-    sideAction?: NavLinkSideAction
+    onClick?: () => void
 }
 
-export function NavLink({
-    to,
-    label,
-    icon,
-    isCollapsed,
-    'data-attr': dataAttr,
-    onClick,
-    sideAction,
-}: NavLinkProps): JSX.Element {
+export function NavLink({ to, label, icon, isCollapsed, 'data-attr': dataAttr, onClick }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
     const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
-    const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (
         <ButtonGroupPrimitive
@@ -52,7 +38,7 @@ export function NavLink({
                     iconOnly: isCollapsed,
                     className: 'group -outline-offset-2',
                     active: isActive,
-                    hasSideActionRight,
+                    hasSideActionRight: isHomePage && !isCollapsed,
                 }}
                 to={to}
                 data-attr={dataAttr}
@@ -79,18 +65,18 @@ export function NavLink({
                     </span>
                 )}
             </Link>
-            {hasSideActionRight && sideAction && (
+            {isHomePage && !isCollapsed && (
                 <ButtonPrimitive
                     className="group -outline-offset-2"
                     iconOnly
                     isSideActionRight
                     onClick={(e) => {
                         e.stopPropagation()
-                        sideAction.onClick(e)
+                        showConfigureHomeModal()
                     }}
-                    tooltip={sideAction.tooltip}
+                    tooltip="Configure home"
                     tooltipPlacement="right"
-                    data-attr={sideAction['data-attr']}
+                    data-attr="nav-configure-home"
                 >
                     <IconGear className="size-3 text-tertiary opacity-70 group-hover:text-primary group-hover:opacity-100" />
                 </ButtonPrimitive>

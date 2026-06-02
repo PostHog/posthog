@@ -50,31 +50,7 @@ const INPUT_TYPE_LIST = [
     'integration',
     'email',
     'native_email',
-    'non_failure_status_codes',
 ] as const
-
-// Keyed by the full CyclotronJobInputSchemaType['type'] union — the schema editor's LemonSelect
-// receives `value={value.type}` which widens the inferred T past INPUT_TYPE_LIST, so the map's
-// indexer needs to accept any of the schema types.
-const INPUT_TYPE_LABELS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
-    native_email: 'Native email',
-    non_failure_status_codes: 'Non-failure codes',
-}
-
-const INPUT_TYPE_DEFAULT_DESCRIPTIONS: Partial<Record<CyclotronJobInputSchemaType['type'], string>> = {
-    non_failure_status_codes:
-        'HTTP response codes that should NOT mark the invocation as failed. Accepts specific codes (e.g. 409, 422) or the wildcards 4xx and 5xx. Useful when an API returns 4xx for expected non-error states.',
-}
-
-const NON_FAILURE_STATUS_CODE_SUGGESTIONS = ['4xx', '5xx', '400', '401', '403', '404', '409', '422', '429']
-
-function isValidNonFailureStatusCode(entry: string): boolean {
-    if (/^[4-5]xx$/i.test(entry)) {
-        return true
-    }
-    const n = Number(entry)
-    return Number.isInteger(n) && n >= 400 && n <= 599
-}
 
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
@@ -497,46 +473,6 @@ type CyclotronJobInputProps = {
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
 }
 
-function NonFailureStatusCodesField({
-    value,
-    onChange,
-    disabled,
-}: {
-    value: unknown
-    onChange: (value: Array<number | string>) => void
-    disabled?: boolean
-}): JSX.Element {
-    const current: string[] = Array.isArray(value) ? value.map((v) => String(v)) : []
-    const invalid = current.filter((v) => !isValidNonFailureStatusCode(v))
-
-    return (
-        <div className="deprecated-space-y-1">
-            <LemonInputSelect
-                mode="multiple"
-                allowCustomValues
-                value={current}
-                onChange={(next) => {
-                    const normalized: Array<number | string> = next.map((entry) => {
-                        const trimmed = entry.trim()
-                        const n = Number(trimmed)
-                        return /^[1-5]xx$/i.test(trimmed) ? trimmed.toLowerCase() : Number.isInteger(n) ? n : trimmed
-                    })
-                    onChange(normalized)
-                }}
-                options={NON_FAILURE_STATUS_CODE_SUGGESTIONS.map((v) => ({ key: v, label: v }))}
-                placeholder="e.g. 4xx, 400, 429"
-                disabled={disabled}
-            />
-            {invalid.length > 0 && (
-                <div className="text-xs text-danger">
-                    Invalid {invalid.length === 1 ? 'entry' : 'entries'}: {invalid.join(', ')}. Use a number between 400
-                    and 599, <code>4xx</code>, or <code>5xx</code>.
-                </div>
-            )}
-        </div>
-    )
-}
-
 function CyclotronJobInputRenderer({
     onChange,
     onInputChange,
@@ -652,8 +588,6 @@ function CyclotronJobInputRenderer({
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                 />
             )
-        case 'non_failure_status_codes':
-            return <NonFailureStatusCodesField value={input.value} onChange={onValueChange} disabled={disabled} />
         default: {
             const CustomRenderer = CUSTOM_INPUT_RENDERERS[schema.type]
             if (CustomRenderer) {
@@ -706,20 +640,12 @@ function CyclotronJobInputSchemaControls({
                 <LemonSelect
                     size="small"
                     options={INPUT_TYPE_LIST.map((type) => ({
-                        label: INPUT_TYPE_LABELS[type] ?? capitalizeFirstLetter(type),
+                        label: capitalizeFirstLetter(type),
                         value: type,
                     }))}
                     value={value.type}
-                    className="min-w-40"
-                    onChange={(type) => {
-                        const defaultDescription = INPUT_TYPE_DEFAULT_DESCRIPTIONS[type]
-                        // Seed the description from the type's default if the author hasn't written one
-                        if (defaultDescription && !value.description) {
-                            _onChange({ type, description: defaultDescription })
-                        } else {
-                            _onChange({ type })
-                        }
-                    }}
+                    className="w-30"
+                    onChange={(type) => _onChange({ type })}
                 />
                 <LemonCheckbox
                     size="small"
@@ -850,17 +776,8 @@ function CyclotronJobInputWithSchema({
             onInputChange?.(newSchema.key, value)
         }
 
-        const isEmptyValue = (v: unknown): boolean =>
-            v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0)
-
         if (newSchema?.type && newSchema.type !== schema.type) {
-            // Reset on type change; seed from schema default when one is declared
-            onInputChange?.(schema.key, {
-                value: newSchema.default !== undefined ? newSchema.default : null,
-            })
-        } else if (newSchema?.default !== undefined && isEmptyValue(value.value)) {
-            // Seed an empty input value from the schema's default so save succeeds without a separate edit
-            onInputChange?.(newSchema.key ?? schema.key, { ...value, value: newSchema.default })
+            onInputChange?.(schema.key, { value: null })
         }
         onInputSchemaChange?.(inputsSchema)
     }

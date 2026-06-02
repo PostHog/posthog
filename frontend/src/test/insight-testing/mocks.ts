@@ -73,9 +73,7 @@ function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
                 id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
                 type: 'events',
                 name: s.label,
-                // Breakdown rows of a single series share the series' order (as the real query
-                // runner does); only distinct series get distinct orders.
-                order: s.compare || s.breakdown_value != null ? 0 : i,
+                order: s.compare ? 0 : i,
             },
             label: s.label,
             count: s.data.reduce((a, b) => a + b, 0),
