@@ -49,7 +49,7 @@ export function TagDisplay({ eventProperties }: { eventProperties: EventType['pr
                 )}
                 {traceId && targetEventId && (
                     <MetadataTag label="Target event">
-                        <Link to={urls.llmAnalyticsTrace(traceId, { event: targetEventId })}>
+                        <Link to={urls.aiObservabilityTrace(traceId, { event: targetEventId })}>
                             {targetEventId.slice(0, 12)}...
                         </Link>
                     </MetadataTag>

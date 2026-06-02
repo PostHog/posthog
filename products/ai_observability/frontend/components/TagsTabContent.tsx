@@ -21,7 +21,7 @@ export function TagsTabContent({ generationEventId }: { generationEventId: strin
             key: 'tagger_name',
             render: (_, run) =>
                 run.tagger_id ? (
-                    <Link to={urls.llmAnalyticsTag(run.tagger_id)} className="font-medium">
+                    <Link to={urls.aiObservabilityTag(run.tagger_id)} className="font-medium">
                         {run.tagger_name || run.tagger_id.slice(0, 12)}
                     </Link>
                 ) : (
@@ -87,7 +87,7 @@ export function TagsTabContent({ generationEventId }: { generationEventId: strin
                 emptyState={
                     <div className="text-center py-8 text-muted">
                         No tags applied to this generation yet.{' '}
-                        <Link to={urls.llmAnalyticsTags()}>Enable a tagger</Link> to start tagging.
+                        <Link to={urls.aiObservabilityTags()}>Enable a tagger</Link> to start tagging.
                     </div>
                 }
             />
