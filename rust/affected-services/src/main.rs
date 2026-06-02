@@ -177,8 +177,7 @@ fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<Pac
 
     let mut cmd = MetadataCommand::new();
     cmd.current_dir(&old_workspace);
-    // --frozen: use Cargo.lock exactly, no network access
-    cmd.other_options(["--frozen"]);
+    cmd.other_options(["--locked"]);
     match cmd.build_graph() {
         Ok(graph) => Some(graph),
         Err(e) => {
