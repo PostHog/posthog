@@ -14,7 +14,7 @@ import {
     extractInternalContent,
     extractText,
     extractTextContent,
-    getScaffoldTagName,
+    getInternalTagName,
     isInternalToolResultUserMessage,
     isToolStepItem,
 } from '../utils'
@@ -76,7 +76,7 @@ export function captureUnrenderableMessageOnce(message: CompatMessage, seen: Set
 // An item in the rendered transcript stream. Bubbles render as `MessageTemplate`s.
 // Internal groups render as a single collapsed pill where the hidden messages
 // would have sat — preserving chronological position without polluting the chat.
-// "Internal" covers framework prompt scaffolds, model reasoning/thinking parts,
+// "Internal" covers framework prompt tag wrappers, model reasoning/thinking parts,
 // and tool-call results — anything the user didn't write and didn't ask to see.
 type StreamItem =
     | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
@@ -95,9 +95,9 @@ function getInternalLabel(message: CompatMessage): string | undefined {
     if (message.role === INTERNAL_TOOL_RESULT_ROLE) {
         return 'tool_result'
     }
-    const scaffoldTag = getScaffoldTagName(message)
-    if (scaffoldTag !== undefined) {
-        return scaffoldTag
+    const internalTag = getInternalTagName(message)
+    if (internalTag !== undefined) {
+        return internalTag
     }
     if (isInternalToolResultUserMessage(message)) {
         return 'tool_result'
@@ -169,7 +169,7 @@ export function buildStreamItems(messages: CompatMessage[]): StreamItem[] {
  * right, everything else (assistant, tool responses, etc.) on the left. Skips
  * `system` and `available tools` pseudo-messages; their context is implicit in
  * the assistant's reply and reachable via the per-turn "Show steps" panel.
- * Framework prompt-scaffold messages (e.g. `<system_reminder>...`) are collapsed.
+ * Framework prompt tag-wrapper messages (e.g. `<system_reminder>...`) are collapsed.
  *
  * Deliberately minimal otherwise: no headers, no per-message expand toggles, no
  * metadata row, no playground button. The Trace page's `ConversationMessagesDisplay`

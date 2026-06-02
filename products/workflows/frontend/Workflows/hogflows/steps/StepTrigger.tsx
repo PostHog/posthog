@@ -239,12 +239,19 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                       },
                   ]
                 : []),
-            {
-                label: 'Schedule',
-                description: 'Run your workflow on a schedule',
-                value: 'schedule',
-                icon: <IconClock />,
-            },
+            // The generic "schedule" trigger is hidden from new workflows. It's only offered when the
+            // current trigger is already a schedule, so existing workflows still render and can be
+            // switched to a different trigger type without crashing.
+            ...(type === 'schedule'
+                ? [
+                      {
+                          label: 'Schedule',
+                          description: 'Run your workflow on a schedule',
+                          value: 'schedule',
+                          icon: <IconClock />,
+                      },
+                  ]
+                : []),
             {
                 label: 'Tracking pixel',
                 description: 'Trigger your workflow using a 1x1 tracking pixel',

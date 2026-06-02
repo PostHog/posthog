@@ -1,17 +1,18 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
 import { TraceCompareFlame } from './TraceCompareFlame'
@@ -26,6 +27,7 @@ import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
 export const scene: SceneExport<TracingSceneLogicProps> = {
     component: TracingScene,
@@ -69,6 +71,7 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        expandedSpanIds,
     } = useValues(tracingSceneLogic({ tabId }))
     const {
         openTraceModal,
@@ -79,8 +82,21 @@ function TracingSceneContents(): JSX.Element {
         closeCompareFlame,
         fetchNextPage,
         setVisibleRowRange,
+        toggleExpandSpan,
     } = useActions(tracingSceneLogic({ tabId }))
+    const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
+
+    const onDocsLinkClick = (): void => {
+        addProductIntent({
+            product_type: ProductKey.TRACING,
+            intent_context: ProductIntentContext.TRACING_DOCS_VIEWED,
+        })
+    }
+
+    const onFeedbackClick = (): void => {
+        posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID)
+    }
 
     // Anchor the overlay's coordinate space to the *fetched* sparkline data so overlay
     // drags never shift the canvas underfoot. The sparkline only refetches when dateRange
@@ -107,6 +123,22 @@ function TracingSceneContents(): JSX.Element {
                 resourceType={{
                     type: 'tracing',
                 }}
+                actions={
+                    <>
+                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
+                            Feedback
+                        </LemonButton>
+                        <LemonButton
+                            to={TRACING_DOCS_URL}
+                            onClick={onDocsLinkClick}
+                            type="secondary"
+                            size="small"
+                            targetBlank
+                        >
+                            Documentation
+                        </LemonButton>
+                    </>
+                }
             />
             <LemonBanner
                 type="warning"
@@ -114,7 +146,7 @@ function TracingSceneContents(): JSX.Element {
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
-                    onClick: () => posthog.displaySurvey(TRACING_FEEDBACK_SURVEY_ID),
+                    onClick: onFeedbackClick,
                 }}
             >
                 Tracing is in alpha. Expect bugs, missing features, and breaking changes.
@@ -150,6 +182,16 @@ function TracingSceneContents(): JSX.Element {
                     hasMoreToLoad={hasMoreToLoad}
                     onLoadMore={fetchNextPage}
                     onVisibleRowRangeChange={setVisibleRowRange}
+                    expandedSpanIds={expandedSpanIds}
+                    onToggleExpand={toggleExpandSpan}
+                    emptyState={
+                        <div className="flex flex-col items-center gap-1">
+                            <span>No spans found</span>
+                            <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                Learn how to send traces
+                            </Link>
+                        </div>
+                    }
                     onRowClick={(span: Span) => {
                         // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
                         // element; react-modal then scrolls it back into view when restoring focus

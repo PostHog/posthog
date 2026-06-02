@@ -2,15 +2,19 @@
 
 When a report transitions to READY (a new inbox item lands), we look up the
 suggested reviewers from its `suggested_reviewers` artefact, resolve them to
-PostHog users, and dispatch a Slack message to each user that has configured a
+PostHog users, and dispatch a Slack message for each user that has configured a
 Slack channel and integration in their `SignalUserAutonomyConfig`.
+
+Reviewers are grouped by their resolved Slack channel so each channel receives a
+single message — when several reviewers point at the same channel, that one
+message tags all of them rather than posting once per reviewer.
 
 Each user's `slack_notification_min_priority` filters out reports below the
 configured threshold (P0 is highest). When the report has no priority
 judgement, we notify regardless of the user's threshold — the inbox should
 not silently swallow these.
 
-Messages are framed for public channels: each post names the suggested reviewer
+Messages are framed for public channels: each post names the suggested reviewers
 (Slack @mention when email matches the workspace, otherwise their PostHog name).
 """
 
@@ -242,6 +246,13 @@ def _recipient_presentation(
     return _RecipientPresentation(slack_mention=slack_mention, plain_name=plain_name)
 
 
+def _recipient_label(recipient: _RecipientPresentation) -> str:
+    # Mention pings the user inside mrkdwn; otherwise escape the plain name so it renders literally.
+    return recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;"
+    )
+
+
 def _format_source_product_labels(source_products: list[str]) -> str:
     if not source_products:
         return ""
@@ -267,7 +278,7 @@ def _build_message_blocks(
     *,
     priority: str | None,
     source_products: list[str],
-    recipient: _RecipientPresentation,
+    recipients: list[_RecipientPresentation],
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
@@ -275,9 +286,7 @@ def _build_message_blocks(
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    recipient_label = recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace(
-        "<", "&lt;"
-    ).replace(">", "&gt;")
+    recipient_label = ", ".join(_recipient_label(recipient) for recipient in recipients)
     metadata_parts = [f"Matched to {recipient_label} per code"]
     if priority:
         metadata_parts.insert(0, _slack_priority_label(priority))
@@ -325,7 +334,8 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox for {recipient.plain_name}{priority_suffix}: {title_line}"
+    recipient_names = ", ".join(recipient.plain_name for recipient in recipients)
+    fallback_text = f"Inbox for {recipient_names}{priority_suffix}: {title_line}"
     return blocks, fallback_text
 
 
@@ -358,32 +368,43 @@ def dispatch_inbox_item_notifications(
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
 
-    sent = 0
+    # Several reviewers can resolve to the same channel — group them so each channel gets a
+    # single message that still tags every matched reviewer. Keyed by integration + channel id,
+    # since the same channel id under a different integration is a distinct destination.
+    channels: dict[tuple[int, str], list[SignalUserAutonomyConfig]] = {}
     for config in targets:
         if not _meets_min_priority(priority, config.slack_notification_min_priority):
             continue
-
-        user = users_by_id.get(config.user_id)
-        if user is None:
+        if config.user_id not in users_by_id:
             logger.warning(
                 "signals_inbox_slack_notification_missing_user",
                 extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
             )
             continue
-
         integration = config.slack_notification_integration
         channel = config.slack_notification_channel
         if integration is None or not channel:
             continue
+        channels.setdefault((integration.id, _channel_id_from_target(channel)), []).append(config)
+
+    sent = 0
+    for configs in channels.values():
+        # All configs in a group share the same integration and resolved channel id.
+        integration = configs[0].slack_notification_integration
+        channel = configs[0].slack_notification_channel
+        if integration is None or not channel:
+            continue  # Needed to satisfy mypy
 
         try:
             slack = SlackIntegration(integration)
-            recipient = _recipient_presentation(user, slack, integration)
+            recipients = [
+                _recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs
+            ]
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
                 source_products=sources,
-                recipient=recipient,
+                recipients=recipients,
                 implementation_pr_url=implementation_pr_url,
             )
             slack.client.chat_postMessage(
@@ -398,7 +419,7 @@ def dispatch_inbox_item_notifications(
                 extra={
                     "report_id": report_id,
                     "team_id": team_id,
-                    "user_id": config.user_id,
+                    "user_ids": [config.user_id for config in configs],
                     "channel": _channel_display_name(channel),
                 },
             )
