@@ -4,12 +4,12 @@ from products.dashboards.backend.widget_layouts import stack_widget_layout_at_bo
 class TestWidgetLayouts:
     """Backend placement only reads `layouts.sm`.
 
-    Uses the same lowest-segment greedy packing as ``tileLayouts.calculateLayouts`` /
-    ``_apply_reorder_layout`` (preserve). Mobile (`xs`) placement is still derived on
-    the frontend; the backend mirrors sm → xs for API/schema completeness.
+    New widgets append to the bottom row of the dashboard (below the tallest tile),
+    packing batch adds horizontally on that row. Mobile (`xs`) placement is still
+    derived on the frontend; the backend mirrors sm → xs for API/schema completeness.
     """
 
-    def test_stack_widget_layout_at_bottom_fills_lowest_segment(self) -> None:
+    def test_stack_widget_layout_at_bottom_appends_below_tallest_tile(self) -> None:
         existing = [
             {"x": 0, "y": 0, "w": 6, "h": 4},
             {"x": 6, "y": 0, "w": 6, "h": 11},
@@ -20,10 +20,10 @@ class TestWidgetLayouts:
             existing_sm_layouts=existing,
         )
 
-        assert layouts["sm"] == {"x": 0, "y": 4, "w": 6, "h": 5}
+        assert layouts["sm"] == {"x": 0, "y": 11, "w": 6, "h": 5}
         assert layouts["xs"] == layouts["sm"]
 
-    def test_stack_widget_layout_at_bottom_uses_right_column_when_left_is_taller(self) -> None:
+    def test_stack_widget_layout_at_bottom_packs_batch_on_same_row(self) -> None:
         existing = [
             {"x": 0, "y": 0, "w": 6, "h": 4},
             {"x": 6, "y": 0, "w": 6, "h": 9},
@@ -46,7 +46,7 @@ class TestWidgetLayouts:
 
         assert layouts["sm"] == {"x": 6, "y": 18, "w": 6, "h": 5}
 
-    def test_stack_widget_layout_at_bottom_prefers_shorter_right_column(self) -> None:
+    def test_stack_widget_layout_at_bottom_ignores_short_column_gaps(self) -> None:
         existing = [
             {"x": 0, "y": 0, "w": 6, "h": 10},
             {"x": 6, "y": 0, "w": 6, "h": 4},
@@ -57,7 +57,7 @@ class TestWidgetLayouts:
             existing_sm_layouts=existing,
         )
 
-        assert layouts["sm"] == {"x": 6, "y": 4, "w": 6, "h": 5}
+        assert layouts["sm"] == {"x": 0, "y": 10, "w": 6, "h": 5}
 
     def test_stack_widget_layout_at_bottom_packs_batch_side_by_side(self) -> None:
         first = stack_widget_layout_at_bottom(

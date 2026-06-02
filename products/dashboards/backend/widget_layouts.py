@@ -6,38 +6,68 @@ from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_catalog import get_default_widget_layouts
 
 
-def _column_heights_from_sm_layouts(sm_layouts: list[dict[str, Any]]) -> list[int]:
-    column_heights = [0] * DASHBOARD_GRID_COLUMN_COUNT
+def _rectangles_overlap(
+    x1: int,
+    y1: int,
+    w1: int,
+    h1: int,
+    x2: int,
+    y2: int,
+    w2: int,
+    h2: int,
+) -> bool:
+    return x1 < x2 + w2 and x1 + w1 > x2 and y1 < y2 + h2 and y1 + h1 > y2
+
+
+def _layout_overlaps_any(
+    sm_layouts: list[dict[str, Any]],
+    x: int,
+    y: int,
+    w: int,
+    h: int,
+) -> bool:
     for layout in sm_layouts:
-        x = int(layout.get("x", 0))
+        lx = int(layout.get("x", 0))
+        ly = int(layout.get("y", 0))
+        lw = max(1, min(int(layout.get("w", 1)), DASHBOARD_GRID_COLUMN_COUNT))
+        lh = max(1, int(layout.get("h", 1)))
+        if _rectangles_overlap(x, y, w, h, lx, ly, lw, lh):
+            return True
+    return False
+
+
+def _dashboard_bottom_y(sm_layouts: list[dict[str, Any]]) -> int:
+    bottom_y = 0
+    for layout in sm_layouts:
         y = int(layout.get("y", 0))
-        w = max(1, min(int(layout.get("w", 1)), DASHBOARD_GRID_COLUMN_COUNT))
         h = max(1, int(layout.get("h", 1)))
-        x = max(0, min(x, DASHBOARD_GRID_COLUMN_COUNT - 1))
-        for column in range(x, min(x + w, DASHBOARD_GRID_COLUMN_COUNT)):
-            column_heights[column] = max(column_heights[column], y + h)
-    return column_heights
+        bottom_y = max(bottom_y, y + h)
+    return bottom_y
 
 
-def _find_lowest_segment_placement(
+def _find_bottom_row_placement(
     *,
-    column_heights: list[int],
+    existing_sm_layouts: list[dict[str, Any]],
+    pending_sm_layouts: list[dict[str, Any]] | None,
     width: int,
     height: int,
 ) -> dict[str, int]:
-    """Greedy lowest-segment packing from ``frontend/src/scenes/dashboard/tileLayouts.ts``."""
+    """Place a widget on the bottom row of the dashboard, packing batch adds horizontally."""
     w = max(1, min(width, DASHBOARD_GRID_COLUMN_COUNT))
     h = max(1, height)
+    pending = pending_sm_layouts or []
+    all_layouts = [*existing_sm_layouts, *pending]
 
-    best_x = 0
-    best_y = max(column_heights[0:w])
-    for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
-        segment_top = max(column_heights[x : x + w])
-        if segment_top < best_y:
-            best_x = x
-            best_y = segment_top
+    if pending:
+        placement_y = int(pending[0].get("y", 0))
+    else:
+        placement_y = _dashboard_bottom_y(existing_sm_layouts)
 
-    return {"x": best_x, "y": best_y, "w": w, "h": h}
+    for x in range(0, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
+        if not _layout_overlaps_any(all_layouts, x, placement_y, w, h):
+            return {"x": x, "y": placement_y, "w": w, "h": h}
+
+    return {"x": 0, "y": placement_y, "w": w, "h": h}
 
 
 def stack_widget_layout_at_bottom(
@@ -49,9 +79,12 @@ def stack_widget_layout_at_bottom(
     defaults = get_default_widget_layouts(widget_type)
     width = defaults["sm"]["w"]
     height = defaults["sm"]["h"]
-    sm_layouts = [*existing_sm_layouts, *(pending_sm_layouts or [])]
-    column_heights = _column_heights_from_sm_layouts(sm_layouts)
-    sm = _find_lowest_segment_placement(column_heights=column_heights, width=width, height=height)
+    sm = _find_bottom_row_placement(
+        existing_sm_layouts=existing_sm_layouts,
+        pending_sm_layouts=pending_sm_layouts,
+        width=width,
+        height=height,
+    )
     return {"sm": sm, "xs": {**sm}}
 
 
