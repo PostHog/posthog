@@ -38,6 +38,9 @@ function buildCopyInputs(formValues: Record<string, any>): Record<string, any> {
 const REDSHIFT_FORM_ONLY_FIELDS = [
     'mode',
     'authorization_mode',
+    // copy_inputs is re-assembled from the flat redshift_* fields in COPY mode and must not be
+    // carried over verbatim — otherwise switching a COPY export to INSERT leaks the stale object.
+    'copy_inputs',
     'redshift_s3_bucket',
     'redshift_s3_key_prefix',
     'redshift_s3_bucket_region_name',
@@ -79,9 +82,9 @@ export const redshiftDefinition: DestinationDefinition = {
             config[key] = value
         }
         config.mode = formValues.mode
-        if (formValues.mode === 'COPY') {
-            config.copy_inputs = buildCopyInputs(formValues)
-        }
+        // copy_inputs is rebuilt from the flat redshift_* fields in COPY mode and explicitly nulled
+        // in INSERT mode — never carried over from the deserialized form state.
+        config.copy_inputs = formValues.mode === 'COPY' ? buildCopyInputs(formValues) : null
         return config
     },
     deserialize: (config) => {
