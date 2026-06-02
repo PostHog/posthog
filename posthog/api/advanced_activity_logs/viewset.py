@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
+from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -530,6 +531,7 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
+                created_during_impersonation=is_impersonated_session(request),
             )
 
             exporter.export_asset.delay(exported_asset.id)

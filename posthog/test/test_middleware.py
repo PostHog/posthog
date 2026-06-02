@@ -790,6 +790,7 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
                 "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
                 {},
             ),
+            ("advanced_activity_logs_export", "advanced_activity_logs/export/", {"format": "csv", "filters": {}}),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):

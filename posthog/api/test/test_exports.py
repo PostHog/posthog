@@ -521,6 +521,26 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    @parameterized.expand([("impersonated", True), ("not_impersonated", False)])
+    def test_list_hides_impersonation_exports_outside_impersonation(self, _name: str, impersonated: bool) -> None:
+        impersonation_asset = ExportedAsset.objects.create(
+            team=self.team,
+            dashboard_id=self.dashboard.id,
+            export_format="image/png",
+            created_by=self.user,
+            created_during_impersonation=True,
+        )
+
+        with patch("posthog.api.exports.is_impersonated_session", return_value=impersonated):
+            response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {result["id"] for result in response.json()["results"]}
+        # Always visible: the regular asset from setUpTestData. The impersonation asset is
+        # only visible when the viewer is themselves in an impersonated session.
+        self.assertIn(self.exported_asset.id, ids)
+        self.assertEqual(impersonation_asset.id in ids, impersonated)
+
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME

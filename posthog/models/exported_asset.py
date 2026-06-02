@@ -96,6 +96,9 @@ class ExportedAsset(models.Model):
     # If truthy, this asset was created by an internal/system process rather than a user.
     # Excluded from the per-team user-export quota in posthog/api/exports.py.
     is_system = models.BooleanField(null=True, default=False)
+    # If truthy, this asset was created by staff while impersonating a user. Hidden from
+    # the impersonated user's own exports list; only visible during an impersonated session.
+    created_during_impersonation = models.BooleanField(null=True, default=False)
 
     # DEPRECATED: We now use JWT for accessing assets
     access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)

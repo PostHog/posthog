@@ -1183,6 +1183,10 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[str | re.Pattern] = [
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$"),
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$"),
+    # POST but read-only: renders the customer's activity-log data to a CSV/XLSX export
+    # (same data already viewable via GET during impersonation). The resulting asset is
+    # tagged created_during_impersonation and hidden from the customer's own exports list.
+    re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/advanced_activity_logs/export/?$"),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$"),
     # POST but read-only: returns metadata about available incremental fields / columns

@@ -13,6 +13,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.exported_asset import ExportedAsset
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -421,3 +422,21 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
         assert {"FeatureFlag", "Insight"}.issubset(scopes)
         activities = {entry["value"] for entry in body["static_filters"]["activities"]}
         assert {"created", "updated"}.issubset(activities)
+
+
+class TestAdvancedActivityLogsExport(APIBaseTest):
+    @parameterized.expand([("impersonated", True), ("not_impersonated", False)])
+    @patch("posthog.tasks.exporter.export_asset")
+    def test_export_tags_assets_created_during_impersonation(
+        self, _name: str, impersonated: bool, mock_export_asset: Any
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/advanced_activity_logs/export/"
+
+        with patch(
+            "posthog.api.advanced_activity_logs.viewset.is_impersonated_session", return_value=impersonated
+        ):
+            res = self.client.post(url, data={"format": "csv", "filters": {}}, format="json")
+
+        assert res.status_code == status.HTTP_202_ACCEPTED
+        asset = ExportedAsset.objects.get(id=res.json()["id"])
+        assert bool(asset.created_during_impersonation) is impersonated
