@@ -43,6 +43,21 @@ export interface SessionRecordingDataCoordinatorLogicProps {
     accessToken?: string
 }
 
+// How long after a recording starts we treat a missing full snapshot as
+// "still ingesting" rather than "broken". Ingestion lag means freshly recorded
+// sessions routinely lack a usable full snapshot for a short while after start.
+export const RECENT_RECORDING_INGESTION_WINDOW_MINUTES = 5
+// While a recent recording is still missing its full snapshot we re-fetch
+// snapshots on this cadence so it starts playing as soon as ingestion catches
+// up — no manual reload required.
+const RECENT_INVALID_RETRY_INTERVAL_MS = 10000
+// Stop auto-retrying once we've covered the ingestion window — beyond that the
+// recording is very unlikely to be merely mid-ingestion, so we stop polling
+// rather than hammer the API indefinitely. The user can still reload manually.
+const RECENT_INVALID_MAX_RETRIES = Math.ceil(
+    (RECENT_RECORDING_INGESTION_WINDOW_MINUTES * 60 * 1000) / RECENT_INVALID_RETRY_INTERVAL_MS
+)
+
 export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoordinatorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataCoordinatorLogic', key]),
     props({} as SessionRecordingDataCoordinatorLogicProps),
@@ -436,8 +451,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         isRecentAndInvalid: [
             (s) => [s.start, s.snapshotsInvalid],
             (start, snapshotsInvalid) => {
-                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
-                return snapshotsInvalid && lessThanFiveMinutesOld
+                const withinIngestionWindow =
+                    dayjs().diff(start, 'minute') <= RECENT_RECORDING_INGESTION_WINDOW_MINUTES
+                return snapshotsInvalid && withinIngestionWindow
             },
         ],
 
@@ -571,12 +587,31 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             void values.sessionPlayerData
         }
     }),
-    subscriptions(({ values }) => ({
+    subscriptions(({ values, actions, cache }) => ({
         isRecentAndInvalid: (prev: boolean, next: boolean) => {
             if (!prev && next) {
                 posthog.capture('recording cannot playback yet', {
                     watchedSession: values.sessionPlayerData.sessionRecordingId,
                 })
+                // The recording is recent but has no usable full snapshot yet —
+                // it's almost certainly still being ingested. Keep re-fetching
+                // snapshots so the player recovers on its own without a manual
+                // reload. The retry tears itself down once the recording becomes
+                // playable (isRecentAndInvalid flips false) or after enough
+                // attempts to cover the ingestion window.
+                cache.recentInvalidRetries = 0
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => {
+                        cache.recentInvalidRetries = (cache.recentInvalidRetries ?? 0) + 1
+                        actions.loadSnapshots()
+                        if (cache.recentInvalidRetries >= RECENT_INVALID_MAX_RETRIES) {
+                            cache.disposables.dispose('recentInvalidRetry')
+                        }
+                    }, RECENT_INVALID_RETRY_INTERVAL_MS)
+                    return () => clearInterval(intervalId)
+                }, 'recentInvalidRetry')
+            } else if (prev && !next) {
+                cache.disposables.dispose('recentInvalidRetry')
             }
         },
     })),

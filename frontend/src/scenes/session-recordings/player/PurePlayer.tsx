@@ -13,6 +13,7 @@ import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
@@ -279,15 +280,19 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 ) : (
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
                         {isRecentAndInvalid ? (
-                            <div className="flex flex-1 flex-col items-center justify-center">
+                            <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center p-4">
                                 <BuilderHog2 height={200} />
-                                <h1>We're still working on it</h1>
-                                <p>
-                                    This recording hasn't been fully ingested yet. It should be ready to watch in a few
-                                    minutes.
+                                <h1 className="mb-0">We're still working on it</h1>
+                                <p className="max-w-md mb-0">
+                                    This recording hasn't finished ingesting yet. We're checking for it automatically and
+                                    it'll start playing as soon as it's ready — usually within a few minutes.
                                 </p>
+                                <div className="flex items-center gap-2 text-secondary">
+                                    <Spinner />
+                                    <span>Checking for new data…</span>
+                                </div>
                                 <LemonButton type="secondary" onClick={loadSnapshots}>
-                                    Reload
+                                    Reload now
                                 </LemonButton>
                             </div>
                         ) : (
