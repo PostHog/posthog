@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
@@ -65,12 +65,12 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         refreshDashboardWidgets,
-        updateWidgetTile,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
     } = useActions(dashboardLogic)
+    const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
