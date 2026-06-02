@@ -20,7 +20,7 @@ Safety notes:
   the column to `NOT NULL` once we have telemetry confirming all rows
   carry a project.
 - The index on `deployment(project, -created_at)` is added in `0003`
-  with `AddIndexConcurrently`. PostHog policy (see
+  with `CreateIndexConcurrently`. PostHog policy (see
   `posthog/management/migration_analysis/policies.py`) blocks
   CONCURRENTLY operations from being mixed with regular DDL — splitting
   the concurrent index out lets this migration keep `atomic = True`
