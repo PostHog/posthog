@@ -36,6 +36,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_custom_asset import OrganizationCustomAsset
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.project import Project
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -236,10 +237,36 @@ for _model, _resolver in _INVALIDATION_SOURCES:
     _connect_invalidation(_model, _resolver)
 
 
+class OrganizationCustomAssetSerializer(serializers.Serializer):
+    """Read-only view of an organization's custom branding asset. Assets are uploaded by staff via
+    Django admin — there is no API write path."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the custom asset.")
+    key = serializers.CharField(
+        read_only=True,
+        help_text="Free-form slot identifier for the asset, e.g. 'logo' or 'hog'.",
+    )
+    url = serializers.SerializerMethodField(help_text="URL the image can be loaded from.")
+    file_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Original file name of the uploaded asset.",
+    )
+
+    @extend_schema_field(serializers.CharField())
+    def get_url(self, asset: OrganizationCustomAsset) -> str:
+        return asset.get_absolute_url()
+
+
 class OrganizationSerializer(
     serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin
 ):
     membership_level = serializers.SerializerMethodField()
+    custom_assets = OrganizationCustomAssetSerializer(
+        many=True,
+        read_only=True,
+        help_text="Custom branding image assets attached to the organization (staff-managed, read-only).",
+    )
     teams = serializers.SerializerMethodField()
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -264,6 +291,7 @@ class OrganizationSerializer(
             "name",
             "slug",
             "logo_media_id",
+            "custom_assets",
             "created_at",
             "updated_at",
             "membership_level",
@@ -487,7 +515,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         user = cast(User, self.request.user)
-        queryset = user.organizations.all()
+        queryset = user.organizations.all().prefetch_related("custom_assets")
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)

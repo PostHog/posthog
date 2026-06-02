@@ -555,6 +555,7 @@ rules:
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
+                              |OrganizationCustomAsset
                               |Plugin
                               |Project
                               |ProxyRecord
@@ -619,6 +620,7 @@ rules:
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
+                        |OrganizationCustomAsset
                         |Plugin
                         |Project
                         |ProxyRecord

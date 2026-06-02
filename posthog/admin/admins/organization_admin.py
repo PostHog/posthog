@@ -3,6 +3,7 @@ from datetime import UTC, timedelta
 from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.management import call_command
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
@@ -12,6 +13,7 @@ from django.utils.html import format_html
 from django.utils.module_loading import import_string
 from django.utils.safestring import mark_safe
 
+from posthog.admin.inlines.organization_custom_asset_inline import OrganizationCustomAssetInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
 from posthog.admin.inlines.organization_invite_inline import OrganizationInviteInline
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberInline
@@ -19,6 +21,7 @@ from posthog.admin.inlines.project_inline import ProjectInline
 from posthog.admin.inlines.team_inline import TeamInline
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization
+from posthog.models.organization_custom_asset import OrganizationCustomAsset, save_content_to_object_storage
 
 from products.legal_documents.backend.admin import LegalDocumentInline
 
@@ -177,6 +180,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         OrganizationMemberInline,
         OrganizationInviteInline,
         OrganizationDomainInline,
+        OrganizationCustomAssetInline,
         LegalDocumentInline,
     ]
     readonly_fields = [
@@ -470,3 +474,40 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Store request for access in display methods (needed for CSRF tokens in templates)
         self._current_request = request
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    def save_formset(self, request, form, formset, change):
+        # Custom assets carry an uploaded image (a non-model form field) that has to be pushed to
+        # object storage; every other inline saves normally.
+        if formset.model is not OrganizationCustomAsset:
+            super().save_formset(request, form, formset, change)
+            return
+
+        if not request.user.is_staff:
+            raise PermissionDenied
+
+        organization: Organization = form.instance
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for instance in instances:
+            instance.organization = organization
+            if instance.created_by_id is None:
+                instance.created_by = request.user
+            instance.save()
+        formset.save_m2m()
+
+        for inline_form in formset.forms:
+            cleaned_data = getattr(inline_form, "cleaned_data", None)
+            if not cleaned_data or cleaned_data.get("DELETE"):
+                continue
+            image = cleaned_data.get("image")
+            instance = inline_form.instance
+            if not image or instance.pk is None:
+                continue
+            if not settings.OBJECT_STORAGE_ENABLED:
+                messages.error(request, "Object storage must be available to upload custom assets.")
+                continue
+            instance.file_name = image.name
+            instance.content_type = image.content_type
+            instance.save(update_fields=["file_name", "content_type"])
+            save_content_to_object_storage(instance, image.read())

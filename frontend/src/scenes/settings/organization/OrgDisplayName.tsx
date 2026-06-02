@@ -10,6 +10,8 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { OrganizationCustomAssets } from './OrganizationCustomAssets'
+
 export function OrganizationDisplayName(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
@@ -39,82 +41,85 @@ export function OrganizationDisplayName(): JSX.Element {
     const hasChanges = nameChanged || logoChanged
 
     return (
-        <div className="flex gap-6 items-start">
-            <LemonFileInput
-                accept="image/*"
-                multiple={false}
-                onChange={setFilesToUpload}
-                loading={uploading}
-                value={filesToUpload}
-                disabledReason={restrictionReason}
-                callToAction={
-                    <div className="relative">
-                        <UploadedLogo
-                            name={currentOrganization?.name || '?'}
-                            entityId={currentOrganization?.id || 1}
-                            mediaId={logoMediaId}
-                            size="xlarge"
-                        />
-                        {logoMediaId && (
-                            <div className="absolute -inset-2 group">
-                                <LemonButton
-                                    icon={<IconX />}
-                                    onClick={(e) => {
-                                        setLogoMediaId(null)
-                                        e.preventDefault()
-                                    }}
-                                    size="small"
-                                    tooltip="Reset back to lettermark"
-                                    tooltipPlacement="right"
-                                    noPadding
-                                    className="group-hover:flex hidden absolute right-0 top-0"
-                                />
+        <div className="flex flex-col gap-4">
+            <div className="flex gap-6 items-start">
+                <LemonFileInput
+                    accept="image/*"
+                    multiple={false}
+                    onChange={setFilesToUpload}
+                    loading={uploading}
+                    value={filesToUpload}
+                    disabledReason={restrictionReason}
+                    callToAction={
+                        <div className="relative">
+                            <UploadedLogo
+                                name={currentOrganization?.name || '?'}
+                                entityId={currentOrganization?.id || 1}
+                                mediaId={logoMediaId}
+                                size="xlarge"
+                            />
+                            {logoMediaId && (
+                                <div className="absolute -inset-2 group">
+                                    <LemonButton
+                                        icon={<IconX />}
+                                        onClick={(e) => {
+                                            setLogoMediaId(null)
+                                            e.preventDefault()
+                                        }}
+                                        size="small"
+                                        tooltip="Reset back to lettermark"
+                                        tooltipPlacement="right"
+                                        noPadding
+                                        className="group-hover:flex hidden absolute right-0 top-0"
+                                    />
+                                </div>
+                            )}
+                            <div className="flex items-center gap-1 mt-1 justify-center text-muted text-xs">
+                                <IconUpload className="text-sm" />
+                                Upload
                             </div>
-                        )}
-                        <div className="flex items-center gap-1 mt-1 justify-center text-muted text-xs">
-                            <IconUpload className="text-sm" />
-                            Upload
                         </div>
-                    </div>
-                }
-            />
-            <div className="flex-1 max-w-120 space-y-3">
-                <LemonInput
-                    value={name}
-                    onChange={setName}
-                    disabled={!!restrictionReason}
-                    data-attr="organization-name-input-settings"
-                    placeholder="Organization name"
-                />
-                <LemonButton
-                    type="primary"
-                    onClick={(e) => {
-                        e.preventDefault()
-                        const updates: Record<string, unknown> = {}
-                        if (nameChanged) {
-                            updates.name = name
-                        }
-                        if (logoChanged) {
-                            updates.logo_media_id = logoMediaId
-                        }
-                        updateOrganization(updates)
-                    }}
-                    disabledReason={
-                        restrictionReason
-                            ? restrictionReason
-                            : !hasChanges
-                              ? 'No changes to save'
-                              : !name
-                                ? 'You must provide a name'
-                                : !currentOrganization
-                                  ? 'Organization not loaded'
-                                  : undefined
                     }
-                    loading={currentOrganizationLoading || uploading}
-                >
-                    Save
-                </LemonButton>
+                />
+                <div className="flex-1 max-w-120 space-y-3">
+                    <LemonInput
+                        value={name}
+                        onChange={setName}
+                        disabled={!!restrictionReason}
+                        data-attr="organization-name-input-settings"
+                        placeholder="Organization name"
+                    />
+                    <LemonButton
+                        type="primary"
+                        onClick={(e) => {
+                            e.preventDefault()
+                            const updates: Record<string, unknown> = {}
+                            if (nameChanged) {
+                                updates.name = name
+                            }
+                            if (logoChanged) {
+                                updates.logo_media_id = logoMediaId
+                            }
+                            updateOrganization(updates)
+                        }}
+                        disabledReason={
+                            restrictionReason
+                                ? restrictionReason
+                                : !hasChanges
+                                  ? 'No changes to save'
+                                  : !name
+                                    ? 'You must provide a name'
+                                    : !currentOrganization
+                                      ? 'Organization not loaded'
+                                      : undefined
+                        }
+                        loading={currentOrganizationLoading || uploading}
+                    >
+                        Save
+                    </LemonButton>
+                </div>
             </div>
+            <OrganizationCustomAssets />
         </div>
     )
 }

@@ -487,6 +487,15 @@ interface OrganizationMetadata {
     instance_tag?: string
 }
 
+export interface OrganizationCustomAsset {
+    id: string
+    /** Free-form slot identifier for the asset, e.g. 'logo' or 'hog'. */
+    key: string
+    /** URL the image can be loaded from. */
+    url: string
+    file_name: string | null
+}
+
 export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
@@ -510,6 +519,7 @@ export interface OrganizationType extends OrganizationBasicType {
     default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
+    custom_assets?: OrganizationCustomAsset[]
 }
 
 export interface OrganizationDomainType {

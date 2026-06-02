@@ -55,6 +55,7 @@ from .materialized_column_slots import MaterializedColumnSlot, MaterializedColum
 from .messaging import MessagingRecord
 from .object_media_preview import ObjectMediaPreview
 from .organization import Organization, OrganizationMembership
+from .organization_custom_asset import OrganizationCustomAsset
 from .organization_domain import OrganizationDomain
 from .organization_integration import OrganizationIntegration
 from .organization_invite import OrganizationInvite, InviteExpiredException
@@ -159,6 +160,7 @@ __all__ = [
     "NotificationViewed",
     "ObjectMediaPreview",
     "Organization",
+    "OrganizationCustomAsset",
     "OrganizationDomain",
     "OrganizationIntegration",
     "OrganizationInvite",
