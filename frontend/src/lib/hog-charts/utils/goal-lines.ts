@@ -43,7 +43,8 @@ export function buildGoalLineReferenceLines(
             value: line.value,
             orientation: 'horizontal',
             label: line.displayLabel === false ? undefined : line.label,
-            labelPosition: line.labelPosition ?? 'start',
+            // Match the UI control and legacy chart.js, which both default an unset position to 'end'.
+            labelPosition: line.labelPosition ?? 'end',
             variant: 'goal',
             style: line.color ? { color: line.color } : undefined,
         }))
