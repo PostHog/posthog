@@ -108,10 +108,9 @@ function run(github, { history = [], now = minutes(0), env = {} } = {}) {
     const slack = makeSlack(history)
     Object.assign(process.env, {
         SLACK_CHANNEL: 'C0AS64N6DJL',
-        WATCHED_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml',
+        GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml',
         WORKFLOW_FAILURE_STREAK_THRESHOLD: '5',
         COMMIT_FAILURE_STREAK_THRESHOLD: '10',
-        CRITICAL_WORKFLOWS: 'ci-backend.yml',
         ...env,
     })
     return ciAlertsDevex(
@@ -211,7 +210,7 @@ describe('ci-alerts-devex', () => {
     })
 
     it('opens an incident on a commit-failure streak with no single-workflow streak', async () => {
-        // Alternating critical culprits: every commit is red, but neither workflow
+        // Alternating culprits: every commit is red, but neither workflow
         // reaches 5 consecutive failures on its own.
         const { commits, runsByWorkflow } = commitsWithRuns(
             Array.from({ length: 10 }, (_, i) =>
@@ -220,9 +219,7 @@ describe('ci-alerts-devex', () => {
                     : { 'ci-backend.yml': 'success', 'ci-frontend.yml': 'failure' }
             )
         )
-        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }), {
-            env: { CRITICAL_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml' },
-        })
+        const { slack, outputs } = await run(createGithubMock(runsByWorkflow, { commits }))
 
         assert.equal(outputs.action, 'create')
         assert.equal(outputs.commit_streak, '10')

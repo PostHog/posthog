@@ -27,12 +27,10 @@ env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
     COMMIT_FAILURE_STREAK_THRESHOLD: '10'
-    # Merge-gating workflows = the master ruleset's required status checks that run on
-    # master push. (container-images-ci and shellcheck are also required but only run on
-    # PR/merge_group, so this push-based alerter can't observe them.) All gating checks
-    # count as critical, so WATCHED and CRITICAL are the same set.
-    WATCHED_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
-    CRITICAL_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
+    # The master ruleset's required status checks that run on master push — a failure
+    # here means master is genuinely broken. (container-images-ci and shellcheck are also
+    # required but only run on PR/merge_group, so this push-based alerter can't observe them.)
+    GATING_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
 
 jobs:
     check-master:
