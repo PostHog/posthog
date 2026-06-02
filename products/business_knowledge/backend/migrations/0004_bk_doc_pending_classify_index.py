@@ -2,8 +2,9 @@
 # Partial on the only value ever queried (`unknown`) so it stays ~0 rows once
 # docs are classified. Concurrent build avoids locking the documents table.
 
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
+
+from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -14,12 +15,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddIndexConcurrently(
-            model_name="knowledgedocument",
-            index=models.Index(
-                fields=["tombstoned_at"],
-                name="bk_doc_pending_classify",
-                condition=models.Q(safety_verdict="unknown"),
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="knowledgedocument",
+                    index=models.Index(
+                        fields=["tombstoned_at"],
+                        name="bk_doc_pending_classify",
+                        condition=models.Q(safety_verdict="unknown"),
+                    ),
+                ),
+            ],
+            database_operations=[
+                CreateIndexConcurrently(
+                    index_name="bk_doc_pending_classify",
+                    table_name="business_knowledge_knowledgedocument",
+                    columns="(tombstoned_at)",
+                    where="WHERE safety_verdict = 'unknown'",
+                ),
+            ],
         ),
     ]

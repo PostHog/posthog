@@ -2,8 +2,9 @@
 # Concurrent build avoids locking the sources table; isolated in its own
 # migration so a failed build doesn't block the rest of the schema change.
 
-from django.contrib.postgres.operations import AddIndexConcurrently
 from django.db import migrations, models
+
+from posthog.migration_helpers import CreateIndexConcurrently
 
 
 class Migration(migrations.Migration):
@@ -14,8 +15,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        AddIndexConcurrently(
-            model_name="knowledgesource",
-            index=models.Index(fields=["refresh_interval", "last_refresh_at"], name="bk_source_refresh_due"),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddIndex(
+                    model_name="knowledgesource",
+                    index=models.Index(
+                        fields=["refresh_interval", "last_refresh_at"],
+                        name="bk_source_refresh_due",
+                    ),
+                ),
+            ],
+            database_operations=[
+                CreateIndexConcurrently(
+                    index_name="bk_source_refresh_due",
+                    table_name="business_knowledge_knowledgesource",
+                    columns="(refresh_interval, last_refresh_at)",
+                ),
+            ],
         ),
     ]
