@@ -78,9 +78,10 @@ def log_file_system_view(
 
     now = viewed_at or timezone.now()
 
-    # (type, ref) is surface-exclusive, so surface is not part of the lookup — the existing
-    # (team, user, type, ref) unique constraint still identifies the row. New rows store an
-    # explicit surface so Recents can be filtered per-surface; legacy rows stay NULL (== web).
+    # The (team, user, type, ref) unique constraint allows one view-log row per item, so surface
+    # is not part of the lookup. The same (type, ref) can exist in more than one surface, so we
+    # refresh `surface` on every view: the row reflects the most recent view's surface, keeping
+    # Recents (filtered per-surface) and the delete-cleanup signal accurate. Legacy rows are NULL (== web).
     update_kwargs = {
         "team_id": resolved_team_id,
         "user_id": user.id,
@@ -89,7 +90,7 @@ def log_file_system_view(
     }
     surface = getattr(representation, "surface", DEFAULT_SURFACE)
 
-    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
+    updated = FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
 
     if updated:
         return
@@ -98,7 +99,7 @@ def log_file_system_view(
         FileSystemViewLog.objects.create(viewed_at=now, surface=surface, **update_kwargs)
     except IntegrityError:
         # Another request may have created the row after our update attempt.
-        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now)
+        FileSystemViewLog.objects.filter(**update_kwargs).update(viewed_at=now, surface=surface)
 
 
 def annotate_file_system_with_view_logs(

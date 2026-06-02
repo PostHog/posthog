@@ -120,6 +120,16 @@ class TestFileSystemViewLog(TestCase):
         log = FileSystemViewLog.objects.get(team=self.team, user=self.user, type="doc", ref="ref-1")
         self.assertEqual(log.surface, "web")
 
+    def test_view_log_refreshes_surface_on_review_from_another_surface(self) -> None:
+        # The same (type, ref) can exist in two surfaces; the single view-log row must follow the
+        # most recent view's surface rather than keep the surface it was first logged under.
+        log_file_system_view(user=self.user, obj=self._representation(surface="web"), team_id=self.team.id)
+        log_file_system_view(user=self.user, obj=self._representation(surface="desktop"), team_id=self.team.id)
+
+        logs = FileSystemViewLog.objects.filter(team=self.team, user=self.user, type="doc", ref="ref-1")
+        self.assertEqual(logs.count(), 1)
+        self.assertEqual(logs.first().surface, "desktop")  # type: ignore
+
     def test_delete_signal_only_drops_view_logs_for_the_deleted_surface(self) -> None:
         # The (team, user, type, ref) unique constraint allows only one view log per item, so the
         # surviving surface holds the single row. Deleting the other surface's file must scope its
