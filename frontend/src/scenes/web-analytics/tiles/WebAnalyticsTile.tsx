@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
+import { IconChevronDown, IconExternal, IconInfo, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -871,16 +871,50 @@ export const MarketingAnalyticsTrendTile = ({
         { value: 'roas', label: 'Reported ROAS' },
         { value: 'cost_per_reported_conversion', label: 'Cost per reported conversion' },
     ]
+
+    // Reported-conversion columns are pulled from connected ad platforms and are unrelated to
+    // event-based PostHog conversion goals. Give them a tailored empty state so users don't mistake
+    // an empty ad-platform metric for a broken conversion goal.
+    const isReportedConversionColumn =
+        tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+        tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
+        tileColumnSelection === 'roas' ||
+        tileColumnSelection === 'cost_per_reported_conversion'
+
+    const emptyStateHeading = isReportedConversionColumn
+        ? 'No reported conversions for this date range'
+        : 'No marketing data for this date range'
+
+    const emptyStateDetail = isReportedConversionColumn ? (
+        <>
+            Reported conversions are pulled from your connected ad platforms (Meta, TikTok, LinkedIn, and so on) — they
+            are <strong>not</strong> the same as event-based{' '}
+            <Link to="https://posthog.com/docs/web-analytics/marketing-analytics" target="_blank">
+                conversion goals
+            </Link>
+            , so a conversion goal will never populate this tile. Check that a conversions column is mapped for your
+            sources and that there is ad-platform data in the selected date range.
+        </>
+    ) : (
+        'This data is pulled from your connected ad platforms. Try a different date range, or check your marketing data source configuration in settings.'
+    )
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col min-h-100">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-between m-2 mr-4">
-                    <LemonSelect
-                        value={tileColumnSelection}
-                        onChange={setTileColumnSelection}
-                        options={MARKETING_COLUMN_OPTIONS}
-                        placeholder="Select column"
-                    />
+                    <div className="flex flex-row items-center gap-1">
+                        <LemonSelect
+                            value={tileColumnSelection}
+                            onChange={setTileColumnSelection}
+                            options={MARKETING_COLUMN_OPTIONS}
+                            placeholder="Select column"
+                        />
+                        {isReportedConversionColumn && (
+                            <Tooltip title="Reported conversions come from your connected ad platforms and are independent of event-based conversion goals. A conversion goal will not populate this tile.">
+                                <IconInfo className="text-muted text-lg" />
+                            </Tooltip>
+                        )}
+                    </div>
                     <div className="flex flex-row items-center">
                         <div className="flex flex-row items-center mr-4">
                             <span className="mr-2">Group by</span>
@@ -903,7 +937,11 @@ export const MarketingAnalyticsTrendTile = ({
                 attachTo={attachTo}
                 query={query}
                 readOnly={true}
-                context={{ insightProps: { ...insightProps, query } }}
+                context={{
+                    insightProps: { ...insightProps, query },
+                    emptyStateHeading,
+                    emptyStateDetail,
+                }}
             />
         </div>
     )
