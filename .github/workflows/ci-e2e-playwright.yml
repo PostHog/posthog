@@ -335,7 +335,7 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Log in to Docker Hub
-              if: ${{ secrets.DOCKERHUB_USERNAME != '' }}
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
