@@ -443,13 +443,7 @@ export function ReplayTriggers(): JSX.Element {
                             panels={[
                                 {
                                     key: 'sampling',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Sampling"
-                                            status={statuses.samplingStatus}
-                                            showMatchTag
-                                        />
-                                    ),
+                                    header: <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} />,
                                     content: <Sampling />,
                                 },
                                 {

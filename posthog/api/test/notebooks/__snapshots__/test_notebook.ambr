@@ -261,7 +261,8 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.12
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -1149,7 +1150,8 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.3
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",
@@ -1294,7 +1296,8 @@
 # ---
 # name: TestNotebooks.test_updates_notebook.31
   '''
-  SELECT "posthog_project"."id",
+  SELECT "posthog_project"."updated_at",
+         "posthog_project"."id",
          "posthog_project"."organization_id",
          "posthog_project"."name",
          "posthog_project"."created_at",

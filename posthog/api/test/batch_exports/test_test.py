@@ -175,6 +175,56 @@ def test_can_run_s3_test_step_for_destination(
     assert destination_test["result"]["message"] is None
 
 
+def test_run_test_step_rejects_destination_type_change(client: HttpClient, temporal, organization, team, user):
+    """A test step must not be able to change the destination type of an existing export.
+
+    Otherwise a caller could, for example, switch an "AwsS3" export (no `endpoint_url`) to the
+    legacy "S3" type, supply a `endpoint_url` they control, and have the stored credentials tested
+    against that endpoint.
+    """
+
+    destination_data = {
+        "type": "AwsS3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+
+    malicious_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": {
+            "type": "S3",
+            "config": {"endpoint_url": "https://attacker.example"},
+        },
+        "interval": "hour",
+    }
+
+    with unittest.mock.patch("posthog.batch_exports.http.get_destination_test") as mock_get_destination_test:
+        response = client.post(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export['id']}/run_test_step",
+            {**{"step": 0}, **malicious_data},
+            content_type="application/json",
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "Cannot change destination type" in response.json()["detail"]
+    # Validation must fail before any destination test (and therefore any outbound request) runs.
+    mock_get_destination_test.assert_not_called()
+
+
 @pytest.fixture
 def database():
     """Generate a unique database name for tests."""
