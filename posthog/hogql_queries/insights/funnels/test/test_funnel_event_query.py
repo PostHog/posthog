@@ -427,3 +427,58 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         funnel_event_query = FunnelEventQuery(context=context).to_query()
         select = format_query(funnel_event_query)
         self.assertIn(f"ifNull(toString(session.{breakdown_property}), '')", select)
+    def test_funnel_breakdown_path_cleaning_enabled(self):
+        """path cleaning regex applied to funnel $pathname breakdown when enabled"""
+        self.team.path_cleaning_filters = [
+            {"regex": r"\/product\/\d+", "alias": "/product/:id"},
+            {"regex": r"\/user\/\d+", "alias": "/user/:id"},
+        ]
+        self.team.save()
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$pathname",
+                breakdown_type=BreakdownType.event,
+                breakdown_path_cleaning=True,
+            ),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        sql = format_query(FunnelEventQuery(context=context).to_query())
+        assert "replaceRegexpAll" in sql
+
+    def test_funnel_breakdown_path_cleaning_disabled(self):
+        """path cleaning NOT applied when toggle is off"""
+        self.team.path_cleaning_filters = [
+            {"regex": r"\/product\/\d+", "alias": "/product/:id"},
+        ]
+        self.team.save()
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$pathname",
+                breakdown_type=BreakdownType.event,
+                breakdown_path_cleaning=False,
+            ),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        sql = format_query(FunnelEventQuery(context=context).to_query())
+        assert "replaceRegexpAll" not in sql
+
+    def test_funnel_breakdown_path_cleaning_no_filters_configured(self):
+        """no-op when team has no path cleaning filters, even if toggle is on"""
+        self.team.path_cleaning_filters = []
+        self.team.save()
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            breakdownFilter=BreakdownFilter(
+                breakdown="$pathname",
+                breakdown_type=BreakdownType.event,
+                breakdown_path_cleaning=True,
+            ),
+        )
+        context = FunnelQueryContext(query=query, team=self.team)
+        sql = format_query(FunnelEventQuery(context=context).to_query())
+        assert "replaceRegexpAll" not in sql

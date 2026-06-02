@@ -424,7 +424,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "event":
             properties_column = "properties"
             normalize_url = breakdownFilter.breakdown_normalize_url
-            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
+            path_cleaning = breakdownFilter.breakdown_path_cleaning
+            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url, path_cleaning=path_cleaning, team=self.context.team)
         elif breakdownType == "cohort":
             if isinstance(breakdown, int):
                 cohort_id = breakdown

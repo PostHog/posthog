@@ -1,5 +1,7 @@
 from rest_framework.exceptions import ValidationError
 from typing_extensions import TypeIs
+from posthog.hogql.property import apply_path_cleaning
+from posthog.models import Team
 
 from posthog.schema import (
     ActionsNode,
@@ -39,7 +41,7 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False, path_cleaning: bool | None = False, team: Team | None = None
 ) -> ast.Expr:
     def make_field(breakdown: str | int) -> ast.Expr:
         if properties_column is None:
@@ -49,13 +51,16 @@ def get_breakdown_expr(
             return ast.Field(chain=[*properties_column.split("."), breakdown])
 
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
-        return ast.Call(
+        expr: ast.Expr = ast.Call(
             name="ifNull",
             args=[
                 ast.Call(name="toString", args=[make_field(breakdowns)]),
                 ast.Constant(value=""),
             ],
         )
+        if path_cleaning and team is not None:
+            expr = apply_path_cleaning(expr, team)
+        return expr
     else:
         exprs = []
         for breakdown in breakdowns:
@@ -72,6 +77,8 @@ def get_breakdown_expr(
                     f"if( empty( replaceRegexpOne({{breakdown_value}}, '{regex}', '') ), '/', replaceRegexpOne({{breakdown_value}}, '{regex}', ''))",
                     {"breakdown_value": expr},
                 )
+            if path_cleaning and team is not None:
+                expr = apply_path_cleaning(expr, team)
             exprs.append(expr)
         expression = ast.Array(exprs=exprs)
 
