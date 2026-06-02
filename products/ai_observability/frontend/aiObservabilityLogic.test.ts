@@ -9,7 +9,11 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
+import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
+import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 
 type RedirectParams = Record<string, string>
 
@@ -394,5 +398,79 @@ describe('aiObservabilitySessionsViewLogic', () => {
                 fullTraces: {},
             })
         })
+    })
+})
+
+describe('AI observability persisted preferences', () => {
+    beforeEach(() => {
+        window.localStorage.clear()
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        window.localStorage.clear()
+    })
+
+    it('keeps generation column preferences stable across tab ids', () => {
+        const columns = ['uuid', 'timestamp']
+        const firstLogic = aiObservabilityGenerationsLogic({ tabId: 'first-tab' })
+        firstLogic.mount()
+        firstLogic.actions.setGenerationsColumns(columns)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityGenerationsLogic({ tabId: 'second-tab' })
+        secondLogic.mount()
+
+        expect(secondLogic.values.generationsColumns).toEqual(columns)
+
+        secondLogic.unmount()
+    })
+
+    it('keeps traces table preferences stable across tab ids', () => {
+        const firstLogic = aiObservabilityTracesTabLogic({ tabId: 'first-tab' })
+        firstLogic.mount()
+        firstLogic.actions.setShowInputOutputColumns(false)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityTracesTabLogic({ tabId: 'second-tab' })
+        secondLogic.mount()
+
+        expect(secondLogic.values.showInputOutputColumns).toBe(false)
+
+        secondLogic.unmount()
+    })
+
+    it('keeps selected dashboard stable across tab ids', () => {
+        const firstLogic = aiObservabilityDashboardLogic({ tabId: 'first-tab' })
+        firstLogic.mount()
+        firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityDashboardLogic({ tabId: 'second-tab' })
+        secondLogic.mount()
+
+        expect(secondLogic.values.selectedDashboardId).toBe(42)
+
+        secondLogic.unmount()
+    })
+
+    it('keeps trace display preferences stable across tab ids', () => {
+        const firstLogic = aiObservabilityTraceLogic({ tabId: 'first-tab' })
+        firstLogic.mount()
+        firstLogic.actions.setIsRenderingMarkdown(false)
+        firstLogic.actions.setIsRenderingXml(true)
+        firstLogic.actions.setDisplayOption(DisplayOption.TextView)
+        firstLogic.actions.setTraceReviewPanelExpanded(true)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityTraceLogic({ tabId: 'second-tab' })
+        secondLogic.mount()
+
+        expect(secondLogic.values.isRenderingMarkdown).toBe(false)
+        expect(secondLogic.values.isRenderingXml).toBe(true)
+        expect(secondLogic.values.displayOption).toBe(DisplayOption.TextView)
+        expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
+
+        secondLogic.unmount()
     })
 })

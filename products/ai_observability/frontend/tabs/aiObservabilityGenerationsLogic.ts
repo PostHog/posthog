@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { aiObservabilityPreferenceStorage } from '../preferenceStorage'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
 export interface AIObservabilityGenerationsLogicProps {
@@ -71,7 +72,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            { persist: true },
+            { ...aiObservabilityPreferenceStorage, storageKey: 'generations.columns' },
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },

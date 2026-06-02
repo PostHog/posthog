@@ -31,9 +31,7 @@ import { ActivityScope, AnyPropertyFilter, Breadcrumb, InsightLogicProps } from 
 
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import type { aiObservabilityTraceLogicType } from './aiObservabilityTraceLogicType'
-
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = { persist: true, prefix: `${teamId}__` }
+import { aiObservabilityPreferenceStorage } from './preferenceStorage'
 
 export enum DisplayOption {
     ExpandAll = 'expand_all',
@@ -172,7 +170,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         searchQuery: ['' as string, { setSearchQuery: (_, { searchQuery }) => String(searchQuery || '') }],
         isRenderingMarkdown: [
             true as boolean,
-            persistConfig,
+            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isRenderingMarkdown' },
             {
                 setIsRenderingMarkdown: (_, { isRenderingMarkdown }) => isRenderingMarkdown,
                 toggleMarkdownRendering: (state) => !state,
@@ -180,7 +178,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isRenderingXml: [
             false as boolean,
-            persistConfig,
+            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isRenderingXml' },
             {
                 setIsRenderingXml: (_, { isRenderingXml }) => isRenderingXml,
                 toggleXmlRendering: (state) => !state,
@@ -227,7 +225,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         displayOption: [
             DisplayOption.CollapseExceptOutputAndLastInput as DisplayOption,
-            persistConfig,
+            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.displayOption' },
             {
                 setDisplayOption: (_, { displayOption }) => displayOption,
                 handleTextViewFallback: () => DisplayOption.ExpandAll,
@@ -235,7 +233,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         eventTypeExpandedMap: [
             {} as Record<string, boolean>,
-            persistConfig,
+            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.eventTypeExpandedMap' },
             {
                 toggleEventTypeExpanded: (state, { eventType }) => ({
                     ...state,
@@ -245,7 +243,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         ],
         isTraceReviewPanelExpanded: [
             false as boolean,
-            persistConfig,
+            { ...aiObservabilityPreferenceStorage, storageKey: 'trace.isTraceReviewPanelExpanded' },
             {
                 setTraceReviewPanelExpanded: (_, { isExpanded }) => isExpanded,
             },

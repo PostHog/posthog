@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { aiObservabilityPreferenceStorage } from '../preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { aiObservabilityTracesTabLogicType } from './aiObservabilityTracesTabLogicType'
 
@@ -57,14 +58,14 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
         ],
         showInputOutputColumns: [
             true as boolean,
-            { persist: true },
+            { ...aiObservabilityPreferenceStorage, storageKey: 'traces.showInputOutputColumns' },
             {
                 setShowInputOutputColumns: (_, { show }) => show,
             },
         ],
         showSentimentColumn: [
             true as boolean,
-            { persist: true },
+            { ...aiObservabilityPreferenceStorage, storageKey: 'traces.showSentimentColumn' },
             {
                 setShowSentimentColumn: (_, { show }) => show,
             },
