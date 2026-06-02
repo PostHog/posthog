@@ -232,6 +232,16 @@ export interface BarsConfig {
      *  an unreadable strip, the chart expands its container height so each row has at least this
      *  much vertical space (label height + breathing room). Defaults to `24`. Pass `0` to opt out. */
     minBandSize?: number
+    /** Fix the value-axis domain (no data-derived range, no `d3.nice()`) so independent charts
+     *  sharing a logical scale stay comparable. Takes precedence over `barLayout: 'percent'`. */
+    valueDomain?: [number, number]
+    /** Stacked layouts only — round both *outer* ends of the whole stack so it reads as one pill,
+     *  rather than only the topmost segment's cap. Implemented by clipping the bar layer to a
+     *  rounded rect spanning each band's full extent and drawing the segments square, so the outer
+     *  corners round at the full `cornerRadius` even when the edge segment is a thin sliver (e.g.
+     *  the last breakdown of a near-100% funnel step) — which per-segment rounding can't, as it
+     *  clamps the radius to the sliver's half-width. Defaults to `false`. */
+    roundStackEnds?: boolean
 }
 
 export interface BarChartConfig extends ChartConfig {

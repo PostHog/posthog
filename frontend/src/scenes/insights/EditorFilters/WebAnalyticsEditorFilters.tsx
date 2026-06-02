@@ -24,6 +24,13 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
     const { insightProps } = useValues(insightLogic)
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
+    // Dashboard tiles render a readOnly snapshot. The Query component ignores
+    // updateQuerySource changes here (see Query.tsx — `query = readOnly ? propsQuery : localQuery`),
+    // so the toggle/filters never reflect the new state and clicks have no useful effect.
+    if (insightProps.dashboardId != null) {
+        return null
+    }
+
     const isStatsTable = isWebStatsTableQuery(query)
     const isPathBased =
         isStatsTable &&

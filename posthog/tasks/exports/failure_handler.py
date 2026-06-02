@@ -4,6 +4,7 @@ from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from selenium.common import TimeoutException
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
@@ -62,6 +63,12 @@ class ExportCancelled(Exception):
     pass
 
 
+class BrowserlessUnavailable(Exception):
+    """Raised when the browserless.io render backend is unreachable or drops the connection."""
+
+    pass
+
+
 class ExcelColumnLimitExceeded(Exception):
     """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
 
@@ -82,6 +89,7 @@ EXCEPTIONS_TO_RETRY = (
     ClickHouseAtCapacity,
     SocketTimeoutError,
     SSLError,
+    BrowserlessUnavailable,
 )
 
 USER_QUERY_ERRORS = (
@@ -111,6 +119,7 @@ TIMEOUT_ERRORS = (
     SoftTimeLimitExceeded,
     TimeoutError,
     TimeoutException,
+    PlaywrightTimeoutError,
     ExportCancelled,
 )
 

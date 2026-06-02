@@ -8,6 +8,10 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
         }
     },
     "type": "object"

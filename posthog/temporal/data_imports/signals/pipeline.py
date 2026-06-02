@@ -18,7 +18,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.signals.registry import SignalEmitter, SignalEmitterOutput, SignalSourceTableConfig
 
-from products.signals.backend.api import emit_signal
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
