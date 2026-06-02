@@ -45607,63 +45607,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type DeploymentProjectsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DeploymentProjectsDeploymentsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DeploymentProjectsDeploymentsEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
     export type DesktopFileSystemListParams = {
     /**
      * Number of results to return per page.
