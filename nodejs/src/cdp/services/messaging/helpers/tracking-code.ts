@@ -6,6 +6,12 @@ import { defaultConfig } from '~/config/config'
 
 const SIGNATURE_BYTES = 16
 
+// Custom MIME header carrying the signed tracking code. HMAC adds ~23 chars to the code,
+// which pushes a batch-flow code past the SES `EmailTags` 256-char cap. Header values have
+// no such limit, so the signed code rides here; the SES tag carries the short unsigned code
+// (see generateShortEmailTrackingCode) purely as a backwards-compat fallback.
+export const TRACKING_CODE_HEADER_NAME = 'X-PostHog-Tracking-Code'
+
 // Tracks the rotation curve from unsigned to signed tracking codes.
 export const trackingCodeFormatCounter = new Counter({
     name: 'email_tracking_code_format_total',
@@ -107,6 +113,9 @@ export const parseEmailTrackingCode = (
     }
 }
 
+// Full tracking code, HMAC-signed when a signing key is configured. Rides in the custom MIME
+// header and the pixel/link URLs — carriers with no length cap — and the signature lets the
+// public tracking endpoint reject forged `ph_id` values.
 export const generateEmailTrackingCode = (invocation: TrackingInvocation): string => {
     const actionId = invocation.state?.actionId ?? ''
     const parentRunId = invocation.parentRunId ?? ''
@@ -118,6 +127,15 @@ export const generateEmailTrackingCode = (invocation: TrackingInvocation): strin
         return payload
     }
     return `${payload}.${signPayload(payload, keys[0])}`
+}
+
+// Unsigned tracking code for the SES `EmailTags` carrier. Omitting the signature keeps the
+// value short enough to stay within the 256-char tag cap; the tag arrives via the SNS webhook,
+// which is already integrity-protected by SNS signing, so it does not need its own signature.
+export const generateShortEmailTrackingCode = (invocation: TrackingInvocation): string => {
+    const actionId = invocation.state?.actionId ?? ''
+    const parentRunId = invocation.parentRunId ?? ''
+    return toBase64UrlSafe(`${invocation.functionId}:${invocation.id}:${invocation.teamId}:${actionId}:${parentRunId}`)
 }
 
 export const generateEmailTrackingPixelUrl = (invocation: TrackingInvocation): string => {

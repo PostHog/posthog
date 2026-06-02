@@ -6,7 +6,7 @@ import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
 
-import { parseEmailTrackingCode, trackingCodeFormatCounter } from './tracking-code'
+import { TRACKING_CODE_HEADER_NAME, parseEmailTrackingCode, trackingCodeFormatCounter } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -377,8 +377,14 @@ export class SesWebhookHandler {
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
-            const tags = rec.mail.tags
-            const parsedCode = parseEmailTrackingCode(tags?.ph_id?.[0] || '')
+            // Prefer the custom MIME header (carries the signed code, unbounded). Fall back to the
+            // SES EmailTag for messages sent before the header carrier was added, or where the
+            // configuration set hasn't enabled `IncludeOriginalHeaders`.
+            const headerValue = rec.mail.headers?.find(
+                (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
+            )?.value
+            const tagValue = rec.mail.tags?.ph_id?.[0]
+            const parsedCode = parseEmailTrackingCode(headerValue ?? tagValue ?? '')
             if (parsedCode) {
                 trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
             }

@@ -11,7 +11,11 @@ import { RecipientManagerRecipient } from '../managers/recipients-manager.servic
 import { addTrackingToEmail } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { generateEmailTrackingCode } from './helpers/tracking-code'
+import {
+    TRACKING_CODE_HEADER_NAME,
+    generateEmailTrackingCode,
+    generateShortEmailTrackingCode,
+} from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 export interface EmailServiceConfig {
@@ -184,6 +188,9 @@ export class EmailService {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         const trackingCode = generateEmailTrackingCode(result.invocation)
+        // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
+        // limit. The full signed code rides in the header below.
+        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
 
         const htmlBody = params.html
             ? {
@@ -218,17 +225,27 @@ export class EmailService {
                 },
             },
             ConfigurationSetName: 'posthog-messaging',
-            EmailTags: [{ Name: 'ph_id', Value: trackingCode }],
+            // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
+            // environments where the configuration set isn't yet emitting original headers.
+            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
             FeedbackForwardingEmailAddress: from.email,
         }
 
+        // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
+        // 256-char-bounded the way SES tag values are, so they fit the signed code. The
+        // configuration set's event destination needs `IncludeOriginalHeaders: true` for the
+        // webhook to surface this header.
+        const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+
         const isTransactionalEmail = result.invocation.hogFunction.metadata?.message_category_type === 'transactional'
-        // Automatically add unsubscribe headers for non-transactional emails
-        if (sendEmailParams.Content?.Simple && !isTransactionalEmail) {
-            sendEmailParams.Content.Simple.Headers = this.generateUnsubscribeHeaders({
-                team_id: result.invocation.teamId,
-                identifier: params.to.email,
-            })
+        if (sendEmailParams.Content?.Simple) {
+            const unsubscribeHeaders = !isTransactionalEmail
+                ? this.generateUnsubscribeHeaders({
+                      team_id: result.invocation.teamId,
+                      identifier: params.to.email,
+                  })
+                : []
+            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader]
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)

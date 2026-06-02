@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/config/config'
 
-import { generateEmailTrackingCode, parseEmailTrackingCode } from './tracking-code'
+import { generateEmailTrackingCode, generateShortEmailTrackingCode, parseEmailTrackingCode } from './tracking-code'
 
 // Hand-encode a raw payload the same way generateEmailTrackingCode does, so we can test
 // pre-fix legacy shapes (4-segment) without pulling in the generator.
@@ -84,6 +84,12 @@ describe('email tracking code', () => {
         it('emits codes with a `.` separator when signing keys are configured', () => {
             const code = generateEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
             expect(code).toContain('.')
+        })
+
+        it('does not sign the short code used for the SES tag', () => {
+            const short = generateShortEmailTrackingCode({ functionId: 'fn', id: 'inv', teamId: 1 })
+            expect(short).not.toContain('.')
+            expect(parseEmailTrackingCode(short)?.format).toBe('unsigned')
         })
 
         it('rejects a signed code with a tampered payload', () => {
