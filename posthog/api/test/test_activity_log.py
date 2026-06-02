@@ -432,9 +432,7 @@ class TestAdvancedActivityLogsExport(APIBaseTest):
     ) -> None:
         url = f"/api/projects/{self.team.id}/advanced_activity_logs/export/"
 
-        with patch(
-            "posthog.api.advanced_activity_logs.viewset.is_impersonated_session", return_value=impersonated
-        ):
+        with patch("posthog.api.advanced_activity_logs.viewset.is_impersonated_session", return_value=impersonated):
             res = self.client.post(url, data={"format": "csv", "filters": {}}, format="json")
 
         assert res.status_code == status.HTTP_202_ACCEPTED

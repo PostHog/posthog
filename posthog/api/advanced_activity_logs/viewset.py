@@ -384,7 +384,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "activity_log"
-    scope_object_read_actions = ["list", "retrieve", "available_filters"]
+    # `export` only renders already-readable activity-log data to CSV/XLSX, so it requires
+    # `activity_log:read`. `activity_log` is a read-only resource (capped at `viewer`), so
+    # treating export as a write action would make it unreachable for everyone.
+    scope_object_read_actions = ["list", "retrieve", "available_filters", "export"]
     queryset = ActivityLog.objects.all()
     permission_classes = [PremiumFeaturePermission]
     premium_feature_on_cloud = AvailableFeature.AUDIT_LOGS
