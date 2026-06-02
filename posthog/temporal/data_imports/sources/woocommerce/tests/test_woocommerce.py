@@ -140,10 +140,11 @@ class TestGetResource:
         resource = get_resource(endpoint, should_use_incremental_field=True)
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 
-        params = resource["endpoint"]["params"]
+        params = cast(dict[str, Any], resource["endpoint"]["params"])
         assert params["dates_are_gmt"] == "true"
-        assert params["modified_after"]["type"] == "incremental"
-        assert params["modified_after"]["cursor_path"] == "date_modified_gmt"
+        modified_after = cast(dict[str, Any], params["modified_after"])
+        assert modified_after["type"] == "incremental"
+        assert modified_after["cursor_path"] == "date_modified_gmt"
 
     def test_non_incremental_endpoint_stays_full_refresh_even_when_requested(self) -> None:
         # `customers` has no server-side modified filter, so incremental must not be wired up.
