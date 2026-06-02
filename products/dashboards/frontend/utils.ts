@@ -40,6 +40,7 @@ export async function updateDashboardWidgetTile({
     config,
     name,
     description,
+    showDescription,
 }: {
     teamId: number
     dashboardId: number
@@ -47,6 +48,7 @@ export async function updateDashboardWidgetTile({
     config?: Record<string, unknown>
     name?: string | null
     description?: string
+    showDescription?: boolean
 }): Promise<DashboardTile<QueryBasedInsightModel>> {
     if (!tile.widget) {
         throw new Error('Tile has no widget')
@@ -63,17 +65,22 @@ export async function updateDashboardWidgetTile({
         widgetPatch.description = description
     }
 
+    const tilePatch: Record<string, unknown> = {
+        id: tile.id,
+    }
+    if (showDescription !== undefined) {
+        tilePatch.show_description = showDescription
+    }
+    if (Object.keys(widgetPatch).length > 0) {
+        tilePatch.widget = {
+            id: tile.widget.id,
+            ...widgetPatch,
+        }
+    }
+
     try {
         const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
-            tiles: [
-                {
-                    id: tile.id,
-                    widget: {
-                        id: tile.widget.id,
-                        ...widgetPatch,
-                    },
-                },
-            ],
+            tiles: [tilePatch],
         } as PatchedDashboardApi)
         const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
         if (!updatedTile) {

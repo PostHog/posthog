@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
 import api from 'lib/api'
@@ -1743,6 +1744,45 @@ describe('dashboardLogic', () => {
                 .toFinishAllListeners()
 
             expect(fetchRunWidgetsMock).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 5, [addedTile.id], expect.anything())
+        })
+
+        it('updateWidgetTileMetadata persists batched name and description', async () => {
+            const updateDashboardWidgetTileMock = jest
+                .spyOn(dashboardWidgetUtils, 'updateDashboardWidgetTile')
+                .mockResolvedValueOnce({
+                    ...WIDGET_TILE,
+                    widget: {
+                        ...WIDGET_TILE.widget!,
+                        name: 'Weekly errors',
+                        description: 'Top issues this week',
+                    },
+                } as DashboardTile<QueryBasedInsightModel>)
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateWidgetTileMetadata({
+                    tile: WIDGET_TILE,
+                    name: 'Weekly errors',
+                    description: 'Top issues this week',
+                })
+            }).toFinishAllListeners()
+
+            expect(updateDashboardWidgetTileMock).toHaveBeenCalledWith({
+                teamId: MOCK_TEAM_ID,
+                dashboardId: 5,
+                tile: WIDGET_TILE,
+                name: 'Weekly errors',
+                description: 'Top issues this week',
+            })
+            expect(logic.values.dashboard?.tiles.find((tile) => tile.id === WIDGET_TILE.id)?.widget).toMatchObject({
+                name: 'Weekly errors',
+                description: 'Top issues this week',
+            })
+
+            updateDashboardWidgetTileMock.mockRestore()
         })
 
         it('copyToDashboard calls copy_tile for widget tiles', async () => {

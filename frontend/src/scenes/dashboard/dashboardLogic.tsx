@@ -169,6 +169,29 @@ const tileLayoutsFromDashboard = (
     return tileIdToLayouts
 }
 
+function mergeUpdatedWidgetTileIntoDashboard(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    updatedTile: DashboardTile<QueryBasedInsightModel>
+): DashboardType<QueryBasedInsightModel> | null {
+    return getQueryBasedDashboard({
+        ...dashboard,
+        tiles: dashboard.tiles.map((existingTile) => {
+            if (existingTile.id !== updatedTile.id) {
+                return existingTile
+            }
+
+            return {
+                ...existingTile,
+                ...updatedTile,
+                widget:
+                    existingTile.widget && updatedTile.widget
+                        ? { ...existingTile.widget, ...updatedTile.widget }
+                        : (updatedTile.widget ?? existingTile.widget),
+            }
+        }),
+    } as DashboardType<InsightModel>)
+}
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -251,15 +274,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         addWidgetTiles: (payload: {
             dashboardId: number
             widgets: { widgetType: string; config: Record<string, unknown> }[]
-        }) => payload,
-        updateWidgetTileConfig: (payload: {
-            tile: DashboardTile<QueryBasedInsightModel>
-            config: Record<string, unknown>
-        }) => payload,
-        updateWidgetTileMetadata: (payload: {
-            tile: DashboardTile<QueryBasedInsightModel>
-            name?: string
-            description?: string
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
@@ -677,6 +691,88 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
 
                     return values.dashboard
+                },
+            },
+        ],
+        widgetTileConfigUpdate: [
+            null,
+            {
+                updateWidgetTileConfig: async ({
+                    tile,
+                    config,
+                }: {
+                    tile: DashboardTile<QueryBasedInsightModel>
+                    config: Record<string, unknown>
+                }) => {
+                    if (!values.dashboard?.id || !tile.widget) {
+                        return null
+                    }
+
+                    try {
+                        const updatedTile = await updateDashboardWidgetTile({
+                            teamId: teamLogic.values.currentTeamId!,
+                            dashboardId: values.dashboard.id,
+                            tile,
+                            config,
+                        })
+                        const dashboard = mergeUpdatedWidgetTileIntoDashboard(values.dashboard, updatedTile)
+                        if (dashboard) {
+                            dashboardsModel.actions.updateDashboardSuccess(dashboard)
+                        }
+                        actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                        return updatedTile
+                    } catch (e) {
+                        if (isWidgetConfigValidationError(e)) {
+                            throw e
+                        }
+                        lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
+                        throw e
+                    }
+                },
+            },
+        ],
+        widgetTileMetadataUpdate: [
+            null,
+            {
+                updateWidgetTileMetadata: async ({
+                    tile,
+                    name,
+                    description,
+                }: {
+                    tile: DashboardTile<QueryBasedInsightModel>
+                    name?: string | null
+                    description?: string
+                }) => {
+                    if (!values.dashboard?.id || !tile.widget) {
+                        return null
+                    }
+                    if (name === undefined && description === undefined) {
+                        return null
+                    }
+
+                    try {
+                        const shouldShowDescription =
+                            description !== undefined &&
+                            description.trim().length > 0 &&
+                            tile.show_description === false
+
+                        const updatedTile = await updateDashboardWidgetTile({
+                            teamId: teamLogic.values.currentTeamId!,
+                            dashboardId: values.dashboard.id,
+                            tile,
+                            name,
+                            description,
+                            showDescription: shouldShowDescription ? true : undefined,
+                        })
+                        const dashboard = mergeUpdatedWidgetTileIntoDashboard(values.dashboard, updatedTile)
+                        if (dashboard) {
+                            dashboardsModel.actions.updateDashboardSuccess(dashboard)
+                        }
+                        return updatedTile
+                    } catch (e) {
+                        lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
+                        throw e
+                    }
                 },
             },
         ],
@@ -2537,61 +2633,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 throw e
             } finally {
                 actions.addWidgetTileFinished()
-            }
-        },
-        updateWidgetTileConfig: async ({ tile, config }) => {
-            if (!values.dashboard?.id || !tile.widget) {
-                return
-            }
-            try {
-                const updatedTile = await updateDashboardWidgetTile({
-                    teamId: teamLogic.values.currentTeamId!,
-                    dashboardId: values.dashboard.id,
-                    tile,
-                    config,
-                })
-                const dashboard = getQueryBasedDashboard({
-                    ...values.dashboard,
-                    tiles: values.dashboard.tiles.map((existingTile) =>
-                        existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
-                    ),
-                } as DashboardType<InsightModel>)
-                if (dashboard) {
-                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                }
-                actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
-            } catch (e) {
-                if (isWidgetConfigValidationError(e)) {
-                    throw e
-                }
-                lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
-                throw e
-            }
-        },
-        updateWidgetTileMetadata: async ({ tile, name, description }) => {
-            if (!values.dashboard?.id || !tile.widget) {
-                return
-            }
-            try {
-                const updatedTile = await updateDashboardWidgetTile({
-                    teamId: teamLogic.values.currentTeamId!,
-                    dashboardId: values.dashboard.id,
-                    tile,
-                    name,
-                    description,
-                })
-                const dashboard = getQueryBasedDashboard({
-                    ...values.dashboard,
-                    tiles: values.dashboard.tiles.map((existingTile) =>
-                        existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
-                    ),
-                } as DashboardType<InsightModel>)
-                if (dashboard) {
-                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                }
-            } catch (e) {
-                lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
-                throw e
             }
         },
         saveEditModeChanges: () => {

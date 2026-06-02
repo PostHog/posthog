@@ -37,8 +37,8 @@ type DashboardWidgetItemProps = {
     error?: string | null
     lastFetchedAt?: number
     onRefresh: () => void
-    onUpdateConfig: (config: Record<string, unknown>) => void | Promise<void>
-    onUpdateMetadata?: (metadata: { name?: string; description?: string }) => void
+    onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
+    onUpdateMetadata?: (metadata: { name?: string; description?: string }) => void | Promise<void>
     toggleShowDescription?: () => void
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
@@ -96,13 +96,6 @@ function DashboardWidgetItemContent({
     const showDescription = tile.show_description !== false
     const headerLayout = catalogEntry.headerLayout
     const WidgetComponent = definition?.Component
-
-    const handleDescriptionSave = (nextDescription: string): void => {
-        onUpdateMetadata?.({ description: nextDescription })
-        if (nextDescription.trim() && tile.show_description === false && toggleShowDescription) {
-            toggleShowDescription()
-        }
-    }
 
     const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
 
@@ -238,19 +231,10 @@ function DashboardWidgetItemContent({
                             defaultTitle={defaultTitle}
                             description={description}
                             onSaveMetadata={
-                                onUpdateMetadata
-                                    ? async (metadata) => {
-                                          if (metadata.name !== undefined) {
-                                              onUpdateMetadata({ name: metadata.name.trim() || '' })
-                                          }
-                                          if (metadata.description !== undefined) {
-                                              handleDescriptionSave(metadata.description)
-                                          }
-                                      }
-                                    : undefined
+                                onUpdateMetadata ? async (metadata) => await onUpdateMetadata(metadata) : undefined
                             }
                             onSave={async (config) => {
-                                await onUpdateConfig(config)
+                                await onUpdateConfig?.(config)
                             }}
                         />,
                         document.body

@@ -500,8 +500,12 @@ export function DashboardItems(): JSX.Element {
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }
-                                        onUpdateConfig={(config) => updateWidgetTileConfig({ tile, config })}
-                                        onUpdateMetadata={(metadata) => updateWidgetTileMetadata({ tile, ...metadata })}
+                                        onUpdateConfig={async (config) => {
+                                            await updateWidgetTileConfig({ tile, config })
+                                        }}
+                                        onUpdateMetadata={async (metadata) => {
+                                            await updateWidgetTileMetadata({ tile, ...metadata })
+                                        }}
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
