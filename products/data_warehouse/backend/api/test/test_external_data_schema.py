@@ -106,6 +106,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": True,
+            "webhook_only": False,
             "available_columns": [],
             "detected_primary_keys": None,
         }
@@ -214,6 +215,7 @@ class TestExternalDataSchema(APIBaseTest):
             "cdc_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
+            "webhook_only": False,
             "available_columns": [
                 {"field": "id", "label": "id", "type": "integer", "nullable": True},
             ],
