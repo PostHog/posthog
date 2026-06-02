@@ -8,7 +8,7 @@ import {
     widgetEditModalSavingReducers,
     widgetEditModalTileActions,
     widgetEditModalTileReducers,
-} from '../editWidgetModalTileBuilders'
+} from '../editWidgetModalBuilders'
 import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editSessionReplayWidgetModalLogicType } from './editSessionReplayWidgetModalLogicType'
