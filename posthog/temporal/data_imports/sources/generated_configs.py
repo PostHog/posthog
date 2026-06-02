@@ -553,7 +553,8 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
