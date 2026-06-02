@@ -227,9 +227,7 @@ class TestHandleSourceConnectError:
 
     def test_ssl_errors_take_priority_when_ssl_required(self):
         with pytest.raises(SSLRequiredError):
-            _handle_source_connect_error(
-                psycopg.OperationalError("SSL connection is required"), require_ssl=True
-            )
+            _handle_source_connect_error(psycopg.OperationalError("SSL connection is required"), require_ssl=True)
 
 
 class TestIsConnectionDroppedError:
