@@ -44,11 +44,12 @@ def _mock_response(status_code: int = 200, body: Any = None, text: str = "") -> 
     response.ok = 200 <= status_code < 300
     response.text = text
     response.json.return_value = body if body is not None else {}
-    response.raise_for_status.side_effect = (
-        None
-        if response.ok
-        else requests.HTTPError(f"{status_code} Client Error: error for url: https://api.pagerduty.com")
-    )
+    if not response.ok:
+        error_response = requests.Response()
+        error_response.status_code = status_code
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} Client Error: error for url: https://api.pagerduty.com", response=error_response
+        )
     return response
 
 
