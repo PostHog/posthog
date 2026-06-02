@@ -80,6 +80,9 @@ class TestAutoresearchPipelineAPI(APIBaseTest):
         assert data["name"] == "My Pipeline"
         assert data["target_event"] == "$signup"
         assert data["status"] == "draft"
+        # Auto-derived output property carries the horizon so same-target/different-horizon
+        # pipelines don't $set the same person property.
+        assert data["output_person_property"] == "predicted_p_signup_14d"
         assert AutoresearchPipeline.objects.filter(team=self.team, name="My Pipeline").exists()
 
     def test_list_pipelines_for_team(self):

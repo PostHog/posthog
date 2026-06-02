@@ -92,7 +92,7 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
             "Good for retention campaigns."
         ),
         default_horizon_days=14,
-        output_property_prefix="predicted_p_active_next_14d",
+        output_property_prefix="predicted_p_active_next",
         requires_user_event=False,
         requires_activity_resolution=True,
         training_population_spec={"kind": "performed_event_within_days", "days": 60},
@@ -263,11 +263,14 @@ def resolve_template(
 
     horizon_days = horizon_days_override if horizon_days_override is not None else template.default_horizon_days
 
+    # Append the horizon so two pipelines on the same target but different horizons write to
+    # distinct person properties instead of clobbering one another. The horizon lives in the
+    # suffix (not the prefix) so it tracks a horizon override rather than the template default.
     if template.requires_user_event and target_event:
         safe_name = target_event.lstrip("$").replace(" ", "_").lower()
-        output_person_property = f"{template.output_property_prefix}_{safe_name}"
+        output_person_property = f"{template.output_property_prefix}_{safe_name}_{horizon_days}d"
     else:
-        output_person_property = template.output_property_prefix
+        output_person_property = f"{template.output_property_prefix}_{horizon_days}d"
 
     training_population = _fill_population(template.training_population_spec, target_event)
     inference_population = _fill_population(template.inference_population_spec, target_event)

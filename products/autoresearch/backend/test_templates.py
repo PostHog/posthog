@@ -102,7 +102,7 @@ class TestResolveTemplate(TestCase):
         self.assertEqual(result.target_event, "$pageview")
         self.assertEqual(result.resolved_activity_event, "$pageview")
         self.assertEqual(result.horizon_days, 7)
-        self.assertEqual(result.output_person_property, "predicted_p_active_soon")
+        self.assertEqual(result.output_person_property, "predicted_p_active_soon_7d")
 
     @patch("products.autoresearch.backend.templates.resolve_activity_event", return_value=("$pageview", []))
     def test_activity_event_override_respected(self, mock_resolve: MagicMock) -> None:
@@ -115,6 +115,9 @@ class TestResolveTemplate(TestCase):
     def test_horizon_override_respected(self, _: MagicMock) -> None:
         result = resolve_template(self._make_team(), "likely_active_soon", horizon_days_override=14)
         self.assertEqual(result.horizon_days, 14)
+        # Horizon is part of the output property so the same target over a different horizon
+        # does not clobber another pipeline's score.
+        self.assertEqual(result.output_person_property, "predicted_p_active_soon_14d")
 
     def test_feature_adoption_with_target_event(self) -> None:
         result = resolve_template(self._make_team(), "feature_adoption", target_event_override="feature_clicked")

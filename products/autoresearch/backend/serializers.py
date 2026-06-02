@@ -231,7 +231,10 @@ class AutoresearchPipelineCreateSerializer(serializers.ModelSerializer):
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         if not data.get("output_person_property"):
             safe_name = data.get("target_event", "target").lstrip("$").replace(" ", "_").lower()
-            data["output_person_property"] = f"predicted_p_{safe_name}"
+            # Include the horizon so two pipelines predicting the same target over different
+            # horizons don't $set the same person property and clobber each other's scores.
+            horizon = data.get("horizon_days") or 7
+            data["output_person_property"] = f"predicted_p_{safe_name}_{horizon}d"
         if not data.get("inference_population"):
             data["inference_population"] = data.get("training_population", {})
         return data
