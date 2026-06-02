@@ -341,13 +341,14 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
                 size_bytes=1024000,
             )
 
-        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags")
+        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags_flags")
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
@@ -355,6 +356,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS=None):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
@@ -373,13 +375,14 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="team_metadata",
+                cache_name="team_metadata",
                 coverage_percent=90.0,
                 entries_total=500,
                 expiry_tracked_total=500,
                 size_bytes=None,
             )
 
-        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata")
+        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata_team_metadata")
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     @patch("posthog.storage.hypercache_manager.logger")
@@ -391,6 +394,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
         with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
             push_hypercache_stats_metrics(
                 namespace="feature_flags",
+                cache_name="flags",
                 coverage_percent=85.5,
                 entries_total=1000,
                 expiry_tracked_total=950,
@@ -399,6 +403,41 @@ class TestPushHypercacheStatsMetrics(BaseTest):
 
         mock_logger.warning.assert_called_once()
         assert "Failed to push hypercache stats" in str(mock_logger.warning.call_args)
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_caches_sharing_namespace_use_distinct_groups(self, mock_registry_cm):
+        """Caches sharing a namespace must push to distinct Pushgateway groups.
+
+        team_metadata and llm_gateway_policy both use namespace="team_metadata";
+        without cache_name in the group key they would overwrite each other.
+        """
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_stats_metrics(
+                namespace="team_metadata",
+                cache_name="team_metadata",
+                coverage_percent=100.0,
+                entries_total=409000,
+                expiry_tracked_total=409000,
+                size_bytes=378_000_000,
+            )
+            push_hypercache_stats_metrics(
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                coverage_percent=2.6,
+                entries_total=10900,
+                expiry_tracked_total=10900,
+                size_bytes=1_000_000,
+            )
+
+        group_names = [call.args[0] for call in mock_registry_cm.call_args_list]
+        assert group_names == [
+            "hypercache_stats_team_metadata_team_metadata",
+            "hypercache_stats_team_metadata_llm_gateway_policy",
+        ]
 
 
 class TestConfigGetTeamsQuerysetFn(BaseTest):
