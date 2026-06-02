@@ -19,7 +19,7 @@ import {
 import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
 
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
 import { Day, useCalendar } from './use-calendar'
@@ -186,6 +186,12 @@ function Calendar({
         onViewChange(addMonths(viewing, 1))
     }
 
+    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
+    const minYearVal = getYear(floorDate)
+    const minMonthAtMinYear = getMonth(floorDate)
+    const floorKey = minYearVal * 12 + minMonthAtMinYear
+    const viewingKey = getYear(viewing) * 12 + getMonth(viewing)
+
     const disableNext =
         (getMonth(viewing) === getMonth(new Date()) && getYear(viewing) === getYear(new Date())) ||
         (!!siblingViewing &&
@@ -193,13 +199,10 @@ function Calendar({
             getYear(siblingViewing) === getYear(addMonths(viewing, 1)))
 
     const disablePrev =
-        !!siblingViewing &&
-        getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
-        getYear(siblingViewing) === getYear(subMonths(viewing, 1))
-
-    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
-    const minYearVal = getYear(floorDate)
-    const minMonthAtMinYear = getMonth(floorDate)
+        viewingKey <= floorKey ||
+        (!!siblingViewing &&
+            getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
+            getYear(siblingViewing) === getYear(subMonths(viewing, 1)))
     const maxYearVal = getYear(maxDate)
     const maxMonthAtMaxYear = getMonth(maxDate)
     const currentYear = getYear(viewing)
@@ -250,11 +253,13 @@ function Calendar({
                         </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                        {monthOptions.map(({ key, year, month }) => (
-                            <SelectItem key={key} value={key} disabled={key === siblingKey}>
-                                {MONTH_NAMES[month]} {year}
-                            </SelectItem>
-                        ))}
+                        <SelectGroup>
+                            {monthOptions.map(({ key, year, month }) => (
+                                <SelectItem key={key} value={key} disabled={key === siblingKey}>
+                                    {MONTH_NAMES[month]} {year}
+                                </SelectItem>
+                            ))}
+                        </SelectGroup>
                     </SelectContent>
                 </Select>
                 <Button
@@ -536,6 +541,7 @@ export function DateTimePicker({
             setStart(now)
         }
         setEnd(now)
+        setLastSet('end')
     }
 
     const handleQuickRange = (next: DateTimeRange): void => {

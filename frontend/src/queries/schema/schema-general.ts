@@ -606,6 +606,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * */
     operand?: FilterLogicalOperator
     session_ids?: string[]
+    /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
+    hide_viewed_recordings?: 'current-user' | 'any-user' | null
     /** If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters */
     session_recording_id?: string
     person_uuid?: string
@@ -6764,6 +6766,9 @@ export enum ProductIntentContext {
     ENDPOINT_CREATED = 'endpoint_created',
     ENDPOINT_CREATED_FROM_INSIGHT = 'endpoint_created_from_insight',
     ENDPOINT_CREATED_FROM_SQL_EDITOR = 'endpoint_created_from_sql_editor',
+
+    // Tracing
+    TRACING_DOCS_VIEWED = 'tracing_docs_viewed',
 }
 
 // Known prod_interest values from posthog.com

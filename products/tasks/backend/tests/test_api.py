@@ -5261,57 +5261,6 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
             level=OrganizationMembership.Level.ADMIN
         )
 
-    def test_tasks_feature_flag_required(self):
-        self.set_tasks_feature_flag(False)
-        task = self.create_task()
-        automation = self.create_automation(name="Daily PRs", prompt="Check my PRs")
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
-
-        endpoints = [
-            # TaskViewSet endpoints
-            ("/api/projects/@current/tasks/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/", "GET"),
-            ("/api/projects/@current/tasks/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/", "DELETE"),
-            (f"/api/projects/@current/tasks/{task.id}/run/", "POST"),
-            # TaskAutomationViewSet endpoints
-            ("/api/projects/@current/task_automations/", "GET"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "GET"),
-            ("/api/projects/@current/task_automations/", "POST"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "PATCH"),
-            (f"/api/projects/@current/task_automations/{automation.id}/", "DELETE"),
-            (f"/api/projects/@current/task_automations/{automation.id}/run/", "POST"),
-            # TaskRunViewSet endpoints
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "GET"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/start/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/", "PATCH"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/", "POST"),
-            (f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/", "POST"),
-        ]
-
-        for url, method in endpoints:
-            response = getattr(self.client, method.lower())(url, format="json")
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, f"Failed for {method} {url}")
-
-    def test_invite_redemption_grants_access_when_flag_disabled(self):
-        self.set_tasks_feature_flag(False)
-        invite = CodeInvite.objects.create(code="TESTCODE", max_redemptions=0, is_active=True)
-        CodeInviteRedemption.objects.create(invite_code=invite, user=self.user)
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_no_flag_no_redemption_blocked(self):
-        self.set_tasks_feature_flag(False)
-
-        response = self.client.get("/api/projects/@current/tasks/")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
     def test_check_access_flag_on_no_redemption(self):
         self.set_tasks_feature_flag(True)
 

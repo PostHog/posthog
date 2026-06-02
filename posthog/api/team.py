@@ -99,6 +99,40 @@ from products.signals.backend.models import SignalSourceConfig
 tracer = trace.get_tracer(__name__)
 
 
+class TeamLogsConfigSerializer(serializers.ModelSerializer):
+    logs_distinct_id_attribute_key = serializers.CharField(
+        max_length=200,
+        help_text=(
+            "Log attribute key whose value should match a person's distinct_id. "
+            "Used by the person profile Logs tab and the `query-logs` MCP tool. "
+            "Defaults to 'posthogDistinctId' — the convention documented at "
+            "https://posthog.com/docs/logs/link-session-replay and the key the "
+            "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
+            "your pipeline emits a different attribute."
+        ),
+    )
+
+    class Meta:
+        model = TeamLogsConfig
+        fields = ["logs_distinct_id_attribute_key"]
+
+
+def handle_logs_config(request: request.Request, team: Team) -> response.Response:
+    """Shared handler for the logs_config action — exposed under both the team/environment
+    and project routers so the canonical /api/projects/ URL resolves alongside the legacy
+    /api/environments/ alias. Both endpoints operate on the env-scoped TeamLogsConfig
+    keyed by team_id."""
+    config = get_or_create_team_extension(team, TeamLogsConfig)
+
+    if request.method == "PATCH":
+        serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return response.Response(serializer.data)
+
+    return response.Response(TeamLogsConfigSerializer(config).data)
+
+
 def _format_serializer_errors(serializer_errors: dict) -> str:
     """Formats DRF serializer errors into a human readable string."""
     error_messages: list[str] = []
@@ -1712,35 +1746,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage logs product configuration for this environment."""
-        from rest_framework import serializers
-
-        class TeamLogsConfigSerializer(serializers.ModelSerializer):
-            logs_distinct_id_attribute_key = serializers.CharField(
-                max_length=200,
-                help_text=(
-                    "Log attribute key whose value should match a person's distinct_id. "
-                    "Used by the person profile Logs tab and the `query-logs` MCP tool. "
-                    "Defaults to 'posthogDistinctId' — the convention documented at "
-                    "https://posthog.com/docs/logs/link-session-replay and the key the "
-                    "posthog-js / posthog-react-native SDKs auto-attach. Override only if "
-                    "your pipeline emits a different attribute."
-                ),
-            )
-
-            class Meta:
-                model = TeamLogsConfig
-                fields = ["logs_distinct_id_attribute_key"]
-
-        team = self.get_object()
-        config = get_or_create_team_extension(team, TeamLogsConfig)
-
-        if request.method == "PATCH":
-            serializer = TeamLogsConfigSerializer(config, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return response.Response(serializer.data)
-
-        return response.Response(TeamLogsConfigSerializer(config).data)
+        return handle_logs_config(request, self.get_object())
 
     @action(
         methods=["GET", "PATCH"],

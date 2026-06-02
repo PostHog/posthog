@@ -14,9 +14,11 @@ import {
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
+    isInternalToolResultUserMessage,
     isLangChainMessage,
     isInternalScaffoldMessage,
     isTextContentItem,
+    isToolResult,
     isToolStepItem,
     looksLikeXml,
     normalizeMessage,
@@ -1303,6 +1305,95 @@ describe('AI observability utils', () => {
                 content: typedParts('<attached_context>\nfoo\n\nbar: baz\nqux: 123\n</attached_context>'),
             }
             expect(getScaffoldTagName(message)).toBe('attached_context')
+        })
+    })
+
+    describe('isToolResult', () => {
+        it.each<[name: string, item: unknown]>([
+            ['Anthropic typed tool_result', { type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok' }],
+            [
+                'Vercel SDK tool-result',
+                { type: 'tool-result', toolCallId: 'a', toolName: 'search_docs', output: { ok: true } },
+            ],
+            [
+                'OpenAI Responses function_call_output',
+                { type: 'function_call_output', call_id: 'c1', output: 'opaque' },
+            ],
+            [
+                'custom {type:"function", tool_name, content}',
+                { type: 'function', tool_name: 'lookup', content: 'opaque' },
+            ],
+        ])('returns true for: %s', (_, item) => {
+            expect(isToolResult(item)).toBe(true)
+        })
+
+        it.each<[name: string, item: unknown]>([
+            ['plain text part', { type: 'text', text: 'hi' }],
+            ['Anthropic tool_use (a tool CALL, not a result)', { type: 'tool_use', id: 't1', name: 'x', input: {} }],
+            [
+                'OpenAI tool CALL with nested function object',
+                { type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+            ],
+            ['Vercel SDK tool-call', { type: 'tool-call', toolCallId: 'a', toolName: 'x', input: {} }],
+            ['image part', { type: 'image_url', image_url: { url: 'x' } }],
+            ['null', null],
+            ['plain string', 'hello'],
+            ['function-typed item without tool_name', { type: 'function' }],
+        ])('returns false for: %s', (_, item) => {
+            expect(isToolResult(item)).toBe(false)
+        })
+    })
+
+    describe('isInternalToolResultUserMessage', () => {
+        it('returns true for a user message whose content is only typed tool_result parts', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value-1' },
+                    { type: 'tool_result', tool_use_id: 't2', content: 'value-2' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(true)
+        })
+
+        it('returns true for the custom `{type:"function", tool_name, content}` shape', () => {
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'function', tool_name: 'lookup', content: 'opaque' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(true)
+        })
+
+        it('returns false when a tool-result part sits alongside real user text', () => {
+            // Hiding would drop the user's prose.
+            const message: CompatMessage = {
+                role: 'user',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value' },
+                    { type: 'text', text: 'and please summarize the above' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(false)
+        })
+
+        it('returns false for an empty content array', () => {
+            expect(isInternalToolResultUserMessage({ role: 'user', content: [] })).toBe(false)
+        })
+
+        it('returns false for an assistant-role message even if its content is tool-result-shaped', () => {
+            const message: CompatMessage = {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_result', tool_use_id: 't1', content: 'value' },
+                ] as unknown as CompatMessage['content'],
+            }
+            expect(isInternalToolResultUserMessage(message)).toBe(false)
+        })
+
+        it('returns false for a flat-string user message (text body, not a parts list)', () => {
+            expect(isInternalToolResultUserMessage({ role: 'user', content: 'follow-up question' })).toBe(false)
         })
     })
 

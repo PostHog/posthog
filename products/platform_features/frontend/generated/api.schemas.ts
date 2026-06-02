@@ -892,6 +892,7 @@ export type ActivityLogListParams = {
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
 * `LogsExclusionRule` - LogsExclusionRule
+* `DashboardWidget` - DashboardWidget
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
 * `InstanceSetting` - InstanceSetting
@@ -968,6 +969,7 @@ export const ActivityLogListScope = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
@@ -1031,6 +1033,7 @@ export const ActivityLogListScope = {
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
  * `LogsExclusionRule` - LogsExclusionRule
+ * `DashboardWidget` - DashboardWidget
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  * `InstanceSetting` - InstanceSetting
@@ -1095,6 +1098,7 @@ export const ActivityLogListScopesItem = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',

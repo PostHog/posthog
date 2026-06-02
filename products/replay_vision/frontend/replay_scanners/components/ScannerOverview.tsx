@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BoxPlot } from 'lib/hog-charts'
+import { BarChart } from 'lib/hog-charts'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -102,17 +102,17 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
 }
 
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const theme = useMemo(() => buildTheme(), [])
-    if (!scorerSummary) {
+    if (!scorerSummary || !scorerHistogram) {
         return null
     }
     return (
         <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
             <div className="h-40 flex flex-col">
-                <BoxPlot
-                    labels={['Scores']}
-                    series={[{ key: 'scores', label: 'Scores', color: theme.colors[0], data: [scorerSummary] }]}
+                <BarChart
+                    labels={scorerHistogram.labels}
+                    series={[{ key: 'count', label: 'Sessions', color: theme.colors[0], data: scorerHistogram.counts }]}
                     config={{ showGrid: false }}
                     theme={theme}
                 />
