@@ -1554,7 +1554,7 @@ export const DataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type DataWarehouseSavedQueryApiQuery = {
     kind?: DataWarehouseSavedQueryApiQueryKind
@@ -1577,7 +1577,7 @@ export interface DataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query: DataWarehouseSavedQueryApiQuery
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -1655,7 +1655,7 @@ export const PatchedDataWarehouseSavedQueryApiQueryKind = {
 } as const
 
 /**
- * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}
+ * HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"}
  */
 export type PatchedDataWarehouseSavedQueryApiQuery = {
     kind?: PatchedDataWarehouseSavedQueryApiQueryKind
@@ -1678,7 +1678,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @maxLength 128
      */
     name?: string
-    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"} */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\n    event,\n    count() AS cnt\nFROM events\nGROUP BY event\nLIMIT 100"} */
     query?: PatchedDataWarehouseSavedQueryApiQuery
     readonly created_by?: UserBasicApi
     readonly created_at?: string
