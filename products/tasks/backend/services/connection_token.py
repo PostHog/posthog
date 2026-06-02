@@ -115,7 +115,9 @@ def get_sandbox_jwt_public_key() -> str:
     return _primary_key().public_key_pem
 
 
-get_sandbox_jwt_public_key.cache_clear = _key_registry.cache_clear  # type: ignore[attr-defined]
+def reset_sandbox_jwt_key_cache() -> None:
+    """Clear the cached key registry. Used by tests after overriding the key settings."""
+    _key_registry.cache_clear()
 
 
 def _signing_key_for_run(task_run: TaskRun) -> _SandboxJwtKey:

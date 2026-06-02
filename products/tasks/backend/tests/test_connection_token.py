@@ -16,6 +16,7 @@ from products.tasks.backend.services.connection_token import (
     create_sandbox_event_ingest_token,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
+    reset_sandbox_jwt_key_cache,
     validate_sandbox_event_ingest_token,
 )
 
@@ -47,15 +48,15 @@ def _fake_run(state: dict | None = None) -> SimpleNamespace:
 class TestSandboxJwtRotation(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
     def tearDown(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         super().tearDown()
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_primary_only_signs_and_verifies_with_primary(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
 
         token = create_sandbox_connection_token(_fake_run(), user_id=1, distinct_id="d")
@@ -67,7 +68,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
     def test_connection_token_signed_with_run_stored_kid(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         # Primary is now KEY_B, but this run's sandbox was provisioned under KEY_A.
         run = _fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A})
         token = create_sandbox_connection_token(run, user_id=1, distinct_id="d")
@@ -81,13 +82,13 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_fallback_to_primary_when_no_kid_stored(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         token = create_sandbox_connection_token(_fake_run({}), user_id=1, distinct_id="d")
         self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
     def test_ingest_token_always_uses_primary_ignoring_run_kid(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         # The ingest path is single-key: it signs/validates with the primary key only and
         # ignores the run's stored kid (unlike the connection token).
         token = create_sandbox_event_ingest_token(_fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A}))
@@ -99,17 +100,17 @@ class TestSandboxJwtRotation(SimpleTestCase):
         # Ingest is intentionally NOT rotation-safe: a token signed under the old primary
         # stops validating once the primary is rotated, even if the old key is kept as secondary.
         with override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None):
-            get_sandbox_jwt_public_key.cache_clear()
+            reset_sandbox_jwt_key_cache()
             token = create_sandbox_event_ingest_token(_fake_run())
 
         with override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A):
-            get_sandbox_jwt_public_key.cache_clear()
+            reset_sandbox_jwt_key_cache()
             with self.assertRaises(jwt.InvalidTokenError):
                 validate_sandbox_event_ingest_token(token)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_connection_token_rejected_as_ingest_token(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         # A connection-audience token must not pass ingest validation (wrong audience).
         token = create_sandbox_connection_token(_fake_run(), user_id=1, distinct_id="d")
         with self.assertRaises(jwt.InvalidTokenError):
@@ -117,7 +118,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
     def test_duplicate_primary_and_secondary_collapse_to_one_key(self) -> None:
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         token = create_sandbox_event_ingest_token(_fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A}))
         payload = validate_sandbox_event_ingest_token(token)
         self.assertEqual(payload.team_id, 1)
