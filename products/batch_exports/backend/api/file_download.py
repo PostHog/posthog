@@ -60,35 +60,6 @@ class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     )
 
 
-class FileDownloadEventsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the events model."""
-
-    file = FileDownloadDestinationFileConfigSerializer()
-    model = serializers.ChoiceField(choices=["events"])
-    include = serializers.ListField(child=serializers.CharField(), required=False)
-    exclude = serializers.ListField(child=serializers.CharField(), required=False)
-    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
-    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
-
-
-class FileDownloadPersonsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the persons model."""
-
-    file = FileDownloadDestinationFileConfigSerializer()
-    model = serializers.ChoiceField(choices=["persons"])
-    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
-    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
-
-
-class FileDownloadSessionsRequestSerializer(serializers.Serializer):
-    """Typed configuration for the sessions model."""
-
-    file = FileDownloadDestinationFileConfigSerializer()
-    model = serializers.ChoiceField(choices=["sessions"])
-    data_interval_start = serializers.DateTimeField(default_timezone=dt.UTC)
-    data_interval_end = serializers.DateTimeField(default_timezone=dt.UTC)
-
-
 class FileDownloadBatchExportOnDemandSerializer(serializers.Serializer):
     """Request shape for a FileDownload batch export on demand."""
 
@@ -240,15 +211,7 @@ class FileDownloadBatchExportOnDemandViewSet(
         return FileDownloadBatchExportOnDemandSerializer
 
     @extend_schema(
-        request=PolymorphicProxySerializer(
-            component_name="CreateFileDownloadRequest",
-            serializers={
-                "events": FileDownloadEventsRequestSerializer,
-                "persons": FileDownloadPersonsRequestSerializer,
-                "sessions": FileDownloadSessionsRequestSerializer,
-            },
-            resource_type_field_name="model",
-        ),
+        request=FileDownloadBatchExportOnDemandSerializer,
         responses={202: CreateOutputSerializer},
     )
     def create(self, request, *args, **kwargs):

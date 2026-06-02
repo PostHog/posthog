@@ -224,10 +224,10 @@ const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExpo
         if (params.model !== undefined) {
             body['model'] = params.model
         }
-        if ('include' in params && params.include !== undefined) {
+        if (params.include !== undefined) {
             body['include'] = params.include
         }
-        if ('exclude' in params && params.exclude !== undefined) {
+        if (params.exclude !== undefined) {
             body['exclude'] = params.exclude
         }
         if (params.data_interval_start !== undefined) {
