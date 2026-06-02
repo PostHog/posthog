@@ -6,6 +6,7 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
+from tenacity import RetryCallState
 
 from posthog.temporal.data_imports.sources.notion.notion import (
     MAX_BLOCK_DEPTH,
@@ -113,7 +114,9 @@ class TestNotion:
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
 
-        tables = list(_search_stream(session, NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+        tables = list(
+            _search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager)
+        )
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 2
@@ -126,14 +129,16 @@ class TestNotion:
         manager.can_resume.return_value = True
         manager.load_state.return_value = NotionResumeConfig(next_cursor="resume-cursor")
 
-        list(_search_stream(session, NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
+        list(_search_stream(cast(requests.Session, session), NOTION_ENDPOINTS["pages"], mock.MagicMock(), manager))
 
         # The first request must start from the persisted cursor.
         assert session.calls[0]["json"]["start_cursor"] == "resume-cursor"
 
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
-        blocks = list(_iter_block_children(session, "block-root", "page-42", mock.MagicMock(), 0))
+        blocks = list(
+            _iter_block_children(cast(requests.Session, session), "block-root", "page-42", mock.MagicMock(), 0)
+        )
 
         assert len(blocks) == 1
         assert blocks[0]["_page_id"] == "page-42"
@@ -144,7 +149,9 @@ class TestNotion:
             return _list_response([{"id": "child", "has_children": True}], has_more=False, next_cursor=None)
 
         session = FakeSession(always_has_children)
-        blocks = list(_iter_block_children(session, "block-root", "page-1", mock.MagicMock(), 0))
+        blocks = list(
+            _iter_block_children(cast(requests.Session, session), "block-root", "page-1", mock.MagicMock(), 0)
+        )
 
         # depth 0 yields one block, then recurses up to MAX_BLOCK_DEPTH levels.
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
@@ -156,7 +163,7 @@ class TestNotion:
 
         session = FakeSession(always_more)
         logger = mock.MagicMock()
-        blocks = list(_iter_block_children(session, "block-root", "page-1", logger, 0))
+        blocks = list(_iter_block_children(cast(requests.Session, session), "block-root", "page-1", logger, 0))
 
         assert len(blocks) == MAX_CHILD_PAGES_PER_PARENT
         assert logger.warning.called
@@ -165,13 +172,17 @@ class TestNotion:
         session = FakeSession([FakeResponse({}, status_code=429, headers={"Retry-After": "7"})])
         # Bypass the tenacity retry wrapper so we observe a single attempt's behaviour.
         with pytest.raises(NotionRetryableError) as exc_info:
-            _request.__wrapped__(session, "GET", "/v1/users", mock.MagicMock(), params={})
+            cast(Any, _request).__wrapped__(
+                cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
+            )
         assert exc_info.value.retry_after == 7.0
 
     def test_request_5xx_raises_retryable_without_retry_after(self) -> None:
         session = FakeSession([FakeResponse({}, status_code=503)])
         with pytest.raises(NotionRetryableError) as exc_info:
-            _request.__wrapped__(session, "GET", "/v1/users", mock.MagicMock(), params={})
+            cast(Any, _request).__wrapped__(
+                cast(requests.Session, session), "GET", "/v1/users", mock.MagicMock(), params={}
+            )
         assert exc_info.value.retry_after is None
 
     @parameterized.expand([("5", 5.0), (None, None), ("not-a-number", None)])
@@ -180,11 +191,11 @@ class TestNotion:
 
     def test_wait_strategy_honors_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=3.0))
-        assert _wait_strategy(state) == 3.0
+        assert _wait_strategy(cast(RetryCallState, state)) == 3.0
 
     def test_wait_strategy_caps_retry_after(self) -> None:
         state = _FakeRetryState(NotionRetryableError("rate limited", retry_after=10_000.0))
-        assert _wait_strategy(state) == MAX_RETRY_WAIT_SECONDS
+        assert _wait_strategy(cast(RetryCallState, state)) == MAX_RETRY_WAIT_SECONDS
 
     def test_comments_stream_respects_page_cap(self) -> None:
         # First call is the page search (one page, then done); every subsequent /v1/comments
@@ -196,7 +207,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        list(_comments_stream(session, logger))
+        list(_comments_stream(cast(requests.Session, session), logger))
 
         # One search call plus the capped number of comment-page fetches.
         assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT

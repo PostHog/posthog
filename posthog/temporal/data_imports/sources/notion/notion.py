@@ -212,9 +212,9 @@ def _iter_page_ids(session: requests.Session, logger: FilteringBoundLogger) -> I
     while True:
         data = _request(session, "POST", "/v1/search", logger, json_body=_search_body("page", cursor))
         for item in data.get("results", []):
-            page_id = item.get("id")
-            if page_id:
-                yield page_id
+            # "id" is the primary key driving the blocks/comments fan-out; access it directly so a
+            # malformed response missing it surfaces loudly instead of silently dropping the page.
+            yield item["id"]
         if not data.get("has_more") or not data.get("next_cursor"):
             break
         cursor = data["next_cursor"]
