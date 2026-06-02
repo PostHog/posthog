@@ -106,9 +106,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             (slackChannels: SlackChannelType[]) => {
                 return (channel: string): boolean | null => {
                     const found = slackChannels.find((x) => x.id === slackChannelId(channel))
-                    // Return null when the channel hasn't been loaded yet — the picker checks
-                    // === false strictly, so this prevents a brief flash of the "not in channel"
-                    // warning during the gap between mount and the by-id lookup landing.
+                    // Null when unknown so the picker's strict `=== false` membership gate doesn't fire spuriously.
                     return found ? (found.is_member ?? false) : null
                 }
             },
