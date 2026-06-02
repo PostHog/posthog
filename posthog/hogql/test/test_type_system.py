@@ -6,7 +6,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatArrayDatabaseField
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_prepared_ast
 from posthog.hogql.resolver import resolve_types
+from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.type_diagnostics import function_catalog_inventory, resolve_with_type_diagnostics
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
@@ -147,3 +149,49 @@ class TestHogQLTypeSystem:
         assert inventory.entries_with_precise_signatures > 0
         assert inventory.aggregate_entries > 0
         assert "base64Encode" in inventory.functions_without_signatures
+
+    def test_type_aware_simplification_is_opt_in(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(self._select("SELECT CAST('x' AS String) AS value"), self.context, dialect="clickhouse"),
+        )
+        sql = print_prepared_ast(resolved, self.context, dialect="clickhouse")
+
+        assert "toString(" in sql
+
+    def test_type_aware_simplification_removes_redundant_casts_and_null_wrappers(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select(
+                    "SELECT CAST('x' AS String) AS a, toString('y') AS b, assumeNotNull(1) AS c, ifNull(1, 2) AS d, coalesce(1, 2) AS e"
+                ),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse")
+        sql = print_prepared_ast(simplified, self.context, dialect="clickhouse")
+
+        assert "toString(" not in sql
+        assert "assumeNotNull(" not in sql
+        assert "ifNull(" not in sql
+        assert "coalesce(" not in sql
+        assert "1 AS c" in sql
+        assert "1 AS d" in sql
+        assert "1 AS e" in sql
+
+    def test_type_aware_simplification_keeps_unsafe_casts(self) -> None:
+        resolved = cast(
+            ast.SelectQuery,
+            resolve_types(
+                self._select("SELECT CAST(1 AS Integer) AS number, toDateTime(toDateTime('2020-01-01')) AS ts"),
+                self.context,
+                dialect="clickhouse",
+            ),
+        )
+        simplified = simplify_redundant_type_operations(resolved, self.context, dialect="clickhouse")
+        sql = print_prepared_ast(simplified, self.context, dialect="clickhouse")
+
+        assert "toInt64(1) AS number" in sql
+        assert "toDateTime(toDateTime(" in sql

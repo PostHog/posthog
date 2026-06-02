@@ -30,6 +30,8 @@ Completed in this branch:
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper.
+- Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
+- Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
@@ -38,7 +40,7 @@ Still intentionally left as follow-up work:
 - Full ClickHouse parity for every function signature and aggregate combinator.
 - True lambda argument binding for higher-order array functions.
 - Property-definition planning metadata and materialized-property comparison rewrites.
-- Guarded cast simplification and nullability wrapper simplification passes.
+- Broader rollout of cast simplification and nullability wrapper simplification beyond the internal opt-in flag.
 - Strict resolver mode.
 - Query-corpus unknown-type baselines and ClickHouse integration tests for planner/index wins.
 
@@ -751,5 +753,5 @@ It should not become the default behavior for user-authored HogQL unless there i
 
 ## Immediate Next Step
 
-Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`.
-The next concrete task should be a guarded typed cast simplifier that uses `posthog/hogql/type_system.py` and proves each rewrite with emitted-SQL tests before enabling any optimizer behavior broadly.
+Phase 0's inventory and diagnostic hook now exists in `posthog/hogql/type_diagnostics.py`, and the first guarded simplifier exists in `posthog/hogql/transforms/type_aware_simplification.py`.
+The next concrete task should be property-planning metadata for materialized property comparisons, followed by ClickHouse planner tests before enabling any property/index rewrite broadly.

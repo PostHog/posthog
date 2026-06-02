@@ -3,7 +3,7 @@
 This document describes the HogQL type-system capabilities added by the first real implementation slice of the HogQL type-system project.
 It is a companion to `docs/internal/hogql-type-system-todo.md`.
 
-The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, and diagnostics that can explain where type information is still missing.
+The short version: HogQL now has a structured runtime type model, a type algebra, a generic function return inference path, cast/accessor typing, set-query type unification, diagnostics that can explain where type information is still missing, and an opt-in internal simplifier for conservative type-aware rewrites.
 The old resolver-facing `ConstantType` classes still exist and remain the compatibility surface for the resolver, printers, and transforms.
 The new model sits behind that surface so existing query compilation remains permissive while optimizers can start asking sharper questions.
 
@@ -313,7 +313,9 @@ Unknowns remain printable.
 That is intentional until catalog coverage and compatibility baselines are stronger.
 
 No optimizer rewrite is enabled by this slice.
-The APIs needed for safe rewrites now exist, but removing casts, moving conversions, or simplifying null wrappers should be done in separate guarded changes with emitted-SQL tests and ClickHouse integration tests where planner behavior matters.
+The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind `HogQLContext.enable_type_aware_cast_simplification`.
+It remains disabled by default.
+Moving conversions across comparisons or simplifying generated property wrappers should still be done in separate guarded changes with emitted-SQL tests and ClickHouse integration tests where planner behavior matters.
 
 ## How To Extend The New System
 
@@ -335,18 +337,42 @@ When adding an optimizer rule, ask type questions through the new APIs:
 - use structured runtime types when precision, timezone, tuple fields, maps, arrays, or aggregate states matter
 - treat `UnknownType` as an optimizer barrier unless the rewrite is independently proven safe
 
+## Opt-In Type-Aware Simplification
+
+`posthog/hogql/transforms/type_aware_simplification.py` adds the first optimizer consumer.
+
+It runs only when `HogQLContext.enable_type_aware_cast_simplification` is true.
+The default query path does not change.
+
+The simplifier currently removes conservative no-op operations:
+
+- `CAST(String AS String)` and equivalent safe string aliases such as `text`, `varchar`, and `char`
+- `toString(String)`
+- `toDate(Date)`
+- `toBool(Boolean)`
+- `assumeNotNull(non_nullable_expr)`
+- `toNullable(already_nullable_expr)`
+- `ifNull(non_nullable_expr, fallback)`
+- `coalesce(non_nullable_expr, ...)`
+
+It deliberately does not remove casts for families where the current compatibility type model lacks enough precision:
+
+- datetime casts, because timezone and precision can matter
+- numeric casts, because signedness and width can matter
+- decimal casts, because precision and scale can matter
+- unknown expressions, which remain optimizer barriers
+
+This gives internal callers a safe way to compare emitted SQL before and after simplification without changing user-authored HogQL behavior.
+
 ## Suggested Next Work
 
-The next practical implementation slice should be a guarded cast simplifier.
-It can use the new cast typing and comparison compatibility APIs without touching property planning yet.
+The next practical implementation slice should be property-planning metadata for materialized property comparisons.
+That is where skip-index wins become realistic, but it should stay separate because it needs ClickHouse planner tests and access-control checks.
 
 Good first targets:
 
-- remove `toString(...)` around expressions already known to be strings
-- remove `toDate(...)` around expressions already known to be dates
-- remove `toDateTime(...)` around expressions already known to be datetimes when timezone and precision do not change
-- remove `assumeNotNull(...)` around non-nullable expressions
-- keep unknowns and expensive casts unchanged
-
-After that, the property-comparison optimizer can use the same APIs with materialized-property metadata.
-That second step is where skip-index wins become realistic, but it should be separate because it needs ClickHouse planner tests and access-control checks.
+- represent physical materialized-column type facts separately from semantic property definition facts
+- classify typed property comparisons with `comparison_compatibility(...)`
+- identify cases where a literal can be converted instead of wrapping the materialized column
+- prove restricted-property behavior still forces safe JSON paths
+- add ClickHouse planner tests for numeric and datetime minmax skip-index use

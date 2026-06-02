@@ -282,7 +282,7 @@ def parse_sql_runtime_type(type_name: str, dialect: HogQLDialect = "clickhouse")
     if dialect == "clickhouse":
         return parse_clickhouse_type(type_name)
     normalized = type_name.strip().lower()
-    nullable = "not null" not in normalized
+    nullable = False
     if normalized in {"boolean", "bool"}:
         return RuntimeType(family="boolean", nullable=nullable, dialect=cast(RuntimeTypeDialect, dialect))
     if normalized in {"integer", "int", "bigint", "smallint"}:
@@ -368,6 +368,24 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
             source=stripped,
         )
 
+    normalized = stripped.lower()
+    if normalized in {"int", "integer", "bigint"}:
+        return RuntimeType(
+            family="integer", nullable=False, dialect="clickhouse", signed=True, bits=64, source=stripped
+        )
+    if normalized in {"float", "double", "double precision", "real"}:
+        return RuntimeType(family="float", nullable=False, dialect="clickhouse", bits=64, source=stripped)
+    if normalized in {"text", "varchar", "char", "string"}:
+        return RuntimeType(family="string", nullable=False, dialect="clickhouse", source=stripped)
+    if normalized in {
+        "datetime",
+        "timestamp",
+        "timestamptz",
+        "timestamp with time zone",
+        "timestamp with local time zone",
+    }:
+        return RuntimeType(family="datetime", nullable=False, dialect="clickhouse", source=stripped)
+
     integer_match = _INTEGER_RE.match(stripped)
     if integer_match:
         return RuntimeType(
@@ -408,7 +426,6 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
             source=stripped,
         )
 
-    normalized = stripped.lower()
     if normalized.startswith("datetime64"):
         parts = _split_type_args(_parse_parenthesized(stripped) or "")
         precision = int(parts[0]) if parts and parts[0].isdigit() else None

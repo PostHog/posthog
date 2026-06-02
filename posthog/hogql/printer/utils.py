@@ -19,6 +19,7 @@ from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_co
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -110,6 +111,10 @@ def prepare_ast_for_printing(
             scopes=[node.type for node in stack if node.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+
+    if context.enable_type_aware_cast_simplification:
+        with context.timings.measure("type_aware_cast_simplification"):
+            node = simplify_redundant_type_operations(node, context, dialect)
 
     # Detect workload from resolved table types and store on context
     with context.timings.measure("workload_detection"):
