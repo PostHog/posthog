@@ -1,6 +1,13 @@
+import datetime as dt
 from uuid import UUID
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
+SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
+
+SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
+
+# Children are ABANDONed and don't count against this budget.
+SWEEP_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=5)
 
 # Capped so `replay-vision-apply-scanner-{scanner_uuid:36}-{session_id}` fits the 255-char `ReplayObservation.workflow_id` column.
 MAX_SESSION_ID_LENGTH = 128

@@ -176,6 +176,7 @@ depends_on = [
     "posthog",
     "products.alerts",
     "products.ai_observability",
+    "products.error_tracking",
     "products.mcp_analytics",
     "products.product_analytics",
 ]
