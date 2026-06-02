@@ -455,6 +455,50 @@ class TestGitHubCommitOnApprove:
         card.refresh_from_db()
         assert card.review_state == "tolerated"
 
+    def test_finalize_commits_to_prune_removed_only_run(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        user,
+    ):
+        """Regression: a run whose only actionable change is a REMOVED snapshot must still commit —
+        the removed entry has to be pruned from snapshots.yml, or the gate greens over a stale baseline."""
+        repo = vr_project_with_github
+
+        # Seed a baseline containing the entry finalize must prune.
+        snapshots_file = local_git_repo / ".snapshots.yml"
+        snapshots_file.write_text(
+            yaml.dump({"version": 1, "snapshots": {"gone--snap": {"hash": "v1.kfake.gonehash.fakemac" + "1" * 40}}})
+        )
+        subprocess.run(["git", "add", "."], cwd=local_git_repo, check=True)
+        subprocess.run(["git", "commit", "-m", "seed baseline"], cwd=local_git_repo, check=True)
+
+        run = Run.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            status=RunStatus.COMPLETED,
+            run_type="storybook",
+            commit_sha=_get_head_sha(local_git_repo),
+            branch="feature-branch",
+            pr_number=42,
+            total_snapshots=1,
+            removed_count=1,
+        )
+        RunSnapshot.objects.create(
+            run=run,
+            team_id=repo.team_id,
+            identifier="gone--snap",
+            result=SnapshotResult.REMOVED,
+        )
+
+        result = logic.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
+
+        assert result.approved is True
+        parsed = yaml.safe_load(snapshots_file.read_text())
+        assert "gone--snap" not in parsed["snapshots"]  # pruned by the finalize commit
+
     def test_approve_merges_with_existing_baselines(
         self,
         local_git_repo,

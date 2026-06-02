@@ -1895,6 +1895,11 @@ def finalize_run(
     if run.purpose == RunPurpose.OBSERVE:
         raise ValueError("Observational runs cannot be approved")
 
+    # Idempotent: a finalized run already committed and posted status — don't redo the work
+    # (a second commit, status, and approval comment) on a repeat call.
+    if run.approved:
+        return run
+
     if run.status != RunStatus.COMPLETED:
         raise ValueError(f"Run must be completed before approval (current status: {run.status})")
 
@@ -1934,9 +1939,11 @@ def finalize_run(
     # Commit set is derived from DB state, not a caller-supplied list, so it always reflects
     # the full approved set however many calls reviewed it.
     approved_updates = _approved_baseline_updates(actionable)
+    has_removed = run.snapshots.using(WRITER_DB).filter(result=SnapshotResult.REMOVED).exists()
 
-    # Commit first — before DB writes — so a GitHub failure aborts cleanly.
-    if commit_to_github and approved_updates and run.pr_number and repo.repo_full_name:
+    # Commit first — before DB writes — so a GitHub failure aborts cleanly. Removed snapshots
+    # also need a commit, to prune them from the baseline, even when nothing was approved.
+    if commit_to_github and (approved_updates or has_removed) and run.pr_number and repo.repo_full_name:
         _commit_baseline_to_github(run, repo, approved_updates, approver_user_id=user_id)
 
     # Removed snapshots are pruned from the baseline on commit; mark them approved for cleanup.

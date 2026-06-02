@@ -621,6 +621,17 @@ class TestApproveRun:
         assert snapshots["A"].review_state == ReviewState.APPROVED
         assert snapshots["B"].review_state == ReviewState.TOLERATED  # approve_all did not clobber it
 
+    def test_finalize_is_idempotent_on_approved_run(self, repo, user, mocker):
+        # Re-finalizing an already-finalized run is a no-op — no second commit/status/comment.
+        run = self._completed_two_change_run(repo, mocker)
+        logic.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)
+        approved_at = logic.get_run_with_snapshots(run.id).approved_at
+
+        again = logic.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=False)
+
+        assert again.approved is True
+        assert again.approved_at == approved_at  # unchanged — the second call did no work
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveSnapshots:

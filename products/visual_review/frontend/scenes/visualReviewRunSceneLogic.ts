@@ -315,7 +315,9 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 // we only need the UI to reflect the change immediately.
                 actions.loadSnapshotsSuccess(
                     values.snapshots.map((s) =>
-                        s.review_state === 'pending' && s.result !== 'unchanged'
+                        s.review_state === 'pending' &&
+                        s.result !== 'unchanged' &&
+                        !values.quarantinedIdentifierSet.has(s.identifier)
                             ? { ...s, review_state: 'approved' }
                             : s
                     )

@@ -78,7 +78,7 @@ Finalize call shape (`finalize-create`) — the all-or-nothing ship action:
 - `id` (required) — the run UUID.
 - `approve_all: true` — approve every still-pending `changed`/`new` snapshot before finalizing (tolerated ones are left alone). Use when you've verified every remaining diff is intended.
 - Omit `approve_all` (default false) to finalize a run you've already reviewed snapshot-by-snapshot. Finalize is all-or-nothing: it fails with `409 not_fully_resolved` (and lists what's left) unless every changed/new snapshot is approved, tolerated, or quarantined.
-- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. The pushed commit SHA comes back on the run's `metadata.baseline_commit_sha`; if that's absent after a finalize, no commit landed (e.g. the run has no PR, or the PR has newer commits — a `409 sha_mismatch`) and the gate is still red.
+- It commits exactly the snapshots approved in the DB — tolerated snapshots keep their baseline and are never overwritten. When a baseline commit is pushed, its SHA comes back on the run's `metadata.baseline_commit_sha`. It's absent when nothing needed committing (everything resolved by toleration/quarantine — the gate still greens) or when the commit was skipped: no PR, or a `409 sha_mismatch` because the PR has newer commits (that one leaves the gate red — re-run CI on the latest commit and finalize again).
 
 If finalize fails with `409 stale_run`, the run has been superseded — `visual-review-runs-list { pr_number }` and finalize the newest one. A successful finalize often kicks off a fresh CI run, which is normal.
 
