@@ -71,6 +71,7 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
+        expandedSpanIds,
     } = useValues(tracingSceneLogic({ tabId }))
     const {
         openTraceModal,
@@ -81,6 +82,7 @@ function TracingSceneContents(): JSX.Element {
         closeCompareFlame,
         fetchNextPage,
         setVisibleRowRange,
+        toggleExpandSpan,
     } = useActions(tracingSceneLogic({ tabId }))
     const { addProductIntent } = useActions(teamLogic)
     const compareMode = filters.compareMode
@@ -180,6 +182,8 @@ function TracingSceneContents(): JSX.Element {
                     hasMoreToLoad={hasMoreToLoad}
                     onLoadMore={fetchNextPage}
                     onVisibleRowRangeChange={setVisibleRowRange}
+                    expandedSpanIds={expandedSpanIds}
+                    onToggleExpand={toggleExpandSpan}
                     emptyState={
                         <div className="flex flex-col items-center gap-1">
                             <span>No spans found</span>
