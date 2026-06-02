@@ -126,6 +126,18 @@ class TestHogQLTypeSystem:
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
         )
 
+    def test_resolver_infers_common_url_function_types(self) -> None:
+        self._assert_first_column_type("SELECT protocol('https://posthog.com')", ast.StringType(nullable=False))
+        self._assert_first_column_type(
+            "SELECT extractURLParameter('https://posthog.com/?utm_source=docs', 'utm_source')",
+            ast.StringType(nullable=False),
+        )
+        self._assert_first_column_type(
+            "SELECT URLHierarchy('https://posthog.com/docs/hogql')",
+            ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),
+        )
+        self._assert_first_column_type("SELECT port('https://posthog.com:443')", ast.IntegerType(nullable=False))
+
     def test_select_set_query_unifies_output_column_types(self) -> None:
         node = cast(
             ast.SelectSetQuery,
@@ -139,18 +151,24 @@ class TestHogQLTypeSystem:
 
     def test_type_diagnostics_reports_unknown_function_boundary(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
-            self._select("SELECT protocol('https://posthog.com')"),
+            self._select("SELECT formatReadableSize(1024)"),
             self.context,
             dialect="clickhouse",
         )
 
         assert diagnostics.report.unknown_count == 1
         assert diagnostics.report.unknowns_by_source() == {"missing_function_signature": 1}
-        assert diagnostics.report.unknowns[0].detail == "protocol"
+        assert diagnostics.report.unknowns[0].detail == "formatReadableSize"
 
     def test_type_diagnostics_treats_typed_string_functions_as_known(self) -> None:
         diagnostics = resolve_with_type_diagnostics(
-            self._select("SELECT base64Encode('test'), hex(unhex('DEADBEEF')), splitByChar('.', '1.2.3')"),
+            self._select(
+                "SELECT "
+                "base64Encode('test'), "
+                "hex(unhex('DEADBEEF')), "
+                "splitByChar('.', '1.2.3'), "
+                "protocol('https://posthog.com')"
+            ),
             self.context,
             dialect="clickhouse",
         )
@@ -169,7 +187,8 @@ class TestHogQLTypeSystem:
         assert inventory.aggregate_entries > 0
         assert "base64Encode" in inventory.functions_without_signatures
         assert "base64Encode" not in inventory.functions_without_type_inference
-        assert "protocol" in inventory.functions_without_type_inference
+        assert "protocol" not in inventory.functions_without_type_inference
+        assert "formatReadableSize" in inventory.functions_without_type_inference
 
     def test_type_aware_simplification_is_opt_in(self) -> None:
         resolved = cast(

@@ -25,14 +25,14 @@ Completed in this branch:
 - Fixed `FloatArrayDatabaseField.get_constant_type()` so float arrays resolve as `ArrayType(FloatType)` instead of losing the array dimension.
 - Added type algebra for least-common-supertypes across common numeric, date/datetime, array, tuple, and string-ish families.
 - Added comparison compatibility classification so optimizers can distinguish definitely-compatible comparisons, cheap casts, expensive parse/cast cases, incompatible comparisons, and unknowns.
-- Added generic function return inference for high-value functions that the old tuple signature format could not express, including comparisons, logical functions, `if`, `multiIf`, `coalesce`, nullability helpers, casts/conversions, common string helpers, array constructors/accessors, tuple constructors/accessors, and common aggregate functions.
+- Added generic function return inference for high-value functions that the old tuple signature format could not express, including comparisons, logical functions, `if`, `multiIf`, `coalesce`, nullability helpers, casts/conversions, common string and URL helpers, array constructors/accessors, tuple constructors/accessors, and common aggregate functions.
 - Kept existing legacy function signatures working as a fallback path.
 - Added resolver typing for `TypeCast`, `TryCast`, array literals, tuple literals, array access, array slices, tuple access, common aggregate calls, and set-query output columns.
 - Added unified output-column typing for `SelectSetQueryType`, while preserving the branch-type list for lineage consumers.
 - Added `posthog/hogql/type_diagnostics.py` with a typed-AST diagnostic helper and a function-catalog inventory helper that distinguishes missing legacy signatures from missing type inference.
 - Added `posthog/hogql/transforms/type_aware_simplification.py` with an opt-in internal simplifier for conservative redundant casts and nullability wrappers.
 - Added `HogQLContext.enable_type_aware_cast_simplification`, which keeps the simplifier disabled by default while letting internal callers exercise it.
-- Added emitted-SQL coverage showing typed string helpers such as `base64Encode(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
+- Added emitted-SQL coverage showing typed string and URL helpers such as `base64Encode(...)` and `protocol(...)` no longer need manual `assumeNotNull(...)` to avoid defensive comparison wrapping.
 - Added focused tests in `posthog/hogql/test/test_type_system.py` for runtime type parsing, database-field adapters, algebra, resolver inference, set-query unification, diagnostics, and catalog inventory.
 - Added `docs/internal/hogql-type-system-now-possible.md`, which documents the new capabilities and the next optimizer hooks.
 
@@ -194,7 +194,8 @@ Some high-value function groups are partially typed:
 Many high-value groups are not deeply typed:
 
 - Logical functions in `mapping.py`, such as `equals`, `less`, `and`, `or`, `if`, and `multiIf`.
-- Most map, bitmap, URL, tuple, and array functions.
+- Most map, bitmap, tuple, and array functions.
+- URL helper coverage exists for common string, string-array, and `port(...)` return types, but deeper function families are still incomplete.
 - Higher-order array functions, such as `arrayMap`, `arrayFilter`, `arrayFirst`, `arrayExists`, and `arrayReduce`.
 - Most aggregate functions, including `count`, `sum`, `avg`, `min`, `max`, `uniq`, `quantile`, state functions, and merge functions.
 - UDFs.
@@ -410,7 +411,8 @@ TODO:
   - [ ] `uniq*`
   - [ ] `quantile*`, `median*`
   - [ ] map/forEach aggregate variants
-- [ ] Cover high-use string, URL, and date functions after the above.
+- [x] Cover high-use string and URL functions that unblock emitted-SQL nullability simplification.
+- [ ] Cover high-use date functions after the above.
 - [ ] Cover Postgres and DuckDB functions that HogQL passes through or rewrites, especially casts, date/time functions, string functions, comparisons, and aggregations.
 - [ ] Decide how UDFs should be typed:
   - [ ] typed manually
@@ -603,6 +605,7 @@ TODO:
   - [ ] `toDateTime(properties.dt_prop)` does not double-parse
   - [ ] aliases rewritten by `PropertySwapper` do not keep stale return types
   - [x] typed string helpers such as `base64Encode(...)` avoid unnecessary comparison wrapping
+  - [x] typed URL helpers such as `protocol(...)` avoid unnecessary comparison wrapping
   - [ ] `assumeNotNull(unknown_function(...))` avoids unnecessary comparison wrapping
   - [ ] property access control does not leak materialized property values
 
@@ -663,6 +666,7 @@ TODO:
 - [ ] Type `if`, `multiIf`, `coalesce`, `ifNull`, `nullIf`, `assumeNotNull`, and `toNullable`.
 - [ ] Type common aggregate functions.
 - [x] Type common string helpers that unblock nullability-wrapper simplification in emitted SQL.
+- [x] Type common URL helpers that unblock nullability-wrapper simplification in emitted SQL.
 - [ ] Type array element access and common higher-order array functions.
 - [ ] Type JSON extraction functions with parsed return type literals.
 - [ ] Type core PostHog extension functions.

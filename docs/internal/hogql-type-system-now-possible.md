@@ -158,6 +158,7 @@ Newly inferred function groups include:
 - nullability helpers: `assumeNotNull`, `toNullable`
 - conversion functions: `toInt`, `toFloat`, `toDecimal`, `toDate`, `toDateTime`, `toDateTime64`, `toUUID`, `toBool`, `toString`, `toTypeName`
 - common string helpers: `base64Encode`, `base64Decode`, `hex`, `unhex`, `lower`, `upper`, `substring`, `replace*`, `extract`, `splitBy*`, and related string-array helpers
+- common URL helpers: `protocol`, `domain`, `path`, `queryString`, `extractURLParameter`, `URLHierarchy`, `encodeURLComponent`, `cutQueryString`, `cutURLParameter`, and `port`
 - array functions: `array`, `arrayConcat`, `arraySlice`, `arrayElement`, `arrayJoin`, `arrayFirst`, `arrayLast`, `arrayEnumerate`, `arrayMap`, `arrayFilter`, `arrayExists`, `arrayAll`, `arraySum`, `arrayAvg`, `arrayMin`, `arrayMax`
 - tuple functions: `tuple`, `tupleElement`
 - common aggregates: `count`, `countIf`, `countDistinct`, `uniq*`, `sum`, `avg`, `min`, `max`, `any`, `groupArray`, `array_agg`
@@ -239,7 +240,7 @@ The report records unknown-type occurrences and groups them by source.
 Example:
 
 ```python
-diagnostics = resolve_with_type_diagnostics(parse_select("SELECT protocol('https://posthog.com')"), context)
+diagnostics = resolve_with_type_diagnostics(parse_select("SELECT formatReadableSize(1024)"), context)
 diagnostics.report.unknowns_by_source()
 # {"missing_function_signature": 1}
 ```
@@ -288,7 +289,7 @@ Nullability simplification:
 - comparisons between definitely non-nullable expressions can avoid defensive `ifNull(...)`
 - known nullable expressions can preserve current wrapper behavior
 - unknown expressions remain barriers
-- common non-null string helper calls such as `base64Encode('test')` now stay non-null through resolution, so emitted comparisons no longer need manual `assumeNotNull(...)` to avoid nullable boolean wrappers
+- common non-null string and URL helper calls such as `base64Encode('test')` and `protocol('https://posthog.com')` now stay non-null through resolution, so emitted comparisons no longer need manual `assumeNotNull(...)` to avoid nullable boolean wrappers
 
 Set-query planning:
 
@@ -321,7 +322,7 @@ That is intentional until catalog coverage and compatibility baselines are stron
 No broad AST rewrite is enabled by default.
 The APIs needed for safe rewrites now exist, and the first guarded simplifier is available behind `HogQLContext.enable_type_aware_cast_simplification`.
 It remains disabled by default.
-One practical printer payoff is now live: when generic function inference proves a string helper returns a non-null string, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
+One practical printer payoff is now live: when generic function inference proves a string or URL helper returns a non-null value, comparisons can avoid the nullable `ifNull(...)` wrapper that was previously needed only because the function boundary was unknown.
 Moving conversions across comparisons or simplifying generated property wrappers should still be done in separate guarded changes with emitted-SQL tests and ClickHouse integration tests where planner behavior matters.
 
 ## How To Extend The New System

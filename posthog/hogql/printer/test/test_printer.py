@@ -2402,11 +2402,17 @@ class TestPrinter(BaseTest):
         self.assertNotIn("ifNull(", sql)
         self.assertTrue(sql.startswith("equals("))
 
+    def test_typed_url_function_prevents_ifnull_wrapping_in_comparison(self):
+        sql = self._expr("event = protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("equals("))
+
     def test_assume_not_null_prevents_ifnull_wrapping_for_unknown_function(self):
-        sql_without = self._expr("event = protocol('https://posthog.com')")
+        sql_without = self._expr("event = formatReadableSize(1024)")
         self.assertIn("ifNull(", sql_without)
 
-        sql_with = self._expr("event = assumeNotNull(protocol('https://posthog.com'))")
+        sql_with = self._expr("event = assumeNotNull(formatReadableSize(1024))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("equals("))
 
@@ -2416,11 +2422,17 @@ class TestPrinter(BaseTest):
         self.assertNotIn("ifNull(", sql)
         self.assertTrue(sql.startswith("notEquals("))
 
+    def test_typed_url_function_prevents_ifnull_wrapping_not_equals(self):
+        sql = self._expr("event != protocol('https://posthog.com')")
+
+        self.assertNotIn("ifNull(", sql)
+        self.assertTrue(sql.startswith("notEquals("))
+
     def test_assume_not_null_prevents_ifnull_wrapping_unknown_function_not_equals(self):
-        sql_without = self._expr("event != protocol('https://posthog.com')")
+        sql_without = self._expr("event != formatReadableSize(1024)")
         self.assertIn("ifNull(", sql_without)
 
-        sql_with = self._expr("event != assumeNotNull(protocol('https://posthog.com'))")
+        sql_with = self._expr("event != assumeNotNull(formatReadableSize(1024))")
         self.assertNotIn("ifNull(", sql_with)
         self.assertTrue(sql_with.startswith("notEquals("))
 

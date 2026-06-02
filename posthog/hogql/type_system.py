@@ -211,6 +211,45 @@ _STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
     }
 )
 
+_URL_STRING_RESULT_FUNCTIONS = frozenset(
+    {
+        "cutfragment",
+        "cutquerystring",
+        "cutquerystringandfragment",
+        "cuttofirstsignificantsubdomain",
+        "cuttofirstsignificantsubdomainwithwww",
+        "cuturlparameter",
+        "cutwww",
+        "decodeurlcomponent",
+        "decodeurlformcomponent",
+        "domain",
+        "domainwithoutwww",
+        "encodeurlcomponent",
+        "encodeurlformcomponent",
+        "extracturlparameter",
+        "firstsignificantsubdomain",
+        "fragment",
+        "netloc",
+        "path",
+        "pathfull",
+        "protocol",
+        "querystring",
+        "querystringandfragment",
+        "topleveldomain",
+    }
+)
+
+_URL_STRING_ARRAY_RESULT_FUNCTIONS = frozenset(
+    {
+        "extracturlparameternames",
+        "extracturlparameters",
+        "urlhierarchy",
+        "urlpathhierarchy",
+    }
+)
+
+_INTEGER_RESULT_FUNCTIONS = frozenset({"port"})
+
 
 def runtime_type_from_constant_type(constant_type: ast.ConstantType) -> RuntimeType:
     nullable = constant_type.nullable
@@ -759,14 +798,17 @@ def _infer_generic_function_type(
     if normalized_name == "totypename" or normalized_name.endswith("tostring"):
         return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if normalized_name in _STRING_RESULT_FUNCTIONS:
+    if normalized_name in _STRING_RESULT_FUNCTIONS or normalized_name in _URL_STRING_RESULT_FUNCTIONS:
         return ast.StringType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
-    if normalized_name in _STRING_ARRAY_RESULT_FUNCTIONS:
+    if normalized_name in _STRING_ARRAY_RESULT_FUNCTIONS or normalized_name in _URL_STRING_ARRAY_RESULT_FUNCTIONS:
         return ast.ArrayType(
             nullable=any(arg_type.nullable for arg_type in arg_types),
             item_type=ast.StringType(nullable=False),
         )
+
+    if normalized_name in _INTEGER_RESULT_FUNCTIONS:
+        return ast.IntegerType(nullable=any(arg_type.nullable for arg_type in arg_types))
 
     if (
         normalized_name in {"toint", "tointorzero"}
