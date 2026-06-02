@@ -17,11 +17,7 @@ jobs:
     semgrep-python:
         runs-on: ubuntu-latest
         timeout-minutes: 15
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -46,11 +42,7 @@ jobs:
     semgrep-go:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -73,11 +65,7 @@ jobs:
     semgrep-rust:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -102,11 +90,7 @@ jobs:
     semgrep-js:
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -128,11 +112,7 @@ jobs:
     semgrep-products-frontend:
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -155,11 +135,7 @@ jobs:
     semgrep-general:
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -201,11 +177,7 @@ jobs:
     semgrep-devex:
         runs-on: ubuntu-latest
         timeout-minutes: 10
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
@@ -238,11 +210,7 @@ jobs:
     semgrep-test-rules:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        container:
-            image: semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03
-            credentials:
-                username: ${{ secrets.DOCKERHUB_USERNAME }}
-                password: ${{ secrets.DOCKERHUB_TOKEN }}
+        container: ${{ secrets.DOCKERHUB_USERNAME != '' && fromJSON(format('{{"image":"semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03","credentials":{{"username":"{0}","password":"{1}"}}}}', secrets.DOCKERHUB_USERNAME, secrets.DOCKERHUB_TOKEN)) || 'semgrep/semgrep:1.163.0@sha256:7cad2bc2d1e44f87f0bf4be6d1fa23aa90fb72015bebc89fb91385d813987a03' }}
 
         steps:
             - name: Checkout
