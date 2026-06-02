@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     download::SymbolSetsSubcommand,
@@ -36,8 +36,41 @@ pub struct Cli {
     #[arg(long, value_name = "PATH")]
     env_file: Option<PathBuf>,
 
+    /// Skip artifact processing and upload (sourcemap, dSYM, hermes, proguard) without contacting
+    /// PostHog or requiring credentials. Intended for CI gates that bundle to catch regressions but
+    /// must not (or cannot) upload. Not for release builds.
+    #[arg(
+        long,
+        global = true,
+        env = "POSTHOG_CLI_DRY_RUN",
+        value_parser = clap::builder::BoolishValueParser::new(),
+        num_args = 0..=1,
+        require_equals = true,
+        default_value = "false",
+        default_missing_value = "true",
+    )]
+    dry_run: bool,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+/// Commands that `--dry-run` turns into a no-op. Returns the artifact kind, for logging, or `None`
+/// for commands that don't upload anything (login, queries, schema sync, symbol-set downloads).
+fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
+    match command {
+        Commands::Sourcemap { .. } => Some("sourcemap"),
+        Commands::Dsym { .. } => Some("dSYM"),
+        Commands::Hermes { .. } => Some("hermes sourcemap"),
+        Commands::Proguard { .. } => Some("proguard"),
+        Commands::Exp { cmd } => match cmd {
+            ExpCommand::Hermes { .. } => Some("hermes sourcemap"),
+            ExpCommand::Proguard { .. } => Some("proguard"),
+            ExpCommand::Dsym { .. } => Some("dSYM"),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 #[derive(Subcommand)]
@@ -169,6 +202,17 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
+        if self.dry_run {
+            if let Some(kind) = dry_run_skipped_command(&self.command) {
+                warn!(
+                    "Dry run enabled (--dry-run / POSTHOG_CLI_DRY_RUN): skipping {kind} upload. \
+                     Nothing was sent to PostHog and no credentials were used. \
+                     Do not use --dry-run for release builds."
+                );
+                return Ok(());
+            }
+        }
+
         if !matches!(
             self.command,
             Commands::Login
@@ -289,5 +333,89 @@ impl Cli {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::{CommandFactory, Parser};
+
+    #[test]
+    fn cli_definition_is_valid() {
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn dry_run_flag_is_wired_to_env_var() {
+        let cmd = Cli::command();
+        let arg = cmd
+            .get_arguments()
+            .find(|a| a.get_id().as_str() == "dry_run")
+            .expect("dry_run arg should exist");
+        assert_eq!(
+            arg.get_env(),
+            Some(std::ffi::OsStr::new("POSTHOG_CLI_DRY_RUN"))
+        );
+    }
+
+    #[test]
+    fn dry_run_defaults_to_false() {
+        let cli = Cli::try_parse_from(["posthog-cli", "login"]).unwrap();
+        assert!(!cli.dry_run);
+    }
+
+    #[test]
+    fn dry_run_flag_sets_true_before_or_after_subcommand() {
+        let before = Cli::try_parse_from(["posthog-cli", "--dry-run", "login"]).unwrap();
+        assert!(before.dry_run);
+
+        // global = true means position relative to the subcommand doesn't matter
+        let after = Cli::try_parse_from(["posthog-cli", "login", "--dry-run"]).unwrap();
+        assert!(after.dry_run);
+    }
+
+    #[test]
+    fn upload_commands_are_skipped_under_dry_run() {
+        let hermes = Cli::try_parse_from([
+            "posthog-cli",
+            "hermes",
+            "clone",
+            "--minified-map-path",
+            "min.map",
+            "--composed-map-path",
+            "composed.map",
+        ])
+        .unwrap();
+        assert_eq!(
+            dry_run_skipped_command(&hermes.command),
+            Some("hermes sourcemap")
+        );
+
+        // the hidden exp aliases must skip too
+        let exp_hermes = Cli::try_parse_from([
+            "posthog-cli",
+            "exp",
+            "hermes",
+            "clone",
+            "--minified-map-path",
+            "min.map",
+            "--composed-map-path",
+            "composed.map",
+        ])
+        .unwrap();
+        assert_eq!(
+            dry_run_skipped_command(&exp_hermes.command),
+            Some("hermes sourcemap")
+        );
+    }
+
+    #[test]
+    fn read_only_commands_run_normally_under_dry_run() {
+        let login = Cli::try_parse_from(["posthog-cli", "login"]).unwrap();
+        assert_eq!(dry_run_skipped_command(&login.command), None);
+
+        let schema = Cli::try_parse_from(["posthog-cli", "exp", "schema", "status"]).unwrap();
+        assert_eq!(dry_run_skipped_command(&schema.command), None);
     }
 }
