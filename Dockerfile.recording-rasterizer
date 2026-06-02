@@ -81,6 +81,13 @@ FROM node:24.13.0-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
+# Cache-bust marker for the floated deps below (ffmpeg, chrome-headless-shell). The weekly
+# scheduled rebuild passes a changing value, invalidating the apt/npx layers so security
+# updates are actually re-fetched; normal builds pass the constant default and reuse cache.
+# Without this, the unpinned layers' cache key never changes and the rebuild is a no-op.
+ARG DEPS_CACHE_BUST=pinned
+RUN echo "deps cache bust: ${DEPS_CACHE_BUST}"
+
 # Install runtime dependencies: librdkafka, chrome-headless-shell deps, ffmpeg
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

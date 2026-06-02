@@ -117,6 +117,7 @@ jobs:
                   platforms: linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
+                      DEPS_CACHE_BUST=${{ github.event_name == 'schedule' && github.run_id || 'pinned' }}
 
             - name: Container image digest
               env:
