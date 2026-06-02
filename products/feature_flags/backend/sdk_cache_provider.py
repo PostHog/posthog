@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+from django.core.exceptions import ObjectDoesNotExist
+
 import structlog
 from posthoganalytics.flag_definition_cache import FlagDefinitionCacheData
 
@@ -57,6 +59,12 @@ class HyperCacheFlagProvider:
             # circular import chain through cohort.util that resolves once
             # all modules finish loading. The SDK's next poll cycle will retry.
             logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
+            return None
+        except ObjectDoesNotExist:
+            # The configured self-team (POSTHOG_SELF_TEAM_ID, default 2) doesn't exist in
+            # this instance — expected on local/self-hosted. Fall back to the SDK's API
+            # fetch quietly instead of logging a traceback on every poll.
+            logger.debug("hypercache_flag_provider_team_missing", team_id=self._team_id)
             return None
         except Exception:
             logger.exception("hypercache_flag_provider_read_error", team_id=self._team_id)
