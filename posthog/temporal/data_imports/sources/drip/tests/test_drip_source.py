@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from parameterized import parameterized
@@ -125,7 +124,7 @@ class TestDripSource:
             resumable_source_manager=manager,
         )
 
-    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    @parameterized.expand(ENDPOINTS)
     def test_every_endpoint_is_a_schema(self, endpoint):
         schemas = self.source.get_schemas(self.config, self.team_id, names=[endpoint])
         assert len(schemas) == 1
