@@ -90,9 +90,21 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Re-configure AWS credentials (retry)
+              if: steps.build.outcome == 'failure'
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Re-login to Amazon ECR (retry)
+              if: steps.build.outcome == 'failure'
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
             - name: Build and push container image (retry)
               id: build_retry
               if: steps.build.outcome == 'failure'
+              continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
