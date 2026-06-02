@@ -17,7 +17,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
-import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
@@ -59,6 +59,21 @@ jest.mock('../../widget_types/catalog', () => ({
         groupId: 'error_tracking',
         label: 'Top issues',
         headerTitle: 'Top issues',
+    })),
+    tryGetDashboardWidgetCatalogEntry: jest.fn(() => ({
+        titleHref: '/error_tracking',
+        headerLayout: 'dashboard_tile',
+        groupId: 'error_tracking',
+        label: 'Top issues',
+        headerTitle: 'Top issues',
+        headerMeta: { showWidgetType: true, showDateRange: true },
+    })),
+    getUnknownDashboardWidgetCatalogFallback: jest.fn((widgetType: string) => ({
+        groupId: widgetType,
+        label: widgetType,
+        headerTitle: widgetType,
+        headerLayout: 'dashboard_tile',
+        headerMeta: { showWidgetType: true, showDateRange: true },
     })),
     getDashboardWidgetGroupLabel: () => 'Error tracking',
 }))
@@ -265,8 +280,9 @@ describe('DashboardWidgetItem', () => {
         expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent('My issues')
     })
 
-    it('contains unknown widget errors inside the widget card', () => {
+    it('contains unknown widget errors in the card body while keeping the header', () => {
         const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
+        ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValueOnce(undefined)
         catalogEntryMock.mockImplementation(() => {
             throw new Error('Unknown dashboard widget type: session_replay_list')
         })
@@ -279,9 +295,12 @@ describe('DashboardWidgetItem', () => {
                 result={null}
                 loading={false}
                 onRefresh={jest.fn()}
+                onRemove={jest.fn()}
+                showEditingControls
             />
         )
 
+        expect(within(container).getByText('My issues')).toBeInTheDocument()
         expect(within(container).getByText('An error has occurred')).toBeInTheDocument()
         expect(within(container).getByText(/Unknown dashboard widget type: session_replay_list/)).toBeInTheDocument()
 

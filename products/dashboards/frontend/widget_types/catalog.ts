@@ -95,6 +95,27 @@ export function getDashboardWidgetCatalogEntry(widgetType: string): ResolvedDash
     return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
 }
 
+export function tryGetDashboardWidgetCatalogEntry(widgetType: string): ResolvedDashboardWidgetCatalogEntry | undefined {
+    if (!(widgetType in DASHBOARD_WIDGET_CATALOG)) {
+        return undefined
+    }
+
+    return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
+}
+
+export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): ResolvedDashboardWidgetCatalogEntry {
+    return {
+        groupId: widgetType,
+        label: widgetType,
+        description: '',
+        defaultConfig: {},
+        defaultLayout: { w: 6, h: 5, minW: 6 },
+        headerTitle: widgetType,
+        headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
+        headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,
+    }
+}
+
 export type DashboardWidgetCatalogGroup = {
     groupId: string
     groupLabel: string

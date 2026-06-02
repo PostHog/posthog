@@ -15,6 +15,8 @@ import { DashboardPlacement, DashboardTile, DashboardType, QueryBasedInsightMode
 import {
     getDashboardWidgetCatalogEntry,
     getDashboardWidgetGroupLabel,
+    getUnknownDashboardWidgetCatalogFallback,
+    tryGetDashboardWidgetCatalogEntry,
     type ResolvedDashboardWidgetCatalogEntry,
 } from '../../widget_types/catalog'
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
@@ -62,66 +64,38 @@ type DashboardWidgetItemContentProps = Omit<
 > & {
     widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
     definition: DashboardWidgetDefinition | undefined
-    catalogEntry: ResolvedDashboardWidgetCatalogEntry
+    headerCatalogEntry: ResolvedDashboardWidgetCatalogEntry
     copyToDestinations: ReturnType<typeof useValues<typeof dashboardWidgetMenusLogic>>['copyToDestinations']
     editOpen: boolean
     setEditOpen: (open: boolean) => void
 }
 
-function DashboardWidgetItemInner({
-    tile,
-    placement,
+type DashboardWidgetItemBodyProps = {
+    widget: NonNullable<DashboardTile<QueryBasedInsightModel>['widget']>
+    definition: DashboardWidgetDefinition | undefined
+    componentProps: DashboardWidgetComponentProps
+}
+
+function DashboardWidgetItemBody({
     widget,
-    dashboardId,
-    result,
-    loading,
-    error,
-    lastFetchedAt,
-    onRefresh,
-    onUpdateWidgetTile,
-    toggleShowDescription,
-    onDragHandleMouseDown,
-    showEditingControls,
-    onDuplicate,
-    onRemove,
-    onMoveToDashboard,
-    onCopyToDashboard,
-    copyToDestinations,
-    editOpen,
-    setEditOpen,
-}: Omit<DashboardWidgetItemContentProps, 'definition' | 'catalogEntry'> & {
-    dashboardId?: number | null
-}): JSX.Element {
-    const definition = getDashboardWidgetDefinition(widget.widget_type, {
-        tileId: tile.id,
-        dashboardId: dashboardId ?? undefined,
-    })
+    definition,
+    componentProps,
+}: DashboardWidgetItemBodyProps): JSX.Element | null {
     const catalogEntry = getDashboardWidgetCatalogEntry(widget.widget_type)
+    const WidgetComponent = definition?.Component
+    const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
+
+    if (!hasProductAccess || !WidgetComponent) {
+        return null
+    }
 
     return (
-        <DashboardWidgetItemContent
-            tile={tile}
-            placement={placement}
-            widget={widget}
-            definition={definition}
-            catalogEntry={catalogEntry}
-            result={result}
-            loading={loading}
-            error={error}
-            lastFetchedAt={lastFetchedAt}
-            onRefresh={onRefresh}
-            onUpdateWidgetTile={onUpdateWidgetTile}
-            toggleShowDescription={toggleShowDescription}
-            onDragHandleMouseDown={onDragHandleMouseDown}
-            showEditingControls={showEditingControls}
-            onDuplicate={onDuplicate}
-            onRemove={onRemove}
-            onMoveToDashboard={onMoveToDashboard}
-            onCopyToDashboard={onCopyToDashboard}
-            copyToDestinations={copyToDestinations}
-            editOpen={editOpen}
-            setEditOpen={setEditOpen}
-        />
+        <WidgetRuntimeAvailabilityGuard
+            availability={catalogEntry.availability}
+            unavailableContentFallback={definition?.unavailableContentFallback}
+        >
+            <WidgetComponent {...componentProps} />
+        </WidgetRuntimeAvailabilityGuard>
     )
 }
 
@@ -130,7 +104,7 @@ function DashboardWidgetItemContent({
     placement,
     widget,
     definition,
-    catalogEntry,
+    headerCatalogEntry,
     result,
     loading,
     error,
@@ -148,19 +122,18 @@ function DashboardWidgetItemContent({
     editOpen,
     setEditOpen,
 }: DashboardWidgetItemContentProps): JSX.Element {
-    const widgetTypeLabel = getDashboardWidgetGroupLabel(catalogEntry.groupId)
-    const defaultTitle = catalogEntry.headerTitle ?? widgetTypeLabel
+    const widgetTypeLabel = getDashboardWidgetGroupLabel(headerCatalogEntry.groupId)
+    const defaultTitle = headerCatalogEntry.headerTitle ?? widgetTypeLabel
     const title = widget.name?.trim() || ''
     const description = widget.description?.trim() || ''
     const showDescription = tile.show_description !== false
-    const headerLayout = catalogEntry.headerLayout
-    const WidgetComponent = definition?.Component
+    const headerLayout = headerCatalogEntry.headerLayout
 
     const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
 
     const titleHref =
-        hasProductAccess && placement !== DashboardPlacement.Public && catalogEntry.titleHref
-            ? catalogEntry.titleHref
+        hasProductAccess && placement !== DashboardPlacement.Public && headerCatalogEntry.titleHref
+            ? headerCatalogEntry.titleHref
             : undefined
 
     const componentProps: DashboardWidgetComponentProps = {
@@ -179,16 +152,6 @@ function DashboardWidgetItemContent({
 
     const EditModal = definition?.EditModal
 
-    const widgetBody =
-        hasProductAccess && WidgetComponent ? (
-            <WidgetRuntimeAvailabilityGuard
-                availability={catalogEntry.availability}
-                unavailableContentFallback={definition?.unavailableContentFallback}
-            >
-                <WidgetComponent {...componentProps} />
-            </WidgetRuntimeAvailabilityGuard>
-        ) : null
-
     const hasDashboardSectionActions =
         !!(onMoveToDashboard || onCopyToDashboard || onRemove) ||
         (showEditingControls && toggleShowDescription && !!description) ||
@@ -205,7 +168,7 @@ function DashboardWidgetItemContent({
                 titleHref={titleHref}
                 widgetTypeLabel={widgetTypeLabel}
                 config={widget.config}
-                headerMeta={catalogEntry.headerMeta}
+                headerMeta={headerCatalogEntry.headerMeta}
                 description={description}
                 showDescription={showDescription}
                 loading={loading}
@@ -282,7 +245,16 @@ function DashboardWidgetItemContent({
                 onRefresh={onRefresh}
                 refreshing={loading}
             >
-                {widgetBody}
+                <ErrorBoundary
+                    className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
+                    exceptionProps={{
+                        feature: 'dashboard_widget',
+                        widget_type: widget.widget_type,
+                        tile_id: tile.id,
+                    }}
+                >
+                    <DashboardWidgetItemBody widget={widget} definition={definition} componentProps={componentProps} />
+                </ErrorBoundary>
                 {EditModal &&
                     editOpen &&
                     createPortal(
@@ -349,6 +321,14 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             return null
         }
 
+        const definition = getDashboardWidgetDefinition(widget.widget_type, {
+            tileId: tile.id,
+            dashboardId: dashboardId ?? undefined,
+        })
+        const headerCatalogEntry =
+            tryGetDashboardWidgetCatalogEntry(widget.widget_type) ??
+            getUnknownDashboardWidgetCatalogFallback(widget.widget_type)
+
         // react-grid-layout injects className/style via cloneElement — WidgetCard must be the root node
         // so decorative resize handles and RGL's .react-resizable-handle siblings share a parent (see InsightCard).
         return (
@@ -362,37 +342,29 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}
                 gridChildren={children}
             >
-                <ErrorBoundary
-                    className="flex min-h-0 min-w-0 flex-1 w-full max-w-full flex-col"
-                    exceptionProps={{
-                        feature: 'dashboard_widget',
-                        widget_type: widget.widget_type,
-                        tile_id: tile.id,
-                    }}
-                >
-                    <DashboardWidgetItemInner
-                        tile={tile}
-                        placement={placement}
-                        widget={widget}
-                        dashboardId={dashboardId}
-                        result={result}
-                        loading={loading}
-                        error={error}
-                        lastFetchedAt={lastFetchedAt}
-                        onRefresh={onRefresh}
-                        onUpdateWidgetTile={onUpdateWidgetTile}
-                        toggleShowDescription={toggleShowDescription}
-                        onDragHandleMouseDown={onDragHandleMouseDown}
-                        showEditingControls={showEditingControls}
-                        onDuplicate={onDuplicate}
-                        onRemove={onRemove}
-                        onMoveToDashboard={onMoveToDashboard}
-                        onCopyToDashboard={onCopyToDashboard}
-                        copyToDestinations={copyToDestinations}
-                        editOpen={editOpen}
-                        setEditOpen={setEditOpen}
-                    />
-                </ErrorBoundary>
+                <DashboardWidgetItemContent
+                    tile={tile}
+                    placement={placement}
+                    widget={widget}
+                    definition={definition}
+                    headerCatalogEntry={headerCatalogEntry}
+                    result={result}
+                    loading={loading}
+                    error={error}
+                    lastFetchedAt={lastFetchedAt}
+                    onRefresh={onRefresh}
+                    onUpdateWidgetTile={onUpdateWidgetTile}
+                    toggleShowDescription={toggleShowDescription}
+                    onDragHandleMouseDown={onDragHandleMouseDown}
+                    showEditingControls={showEditingControls}
+                    onDuplicate={onDuplicate}
+                    onRemove={onRemove}
+                    onMoveToDashboard={onMoveToDashboard}
+                    onCopyToDashboard={onCopyToDashboard}
+                    copyToDestinations={copyToDestinations}
+                    editOpen={editOpen}
+                    setEditOpen={setEditOpen}
+                />
             </WidgetCard>
         )
     }
