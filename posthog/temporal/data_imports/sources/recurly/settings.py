@@ -63,5 +63,6 @@ def _incremental_fields() -> list[IncrementalField]:
 
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: (_incremental_fields() if endpoint.supports_incremental else []) for name, endpoint in RECURLY_ENDPOINTS.items()
+    name: (_incremental_fields() if endpoint.supports_incremental else [])
+    for name, endpoint in RECURLY_ENDPOINTS.items()
 }

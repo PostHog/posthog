@@ -148,7 +148,9 @@ class TestRecurlyPaginator:
 class TestGetResource:
     @pytest.mark.parametrize("endpoint", INCREMENTAL_ENDPOINTS)
     def test_full_refresh_resource_uses_replace_and_stable_sort(self, endpoint):
-        resource = get_resource(endpoint, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None)
+        resource = get_resource(
+            endpoint, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+        )
         assert resource["name"] == endpoint
         assert resource["table_name"] == endpoint
         assert resource["write_disposition"] == "replace"
@@ -194,7 +196,10 @@ class TestGetResource:
 
     def test_no_begin_time_without_last_value(self):
         resource = get_resource(
-            "accounts", should_use_incremental_field=True, incremental_field="updated_at", db_incremental_field_last_value=None
+            "accounts",
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value=None,
         )
         assert "begin_time" not in resource["endpoint"]["params"]
 
