@@ -142,3 +142,61 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         drf_request = Request(django_request, parsers=[JSONParser()])
         result = verify_provisioning_signature(drf_request)
         assert result is None
+
+    def _make_request(self, body: bytes, sig_header: str) -> Request:
+        django_request = HttpRequest()
+        django_request.method = "POST"
+        django_request.content_type = "application/json"
+        django_request.META = {
+            "REQUEST_METHOD": "POST",
+            "CONTENT_TYPE": "application/json",
+            "CONTENT_LENGTH": str(len(body)),
+            "HTTP_STRIPE_SIGNATURE": sig_header,
+        }
+        django_request._stream = io.BytesIO(body)
+        django_request._read_started = False  # type: ignore[attr-defined]
+        return Request(django_request, parsers=[JSONParser()])
+
+    def test_succeeds_with_multiple_signatures_during_rotation(self):
+        # Stripe dual-signs while a signing-secret rotation is in flight, so the header
+        # carries the stale (old secret) signature alongside the current one. The current
+        # signature appears second here to guard against only checking the first v1.
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        stale_sig = compute_signature("rotated_out_secret", ts, body)
+        current_sig = compute_signature(HMAC_SECRET, ts, body)
+
+        drf_request = self._make_request(body, f"t={ts},v1={stale_sig},v1={current_sig}")
+        result = verify_provisioning_signature(drf_request)
+        assert result is None
+
+    def test_rejects_when_no_signature_matches(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time())
+        wrong_a = compute_signature("wrong_secret_a", ts, body)
+        wrong_b = compute_signature("wrong_secret_b", ts, body)
+
+        drf_request = self._make_request(body, f"t={ts},v1={wrong_a},v1={wrong_b}")
+        result = verify_provisioning_signature(drf_request)
+        assert result is not None
+        assert result.status_code == 401
+        assert result.data["error"]["code"] == "invalid_signature"
+
+    def test_rejects_stale_timestamp(self):
+        body = b'{"email":"test@example.com"}'
+        ts = int(time.time()) - 301
+        sig = compute_signature(HMAC_SECRET, ts, body)
+
+        drf_request = self._make_request(body, f"t={ts},v1={sig}")
+        result = verify_provisioning_signature(drf_request)
+        assert result is not None
+        assert result.status_code == 401
+        assert result.data["error"]["code"] == "invalid_signature"
+
+    def test_rejects_missing_header(self):
+        body = b'{"email":"test@example.com"}'
+        drf_request = self._make_request(body, "")
+        result = verify_provisioning_signature(drf_request)
+        assert result is not None
+        assert result.status_code == 401
+        assert result.data["error"]["code"] == "invalid_signature"
