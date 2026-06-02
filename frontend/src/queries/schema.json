@@ -35440,6 +35440,11 @@
                     },
                     "type": "array"
                 },
+                "hide_viewed_recordings": {
+                    "description": "Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set.",
+                    "enum": ["current-user", "any-user", null],
+                    "type": ["string", "null"]
+                },
                 "kind": {
                     "const": "RecordingsQuery",
                     "type": "string"
