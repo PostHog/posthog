@@ -69,10 +69,18 @@ export interface MaxEvaluationContext {
     hog_source?: string | null
 }
 
+export interface MaxNotebookRequestLocationContext {
+    type: 'notebook_position'
+    position: integer
+    previous_block_text?: string | null
+    next_block_text?: string | null
+}
+
 export interface MaxNotebookContext {
     type: MaxContextType.NOTEBOOK
     id: string // short_id
     name?: string | null
+    request_location?: MaxNotebookRequestLocationContext
 }
 
 // The main shape for the UI context sent to the backend
@@ -145,7 +153,7 @@ type MaxEvaluationContextInput = {
 }
 type MaxNotebookContextInput = {
     type: MaxContextType.NOTEBOOK
-    data: { short_id: string; title?: string | null }
+    data: { short_id: string; title?: string | null; request_location?: MaxNotebookRequestLocationContext }
 }
 export type MaxContextInput =
     | MaxInsightContextInput
@@ -228,7 +236,11 @@ export const createMaxContextHelpers = {
         data: evaluation,
     }),
 
-    notebook: (notebook: { short_id: string; title?: string | null }): MaxNotebookContextInput => ({
+    notebook: (notebook: {
+        short_id: string
+        title?: string | null
+        request_location?: MaxNotebookRequestLocationContext
+    }): MaxNotebookContextInput => ({
         type: MaxContextType.NOTEBOOK,
         data: notebook,
     }),

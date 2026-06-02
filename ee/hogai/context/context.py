@@ -16,6 +16,7 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
     ModeContext,
 )
@@ -49,6 +50,24 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
 )
+
+
+def _format_notebook_request_location(notebook: MaxNotebookContext) -> str | None:
+    location = notebook.request_location
+    if location is None:
+        return None
+
+    lines = [
+        "Request location:",
+        "The user invoked PostHog AI from this position in the notebook. Use these nearby block texts as local anchors when editing near the request.",
+        f"- ProseMirror position: {location.position}",
+    ]
+    if location.previous_block_text:
+        lines.append(f"- Previous block text:\n{location.previous_block_text}")
+    if location.next_block_text:
+        lines.append(f"- Next block text:\n{location.next_block_text}")
+
+    return "\n".join(lines)
 
 
 class AssistantContextManager(AssistantContextMixin):
@@ -281,7 +300,10 @@ class AssistantContextManager(AssistantContextMixin):
             for nb in ui_context.notebooks:
                 ctx = await NotebookContext.from_short_id(self._team, nb.id)
                 if ctx:
-                    notebook_texts.append(ctx.format())
+                    notebook_text = ctx.format()
+                    if request_location := _format_notebook_request_location(nb):
+                        notebook_text = f"{notebook_text}\n\n{request_location}"
+                    notebook_texts.append(notebook_text)
             if notebook_texts:
                 joined_notebooks = "\n\n".join(notebook_texts)
                 notebooks_context = (

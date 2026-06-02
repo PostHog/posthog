@@ -27235,12 +27235,35 @@
                 "name": {
                     "type": ["string", "null"]
                 },
+                "request_location": {
+                    "$ref": "#/definitions/MaxNotebookRequestLocationContext"
+                },
                 "type": {
                     "const": "notebook",
                     "type": "string"
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "MaxNotebookRequestLocationContext": {
+            "additionalProperties": false,
+            "properties": {
+                "next_block_text": {
+                    "type": ["string", "null"]
+                },
+                "position": {
+                    "$ref": "#/definitions/integer"
+                },
+                "previous_block_text": {
+                    "type": ["string", "null"]
+                },
+                "type": {
+                    "const": "notebook_position",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "position"],
             "type": "object"
         },
         "MaxOuterUniversalFiltersGroup": {

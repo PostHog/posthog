@@ -211,10 +211,12 @@ export const errorTrackingIssueToMaxContextPayload = (issue: {
 export const notebookToMaxContextPayload = (notebook: {
     short_id: string
     title?: string | null
+    request_location?: MaxNotebookContext['request_location']
 }): MaxNotebookContext => ({
     type: MaxContextType.NOTEBOOK,
     id: notebook.short_id,
     name: notebook.title,
+    request_location: notebook.request_location,
 })
 
 export const evaluationToMaxContextPayload = (evaluation: {
@@ -249,6 +251,12 @@ export interface MaxOpenContext {
         evaluation_type: 'hog' | 'llm_judge'
         hog_source?: string | null
     }
+    /** Notebook context */
+    notebook?: {
+        short_id: string
+        title?: string | null
+        request_location?: MaxNotebookContext['request_location']
+    }
 }
 
 /**
@@ -263,6 +271,10 @@ export function convertToMaxUIContext(openContext: MaxOpenContext): Partial<MaxU
 
     if (openContext.evaluation) {
         uiContext.evaluations = [evaluationToMaxContextPayload(openContext.evaluation)]
+    }
+
+    if (openContext.notebook) {
+        uiContext.notebooks = [notebookToMaxContextPayload(openContext.notebook)]
     }
 
     return uiContext

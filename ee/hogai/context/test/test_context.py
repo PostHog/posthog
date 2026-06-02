@@ -28,6 +28,8 @@ from posthog.schema import (
     MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxNotebookContext,
+    MaxNotebookRequestLocationContext,
     MaxUIContext,
     ModeContext,
     RetentionEntity,
@@ -38,7 +40,10 @@ from posthog.schema import (
 
 from posthog.models.organization import OrganizationMembership
 
+from products.notebooks.backend.models import Notebook
+
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.context.notebook.context import NotebookContext
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -601,6 +606,47 @@ class TestAssistantContextManager(BaseTest):
         with patch.object(self.context_manager, "get_ui_context", return_value=ui_context):
             result = self.context_manager.has_awaitable_context(state)
             self.assertFalse(result)
+
+    async def test_format_ui_context_includes_notebook_request_location(self):
+        notebook = Notebook(
+            team=self.team,
+            short_id="request123",
+            title="Request notebook",
+            content={
+                "type": "doc",
+                "content": [
+                    {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Notebook"}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Previous paragraph"}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Next paragraph"}]},
+                ],
+            },
+            text_content="Notebook\nPrevious paragraph\nNext paragraph",
+        )
+        ui_context = MaxUIContext(
+            notebooks=[
+                MaxNotebookContext(
+                    id=notebook.short_id,
+                    name=notebook.title,
+                    request_location=MaxNotebookRequestLocationContext(
+                        position=42,
+                        previous_block_text="Previous paragraph",
+                        next_block_text="Next paragraph",
+                    ),
+                )
+            ]
+        )
+
+        with patch(
+            "ee.hogai.context.notebook.context.NotebookContext.from_short_id",
+            return_value=NotebookContext.from_model(self.team, notebook),
+        ):
+            result = await self.context_manager._format_ui_context(ui_context)
+
+        assert result is not None
+        self.assertIn("Request location:", result)
+        self.assertIn("Previous paragraph", result)
+        self.assertIn("Next paragraph", result)
+        self.assertIn("ProseMirror position: 42", result)
 
     @parameterized.expand(
         [

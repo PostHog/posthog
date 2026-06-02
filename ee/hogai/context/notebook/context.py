@@ -44,7 +44,7 @@ class NotebookContext:
         @database_sync_to_async(thread_sensitive=False)
         def _fetch():
             try:
-                return Notebook.objects.get(short_id=short_id, team=team, deleted=False)
+                return Notebook.objects.get(short_id=short_id, team_id=team.id, deleted=False)
             except Notebook.DoesNotExist:
                 return None
 

@@ -33,7 +33,7 @@ import {
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
+import { PENDING_AI_PROMPT_KEY, maxThreadLogic } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
 
 /** Maximum age for restored prompts (5 minutes) */
@@ -104,7 +104,7 @@ function parseCommandString(options: string): ParsedCommand {
     }
 }
 
-function handleCommandString(options: string, actions: maxLogicType['actions']): void {
+function handleCommandString(options: string, actions: maxLogicType['actions']): ParsedCommand {
     const parsed = parseCommandString(options)
 
     // Note: The mode parameter is handled directly by maxThreadLogic in its afterMount
@@ -117,6 +117,8 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
     if (parsed.question !== '') {
         actions.setQuestion(parsed.question)
     }
+
+    return parsed
 }
 
 const CHAT_TITLE_NEW = 'New chat'
@@ -453,7 +455,21 @@ export const maxLogic = kea<maxLogicType>([
         // Listen for when the side panel state changes and check for initial prompt
         [sidePanelStateLogic.actionTypes.openSidePanel]: ({ tab, options }) => {
             if (tab === SidePanelTab.Max && options && typeof options === 'string') {
-                handleCommandString(options, actions)
+                const parsed = handleCommandString(options, actions)
+                if (props.tabId === 'sidepanel' && parsed.autoRun && parsed.question !== '') {
+                    const threadLogic = maxThreadLogic({
+                        tabId: 'sidepanel',
+                        conversationId: values.threadLogicKey,
+                        conversation: null,
+                    })
+                    if (!threadLogic.isMounted()) {
+                        return
+                    }
+                    window.setTimeout(() => {
+                        actions.askMax(parsed.question)
+                        actions.setAutoRun(false)
+                    }, 0)
+                }
             }
         },
         scrollThreadToBottom: ({ behavior }) => {

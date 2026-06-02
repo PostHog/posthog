@@ -1,10 +1,11 @@
 import { Extension } from '@tiptap/core'
 import { ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import {
+    IconAI,
     IconCode,
     IconCursor,
     IconDatabase,
@@ -23,7 +24,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonDivider, lemonToast } from '@posthog/lemon-ui'
 
-import { EditorCommands, EditorRange } from 'lib/components/RichContentEditor/types'
+import { EditorCommands, EditorRange, RichContentNode } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
@@ -33,17 +34,21 @@ import { isKeyOf } from 'lib/utils'
 import { selectFiles } from 'lib/utils/file-utils'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { ValueOf } from 'lib/utils/types'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
+import type { MaxNotebookRequestLocationContext } from 'scenes/max/maxTypes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
+import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod, SidePanelTab } from '~/types'
 
 import { addExperimentsToNotebookModalLogic } from '../AddExperimentsToNotebookModal/addExperimentsToNotebookModalLogic'
 import { addInsightsToNotebookModalLogic } from '../AddInsightsToNotebookModal/addInsightsToNotebookModalLogic'
 import { NODE_ICONS } from '../nodeIcons'
 import { buildInsightVizQueryContent, buildNodeEmbed, buildNodeQueryContent } from '../Nodes/nodeBuilders'
-import { NotebookNodeType } from '../types'
+import { NotebookEditor, NotebookNodeType } from '../types'
+import { textContent } from '../utils'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
 
@@ -88,6 +93,9 @@ type SlashCommandCategory = {
     items: SlashCommandsItem[]
 }
 
+const NOTEBOOK_AI_COMMAND_TITLE = 'AI'
+const MAX_REQUEST_LOCATION_BLOCK_TEXT_LENGTH = 500
+
 const TEXT_CONTROLS: SlashCommandsItem[] = [
     {
         title: 'h1',
@@ -117,6 +125,18 @@ const TEXT_CONTROLS: SlashCommandsItem[] = [
 ]
 
 const SLASH_COMMAND_CATEGORIES: SlashCommandCategory[] = [
+    {
+        title: 'AI',
+        icon: <IconAI />,
+        items: [
+            {
+                title: NOTEBOOK_AI_COMMAND_TITLE,
+                search: 'ai max posthog ai ask',
+                icon: <IconAI />,
+                command: (chain) => chain,
+            },
+        ],
+    },
     {
         title: 'Insight',
         icon: <IconGraph color="currentColor" />,
@@ -513,18 +533,54 @@ function flattenCommands(
     )
 }
 
+function getAiPromptFromQuery(query?: string): string | null {
+    const match = query?.trim().match(/^ai(?:\s+(.*))?$/i)
+    if (!match) {
+        return null
+    }
+    return (match[1] ?? '').trim()
+}
+
+function buildNotebookRequestLocation(editor: NotebookEditor, position: number): MaxNotebookRequestLocationContext {
+    const { previous, next } = editor.getAdjacentNodes(position)
+    return {
+        type: 'notebook_position',
+        position,
+        previous_block_text: getAnchorText(previous),
+        next_block_text: getAnchorText(next),
+    }
+}
+
+function getAnchorText(node: RichContentNode | null): string | null {
+    if (!node) {
+        return null
+    }
+
+    const content = textContent(node).trim()
+    if (!content) {
+        return null
+    }
+    if (content.length <= MAX_REQUEST_LOCATION_BLOCK_TEXT_LENGTH) {
+        return content
+    }
+    return `${content.slice(0, MAX_REQUEST_LOCATION_BLOCK_TEXT_LENGTH).trimEnd()}...`
+}
+
 export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(function SlashCommands(
     { mode, range, getPos, onClose, query }: SlashCommandsProps,
     ref
 ): JSX.Element | null {
-    const { editor } = useValues(notebookLogic)
+    const { editor, notebook, shortId } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { addOrUpdateContextNotebook } = useActions(maxContextLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     // We start with 1 because the first item is the text controls
     const [selectedIndex, setSelectedIndex] = useState(0)
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
     const allFlatCommands = useMemo(() => flattenCommands(SLASH_COMMAND_CATEGORIES, featureFlags), [featureFlags])
     const allCommmands = [...TEXT_CONTROLS, ...allFlatCommands]
+    const aiPrompt = getAiPromptFromQuery(query)
 
     const fuse = useMemo(() => {
         return createFuse(allCommmands, {
@@ -536,12 +592,15 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
     const isSearching = !!query
 
     const filteredCommands = useMemo(() => {
+        if (aiPrompt !== null) {
+            return allFlatCommands.filter((item) => item.title === NOTEBOOK_AI_COMMAND_TITLE)
+        }
         if (!query) {
             return allCommmands
         }
         return fuse.search(query).map((result) => result.item)
         // oxlint-disable-next-line exhaustive-deps
-    }, [query, fuse])
+    }, [query, fuse, aiPrompt, allFlatCommands])
 
     const filteredSlashCommands = useMemo(
         () => filteredCommands.filter((item) => allFlatCommands.includes(item)),
@@ -563,6 +622,20 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 const position = mode === 'slash' ? range.from : getPos()
                 let chain = mode === 'slash' ? editor.deleteRange(range) : editor.chain()
 
+                if (item.title === NOTEBOOK_AI_COMMAND_TITLE) {
+                    const prompt = aiPrompt === null ? '' : aiPrompt
+                    const contextNotebook = {
+                        short_id: notebook?.short_id ?? shortId,
+                        title: notebook?.title,
+                        request_location: buildNotebookRequestLocation(editor, position),
+                    }
+                    addOrUpdateContextNotebook(contextNotebook)
+                    chain.run()
+                    openSidePanel(SidePanelTab.Max, prompt ? `!${prompt}` : undefined)
+                    onClose?.()
+                    return
+                }
+
                 if (!isTextNode && isTextCommand) {
                     chain = chain.insertContentAt(position, { type: 'paragraph' })
                 }
@@ -574,20 +647,22 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
             }
         },
         // oxlint-disable-next-line exhaustive-deps
-        [editor, mode, range, getPos, onClose]
+        [editor, mode, range, getPos, onClose, aiPrompt, addOrUpdateContextNotebook, notebook, shortId, openSidePanel]
     )
 
     const onPressEnter = async (): Promise<void> => {
         const command =
             selectedIndex === -1 ? TEXT_CONTROLS[selectedHorizontalIndex] : filteredSlashCommands[selectedIndex]
 
-        await execute(command)
+        if (command) {
+            await execute(command)
+        }
     }
     const onPressUp = (): void => {
         setSelectedIndex(Math.max(selectedIndex - 1, -1))
     }
     const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, allFlatCommands.length - 1))
+        setSelectedIndex(Math.min(selectedIndex + 1, filteredSlashCommands.length - 1))
     }
 
     const onPressLeft = (): void => {

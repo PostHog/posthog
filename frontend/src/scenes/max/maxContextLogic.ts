@@ -36,6 +36,7 @@ import {
     MaxEventContext,
     MaxInsightContext,
     MaxNotebookContext,
+    MaxNotebookRequestLocationContext,
     MaxUIContext,
 } from './maxTypes'
 import {
@@ -86,7 +87,11 @@ export const maxContextLogic = kea<maxContextLogicType>([
         addOrUpdateContextEvent: (data: EventDefinition) => ({ data }),
         addOrUpdateContextAction: (data: ActionType) => ({ data }),
         addOrUpdateContextErrorTrackingIssue: (data: { id: string; name?: string | null }) => ({ data }),
-        addOrUpdateContextNotebook: (data: { short_id: string; title?: string | null }) => ({ data }),
+        addOrUpdateContextNotebook: (data: {
+            short_id: string
+            title?: string | null
+            request_location?: MaxNotebookRequestLocationContext
+        }) => ({ data }),
         addOrUpdateContextEvaluation: (data: {
             id: string
             name?: string | null
@@ -189,7 +194,15 @@ export const maxContextLogic = kea<maxContextLogicType>([
             {
                 addOrUpdateContextNotebook: (
                     state: MaxNotebookContext[],
-                    { data }: { data: { short_id: string; title?: string | null } }
+                    {
+                        data,
+                    }: {
+                        data: {
+                            short_id: string
+                            title?: string | null
+                            request_location?: MaxNotebookRequestLocationContext
+                        }
+                    }
                 ) => addOrUpdateEntity(state, notebookToMaxContextPayload(data)),
                 removeContextNotebook: (state: MaxNotebookContext[], { id }: { id: string }) => removeEntity(state, id),
                 resetContext: () => [],
