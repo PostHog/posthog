@@ -8,6 +8,7 @@ import {
     LemonCheckbox,
     LemonDialog,
     LemonSegmentedButton,
+    LemonSnack,
     LemonTable,
     LemonTableColumns,
     Link,
@@ -38,8 +39,10 @@ const SYMBOL_SET_FILTER_OPTIONS = [
 ] as { label: string; value: SymbolSetStatusFilter }[]
 
 export function SymbolSets(): JSX.Element {
-    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading } = useValues(symbolSetLogic)
-    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets } = useActions(symbolSetLogic)
+    const { symbolSetStatusFilter, selectedSymbolSetIds, deleteSymbolSetResponseLoading, symbolSetRefFilter } =
+        useValues(symbolSetLogic)
+    const { loadSymbolSets, setSymbolSetStatusFilter, bulkDeleteSymbolSets, setSymbolSetRefFilter } =
+        useActions(symbolSetLogic)
 
     useEffect(() => {
         loadSymbolSets()
@@ -56,6 +59,12 @@ export function SymbolSets(): JSX.Element {
                 Cases where it was not possible are listed below. Source maps can be uploaded retroactively but changes
                 will only apply to all future exceptions ingested.
             </p>
+            {symbolSetRefFilter && (
+                <div className="flex items-center gap-2">
+                    <span>Filtered to the symbol set referenced by a stack frame:</span>
+                    <LemonSnack onClose={() => setSymbolSetRefFilter(null)}>{symbolSetRefFilter}</LemonSnack>
+                </div>
+            )}
             <div className="space-y-2">
                 <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">

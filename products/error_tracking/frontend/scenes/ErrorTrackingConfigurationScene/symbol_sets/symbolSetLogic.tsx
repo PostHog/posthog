@@ -1,5 +1,6 @@
 import { actions, afterMount, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -30,6 +31,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         setSelectedSymbolSetIds: (ids: string[]) => ({ ids }),
         setShiftKeyHeld: (shiftKeyHeld: boolean) => ({ shiftKeyHeld }),
         setPreviouslyCheckedIndex: (index: number) => ({ index }),
+        setSymbolSetRefFilter: (ref: string | null) => ({ ref }),
     }),
 
     defaults({
@@ -41,16 +43,21 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         deleteSymbolSetResponse: null as null,
         shiftKeyHeld: false as boolean,
         previouslyCheckedIndex: null as number | null,
+        symbolSetRefFilter: null as string | null,
     }),
 
     reducers({
         symbolSetStatusFilter: {
             setSymbolSetStatusFilter: (_, { status }) => status,
         },
+        symbolSetRefFilter: {
+            setSymbolSetRefFilter: (_, { ref }) => ref,
+        },
         page: {
             setPage: (_, { page }) => page,
             setSymbolSetStatusFilter: () => 1,
             setSymbolSetOrder: () => 1,
+            setSymbolSetRefFilter: () => 1,
         },
         symbolSetOrder: {
             setSymbolSetOrder: (_, { order }) => order,
@@ -77,6 +84,7 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
                     limit: RESULTS_PER_PAGE,
                     offset: (values.page - 1) * RESULTS_PER_PAGE,
                     orderBy: values.symbolSetOrder,
+                    ref: values.symbolSetRefFilter ?? undefined,
                 })
                 return res
             },
@@ -111,6 +119,14 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         setSymbolSetStatusFilter: () => actions.loadSymbolSets(),
         setPage: () => actions.loadSymbolSets(),
         setSymbolSetOrder: () => actions.loadSymbolSets(),
+        setSymbolSetRefFilter: ({ ref }) => {
+            actions.loadSymbolSets()
+            // Drop the deep-link param once cleared so refreshing the page does not re-apply the filter.
+            if (!ref) {
+                const { symbolSetRef: _, ...rest } = router.values.hashParams
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, rest)
+            }
+        },
     })),
 
     selectors({
@@ -131,6 +147,15 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
             ],
         ],
     }),
+
+    urlToAction(({ actions, values }) => ({
+        '**/error_tracking': (_, __, hashParams) => {
+            const ref = (hashParams.symbolSetRef as string | undefined) ?? null
+            if (ref !== values.symbolSetRefFilter) {
+                actions.setSymbolSetRefFilter(ref)
+            }
+        },
+    })),
 
     afterMount(({ actions, cache }) => {
         cache.disposables.add(() => {

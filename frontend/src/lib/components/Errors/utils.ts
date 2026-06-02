@@ -1,5 +1,7 @@
 import { P, match } from 'ts-pattern'
 
+import { urls } from 'scenes/urls'
+
 import { isPostHogProperty } from '~/taxonomy/taxonomy'
 
 import {
@@ -7,9 +9,23 @@ import {
     ErrorTrackingException,
     ErrorTrackingRuntime,
     ErrorTrackingStackFrame,
+    ErrorTrackingSymbolSet,
     ExceptionAttributes,
     FingerprintRecordPart,
 } from './types'
+
+// Hash param consumed by the symbol sets settings section (see SettingsMap.tsx).
+export const SYMBOL_SETS_SETTING_ID = 'error-tracking-symbol-sets'
+
+// Deep link to the symbol sets configuration table, optionally pre-filtered to a single reference
+// so a frame can point straight at the symbol set it did (or should have) matched.
+export function symbolSetConfigUrl(ref?: ErrorTrackingSymbolSet['ref'] | null): string {
+    const hashParams = new URLSearchParams({ selectedSetting: SYMBOL_SETS_SETTING_ID })
+    if (ref) {
+        hashParams.set('symbolSetRef', ref)
+    }
+    return `${urls.errorTrackingConfiguration()}#${hashParams.toString()}`
+}
 
 export function stacktraceHasInAppFrames(stacktrace: ErrorTrackingException['stacktrace']): boolean {
     if (!stacktrace?.frames || !Array.isArray(stacktrace.frames)) {

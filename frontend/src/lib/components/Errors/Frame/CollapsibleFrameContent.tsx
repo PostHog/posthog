@@ -5,6 +5,7 @@ import { ErrorTrackingStackFrame, ErrorTrackingStackFrameContext, ErrorTrackingS
 import { CodeVariablesInlineBanner } from './CodeVariablesInlineBanner'
 import { FrameContext } from './FrameContext'
 import { FrameVariables } from './FrameVariables'
+import { SymbolSetLink } from './SymbolSetLink'
 
 export interface CollapsibleFrameContentProps {
     frame: ErrorTrackingStackFrame
@@ -29,6 +30,12 @@ export function CollapsibleFrameContent({
                 <FrameContext context={record.context} language={getLanguage(lang)} />
                 {hasCodeVariables ? <FrameVariables variables={code_variables!} /> : <CodeVariablesInlineBanner />}
             </div>
+            {record.symbol_set_ref && (
+                <div className="flex items-center gap-2 px-2 py-1 border-t text-xs text-secondary overflow-hidden">
+                    <span className="shrink-0">Symbol set</span>
+                    <SymbolSetLink symbolSetRef={record.symbol_set_ref} resolved className="min-w-0" />
+                </div>
+            )}
         </Collapsible.Panel>
     )
 }

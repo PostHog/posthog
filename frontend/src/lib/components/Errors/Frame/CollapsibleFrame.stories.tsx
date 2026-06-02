@@ -135,6 +135,13 @@ export function UnresolvedFrame(): JSX.Element {
                 resolved: false,
                 resolve_failure: 'No source map found for this frame',
             }}
+            record={{
+                ...baseRecord,
+                raw_id: 'unresolved-1',
+                resolved: false,
+                context: null,
+                symbol_set_ref: 'https://static.example.com/main.jsbundle',
+            }}
         />
     )
 }

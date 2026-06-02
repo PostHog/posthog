@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
+import { IconBox, IconCopy, IconExternal, IconGitLab, IconGithub } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -14,10 +14,12 @@ import {
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
+import { symbolSetConfigUrl } from '../utils'
 import { SourceData, framesCodeSourceLogic } from './framesCodeSourceLogic'
 
 export function FrameDropDownMenu({
     frame,
+    record,
     children,
     className,
 }: {
@@ -30,6 +32,7 @@ export function FrameDropDownMenu({
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
     const sourceData = getSourceDataForFrame(raw_id)
     const lineLocation = getLineLocation(frame)
+    const symbolSetRef = record?.symbol_set_ref
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -41,8 +44,21 @@ export function FrameDropDownMenu({
                 {lineLocation && <CopyItem value={lineLocation} description="line location" />}
                 {sourceData && <DropdownMenuSeparator />}
                 {sourceData && <SourceDataLink sourceData={sourceData} />}
+                {symbolSetRef && <DropdownMenuSeparator />}
+                {symbolSetRef && <SymbolSetMenuLink symbolSetRef={symbolSetRef} />}
             </DropdownMenuContent>
         </DropdownMenu>
+    )
+}
+
+function SymbolSetMenuLink({ symbolSetRef }: { symbolSetRef: string }): JSX.Element {
+    return (
+        <DropdownMenuItem>
+            <Link to={symbolSetConfigUrl(symbolSetRef)} className="inline-flex items-center">
+                <IconBox className="w-3.5 h-3.5" />
+                View symbol set
+            </Link>
+        </DropdownMenuItem>
     )
 }
 

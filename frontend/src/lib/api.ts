@@ -4110,17 +4110,20 @@ const api = {
                 offset = 0,
                 limit = 100,
                 orderBy = '-created_at',
+                ref,
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
                 orderBy?: SymbolSetOrder
+                ref?: string
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
                 const queryString = {
                     order_by: orderBy,
                     status,
                     offset,
                     limit,
+                    ...(ref ? { ref } : {}),
                 }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
