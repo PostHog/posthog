@@ -333,7 +333,9 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
+            // toolbarFetch classifies the raw `TypeError: Failed to fetch` into a synthesized
+            // 503 with `detail: 'network_or_cors'`, so the save path surfaces the classified code.
+            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: network_or_cors')
         })
     })
 
