@@ -32,6 +32,11 @@ class OktaSource(ResumableSource[OktaSourceConfig, OktaResumeConfig]):
         return ExternalDataSourceType.OKTA
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `okta_domain` is where the stored API token is sent; retargeting it must re-require the token.
+        return ["okta_domain"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OKTA,

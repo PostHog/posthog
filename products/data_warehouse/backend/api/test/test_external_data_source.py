@@ -4075,6 +4075,62 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_api_key"] == "sk_existing"
         mock_validate_credentials.assert_called_once()
 
+    def _okta_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Okta",
+            created_by=self.user,
+            prefix="okta_src",
+            job_inputs={"okta_domain": "company.okta.com", "api_key": "existing_token"},
+        )
+
+    @parameterized.expand([("without_token", {}, 400), ("with_token", {"api_key": "new_token"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_domain_change_requires_token(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # `okta_domain` is the connection target for Okta. Retargeting it without re-supplying the API
+        # token would send the preserved token to a host the editor chose, so the change is rejected.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "attacker.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        expected_domain = "attacker.example.com" if expected_status == 200 else "company.okta.com"
+        assert source.job_inputs["okta_domain"] == expected_domain
+        assert source.job_inputs["api_key"] == ("new_token" if expected_status == 200 else "existing_token")
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_same_domain_keeps_token(self, mock_validate_credentials):
+        # Re-saving the source without changing the domain must not force the user to re-enter the token.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "company.okta.com"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["api_key"] == "existing_token"
+        mock_validate_credentials.assert_called_once()
+
     @patch(
         "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
         return_value=(True, None),
