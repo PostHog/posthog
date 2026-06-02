@@ -1,6 +1,8 @@
 import sys
 import subprocess
 
+import pytest
+
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
 # deferred embedded-ClickHouse). Importing any of them at setup means a new module-level
@@ -86,4 +88,72 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
         "A model must be imported from its app's models/__init__ (or models.py) so it registers "
         "at app-population — Django requires this for makemigrations, admin, and mypy. Add the "
         "missing import to the app's models package instead of relying on a viewset import."
+    )
+
+
+# Same trap as the model guard, but for Django signal receivers. Importing a viewset module also runs
+# its ``@receiver`` decorators — so the eager router connected a pile of receivers as a side effect of
+# ``django.setup()``. With the lazy router those connect only when the router is first built, so any
+# process that never builds it (celery, temporal, migrate, shell) silently loses them. The fallout is
+# not cosmetic: feature-flag cache invalidation (``flags_cache``/``local_evaluation``) and alert
+# cleanup (``alerts.backend.api.alert``) stop firing on background writes. Every receiver must be wired
+# at setup — canonically from the owning app's ``AppConfig.ready()`` — so building the router connects
+# none. This is xfail on ``pr-60700-base`` because the lazy-router work regresses it; wire the offending
+# receivers into ``AppConfig.ready()`` and remove this marker (``strict=True`` flips xpass to a failure
+# once it's fixed, forcing the marker's removal).
+_ROUTER_RECEIVER_DIFF = """
+import os
+import weakref
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+import django
+
+django.setup()
+from django.db.models import signals
+
+_SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
+
+
+def _resolve(entry):
+    ref = entry[1]
+    fn = ref() if isinstance(ref, weakref.ReferenceType) else ref
+    if fn is None:
+        return None
+    return f"{getattr(fn, '__module__', '?')}.{getattr(fn, '__qualname__', repr(fn))}"
+
+
+def _connected():
+    out = set()
+    for name in _SIGNALS:
+        for entry in getattr(signals, name).receivers:
+            resolved = _resolve(entry)
+            if resolved:
+                out.add(f"{name}:{resolved}")
+    return out
+
+
+before = _connected()
+from posthog.api import rest_router  # noqa: F401 — building the aggregator imports ~200 viewsets
+after = _connected()
+print("\\n".join(sorted(after - before)))
+"""
+
+
+@pytest.mark.xfail(
+    reason="lazy router defers signal-receiver connection off django.setup() — wire via AppConfig.ready()", strict=True
+)
+def test_signal_receivers_connect_at_setup_not_via_router() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _ROUTER_RECEIVER_DIFF],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, f"snapshot failed:\n{result.stderr[-2000:]}"
+    late = [r for r in result.stdout.splitlines() if r]
+    assert not late, (
+        f"These {len(late)} signal receivers connect ONLY when the API router is imported: {late}. "
+        "They are wired as an import side effect of a viewset module, so with the lazy router they never "
+        "connect in a process that doesn't build it (celery, temporal, migrate, shell). Connect them from "
+        "the owning app's AppConfig.ready() so they wire at django.setup()."
     )
