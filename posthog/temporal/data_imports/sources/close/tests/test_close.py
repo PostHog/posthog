@@ -150,7 +150,8 @@ class TestGetResource:
         resource = get_resource("Opportunities", should_use_incremental_field=True, incremental_field="date_updated")
         params = resource["endpoint"]["params"]
         assert "date_updated__gte" in params
-        assert params["date_updated__gte"]["cursor_path"] == "date_updated"
+        gte = cast(dict[str, Any], params["date_updated__gte"])
+        assert gte["cursor_path"] == "date_updated"
         assert params["_order_by"] == "date_updated"
         assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
 

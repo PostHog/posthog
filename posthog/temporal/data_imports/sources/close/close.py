@@ -150,14 +150,9 @@ def close_source(
             },
             "paginator": CloseOffsetPaginator(),
         },
-        "resource_defaults": {
-            "write_disposition": {
-                "disposition": "merge",
-                "strategy": "upsert",
-            }
-            if should_use_incremental_field
-            else "replace",
-        },
+        # Write disposition is set per-resource in get_resource (it always wins over
+        # resource_defaults), so no default is needed here.
+        "resource_defaults": {},
         "resources": [get_resource(endpoint, should_use_incremental_field, incremental_field)],
     }
 

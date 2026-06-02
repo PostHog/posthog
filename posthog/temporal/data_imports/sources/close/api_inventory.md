@@ -24,18 +24,18 @@ Spec: <https://api.close.com/api/openapi.json> (version 1.0.0).
 
 Only endpoints with a genuine server-side timestamp filter get `supports_incremental=True`:
 
-| Endpoint        | Path                       | Offset pag | Server-side date filter                       | `_order_by` | Incremental |
-| --------------- | -------------------------- | ---------- | --------------------------------------------- | ----------- | ----------- |
-| Activities      | `/activity/`               | yes        | `date_created__gte/lte/gt/lt`                 | yes         | date_created |
-| Opportunities   | `/opportunity/`            | yes        | `date_created__*`, `date_updated__*`, `date_won__*` | yes   | date_created (+ date_updated) |
-| Tasks           | `/task/`                   | yes        | `date_created__*`, `date_updated__*`, `date__*` | yes       | date_created (+ date_updated) |
-| Leads           | `/lead/`                   | yes        | **none** (only the search/query API)          | no          | full refresh |
-| Contacts        | `/contact/`                | yes        | **none**                                      | no          | full refresh |
-| Users           | `/user/`                   | yes        | none                                          | yes         | full refresh |
-| Lead statuses   | `/status/lead/`            | no         | none                                          | no          | full refresh |
-| Opp. statuses   | `/status/opportunity/`     | no         | none                                          | no          | full refresh |
-| Pipelines       | `/pipeline/`               | no         | none                                          | no          | full refresh |
-| Email templates | `/email_template/`         | yes        | none                                          | no          | full refresh |
+| Endpoint        | Path                   | Offset pag | Server-side date filter                             | `_order_by` | Incremental                   |
+| --------------- | ---------------------- | ---------- | --------------------------------------------------- | ----------- | ----------------------------- |
+| Activities      | `/activity/`           | yes        | `date_created__gte/lte/gt/lt`                       | yes         | date_created                  |
+| Opportunities   | `/opportunity/`        | yes        | `date_created__*`, `date_updated__*`, `date_won__*` | yes         | date_created (+ date_updated) |
+| Tasks           | `/task/`               | yes        | `date_created__*`, `date_updated__*`, `date__*`     | yes         | date_created (+ date_updated) |
+| Leads           | `/lead/`               | yes        | **none** (only the search/query API)                | no          | full refresh                  |
+| Contacts        | `/contact/`            | yes        | **none**                                            | no          | full refresh                  |
+| Users           | `/user/`               | yes        | none                                                | yes         | full refresh                  |
+| Lead statuses   | `/status/lead/`        | no         | none                                                | no          | full refresh                  |
+| Opp. statuses   | `/status/opportunity/` | no         | none                                                | no          | full refresh                  |
+| Pipelines       | `/pipeline/`           | no         | none                                                | no          | full refresh                  |
+| Email templates | `/email_template/`     | yes        | none                                                | no          | full refresh                  |
 
 Notes:
 
