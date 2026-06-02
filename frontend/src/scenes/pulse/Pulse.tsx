@@ -22,6 +22,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
@@ -34,7 +35,16 @@ import { SidePanelTab } from '~/types'
 
 import { pulseLogic } from './pulseLogic'
 import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
-import { SENSITIVITY_PRESETS, ROBUST_Z_TOOLTIP, buildMaxSeedPrompt, describeChange } from './utils'
+import {
+    SENSITIVITY_PRESETS,
+    ROBUST_Z_TOOLTIP,
+    buildFindingInsightContext,
+    buildMaxSeedPrompt,
+    describeAbsoluteChange,
+    describeChange,
+    describeReference,
+    suggestedNextStep,
+} from './utils'
 
 export const scene: SceneExport = {
     component: Pulse,
@@ -66,12 +76,23 @@ function statusTone(status: PulseDigestStatus): LemonTagType {
 
 function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { addOrUpdateContextInsight } = useActions(maxContextLogic)
     const change = describeChange(finding.change_pct)
-    const askMax = (): void => openSidePanel(SidePanelTab.Max, `!${buildMaxSeedPrompt(finding)}`)
+    // Hand Max the actual insight as structured context (so it can read_data on the real metric), then
+    // open the panel and auto-send the seed. Falls back to prompt-only for event-sourced findings.
+    const openMaxWith = (seed: string): void => {
+        const insight = buildFindingInsightContext(finding)
+        if (insight) {
+            addOrUpdateContextInsight(insight)
+        }
+        openSidePanel(SidePanelTab.Max, `!${seed}`)
+    }
+    const askMax = (): void => openMaxWith(buildMaxSeedPrompt(finding))
+    const nextStep = suggestedNextStep(finding)
 
     return (
         <LemonCard>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-base font-semibold mb-0">{finding.metric_label}</h3>
                 <LemonTag type={change.tone}>{change.label}</LemonTag>
                 <Tooltip title={ROBUST_Z_TOOLTIP}>
@@ -95,7 +116,36 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                     </AIConsentPopoverWrapper>
                 </div>
             </div>
+            <div className="text-muted-alt text-xs mb-2">{describeAbsoluteChange(finding)}</div>
             <p className="text-sm mb-0">{finding.narrative}</p>
+            {nextStep ? (
+                <div className="mt-2">
+                    <AIConsentPopoverWrapper onApprove={() => openMaxWith(nextStep.seed)}>
+                        <LemonButton type="secondary" size="xsmall" onClick={() => openMaxWith(nextStep.seed)}>
+                            {nextStep.label}
+                        </LemonButton>
+                    </AIConsentPopoverWrapper>
+                </div>
+            ) : null}
+            {finding.evidence?.references?.length ? (
+                <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
+                    <span className="text-muted-alt">Related changes:</span>
+                    {finding.evidence.references.map((ref, index) => {
+                        const { label, to } = describeReference(ref)
+                        // `index` keeps the key unique even when id is missing ("" doesn't fall back via ??).
+                        const key = `${ref.type}-${ref.id || index}`
+                        return to ? (
+                            <LemonButton key={key} type="tertiary" size="xsmall" to={to} targetBlank>
+                                {label}
+                            </LemonButton>
+                        ) : (
+                            <LemonTag key={key} type="muted">
+                                {label}
+                            </LemonTag>
+                        )
+                    })}
+                </div>
+            ) : null}
             {finding.evidence?.session_ids?.length ? (
                 <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
                     <span className="text-muted-alt">Example sessions:</span>
@@ -324,8 +374,11 @@ export function Pulse(): JSX.Element {
         findingsError,
         scanTriggerLoading,
         isScanInProgress,
+        digestsNext,
+        loadingMore,
     } = useValues(pulseLogic)
-    const { loadDigests, loadFindings, loadSubscription, loadWatched, triggerScan } = useActions(pulseLogic)
+    const { loadDigests, loadMoreDigests, loadFindings, loadSubscription, loadWatched, triggerScan } =
+        useActions(pulseLogic)
     const { user } = useValues(userLogic)
 
     const flagEnabled = !!featureFlags[FEATURE_FLAGS.MAX_PULSE]
@@ -422,7 +475,7 @@ export function Pulse(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {digestsLoading ? (
+            {digestsLoading && digests.length === 0 ? (
                 <div className="space-y-3">
                     <LemonSkeleton className="h-8 w-48" />
                     <LemonSkeleton className="h-32 w-full" />
@@ -482,6 +535,19 @@ export function Pulse(): JSX.Element {
                                             <DigestRow key={digest.id} digest={digest} />
                                         ))}
                                     </ul>
+                                    {digestsNext && (
+                                        <div className="flex justify-center mt-3">
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => loadMoreDigests()}
+                                                loading={loadingMore}
+                                                disabledReason={loadingMore ? 'Loading…' : undefined}
+                                            >
+                                                Load more previous digests
+                                            </LemonButton>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
