@@ -44,7 +44,7 @@ export function describeChange(pct: number): ChangeDescriptor {
     return { direction: 'down', tone: 'danger', label: formatSignedPct(pct) }
 }
 
-// Seed question handed to Max ("Ask Max why") — investigative, never asserts a cause.
+// Seed question handed to the AI ("Explore with AI") — investigative, never asserts a cause.
 export function buildMaxSeedPrompt(finding: PulseFindingType): string {
     const breakdown = finding.attribution_breakdown
     const breakdownClause =
@@ -61,10 +61,12 @@ export function buildMaxSeedPrompt(finding: PulseFindingType): string {
 const REFERENCE_TYPE_PREFIXES: Record<string, string> = {
     feature_flag: 'Flag',
     experiment: 'Experiment',
+    annotation: 'Note',
 }
 
 // Turns a coincident-change reference into a labelled chip with an optional deep link, so the user can
-// jump straight to the flag/experiment the narrative mentioned (the same idea as the replay links).
+// jump straight to the flag / experiment / annotation the narrative tied to this finding (the same idea
+// as the replay links). A reference with no id renders as a label-only chip.
 export function describeReference(ref: PulseReference): { label: string; to?: string } {
     const prefix = REFERENCE_TYPE_PREFIXES[ref.type]
     const label = prefix ? `${prefix}: ${ref.label}` : ref.label
@@ -74,11 +76,14 @@ export function describeReference(ref: PulseReference): { label: string; to?: st
     if (ref.id && ref.type === 'experiment') {
         return { label, to: urls.experiment(ref.id) }
     }
+    if (ref.id && ref.type === 'annotation') {
+        return { label, to: urls.annotation(Number(ref.id)) }
+    }
     return { label }
 }
 
 // Pull the saved-insight short id out of a finding's "View insight" deep link (/insights/<short_id>),
-// so we can hand Max the actual insight as structured context. Event-sourced findings have no saved
+// so we can hand the AI the actual insight as structured context. Event-sourced findings have no saved
 // insight and return null (the handoff then degrades to prompt-only).
 export function findingShortId(finding: PulseFindingType): InsightShortId | null {
     const url = finding.metric_descriptor?.url
@@ -91,7 +96,7 @@ export function findingShortId(finding: PulseFindingType): InsightShortId | null
     return match ? (match[1] as InsightShortId) : null
 }
 
-// Structured Max context for a finding: the actual insight (query + name) so Max can read_data on the
+// Structured AI context for a finding: the actual insight (query + name) so the AI can read_data on the
 // real metric instead of re-deriving it from a prompt. Null when the finding isn't backed by a saved insight.
 export function buildFindingInsightContext(finding: PulseFindingType): InsightWithQuery | null {
     const shortId = findingShortId(finding)
@@ -102,14 +107,14 @@ export function buildFindingInsightContext(finding: PulseFindingType): InsightWi
     return { short_id: shortId, name: finding.metric_label, query }
 }
 
-// A guided, finding-specific "next step" that hands Max a concrete investigative task. Deterministic
+// A guided, finding-specific "next step" that hands the AI a concrete investigative task. Deterministic
 // (no LLM), and only for high-confidence shapes — a concentrated segment, or a coincident experiment/flag.
-// Returns null when there's no specific lead (the generic "Ask Max why" covers that). Stays investigative:
+// Returns null when there's no specific lead (the generic "Explore with AI" covers that). Stays investigative:
 // it proposes WHAT to look at next, never asserts a cause.
 //
-// Priority is segment first, then references: a concentrated segment is metric-specific and the most
-// actionable lead, whereas coincident experiments/flags are period-wide (true of every finding this
-// period), so they're the fallback when no segment stands out. One step, not an accumulation.
+// Priority is segment first, then references: a concentrated segment is a direct statistical attribution
+// for THIS metric, whereas a referenced experiment/flag is a coincidence the narrative tied to this finding
+// — a strong but softer lead — so it's the fallback when no segment stands out. One step, not an accumulation.
 export function suggestedNextStep(finding: PulseFindingType): { label: string; seed: string } | null {
     const metric = finding.metric_label
     const signed = formatSignedPct(finding.change_pct)

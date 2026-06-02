@@ -69,6 +69,11 @@ describe('pulse utils', () => {
             label: 'Experiment: checkout-v2',
             to: urls.experiment('3'),
         })
+        // Annotations are linkable too (the user's "pricing promo" / "deploy note" examples).
+        expect(describeReference({ type: 'annotation', label: 'pricing v2 promo', id: '9' })).toEqual({
+            label: 'Note: pricing v2 promo',
+            to: urls.annotation(9),
+        })
         // No id -> a label-only chip, no link.
         expect(describeReference({ type: 'feature_flag', label: 'mystery' })).toEqual({ label: 'Flag: mystery' })
     })
@@ -138,7 +143,7 @@ describe('pulse utils', () => {
         }
         expect(suggestedNextStep(withFlag)?.label).toBe('Check the new-onboarding flag')
 
-        // No segment and no references -> no specific lead (generic "Ask Max why" covers it).
+        // No segment and no references -> no specific lead (generic "Explore with AI" covers it).
         expect(suggestedNextStep({ ...base, evidence: null })).toBeNull()
     })
 })

@@ -19,6 +19,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -74,21 +75,33 @@ function statusTone(status: PulseDigestStatus): LemonTagType {
     return STATUS_TONES[status] ?? 'default'
 }
 
+// The digest synthesis is written as a "- " bullet list so it's skimmable; LemonMarkdown renders it (and
+// still renders older paragraph-style summaries fine).
+function DigestReadBanner({ summary, className }: { summary: string; className?: string }): JSX.Element {
+    return (
+        <LemonBanner type="info" className={className}>
+            <div className="font-semibold mb-1">PostHog's read</div>
+            <LemonMarkdown>{summary}</LemonMarkdown>
+        </LemonBanner>
+    )
+}
+
 function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { addOrUpdateContextInsight } = useActions(maxContextLogic)
     const change = describeChange(finding.change_pct)
-    // Hand Max the actual insight as structured context (so it can read_data on the real metric), then
-    // open the panel and auto-send the seed. Falls back to prompt-only for event-sourced findings.
-    const openMaxWith = (seed: string): void => {
+    // Hand the AI the actual insight as structured context (so it can read_data on the real metric),
+    // then open the panel and auto-send the seed. Falls back to prompt-only for event-sourced findings.
+    const openExplore = (seed: string): void => {
         const insight = buildFindingInsightContext(finding)
         if (insight) {
             addOrUpdateContextInsight(insight)
         }
         openSidePanel(SidePanelTab.Max, `!${seed}`)
     }
-    const askMax = (): void => openMaxWith(buildMaxSeedPrompt(finding))
-    const nextStep = suggestedNextStep(finding)
+    // The button label stays a consistent "Explore with AI"; under the hood it sends the specific guided
+    // task when we have a high-confidence lead (e.g. dive into the segment), else a generic explain.
+    const exploreSeed = suggestedNextStep(finding)?.seed ?? buildMaxSeedPrompt(finding)
 
     return (
         <LemonCard>
@@ -109,30 +122,25 @@ function FindingCard({ finding }: { finding: PulseFindingType }): JSX.Element {
                             View insight
                         </LemonButton>
                     ) : null}
-                    <AIConsentPopoverWrapper onApprove={askMax}>
-                        <LemonButton type="tertiary" size="xsmall" onClick={askMax} sideIcon={null}>
-                            Ask Max why
+                    <AIConsentPopoverWrapper onApprove={() => openExplore(exploreSeed)}>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => openExplore(exploreSeed)}
+                            sideIcon={null}
+                        >
+                            Explore with AI
                         </LemonButton>
                     </AIConsentPopoverWrapper>
                 </div>
             </div>
             <div className="text-muted-alt text-xs mb-2">{describeAbsoluteChange(finding)}</div>
             <p className="text-sm mb-0">{finding.narrative}</p>
-            {nextStep ? (
-                <div className="mt-2">
-                    <AIConsentPopoverWrapper onApprove={() => openMaxWith(nextStep.seed)}>
-                        <LemonButton type="secondary" size="xsmall" onClick={() => openMaxWith(nextStep.seed)}>
-                            {nextStep.label}
-                        </LemonButton>
-                    </AIConsentPopoverWrapper>
-                </div>
-            ) : null}
             {finding.evidence?.references?.length ? (
                 <div className="flex items-center flex-wrap gap-2 mt-2 text-xs">
                     <span className="text-muted-alt">Related changes:</span>
                     {finding.evidence.references.map((ref, index) => {
                         const { label, to } = describeReference(ref)
-                        // `index` keeps the key unique even when id is missing ("" doesn't fall back via ??).
                         const key = `${ref.type}-${ref.id || index}`
                         return to ? (
                             <LemonButton key={key} type="tertiary" size="xsmall" to={to} targetBlank>
@@ -251,7 +259,7 @@ function SubscriptionPanel(): JSX.Element {
                                         />
                                     </div>
                                     <div className="flex items-center justify-between">
-                                        <span>Max findings</span>
+                                        <span>Maximum findings</span>
                                         <LemonInput
                                             type="number"
                                             value={subscriptionDraft.max_findings}
@@ -294,7 +302,7 @@ function WatchedPanel(): JSX.Element | null {
 
     return (
         <LemonCard className="mb-6">
-            <h3 className="text-base font-semibold mb-2">What Max is watching</h3>
+            <h3 className="text-base font-semibold mb-2">What PostHog is watching</h3>
             <p className="text-muted-alt text-sm mb-3">These metrics are scanned each cycle for notable changes.</p>
             <div className="flex flex-wrap gap-2">
                 {watchedCandidates.map((c, i) => (
@@ -353,7 +361,12 @@ function DigestRow({ digest }: { digest: PulseDigestSummary }): JSX.Element {
                     ) : expandedDigest.findings.length === 0 ? (
                         <p className="text-muted mb-0">No findings in this digest.</p>
                     ) : (
-                        expandedDigest.findings.map((finding) => <FindingCard key={finding.id} finding={finding} />)
+                        <>
+                            {expandedDigest.summary ? <DigestReadBanner summary={expandedDigest.summary} /> : null}
+                            {expandedDigest.findings.map((finding) => (
+                                <FindingCard key={finding.id} finding={finding} />
+                            ))}
+                        </>
                     )}
                 </div>
             )}
@@ -398,13 +411,13 @@ export function Pulse(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Pulse"
-                    description="Max scans your metrics and surfaces changes worth investigating."
+                    description="PostHog scans your metrics and surfaces changes worth investigating."
                     resourceType={{ type: 'project', forceIcon: <IconPulse /> }}
                 />
                 <ProductIntroduction
                     productName="Pulse"
                     thingName="finding"
-                    description="Max scans your metrics each cycle and surfaces notable changes worth investigating. Pulse is rolling out gradually."
+                    description="PostHog scans your metrics each cycle and surfaces notable changes worth investigating. Pulse is rolling out gradually."
                     isEmpty
                     docsURL="https://posthog.com/docs"
                 />
@@ -510,10 +523,7 @@ export function Pulse(): JSX.Element {
                                         </LemonBanner>
                                     ) : null}
                                     {latestDigest.summary ? (
-                                        <LemonBanner type="info" className="mb-3">
-                                            <span className="font-semibold">Max's read: </span>
-                                            {latestDigest.summary}
-                                        </LemonBanner>
+                                        <DigestReadBanner summary={latestDigest.summary} className="mb-3" />
                                     ) : null}
                                     {findingsForLatest.length === 0 ? (
                                         <p className="text-muted">No findings in the latest digest.</p>

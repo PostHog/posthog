@@ -14,10 +14,10 @@ export interface PulseDigestSummary {
     summary: string
 }
 
-// A same-period change (feature flag, experiment) the finding's narrative may reference. The frontend
-// builds the link from (type, id) — mirroring how replay session ids become links.
+// A same-period change (feature flag, experiment, annotation) the finding's narrative tied to it. The
+// frontend builds the link from (type, id) — mirroring how replay session ids become links.
 export interface PulseReference {
-    type: 'feature_flag' | 'experiment' | string
+    type: 'feature_flag' | 'experiment' | 'annotation' | string
     label: string
     id?: string
 }

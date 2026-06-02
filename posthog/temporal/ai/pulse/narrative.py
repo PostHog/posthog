@@ -3,12 +3,14 @@
 import json
 import asyncio
 import statistics
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
+from pydantic import BaseModel, Field
 
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models import OrganizationMembership, Team, User
@@ -46,6 +48,39 @@ NARRATIVE_MODEL = "gpt-4.1"
 NARRATIVE_MAX_TOKENS = 600
 NARRATIVE_TIMEOUT_SECONDS = 45.0
 
+# Per-finding references shown as chips, and the label length each one renders at. The prompt asks the
+# model for the ~3 most relevant signals; this is a backstop with one slot of slack, not the real control.
+MAX_FINDING_REFERENCES = 4
+MAX_REFERENCE_LABEL = 60
+# Upper bound on how many coincident signals we feed the narrative LLM to choose from — the per-type
+# fetch caps already bound this; the extra ceiling keeps the prompt small when many things changed.
+MAX_SIGNAL_CATALOG = 30
+
+
+@dataclass(frozen=True)
+class CoincidentSignal:
+    """One same-period change the narrative LLM can reference by id, and the UI can turn into a chip.
+
+    `ref_id` is the opaque id the model echoes back in `related_signal_ids`; `detail_id` is the real
+    entity pk the frontend builds a deep link from (empty when the entity has no detail page).
+    """
+
+    ref_id: str  # opaque id the LLM references, e.g. "s0"
+    ref_type: str  # "experiment" | "feature_flag" | "annotation"
+    label: str  # display name (flag/experiment name, or annotation note)
+    detail_id: str  # entity pk for the deep link, or "" when not linkable
+    summary: str  # short human phrase for the prompt, e.g. "turned on 2026-05-20"
+
+
+class _NarrativeOutput(BaseModel):
+    """Structured narrative result: the prose plus the ids of the signals the model actually cited."""
+
+    narrative: str = Field(description="The 1-3 sentence explanation of the metric change.")
+    related_signal_ids: list[str] = Field(
+        default_factory=list,
+        description="The `id`s of the coincident_signals you referenced in the narrative. Empty if you cited none.",
+    )
+
 
 def _resolve_service_user(team: Team, user_id: int | None) -> User:
     """Resolve the user MaxChatOpenAI bills/attributes the narrative to.
@@ -74,7 +109,9 @@ NARRATIVE_SYSTEM_PROMPT = """You are PostHog Pulse, explaining ONE flagged metri
 
 The reader already sees the metric name, the headline percentage, and the weekly totals next to your text, so do NOT restate them. Add the insight they can't get at a glance:
 - WHERE the change is concentrated. If an attribution segment is given, name it with its own numbers — e.g. "Almost all of the gain came from Chrome users (140 vs ~70/week typical)." If no segment is given, say the change looks broad-based rather than tied to one segment.
-- A single plausible hypothesis for WHY, framed as something to verify and never as a proven cause. Ground it in the segment's nature: a browser- or device-concentrated change suggests a client release or a campaign reaching that segment; a country-concentrated change suggests a regional launch or seasonality; a referrer- or channel-concentrated change suggests one acquisition source. If a coincident signal is given (a same-period deploy note, feature-flag change, or experiment launch) that could plausibly affect this metric, mention it as a coincidence worth checking — e.g. "lines up with turning on the 'new-onboarding' flag."
+- A single plausible hypothesis for WHY, framed as something to verify and never as a proven cause. Ground it in the segment's nature: a browser- or device-concentrated change suggests a client release or a campaign reaching that segment; a country-concentrated change suggests a regional launch or seasonality; a referrer- or channel-concentrated change suggests one acquisition source.
+
+You may also be given coincident_signals: things that changed in the SAME period (deploy notes, feature-flag changes, experiment launches), each with an `id`. Most of them will be unrelated noise — be selective. Pick at most the THREE most directly relevant to THIS metric (by name, segment, or timing); if one could plausibly affect it, mention it as a coincidence worth checking — e.g. "lines up with turning on the 'new-onboarding' flag" — and put its `id` in related_signal_ids. Only include ids for signals you actually mention; never list one you didn't reference, and never list one just because it changed this period. If none are clearly relevant, leave related_signal_ids empty.
 
 Stay factual and humble: at most one hypothesis, clearly hedged ("worth checking", "could be"). No recommendations, jargon, emoji, or markdown. Maximum 3 sentences.""".strip()
 
@@ -169,16 +206,16 @@ async def _generate_narrative(
     user: User,
     finding: Finding,
     attribution: dict[str, Any] | None,
-    coincident_signals: dict[str, list[dict[str, str]]] | None = None,
-) -> str:
-    has_signals = bool(
-        coincident_signals
-        and (
-            coincident_signals.get("annotations")
-            or coincident_signals.get("feature_flag_changes")
-            or coincident_signals.get("experiment_changes")
-        )
-    )
+    signal_catalog: list[CoincidentSignal] | None = None,
+) -> tuple[str, list[str]]:
+    """Write the per-finding prose and return which coincident signals the model tied to it.
+
+    The model is shown the catalog (each signal carries an `id`) and asked to echo back the ids it
+    actually references — so the UI can show exactly the related changes that prompted this finding,
+    not the whole period's churn. Returns (narrative, related_ref_ids); ref_ids are validated against
+    the catalog, so a hallucinated id is dropped.
+    """
+    catalog = signal_catalog or []
     facts = {
         "metric": _sanitize_for_prompt(finding.descriptor.label),
         "direction": "up" if finding.change_pct > 0 else "down",
@@ -188,7 +225,10 @@ async def _generate_narrative(
         "change_pct": round(finding.change_pct, 3),
         "robust_z": round(finding.robust_z, 2),
         "attribution": attribution,
-        "coincident_signals": coincident_signals if has_signals else None,
+        "coincident_signals": [
+            {"id": s.ref_id, "type": s.ref_type, "name": s.label, "when": s.summary} for s in catalog
+        ]
+        or None,
     }
 
     llm = MaxChatOpenAI(
@@ -205,13 +245,16 @@ async def _generate_narrative(
         inject_context=False,
         posthog_properties={"ai_product": "pulse", "domain": "pulse"},
     )
-    chain = llm | StrOutputParser()
+    structured_llm = llm.with_structured_output(_NarrativeOutput, method="function_calling", include_raw=False)
     messages = [
         SystemMessage(content=NARRATIVE_SYSTEM_PROMPT),
         HumanMessage(content=f"Finding facts:\n{json.dumps(facts, default=str)}"),
     ]
-    result = await chain.ainvoke(messages)
-    return result.strip()
+    result = await structured_llm.ainvoke(messages)
+    output = result if isinstance(result, _NarrativeOutput) else _NarrativeOutput.model_validate(result)
+    valid_ids = {s.ref_id for s in catalog}
+    related = [ref_id for ref_id in dict.fromkeys(output.related_signal_ids) if ref_id in valid_ids]
+    return output.narrative.strip(), related
 
 
 def _fallback_narrative(finding: Finding, attribution: dict[str, Any] | None = None) -> str:
@@ -316,20 +359,26 @@ async def _enrich_one(
     attribution_semaphore: asyncio.Semaphore,
     period_start: str = "",
     period_end: str = "",
-    coincident_signals: dict[str, list[dict[str, str]]] | None = None,
-    references: list[dict[str, str]] | None = None,
+    signal_catalog: list[CoincidentSignal] | None = None,
 ) -> EnrichedFinding:
     async with enrichment_semaphore:
         # Attribution and evidence are independent of the narrative LLM, so collect them first and
         # keep them even if narrative generation falls back.
+        catalog_by_id = {s.ref_id: s for s in (signal_catalog or [])}
         attribution: dict[str, Any] | None = None
         session_ids: list[str] = []
+        references: list[dict[str, str]] = []
         try:
             attribution = await _attribute_finding(team, finding, attribution_semaphore)
             session_ids = await _collect_replay_evidence(team, finding, attribution, period_start, period_end)
-            narrative = await _generate_narrative(team, user, finding, attribution, coincident_signals)
-            if not narrative:  # empty LLM response — keep a useful, attribution-aware line
+            narrative, related_ids = await _generate_narrative(team, user, finding, attribution, signal_catalog)
+            if not narrative:  # empty LLM response — keep a useful, attribution-aware line (no relevance signal)
                 narrative = _fallback_narrative(finding, attribution)
+            else:
+                # Only the same-period changes the model tied to THIS finding — relevant, not period-wide.
+                references = [
+                    _signal_to_reference(catalog_by_id[ref_id]) for ref_id in related_ids if ref_id in catalog_by_id
+                ][:MAX_FINDING_REFERENCES]
         except Exception as exc:
             logger.exception(
                 "pulse_enrich_finding_failed",
@@ -368,21 +417,16 @@ async def enrich_findings(
     ranked = sorted(findings, key=lambda f: f.impact, reverse=True)[:max_findings]
 
     @database_sync_to_async
-    def _resolve() -> tuple[Team, User, dict[str, list[dict[str, str]]], list[dict[str, str]]]:
+    def _resolve() -> tuple[Team, User, list[CoincidentSignal]]:
         team = Team.objects.get(id=team_id)
         user = _resolve_service_user(team, user_id)
-        # Same-period deploys / flag changes / experiment launches, so a per-finding hypothesis can point
-        # at a real coincidence — and the same flags/experiments become clickable reference chips in the UI.
+        # Same-period deploys / flag changes / experiment launches, so the narrative LLM can tie a finding
+        # to a real coincidence — and the ones it cites become that finding's clickable reference chips.
         annotations, flag_changes, experiment_changes = _fetch_period_signals(team_id, period_start, period_end)
-        coincident_signals = {
-            "annotations": annotations,
-            "feature_flag_changes": flag_changes,
-            "experiment_changes": experiment_changes,
-        }
-        references = _build_finding_references(flag_changes, experiment_changes)
-        return team, user, coincident_signals, references
+        signal_catalog = _build_signal_catalog(annotations, flag_changes, experiment_changes)
+        return team, user, signal_catalog
 
-    team, user, coincident_signals, references = await _resolve()
+    team, user, signal_catalog = await _resolve()
     enrichment_semaphore = asyncio.Semaphore(ENRICHMENT_CONCURRENCY)
     attribution_semaphore = asyncio.Semaphore(ATTRIBUTION_CONCURRENCY)
     return list(
@@ -396,8 +440,7 @@ async def enrich_findings(
                     attribution_semaphore,
                     period_start,
                     period_end,
-                    coincident_signals,
-                    references,
+                    signal_catalog,
                 )
                 for f in ranked
             ]
@@ -409,18 +452,17 @@ SYNTHESIS_MAX_TOKENS = 320
 MAX_FLAG_CHANGES_FOR_AI_CONTEXT = 15
 MAX_NEW_ISSUES_FOR_AI_CONTEXT = 5
 
-SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the big-picture read across this week's flagged metric changes.
+SYNTHESIS_SYSTEM_PROMPT = """You are PostHog Pulse, giving a product team the BIG-PICTURE read across this week's flagged metric changes — the layer ABOVE the individual findings.
 
-You are given several findings (metric, % change, optional attribution segment), optionally annotations (dated events the team logged — deploys, launches, incidents), optionally feature-flag changes in the same period (a flag rolled out, turned on/off), optionally experiments launched in the same period, and optionally new error-tracking issues that appeared recently (name and how many times they fired). Write a short paragraph, 2-4 sentences:
-- If there is an overall theme, name it (e.g. "growth signals rose while conversion softened").
-- Call out metrics that moved TOGETHER as a HYPOTHESIS worth checking — e.g. "signups and pricing views both rose, possibly the same driver." Frame these as things to investigate, never as proven cause.
-- If a change lines up with an annotation, note it as a possible explanation to verify — e.g. "the signup rise lines up with your 'pricing v2' note on the 20th." A coincidence to check, never proven cause.
-- If a change lines up with a feature-flag change, note it as a possible explanation to verify — e.g. "the activation dip coincides with turning on the 'new-onboarding' flag — worth checking." A coincidence to check, never proven cause.
-- If a change lines up with an experiment launch, note it as a possible explanation to verify — e.g. "the conversion lift coincides with launching the 'checkout-v2' experiment — worth checking." A coincidence to check, never proven cause.
-- If a metric drop lines up with a new error issue, note it as a possible explanation to verify — e.g. "checkout completions fell while a new 'Payment timeout' error appeared — worth checking if they're linked." A coincidence to check, never proven cause.
-- Stay factual and humble. Do not invent causes. No recommendations beyond "worth investigating". No jargon, emoji, or markdown.
+Each finding already has its own card below explaining its metric, its % change, where it concentrated, and the specific deploy, feature-flag change, experiment, or error it lines up with. So do NOT restate individual metrics, percentages, or their per-finding explanations — the reader can already see those, and repeating them just causes fatigue. Your job is the synthesis a card-by-card scan can't give:
+- THEMES: group the findings into the distinct stories or areas they form (e.g. "a checkout regression" or "a Chrome-driven growth surge"), naming the area to focus on rather than re-listing each metric. One bullet per theme.
+- CONNECTIONS: when several findings plausibly share one driver that isn't obvious from any single card — one deploy, feature-flag change, experiment launch, or new error issue — call it out as a coincidence to check, never proven cause.
 
-If the findings share no obvious pattern, say that briefly rather than forcing a connection.""".strip()
+Order the bullets by priority — lead with the theme that most deserves attention (biggest downside, or clearest shared cause). The ORDER is how you signal what to look at first, so do NOT add a separate "the most important focus is…" bullet, and do NOT repeat that something is "the most urgent" across bullets; state why a theme matters once, inside its own bullet. Every bullet must introduce a NEW theme or insight — never restate the same conclusion in different words.
+
+Write 2-4 short bullet points (one per line, each starting with "- "), most important first, so the team can skim. Stay factual and humble — no recommendations beyond "worth investigating", no jargon or emoji. Use a plain "- " bullet list and no other markdown (no bold, headers, links, or nesting); keep each bullet to one sentence.
+
+If the findings genuinely share no theme or driver, say so in one bullet rather than forcing a connection — never pad by re-listing the findings.""".strip()
 
 
 def _sanitize_for_prompt(text: str) -> str:
@@ -509,24 +551,53 @@ def _fetch_experiment_changes(team_id: int, start: datetime, end: datetime) -> l
     ]
 
 
-def _build_finding_references(
-    flag_changes: list[dict[str, str]], experiment_changes: list[dict[str, str]]
-) -> list[dict[str, str]]:
-    """Linkable chips for the UI: the same-period flags and experiments a narrative may reference.
+def _build_signal_catalog(
+    annotations: list[dict[str, str]],
+    flag_changes: list[dict[str, str]],
+    experiment_changes: list[dict[str, str]],
+) -> list[CoincidentSignal]:
+    """Flatten the period's coincident changes into one list the narrative LLM picks from by id.
 
-    The frontend builds the URL from (type, id) — mirroring how replay session ids become links. Only
-    items with a real id become references; annotations have no detail page, so they stay in the prose.
+    Experiments first, then flags, then annotations — that's both the priority order and the order the
+    catalog is trimmed in if it exceeds the ceiling. Deduped within a type by entity id (an item that
+    changed several times in the period becomes ONE referenceable signal). Each entry gets a dense opaque
+    ref_id ("s0", "s1", …) the model echoes back to mark which it tied to a finding.
     """
-    references: list[dict[str, str]] = []
-    references.extend(
-        {"type": "feature_flag", "label": flag["flag"], "id": flag["id"]} for flag in flag_changes if flag.get("id")
-    )
-    references.extend(
-        {"type": "experiment", "label": exp["experiment"], "id": exp["id"]}
-        for exp in experiment_changes
-        if exp.get("id")
-    )
-    return references
+    catalog: list[CoincidentSignal] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _add(ref_type: str, detail_id: str, label: str, summary: str) -> None:
+        key = (ref_type, detail_id or label)
+        if key in seen:
+            return
+        seen.add(key)
+        catalog.append(
+            CoincidentSignal(
+                ref_id=f"s{len(catalog)}",
+                ref_type=ref_type,
+                label=label,
+                detail_id=detail_id,
+                summary=summary,
+            )
+        )
+
+    for exp in experiment_changes:
+        _add("experiment", exp.get("id", ""), exp["experiment"], f"{exp['change']} {exp.get('date', '')}".strip())
+    for flag in flag_changes:
+        _add("feature_flag", flag.get("id", ""), flag["flag"], f"{flag['change']} {flag.get('date', '')}".strip())
+    for ann in annotations:
+        _add("annotation", ann.get("id", ""), ann["note"], f"noted {ann.get('date', '')}".strip())
+
+    return catalog[:MAX_SIGNAL_CATALOG]
+
+
+def _signal_to_reference(signal: CoincidentSignal) -> dict[str, str]:
+    """Project a referenced signal into the chip shape the UI renders ({type, label, id?})."""
+    label = signal.label if len(signal.label) <= MAX_REFERENCE_LABEL else signal.label[:MAX_REFERENCE_LABEL] + "…"
+    reference = {"type": signal.ref_type, "label": label}
+    if signal.detail_id:  # no detail id → a label-only chip (no deep link)
+        reference["id"] = signal.detail_id
+    return reference
 
 
 def _fetch_period_signals(
@@ -549,10 +620,13 @@ def _fetch_period_signals(
             date_marker__lte=end,
         )
         .order_by("date_marker")
-        .values_list("date_marker", "content")[:20]
+        .values_list("id", "date_marker", "content")[:20]
     )
     annotations = [
-        {"date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)} for dm, content in rows if content
+        # id lets a referenced annotation deep-link to /data-management/annotations/:id, like flags/experiments.
+        {"id": str(pk), "date": dm.date().isoformat(), "note": _sanitize_for_prompt(content)}
+        for pk, dm, content in rows
+        if content
     ]
     flag_changes = _fetch_flag_changes(team_id, start, end)
     experiment_changes = _fetch_experiment_changes(team_id, start, end)
