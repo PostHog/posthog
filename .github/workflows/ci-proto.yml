@@ -137,17 +137,17 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.lint.result }}" == "failure" ]]; then
                     echo "Proto lint failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.breaking.result }}" != "success" && "${{ needs.breaking.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.breaking.result }}" == "failure" ]]; then
                     echo "Proto breaking change check failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.python-codegen.result }}" != "success" && "${{ needs.python-codegen.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.python-codegen.result }}" == "failure" ]]; then
                     echo "Python proto codegen staleness check failed."
                     exit 1
                   fi

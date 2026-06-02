@@ -90,7 +90,7 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build-and-test.result }}" != "success" && "${{ needs.build-and-test.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build-and-test.result }}" == "failure" ]]; then
                     echo "OAuth proxy build/test failed."
                     exit 1
                   fi

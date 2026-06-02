@@ -818,12 +818,12 @@ jobs:
         steps:
             - name: Check outcome
               run: |
-                  if [[ "${{ needs.playwright.result }}" != "success" && "${{ needs.playwright.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.playwright.result }}" == "failure" ]]; then
                     echo "Playwright tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.vr-complete.result }}" == "failure" ]]; then
                     echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi

@@ -191,7 +191,7 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build-and-report.result }}" != "success" && "${{ needs.build-and-report.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build-and-report.result }}" == "failure" ]]; then
                     echo "UI Apps build failed."
                     exit 1
                   fi

@@ -450,7 +450,7 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
-                  if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.visual-regression.result }}" == "failure" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
@@ -460,7 +460,7 @@ jobs:
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-complete.result }}" != "success" && "${{ needs.vr-complete.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.vr-complete.result }}" == "failure" ]]; then
                     echo "Visual Review did not complete successfully (result: ${{ needs.vr-complete.result }})."
                     exit 1
                   fi

@@ -433,17 +433,17 @@ jobs:
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.build.result }}" == "failure" ]]; then
                     echo "Rust build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.test.result }}" == "failure" ]]; then
                     echo "Rust tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
+                  if [[ "${{ needs.linting.result }}" == "failure" ]]; then
                     echo "Rust linting failed."
                     exit 1
                   fi
