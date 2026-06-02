@@ -407,7 +407,7 @@ class TestMprocsRegistry:
         # Check some known mappings
         assert "cymbal" in registry.get_capability_units("error_symbolication")
         assert "capture" in registry.get_capability_units("event_ingestion")
-        assert "nodejs" in registry.get_capability_units("event_ingestion")
+        assert "nodejs-cdp" in registry.get_capability_units("nodejs_cdp")
         assert "temporal-worker" in registry.get_capability_units("temporal_workflows")
 
     def test_registry_get_all_capabilities(self) -> None:
