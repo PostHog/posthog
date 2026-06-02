@@ -1162,12 +1162,15 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     serializer_class = CohortSerializer
     scope_object = "cohort"
 
+    def _is_basic_list_request(self) -> bool:
+        # `?basic=true` on the list endpoint: trimmed payload + deferred columns.
+        # Single source of truth for both the queryset and serializer paths so they
+        # can't drift if the default changes or `basic` is wired into another action.
+        return self.action == "list" and str_to_bool(self.request.query_params.get("basic", "0"))
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        # Trim the list payload only when explicitly requested on the list endpoint.
-        context["basic_cohort_list"] = self.action == "list" and str_to_bool(
-            self.request.query_params.get("basic", "0")
-        )
+        context["basic_cohort_list"] = self._is_basic_list_request()
         return context
 
     def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
@@ -1199,9 +1202,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 from products.feature_flags.backend.api.feature_flag import _is_realtime_cohort_flag_targeting_enabled
 
                 allow_realtime_backfilled = _is_realtime_cohort_flag_targeting_enabled(self.request)
-                # The dependency graph only needs these columns; defer the heavy
-                # `query`/`groups`/etc. JSON so we don't haul full rows for every
-                # cohort in the team just to compute the exclusion set.
+                # Lists every column read by _find_behavioral_cohorts (is_static, filters)
+                # and Cohort.is_flag_compatible (cohort_type, last_backfill_person_properties_at);
+                # dropping one triggers a per-cohort deferred query (an N+1 that only bites a
+                # team with thousands of cohorts). Deferring the rest keeps the graph scan cheap.
                 graph_source = queryset.only(
                     "id", "is_static", "filters", "cohort_type", "last_backfill_person_properties_at"
                 )
@@ -1215,8 +1219,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             queryset = self._filter_request(self.request, queryset)
 
             # `?basic=true` callers never read these columns, so skip reading them
-            # off disk (the serializer drops them too — see CohortSerializer.__init__).
-            if str_to_bool(self.request.query_params.get("basic", "0")):
+            # off disk (the serializer drops them too; see CohortSerializer.__init__).
+            if self._is_basic_list_request():
                 queryset = queryset.defer("filters", "query", "groups")
 
         last_error_code_subquery = Subquery(
