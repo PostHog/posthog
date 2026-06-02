@@ -785,7 +785,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
