@@ -43,9 +43,12 @@ const ADMIN_LEVEL = 8
  * path; the model never sees the difference.
  *
  * `sessionPrincipal` is the auth-time identity persisted on the session row
- * — used for the `session_principal` scope match. Null on sessions started
- * without auth on public agents; in that case `session_principal` is never
- * satisfied (nothing to compare against).
+ * — used for the `session_principal` scope match. Anonymous principals
+ * (public agents) are explicitly excluded: the public verifier stores
+ * `{ kind: 'anonymous' }` — not null — in the session row, and
+ * `principalsMatch` returns true for any two anonymous principals, which
+ * would let every caller bypass the gate. The `session_principal` scope is
+ * only meaningful for authenticated sessions with a unique identity.
  */
 export type IsAskerInApproverScope = (
     conversation: ConversationMessage[],
@@ -65,8 +68,10 @@ export function makePerAskerAuth(deps: MakePerAskerAuthDeps): IsAskerInApproverS
         // `session_principal` is a pure equality check against the
         // auth-time principal on the session row — no DB roundtrip. Cheap;
         // check first so we don't burn a posthog DB query on every gated
-        // call for a concierge-style spec.
-        if (approverScope.includes('session_principal') && sessionPrincipal) {
+        // call for a concierge-style spec. Anonymous principals are excluded:
+        // `principalsMatch` treats any two anonymous principals as equal, so on
+        // a public agent every caller would self-authorise the gate.
+        if (approverScope.includes('session_principal') && sessionPrincipal && sessionPrincipal.kind !== 'anonymous') {
             const sender = findLastUserSender(conversation)
             if (sender && principalsMatch(sessionPrincipal, sender)) {
                 return true

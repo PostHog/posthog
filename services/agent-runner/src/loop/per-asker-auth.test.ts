@@ -265,6 +265,20 @@ describe('makePerAskerAuth', () => {
             expect(await isAuthed(conv, 7, ['session_principal'], null)).toBe(false)
         })
 
+        it('returns false for anonymous principals (public agent — every caller would otherwise self-authorise)', async () => {
+            // The public verifier stores { kind: 'anonymous' } — not null — on
+            // the session row and stamps the same sender on the user turn.
+            // principalsMatch(anonymous, anonymous) is true, so without the
+            // explicit exclusion every public caller would clear the gate.
+            const anon: SessionPrincipal = { kind: 'anonymous' }
+            const isAuthed = makePerAskerAuth({
+                identities: new MemoryIdentityStore(),
+                posthogDb: fakePosthogDb([]),
+            })
+            const conv = [userMsg('promote it', anon)]
+            expect(await isAuthed(conv, 7, ['session_principal'], anon)).toBe(false)
+        })
+
         it('falls through to team_admins when session_principal does not match but team_admins is in scope', async () => {
             // Mixed-scope policy: session principal OR team admin. The
             // session principal slot doesn't match (bob's sender vs alice's

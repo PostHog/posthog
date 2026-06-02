@@ -69,6 +69,23 @@ from .serializers import AgentRevisionSerializer
                 "triggers": [{"type": "mcp", "config": {}}],
             },
         ),
+        # External MCP ref with a mix of bare-string and object tool entries,
+        # all distinct names — accepted.
+        (
+            "external_mcp_unique_tools",
+            {
+                "model": "x",
+                "auth": {},
+                "mcps": [
+                    {
+                        "kind": "external",
+                        "id": "linear",
+                        "url": "https://mcp.linear.app/sse",
+                        "tools": ["list-issues", {"name": "create-issue", "requires_approval": True}],
+                    }
+                ],
+            },
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -109,6 +126,43 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "cron_missing_schedule",
             {"model": "x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
             "triggers.0",
+        ),
+        # Duplicate tool names in `mcps[].external.tools[]` — JSON Schema can't
+        # express this across the string/object union, so the Python-level
+        # check mirrors the zod `.refine()`. Bare-string vs bare-string.
+        (
+            "external_mcp_duplicate_tool_strings",
+            {
+                "model": "x",
+                "auth": {},
+                "mcps": [
+                    {
+                        "kind": "external",
+                        "id": "linear",
+                        "url": "https://mcp.linear.app/sse",
+                        "tools": ["create-issue", "create-issue"],
+                    }
+                ],
+            },
+            "unique names",
+        ),
+        # Bare-string colliding with an object of the same name — the case
+        # JSON Schema's `uniqueItems` would miss entirely.
+        (
+            "external_mcp_duplicate_tool_string_and_object",
+            {
+                "model": "x",
+                "auth": {},
+                "mcps": [
+                    {
+                        "kind": "external",
+                        "id": "linear",
+                        "url": "https://mcp.linear.app/sse",
+                        "tools": ["create-issue", {"name": "create-issue", "requires_approval": True}],
+                    }
+                ],
+            },
+            "unique names",
         ),
     ],
 )
