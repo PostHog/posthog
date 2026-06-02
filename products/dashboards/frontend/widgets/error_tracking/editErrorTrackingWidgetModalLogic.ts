@@ -187,10 +187,10 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
         const baseConfig = parseErrorTrackingWidgetConfig(props.config)
 
         return {
+            ...getWidgetEditModalTileDefaults(props),
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
             dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
-            ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
                 values.filterTestAccountsDefault

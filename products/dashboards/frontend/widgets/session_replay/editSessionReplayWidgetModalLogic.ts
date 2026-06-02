@@ -4,6 +4,12 @@ import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/fil
 
 import { isWidgetConfigValidationError } from '../../utils'
 import { resolveWidgetFilterTestAccounts, type SessionReplayWidgetConfig } from '../../widget_types/configSchemas'
+import {
+    widgetEditModalSavingReducers,
+    widgetEditModalTileActions,
+    widgetEditModalTileReducers,
+} from '../editWidgetModalTileBuilders'
+import { getWidgetEditModalTileDefaults, saveWidgetTileMetadataAfterConfig } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editSessionReplayWidgetModalLogicType } from './editSessionReplayWidgetModalLogicType'
 import {
@@ -32,11 +38,10 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
     }),
 
     actions({
+        ...widgetEditModalTileActions,
         setLimit: (limit: number) => ({ limit }),
         setOrderBy: (orderBy: string) => ({ orderBy }),
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
-        setTileName: (tileName: string) => ({ tileName }),
-        setTileDescription: (tileDescription: string) => ({ tileDescription }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setFieldErrors: (fieldErrors: SessionReplayWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof SessionReplayWidgetFieldErrors) => ({ field }),
@@ -46,6 +51,8 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
     }),
 
     reducers({
+        ...widgetEditModalTileReducers,
+        ...widgetEditModalSavingReducers,
         limit: [
             10,
             {
@@ -62,18 +69,6 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
             '-7d',
             {
                 setDateFrom: (_, { dateFrom }) => dateFrom,
-            },
-        ],
-        tileName: [
-            '',
-            {
-                setTileName: (_, { tileName }) => tileName,
-            },
-        ],
-        tileDescription: [
-            '',
-            {
-                setTileDescription: (_, { tileDescription }) => tileDescription,
             },
         ],
         filterTestAccounts: [
@@ -94,14 +89,6 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                     delete next[field]
                     return next
                 },
-            },
-        ],
-        saving: [
-            false,
-            {
-                submit: () => true,
-                submitSuccess: () => false,
-                submitFailure: () => false,
             },
         ],
     }),
@@ -152,11 +139,10 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         const baseConfig = parseSessionReplayWidgetConfig(props.config)
 
         return {
+            ...getWidgetEditModalTileDefaults(props),
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
             dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
-            tileName: props.name ?? '',
-            tileDescription: props.description ?? '',
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
                 values.filterTestAccountsDefault
@@ -173,7 +159,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                 orderBy: values.orderBy,
                 dateFrom: values.dateFrom,
                 filterTestAccounts: values.filterTestAccounts,
-                baseConfig: props.config,
+                baseConfig: values.widgetConfig,
             })
 
             if (!result.success) {
@@ -182,24 +168,8 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
             }
 
             try {
-                const trimmedName = values.tileName.trim()
-                const trimmedDescription = values.tileDescription.trim()
-                const nameChanged = trimmedName !== (props.name ?? '').trim()
-                const descriptionChanged = trimmedDescription !== (props.description ?? '').trim()
-
                 await props.onSave(result.config)
-                if (props.onSaveMetadata) {
-                    const metadata: { name?: string; description?: string } = {}
-                    if (nameChanged) {
-                        metadata.name = trimmedName === (props.defaultTitle ?? 'Untitled').trim() ? '' : trimmedName
-                    }
-                    if (descriptionChanged) {
-                        metadata.description = trimmedDescription
-                    }
-                    if (Object.keys(metadata).length > 0) {
-                        await props.onSaveMetadata(metadata)
-                    }
-                }
+                await saveWidgetTileMetadataAfterConfig(props, values.tileName, values.tileDescription)
                 actions.setFieldErrors({})
                 props.onClose()
                 actions.submitSuccess()

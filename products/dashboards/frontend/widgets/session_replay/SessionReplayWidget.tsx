@@ -16,11 +16,7 @@ import type { SessionRecordingType } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import {
-    getWidgetRecordingOrder,
-    SESSION_REPLAY_WIDGET_LOADING_SKELETON_ROW_COUNT,
-    type SessionReplayWidgetResult,
-} from './utils'
+import { getWidgetRecordingOrder, type SessionReplayWidgetResult } from './utils'
 
 function SessionReplayWidgetRecordingRow({
     recording,
@@ -61,7 +57,7 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     if (loading) {
         return (
             <WidgetCardContent>
-                {Array.from({ length: SESSION_REPLAY_WIDGET_LOADING_SKELETON_ROW_COUNT }, (_, index) => (
+                {Array.from({ length: 4 }, (_, index) => (
                     <div key={index} className="border-b">
                         <SessionRecordingPreviewSkeleton />
                     </div>

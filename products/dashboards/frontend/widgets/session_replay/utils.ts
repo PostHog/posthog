@@ -9,9 +9,6 @@ export type SessionReplayWidgetResult = {
     limit?: number
 }
 
-/** Recording rows that fit in the default h:5 tile without clipping. */
-export const SESSION_REPLAY_WIDGET_LOADING_SKELETON_ROW_COUNT = 4
-
 export const SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS = [
     { value: 'start_time', label: 'Start time' },
     { value: 'activity_score', label: 'Activity score' },
