@@ -36,7 +36,8 @@ message ResolveItem {
   uint32 deadline_ms = 5;
 }
 
-// ResolveOutcome is the terminal server outcome for one ResolveItem id.
+// ResolveOutcome is a server outcome for one ResolveItem id. Accepted is an
+// admission signal; Done, Error, and Retry are terminal outcomes.
 message ResolveOutcome {
   uint64 id = 1;
 
@@ -44,8 +45,14 @@ message ResolveOutcome {
     Done done = 2;
     Error error = 3;
     Retry retry = 4;
+    Accepted accepted = 5;
   }
 }
+
+// Accepted means the pod admitted the item and will process it. It is emitted
+// before the terminal outcome so callers can distinguish routing acceptance
+// from full resolution completion.
+message Accepted {}
 
 // Done means the item completed and contains the resolved exception payload.
 message Done {
