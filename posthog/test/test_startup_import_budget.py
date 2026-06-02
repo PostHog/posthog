@@ -1,8 +1,6 @@
 import sys
 import subprocess
 
-import pytest
-
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
 # deliberately pulled off the startup path (lazy API router, deferred AI-core imports,
 # deferred embedded-ClickHouse). Importing any of them at setup means a new module-level
@@ -98,9 +96,8 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
 # not cosmetic: feature-flag cache invalidation (``flags_cache``/``local_evaluation``) and alert
 # cleanup (``alerts.backend.api.alert``) stop firing on background writes. Every receiver must be wired
 # at setup — canonically from the owning app's ``AppConfig.ready()`` — so building the router connects
-# none. This is xfail on ``pr-60700-base`` because the lazy-router work regresses it; wire the offending
-# receivers into ``AppConfig.ready()`` and remove this marker (``strict=True`` flips xpass to a failure
-# once it's fixed, forcing the marker's removal).
+# none. The offending receivers are now wired from their owning ``AppConfig.ready()`` (feature_flags,
+# alerts, ee, and posthog core); this guards against new viewset-only receivers sneaking back in.
 _ROUTER_RECEIVER_DIFF = """
 import os
 import weakref
@@ -139,9 +136,6 @@ print("\\n".join(sorted(after - before)))
 """
 
 
-@pytest.mark.xfail(
-    reason="lazy router defers signal-receiver connection off django.setup() — wire via AppConfig.ready()", strict=True
-)
 def test_signal_receivers_connect_at_setup_not_via_router() -> None:
     result = subprocess.run(
         [sys.executable, "-c", _ROUTER_RECEIVER_DIFF],

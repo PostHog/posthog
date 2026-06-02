@@ -38,7 +38,6 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.product_analytics.backend.api.insight import InsightBasicSerializer
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -309,6 +308,11 @@ class AlertSerializer(serializers.ModelSerializer):
         ]
 
     def to_representation(self, instance):
+        # Deferred: the insight API serializer drags the product-analytics query-runner chain;
+        # keeping it out of module scope lets this module connect its delete receivers at
+        # AppConfig.ready() without pulling that chain onto startup.
+        from products.product_analytics.backend.api.insight import InsightBasicSerializer  # noqa: PLC0415
+
         data = super().to_representation(instance)
         data["subscribed_users"] = UserBasicSerializer(instance.subscribed_users.all(), many=True, read_only=True).data
         data["insight"] = InsightBasicSerializer(instance.insight).data

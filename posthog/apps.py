@@ -31,6 +31,18 @@ class PostHogConfig(AppConfig):
 
         connect_signal_handlers()
 
+        # Connect signal receivers that previously wired in as an import side effect of their
+        # viewset module. With the lazy API router those modules no longer load at django.setup(),
+        # so a process that never builds the router (celery, temporal, migrate, shell) would lose
+        # these receivers. Importing the owning modules here connects them at app-population. Each
+        # module is kept light enough to import at startup (heavy deps are deferred inside methods).
+        import posthog.api.annotation  # noqa: F401, PLC0415
+        import posthog.api.organization  # noqa: F401, PLC0415
+        import posthog.api.batch_imports  # noqa: F401, PLC0415
+        import posthog.api.personal_api_key  # noqa: F401, PLC0415
+        import posthog.api.project_secret_api_key  # noqa: F401, PLC0415
+        import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
+
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]

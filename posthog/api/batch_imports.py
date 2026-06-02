@@ -16,7 +16,6 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.batch_exports.http import resolve_and_validate_url
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.activity_logging.batch_import_utils import (
     extract_batch_import_info,
@@ -61,6 +60,10 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
+        # Deferred: posthog.batch_exports.http pulls the batch-export framework; keeping it out of
+        # module scope lets this module connect its delete receiver at AppConfig.ready() cheaply.
+        from posthog.batch_exports.http import resolve_and_validate_url  # noqa: PLC0415
+
         try:
             resolve_and_validate_url(value)
         except ValueError:
