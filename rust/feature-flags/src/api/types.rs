@@ -456,7 +456,7 @@ pub trait FromFeatureAndMatch {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
-        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+        flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -464,7 +464,7 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false, None, &HashMap::new())
+        Self::create_with_analysis(flag, flag_match, false, None, None)
     }
 
     fn create_with_analysis(
@@ -472,7 +472,7 @@ impl FromFeatureAndMatch for FlagDetails {
         flag_match: &FeatureFlagMatch,
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
-        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+        flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -557,7 +557,7 @@ impl FlagDetails {
         flag: &FeatureFlag,
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
-        flag_evaluation_results: &HashMap<FeatureFlagId, FlagValue>,
+        flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -600,8 +600,11 @@ impl FlagDetails {
                     // would always report matched=false, contradicting the condition-level outcome.
                     // Resolve them against the actual flag evaluation results instead.
                     if property.depends_on_feature_flag() {
-                        let property_matched =
-                            match_flag_value_to_flag_filter(property, flag_evaluation_results);
+                        let empty = HashMap::new();
+                        let property_matched = match_flag_value_to_flag_filter(
+                            property,
+                            flag_evaluation_results.unwrap_or(&empty),
+                        );
                         // Do not expose the dependency flag's evaluated value here. The caller is
                         // only authorized for the flag under test, not necessarily the dependency
                         // flag, so serializing its raw value would leak it. `matched` reflects the
@@ -1235,7 +1238,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&property_values),
-            &HashMap::new(),
+            None,
         );
 
         // Verify we have analysis for both conditions
@@ -1316,7 +1319,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
-            &flag_results,
+            Some(&flag_results),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1347,7 +1350,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
-            &flag_results,
+            Some(&flag_results),
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1379,7 +1382,7 @@ mod tests {
             &flag,
             &flag_match,
             Some(&HashMap::new()),
-            &HashMap::new(), // empty — dependency flag 42 absent
+            None, // empty — dependency flag 42 absent
         );
 
         assert_eq!(analysis.len(), 1);
