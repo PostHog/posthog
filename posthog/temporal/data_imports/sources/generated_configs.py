@@ -668,7 +668,8 @@ class RechargeSourceConfig(config.Config):
 
 @config.config
 class RecurlySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

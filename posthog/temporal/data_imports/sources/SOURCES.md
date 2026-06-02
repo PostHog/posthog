@@ -71,6 +71,7 @@ the row lists both.
 | plain         | HTTP                        | requests                                                        | ✅                          |
 | polar         | HTTP                        | requests                                                        | ✅                          |
 | postgres      | DB protocol                 | psycopg                                                         | ➖                          |
+| recurly       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | reddit_ads    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift      | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
 | resend        | HTTP                        | requests                                                        | ✅                          |
@@ -126,7 +127,7 @@ fullstory, gitlab, gong, google_analytics, google_drive, gorgias, granola, green
 instagram, intercom, iterable, jira, kafka, launchdarkly, lever, mailerlite, mailjet, marketo,
 microsoft_teams, mixpanel, monday, netsuite, notion, okta, omnisend, onedrive, oracle, outreach,
 pagerduty, pardot, paypal, pendo, pipedrive, plaid, postmark, productboard, quickbooks, recharge,
-recurly, ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
+ringcentral, salesloft, sendgrid, servicenow, sftp, sharepoint, shortcut, smartsheet,
 square, surveymonkey, trello, twilio, twitter_ads, webflow, woocommerce, workday, wrike, xero,
 youtube_analytics, zoho_crm, zoom, zuora.
 
