@@ -16,6 +16,7 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
     _meets_min_priority,
@@ -445,12 +446,14 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
     ("actionability", "already_addressed", "should_notify"),
     [
         # Real, outstanding work → notify
-        ("immediately_actionable", False, True),
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, False, True),
         # Already addressed → suppress even if nominally actionable
-        ("immediately_actionable", True, False),
+        (ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, True, False),
+        # Already addressed with no actionability field → still suppress
+        (None, True, False),
         # Non-actionable judgments → suppress
-        ("not_actionable", False, False),
-        ("requires_human_input", False, False),
+        (ActionabilityChoice.NOT_ACTIONABLE.value, False, False),
+        (ActionabilityChoice.REQUIRES_HUMAN_INPUT.value, False, False),
         # No actionability judgment at all → notify (don't silently swallow)
         (None, None, True),
     ],

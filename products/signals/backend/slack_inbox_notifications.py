@@ -108,7 +108,6 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
 
 
 def _latest_judgment(report: SignalReport, artefact_type: SignalReportArtefact.ArtefactType) -> dict | None:
-    """Parse the most recent artefact of the given type into a dict, or None if absent/malformed."""
     art = report.artefacts.filter(type=artefact_type).order_by("-created_at").first()
     if art is None:
         return None
