@@ -6,6 +6,7 @@ import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterCon
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import type { IntervalType } from '~/types'
 
+import { capResultsToChartLimit } from '../shared/chartDatasetLimit'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 
@@ -55,7 +56,9 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
     results: R[],
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildMainTrendsBarSeries(r, index, opts, r.data))
+    return capResultsToChartLimit(results, opts.getHidden).map((r, index) =>
+        buildMainTrendsBarSeries(r, index, opts, r.data)
+    )
 }
 
 export interface BuildTrendsBarTimeSeriesConfigOpts {
@@ -110,7 +113,8 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
 ): { series: Series<M>[]; labels: string[]; displayLabels: string[] } {
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
-    const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
+    const visibleUncapped = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
+    const visible = capResultsToChartLimit(visibleUncapped)
     const displayLabels = visible.map((r) => {
         const base = r.label ?? ''
         return r.compare_label ? `${base} - ${r.compare_label}` : base

@@ -1,6 +1,7 @@
 import type { Series } from 'lib/hog-charts'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { capResultsToChartLimit } from '../shared/chartDatasetLimit'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 
 export interface BuildTrendsPieSeriesOpts<R> {
@@ -21,7 +22,7 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
     results: R[],
     opts: BuildTrendsPieSeriesOpts<R>
 ): Series<TrendsSeriesMeta>[] {
-    return results.map((r, index) => {
+    return capResultsToChartLimit(results, opts.getHidden).map((r, index) => {
         const excluded = opts.getHidden ? opts.getHidden(r, index) : false
         const label = opts.getLabel ? opts.getLabel(r, index) : (r.label ?? '')
         return {

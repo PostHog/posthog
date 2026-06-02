@@ -13,6 +13,7 @@ import { ciRanges } from 'lib/statistics'
 import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import { capResultsToChartLimit } from '../shared/chartDatasetLimit'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 
@@ -81,7 +82,7 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
     results: R[],
     opts: BuildTrendsSeriesOpts<R, M>
 ): Series<M>[] {
-    return results.map((r, index) => buildMainTrendsSeries(r, index, opts))
+    return capResultsToChartLimit(results, opts.getHidden).map((r, index) => buildMainTrendsSeries(r, index, opts))
 }
 
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
@@ -203,7 +204,9 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         showGrid: true,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
-    const derivedConfigs = buildDerivedConfigs(opts.results, {
+    // Keep derived configs (trendlines, CI, comparison) aligned with the capped series set.
+    const cappedResults = capResultsToChartLimit(opts.results, opts.getHidden)
+    const derivedConfigs = buildDerivedConfigs(cappedResults, {
         showConfidenceIntervals: opts.showConfidenceIntervals,
         confidenceLevel: opts.confidenceLevel,
         showMovingAverage: opts.showMovingAverage,
