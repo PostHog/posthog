@@ -461,34 +461,28 @@ def update_flag_definitions_cache(team: Team | int, ttl: int | None = None) -> b
     return success
 
 
-# Cross-process throttle window for Sentry capture of skipped feature_flags rebuilds.
-# A fleet-wide outage would otherwise flood Sentry; the dedicated skip counters stay
-# always-on so the throttle never hides the rate.
+# Throttle window for capturing skipped rebuilds, shared across processes via the
+# cache so many workers skipping at once report at most once per window.
 _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL = 60  # seconds
 
 
 def _capture_flag_cache_skip_throttled(throttle_key: str, exc: BaseException, message: str, **log_fields: Any) -> None:
-    """Log a skipped flag-cache rebuild loudly, throttling the Sentry capture across
-    processes. Throttled events log ``sentry_capture_throttled=True`` so suppression
-    is explicit and queryable, while the always-on skip counter still reflects the
-    true rate."""
+    """Log a skipped flag-cache rebuild and capture the exception, throttling the
+    capture across processes. Each log line records whether the capture ran or was
+    throttled."""
     captured = get_safe_cache(throttle_key) is None
     if captured:
         safe_cache_set(throttle_key, True, _FLAG_CACHE_SKIP_CAPTURE_THROTTLE_TTL)
         capture_exception(exc)
-    logger.error(message, sentry_captured=captured, sentry_capture_throttled=not captured, **log_fields)
+    logger.error(message, exception_captured=captured, capture_throttled=not captured, **log_fields)
 
 
 def _group_mapping_would_be_emptied(team: Team, payload: dict[str, Any]) -> bool:
-    """True when a rebuild would overwrite a populated group_type_mapping with an
-    empty one: the freshly built payload's mapping is empty but the per-project
-    last-known-good (stale cache) is non-empty.
+    """True when the freshly built payload's group_type_mapping is empty but the
+    per-project last-known-good (stale cache) is non-empty, i.e. a write would
+    replace populated data with an empty mapping.
 
-    Reads the stale key directly (Redis-only) to avoid re-triggering a DB load. The
-    batch fetch never overwrites a populated stale entry with an empty result, so an
-    empty payload here means the stale key still reflects the prior good value —
-    this catches an empty-but-not-erroring upstream that the fail-closed read path
-    (which only reacts to DB errors) cannot see."""
+    Reads the stale key directly to avoid triggering another DB load."""
     if payload.get("group_type_mapping"):
         return False
     stale = get_safe_cache(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{team.project_id}")
@@ -506,9 +500,7 @@ def update_flag_caches(team: Team):
     try:
         with_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=True)
 
-        # Write-side data-quality guard: refuse to overwrite a populated
-        # group_type_mapping with an empty one, regardless of cause. Both variants
-        # share the same mapping, so one check gates both writes.
+        # Both variants share the same mapping, so one check gates both writes.
         if _group_mapping_would_be_emptied(team, with_cohorts):
             HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER.labels(namespace="feature_flags").inc()
             _capture_flag_cache_skip_throttled(
@@ -526,10 +518,7 @@ def update_flag_caches(team: Team):
 
         success = True
     except GroupTypesUnavailable as e:
-        # The persons DB is unavailable and no last-known-good exists, so the read
-        # path failed closed rather than handing us an empty mapping. Skip the write
-        # — the prior good entry survives its 30-day TTL — and emit a precise,
-        # alertable reason instead of a generic failure.
+        # Group types could not be loaded; skip the write to keep the existing entry.
         HYPERCACHE_REBUILD_SKIPPED_COUNTER.labels(namespace="feature_flags", reason="group_types_unavailable").inc()
         _capture_flag_cache_skip_throttled(
             "flag_cache_group_types_unavailable_capture_throttle",

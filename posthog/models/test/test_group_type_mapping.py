@@ -862,12 +862,12 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_errors_counter.labels.assert_called_once()
 
 
-# ── Terminal-failure hardening tests (2026-06-02 incident) ─────────────
+# ── Terminal-failure hardening tests ──────────────────────────────────
 
 
 def _make_db_error_objects() -> MagicMock:
-    """A GroupTypeMapping.objects mock whose .filter(...).order_by(...).values()
-    raises DatabaseError when iterated — the persons-DB-outage shape."""
+    # GroupTypeMapping.objects mock whose .filter(...).order_by(...).values()
+    # raises DatabaseError when iterated.
     from django.db import DatabaseError
 
     def _raise_db_error():
@@ -883,14 +883,10 @@ def _make_db_error_objects() -> MagicMock:
 
 
 class TestTerminalFetchFailureMetric(SimpleTestCase):
-    """The new terminal-failure counter fires on a direct-ORM DB failure, and the
-    personhog error counter is NOT touched on that path (the swallow never calls
-    personhog, so attributing it there would pollute personhog dashboards)."""
-
     def setUp(self):
         self.project_id = 7777
         _clear_cache(self.project_id)
-        # client None → personhog leg is skipped entirely, isolating the ORM failure
+        # client None skips the personhog leg, isolating the ORM failure
         self._client_patcher = patch(_CLIENT_PATCH, return_value=None)
         self._client_patcher.start()
 
@@ -938,7 +934,7 @@ class TestTerminalFetchFailureMetric(SimpleTestCase):
     ):
         mock_objects.filter.side_effect = _make_db_error_objects().filter
 
-        # No stale → fails closed, but the terminal counter still fires first
+        # No stale, so it fails closed, but the counter still fires first
         with self.assertRaises(GroupTypesUnavailable):
             get_group_types_for_projects([self.project_id])
 
@@ -949,9 +945,6 @@ class TestTerminalFetchFailureMetric(SimpleTestCase):
 
 
 class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
-    """Batch fetch recovers per-project last-known-good on a DB failure, and fails
-    closed (rather than returning empty) when a project has no stale entry."""
-
     def setUp(self):
         self.project_ids = [101, 102]
         for pid in self.project_ids:
@@ -990,7 +983,7 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
     def test_db_error_raises_when_any_project_lacks_stale(self, mock_objects):
         mock_objects.filter.side_effect = _make_db_error_objects().filter
 
-        # Only 101 has a last-known-good; 102 is unrecoverable → fail closed
+        # Only 101 has a last-known-good; 102 is unrecoverable, so it fails closed
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [{"group_type": "org", "group_type_index": 0}], 3600)
 
         with self.assertRaises(GroupTypesUnavailable) as ctx:
@@ -1000,8 +993,7 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
     def test_empty_stale_counts_as_recovered(self, mock_objects):
-        """A cached empty list is a known value (project genuinely has no group
-        types), so it recovers rather than failing closed."""
+        # A cached empty list is a known value, so it recovers rather than failing closed
         mock_objects.filter.side_effect = _make_db_error_objects().filter
 
         safe_cache_set(f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}101", [], 3600)
@@ -1013,10 +1005,6 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
 
 
 class TestProjectsStaleCachePopulation(SimpleTestCase):
-    """On success the batch fetch persists non-empty results to the per-project
-    stale key (shared last-known-good), but never overwrites it with an empty
-    result — otherwise a transient empty fetch would erase the fallback."""
-
     def setUp(self):
         self.project_ids = [201, 202]
         for pid in self.project_ids:
@@ -1068,9 +1056,6 @@ class TestProjectsStaleCachePopulation(SimpleTestCase):
 
 
 class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
-    """The Sentry capture is throttled across the ~60s window, but the log stays
-    loud every time with explicit throttle visibility."""
-
     def setUp(self):
         self.operation = "get_group_types_for_projects"
         safe_cache_delete(f"group_types_failure_capture_throttle:{self.operation}")
@@ -1093,15 +1078,13 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
             operation=self.operation, log_event="persons_db_group_types_for_projects_failure", exc=exc, project_ids=[1]
         )
 
-        # Captured exactly once across the throttle window
+        # Captured once across the throttle window, but the counter moves both times
         mock_capture.assert_called_once_with(exc)
-
-        # Counter always moves (true rate stays visible despite throttling)
         assert mock_counter.labels.call_count == 2
 
         first_kwargs = mock_logger.exception.call_args_list[0].kwargs
         second_kwargs = mock_logger.exception.call_args_list[1].kwargs
-        assert first_kwargs["sentry_captured"] is True
-        assert first_kwargs["sentry_capture_throttled"] is False
-        assert second_kwargs["sentry_captured"] is False
-        assert second_kwargs["sentry_capture_throttled"] is True
+        assert first_kwargs["exception_captured"] is True
+        assert first_kwargs["capture_throttled"] is False
+        assert second_kwargs["exception_captured"] is False
+        assert second_kwargs["capture_throttled"] is True

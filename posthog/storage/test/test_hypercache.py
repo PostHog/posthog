@@ -159,9 +159,8 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
 
 
 class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
-    """A load_fn raising HyperCacheDependencyUnavailable is a transient, fail-closed
-    signal: writes are skipped so the last-known-good survives, and reads return a
-    transient miss without caching a sentinel so the next read retries."""
+    """A load_fn raising HyperCacheDependencyUnavailable skips the write and returns a
+    miss without caching a sentinel."""
 
     @staticmethod
     def _load_fn_unavailable(team):
@@ -175,10 +174,9 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
             result = hc.update_cache(self.team_id)
 
         assert result is False
-        # Nothing written — neither a value nor a miss sentinel — so a prior entry survives
+        # Nothing written, not even a miss sentinel, so a prior entry survives
         assert cache.get(hc.get_cache_key(self.team_id)) is None
-        # Not re-captured here: the dependency layer already captured it (throttled),
-        # so a fleet-wide outage doesn't flood Sentry from the refresh path
+        # The source of the failure already reported it, so update_cache does not
         mock_capture.assert_not_called()
 
     def test_get_from_cache_returns_transient_miss_without_sentinel(self):
@@ -189,7 +187,7 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
 
         assert result is None
         assert source == "db"
-        # No miss sentinel cached → the next read retries instead of serving a cached miss
+        # No miss sentinel cached, so the next read retries instead of serving a cached miss
         assert cache.get(hc.get_cache_key(self.team_id)) is None
 
 

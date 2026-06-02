@@ -47,7 +47,7 @@ class TestLocalEvalCanary(BaseTest):
         assert self._failures() == 0
 
     def test_empty_mapping_marks_absent_and_fails(self):
-        # Team with no group types → empty group_type_mapping (the incident symptom)
+        # Team with no group types, so the mapping is empty
         with override_settings(FEATURE_FLAGS_CANARY_TEAM_ID=self.team.id):
             run_local_eval_canary(self.registry)
 
@@ -58,7 +58,7 @@ class TestLocalEvalCanary(BaseTest):
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        # Flag aggregates on an index absent from the mapping → cannot resolve
+        # Flag aggregates on an index absent from the mapping, so it cannot resolve
         FeatureFlag.objects.create(
             team=self.team,
             key="orphan-group-flag",

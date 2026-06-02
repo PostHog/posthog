@@ -30,17 +30,13 @@ GROUP_TYPES_NEGATIVE_CACHE_TTL = 30  # seconds — short so we detect DB recover
 GROUP_TYPES_CACHE_KEY_PREFIX = "group_types_for_project_"
 GROUP_TYPES_STALE_CACHE_KEY_PREFIX = "group_types_for_project_stale_"
 
-# Cross-process throttle window for Sentry capture of group-type fetch failures.
-# During a fleet-wide persons-DB outage every worker fails at high rate, so a
-# per-process flag is useless — this gates capture globally while the always-on
-# counter below still reflects the true rate.
+# Throttle window for capturing group-type fetch failures, shared across processes
+# via the cache so many workers failing at once report at most once per window.
 GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL = 60  # seconds
 
-# Terminal failure of a group-type fetch (the whole fetch failed after all
-# fallbacks), distinct from the personhog routing counters which track the
-# intermediate gRPC-leg failure that merely triggers ORM fallback. These swallow
-# sites query the persons DB directly via the ORM and never call personhog, so
-# they must NOT touch the personhog metrics.
+# Terminal failure of a group-type fetch, after all fallbacks. Separate from the
+# personhog routing counters: these sites query the persons DB directly via the ORM
+# and never call personhog, so the failure must not land on the personhog metrics.
 GROUP_TYPES_FETCH_FAILURES = Counter(
     "posthog_group_types_fetch_failures",
     "Terminal failures fetching group-type mappings, by operation/source/error_type",
@@ -50,12 +46,11 @@ GROUP_TYPES_FETCH_FAILURES = Counter(
 
 class GroupTypesUnavailable(HyperCacheDependencyUnavailable):
     """Raised by the batch fetch when group types cannot be loaded and no
-    last-known-good is available for one or more projects, so the caller must fail
-    closed rather than persist an empty mapping over populated data — an empty
-    mapping silently disables every group-aggregated flag for the team.
+    last-known-good is cached for one or more projects.
 
-    Subclasses the storage-layer base so HyperCache can catch it generically,
-    without the storage layer importing this model-specific type.
+    Callers fail closed instead of persisting an empty mapping: an empty mapping
+    makes every group-aggregated flag for the team evaluate to false. Subclasses the
+    storage-layer base so HyperCache can catch it without importing this type.
     """
 
     def __init__(self, project_ids: list[int]) -> None:
@@ -64,13 +59,11 @@ class GroupTypesUnavailable(HyperCacheDependencyUnavailable):
 
 
 def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: BaseException, **log_fields: Any) -> None:
-    """Account for a terminal (direct-ORM) group-type fetch failure: move the
-    always-on failure counter, capture to Sentry throttled across processes, and
-    log the active traceback with explicit throttle visibility.
+    """Record a terminal group-type fetch failure: increment the failure counter, log
+    the traceback, and capture the exception (throttled across processes).
 
-    The counter always reflects the true failure rate, so the throttle never hides
-    the signal; throttled events still log ``sentry_capture_throttled=True`` so
-    suppression is queryable.
+    The counter is always incremented; only the capture is throttled. Each log line
+    records whether the capture ran or was throttled.
     """
     GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="django_orm", error_type="db_error").inc()
 
@@ -84,8 +77,8 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
         log_event,
         operation=operation,
         error_type="db_error",
-        sentry_captured=captured,
-        sentry_capture_throttled=not captured,
+        exception_captured=captured,
+        capture_throttled=not captured,
         **log_fields,
     )
 
@@ -336,14 +329,11 @@ def _memoise_group_types_on(target: Team | Project, project_id: int) -> list[dic
 
 
 def _populate_projects_stale_cache(result: dict[int, list[dict[str, Any]]]) -> None:
-    """Persist each project's non-empty group types to its per-project stale key,
-    so the batch and single-project paths share one last-known-good source for
-    outage recovery.
+    """Write each project's non-empty group types to its per-project stale key, the
+    last-known-good shared by the batch and single-project paths.
 
-    Empty results are intentionally skipped: overwriting a populated
-    last-known-good with an empty list would erase the very fallback that outage
-    recovery and the write-side guard rely on, letting one transient empty fetch
-    reintroduce the silent-corruption shape this hardening exists to prevent.
+    Empty results are skipped: overwriting a populated entry with an empty list would
+    erase the fallback that outage recovery and the write-side guard read.
     """
     for project_id, mappings in result.items():
         if mappings:
@@ -351,14 +341,11 @@ def _populate_projects_stale_cache(result: dict[int, list[dict[str, Any]]]) -> N
 
 
 def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseError) -> dict[int, list[dict[str, Any]]]:
-    """Recover a batch fetch from the per-project stale cache after a terminal DB
-    failure. Records the failure (counter + throttled capture + log), then serves
-    each project's last-known-good if present.
+    """Recover a batch fetch from the per-project stale cache after a DB failure.
 
-    Fails closed — raising GroupTypesUnavailable for the unrecovered projects — if
-    any requested project has no stale entry, so the caller never persists an
-    all-empty mapping over populated data. An all-recovered result returns
-    normally (the failure counter still notes that stale was served).
+    Records the failure, then serves each project's last-known-good. Raises
+    GroupTypesUnavailable if any project has no stale entry, so the caller never
+    persists an all-empty mapping over populated data.
     """
     _record_group_types_fetch_failure(
         operation="get_group_types_for_projects",
@@ -384,13 +371,11 @@ def _recover_projects_from_stale_or_fail(project_ids: list[int], exc: DatabaseEr
 
 def get_group_types_for_projects(project_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
-    ORM, then to the per-project stale cache on a terminal DB failure.
+    ORM, then to the per-project stale cache on a DB failure.
 
-    Fails closed: if the persons DB is unavailable and any requested project has no
-    last-known-good to fall back on, raises GroupTypesUnavailable instead of
-    returning an all-empty mapping. The sole non-test caller is the flag
-    local-evaluation cache rebuild, so this stricter contract is safe and keeps a
-    persons-DB outage from silently disabling group-aggregated flags.
+    Raises GroupTypesUnavailable if the persons DB is unavailable and any requested
+    project has no cached last-known-good, rather than returning an all-empty
+    mapping. Callers must handle that case.
     """
     from posthog.personhog_client.client import get_personhog_client
 

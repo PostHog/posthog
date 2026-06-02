@@ -290,8 +290,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Feature flags local-eval canary - every 5 minutes
-    # No-op unless FEATURE_FLAGS_CANARY_TEAM_ID is set; short interval keeps the
-    # detection latency for a silently-emptied group_type_mapping low.
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/5"),

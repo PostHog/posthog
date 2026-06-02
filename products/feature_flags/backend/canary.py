@@ -1,13 +1,8 @@
-"""Synthetic canary for feature-flags local evaluation.
+"""Canary for feature-flags local evaluation.
 
-Periodically exercises the real local-eval build path for a configured canary team
-and asserts the operator-visible symptom directly: that the team's
-``group_type_mapping`` is non-empty and its group-aggregated flags can resolve their
-group type. This catches a silently-emptied mapping (the 2026-06-02 incident)
-regardless of cause, independent of the read/write hardening in the lower layers.
-
-Gated on ``FEATURE_FLAGS_CANARY_TEAM_ID`` — unset means no-op, so CI and self-hosted
-installs are unaffected.
+Builds a configured team's local-eval payload on a schedule and checks that its
+``group_type_mapping`` is non-empty and that its group-aggregated flags resolve to a
+group type. Gated on ``FEATURE_FLAGS_CANARY_TEAM_ID``; unset means it does nothing.
 """
 
 from typing import Any
@@ -26,8 +21,7 @@ logger = structlog.get_logger(__name__)
 
 def _unresolved_group_aggregated_flags(payload: dict[str, Any], group_type_mapping: dict[str, str]) -> list[str]:
     """Keys of group-aggregated flags whose aggregation index is absent from the
-    mapping — exactly the incident symptom (the flag can't resolve to a group type
-    and so evaluates to ``false``)."""
+    mapping, so the flag cannot resolve to a group type."""
     unresolved: list[str] = []
     for flag in payload.get("flags") or []:
         index = (flag.get("filters") or {}).get("aggregation_group_type_index")
@@ -37,16 +31,14 @@ def _unresolved_group_aggregated_flags(payload: dict[str, Any], group_type_mappi
 
 
 def run_local_eval_canary(registry: CollectorRegistry | None) -> None:
-    """Build the canary team's local-eval payload and record whether its
-    ``group_type_mapping`` is present and its group-aggregated flags resolve.
+    """Build the canary team's local-eval payload and record its health on the given
+    registry. Does nothing when ``FEATURE_FLAGS_CANARY_TEAM_ID`` is unset.
 
-    No-op when ``FEATURE_FLAGS_CANARY_TEAM_ID`` is unset. Metrics are registered on
-    the caller-provided registry (the task's PushGateway registry):
-
+    Metrics:
     - ``posthog_feature_flags_local_eval_canary_group_mapping_present``: 1 when the
-      mapping is non-empty, 0 when empty or the build errored.
-    - ``posthog_feature_flags_local_eval_canary_failure_total``: increments on any
-      unhealthy outcome (empty mapping, unresolved group flag, or exception).
+      mapping is non-empty, else 0.
+    - ``posthog_feature_flags_local_eval_canary_failure_total``: incremented on an
+      empty mapping, an unresolved group flag, or an exception.
     """
     team_id = settings.FEATURE_FLAGS_CANARY_TEAM_ID
     if team_id is None:

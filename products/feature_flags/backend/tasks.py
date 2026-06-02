@@ -30,8 +30,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
-# Lock timeout matches the canary task's hard time_limit so a crashed run's lock
-# expires before the next 5-minute schedule, skipping at most one run.
+# Matches the task's hard time_limit so a crashed run's lock expires before the next
+# 5-minute schedule.
 LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS = 90
 
 
@@ -420,10 +420,9 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
 def feature_flags_local_eval_canary_task(self: PushGatewayTask) -> None:
     """Periodic canary for feature-flags local evaluation.
 
-    Builds the configured canary team's local-eval payload and asserts its
-    group_type_mapping is non-empty, catching a silently-emptied mapping directly.
-    No-op unless FEATURE_FLAGS_CANARY_TEAM_ID is set. Runs every 5 minutes to keep
-    detection latency low; a distributed lock skips overlapping runs.
+    Builds the configured team's local-eval payload and checks its group_type_mapping
+    is non-empty. Does nothing unless FEATURE_FLAGS_CANARY_TEAM_ID is set. A
+    distributed lock skips overlapping runs.
 
     Metrics:
     - posthog_feature_flags_local_eval_canary_group_mapping_present (gauge, 1/0)

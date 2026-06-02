@@ -219,10 +219,6 @@ class TestLocalEvaluationCache(BaseTest):
 
 
 class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
-    """update_flag_caches must never overwrite a populated group_type_mapping with
-    an empty one (the 2026-06-02 incident), regardless of cause — but must still
-    rebuild teams that genuinely have no group types."""
-
     def setUp(self):
         super().setUp()
         project, team = Project.objects.create_with_team(
@@ -274,12 +270,11 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_skips_write_when_mapping_would_be_emptied(self, mock_emptied_counter):
-        # Warm with the real fetch → prior entry + non-empty last-known-good stale
+        # Warm with the real fetch so the non-empty last-known-good stale exists
         update_flag_caches(self.team)
         assert self._cached_group_type_mapping() == {"0": "organization"}
 
-        # Fetch now succeeds-but-empty (e.g. an empty-but-not-erroring upstream)
-        # while the last-known-good is still non-empty
+        # Fetch now returns empty without erroring, while last-known-good is non-empty
         with patch(
             "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
             return_value={self.team.project_id: []},

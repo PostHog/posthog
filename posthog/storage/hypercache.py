@@ -24,14 +24,12 @@ DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
 
 
 class HyperCacheDependencyUnavailable(Exception):
-    """Raised by a ``load_fn`` when a required upstream dependency is unavailable and
-    the freshly built value would be wrong (e.g. an empty payload over populated data).
+    """Raised by a ``load_fn`` when an upstream dependency is unavailable.
 
-    HyperCache treats this as a transient, fail-closed signal rather than a value:
-    the write paths skip the write (preserving the last-known-good entry) and the
-    read path returns a transient miss without caching a sentinel. Storage code
-    catches this generic base so it never has to import product-specific exception
-    types; callers subclass it for precise, alertable reasons.
+    HyperCache treats it as a transient signal, not a value: write paths skip the
+    write so the existing entry is kept, and the read path returns a miss without
+    caching a sentinel so the next read retries. Callers subclass it so the storage
+    layer can catch this base without importing their exception types.
     """
 
 
@@ -63,19 +61,15 @@ CACHE_SYNC_COUNTER = Counter(
     labelnames=["result", "namespace", "value"],
 )
 
-# A rebuild that was deliberately skipped to preserve the last-known-good entry,
-# rather than persisting a value built from an unavailable dependency.
 HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     "posthog_hypercache_rebuild_skipped",
-    "Number of hypercache rebuilds skipped to preserve last-known-good data",
+    "Rebuilds skipped because a dependency was unavailable, keeping the existing entry",
     labelnames=["namespace", "reason"],
 )
 
-# A rebuild skipped because it would have overwritten a populated group-type
-# mapping with an empty one — the silent-corruption shape from the 2026-06-02 incident.
 HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER = Counter(
     "posthog_hypercache_group_mapping_emptied",
-    "Number of rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
+    "Rebuilds skipped because the freshly built group_type_mapping was empty over populated data",
     labelnames=["namespace"],
 )
 
@@ -260,10 +254,7 @@ class HyperCache:
         try:
             data = self.load_fn(key)
         except HyperCacheDependencyUnavailable:
-            # A required upstream dependency is down and load_fn refused to build a
-            # (potentially wrong) value. Surface a transient miss WITHOUT caching a
-            # miss sentinel, so the next read retries once the dependency recovers
-            # rather than serving — or persisting — an empty/poisoned value.
+            # Return a miss without caching a sentinel, so the next read retries.
             HYPERCACHE_CACHE_COUNTER.labels(
                 result="dependency_unavailable", namespace=self.namespace, value=self.value
             ).inc()
@@ -403,11 +394,8 @@ class HyperCache:
             success = True
             return True
         except HyperCacheDependencyUnavailable:
-            # A required dependency is down and load_fn refused to build a value.
-            # Skip the write (the last-known-good entry survives) and record a real
-            # failure — but don't capture here: the dependency layer already captured
-            # the root cause (throttled), so re-capturing per team would flood Sentry
-            # during an outage.
+            # Skip the write to keep the existing entry, and count a failure. The
+            # source of the failure already reported it, so don't report it again here.
             logger.warning(
                 f"Skipping {self.namespace} cache sync for team {key}: dependency unavailable",
                 namespace=self.namespace,
