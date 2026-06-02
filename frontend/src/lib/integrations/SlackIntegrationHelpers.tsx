@@ -88,7 +88,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
-    const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
+    const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(
+        slackIntegrationLogic({ id: integration.id })
+    )
     const [localValue, setLocalValue] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
@@ -150,7 +152,26 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     return (
         <>
             <LemonInputSelect
-                onChange={(val) => onChange?.(val[0] ?? null)}
+                onChange={(val) => {
+                    const key = val[0] ?? null
+                    if (key) {
+                        // Pin the selected channel into the by-id slot. LemonInputSelect's
+                        // post-select setInputValue('') triggers our onInputChange('') handler,
+                        // which calls loadAllSlackChannels() to recover from any prior search
+                        // — that bulk reload would otherwise overwrite _fetchedSlackChannels with
+                        // a page that may not include this channel, briefly dropping it from
+                        // slackChannels and unresolving the friendly label until the by-id
+                        // useEffect's lookup lands ~500ms later. Pinning the channel via the
+                        // loader's success action keeps it in slackChannels regardless of what
+                        // the bulk page returns.
+                        const [channelId] = key.split('|')
+                        const channel = slackChannels.find((c: SlackChannelType) => c.id === channelId)
+                        if (channel) {
+                            loadSlackChannelByIdSuccess(channel)
+                        }
+                    }
+                    onChange?.(key)
+                }}
                 onInputChange={(val) => {
                     if (val) {
                         // Slack channel IDs are uppercase; normalize so pasted lowercase IDs still
