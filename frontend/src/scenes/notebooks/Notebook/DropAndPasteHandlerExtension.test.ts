@@ -229,5 +229,18 @@ describe('DropAndPasteHandlerExtension', () => {
             const lastRow = result[0].content?.[2]
             expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('4')
         })
+
+        it('parses an AI-formatted flattened table whose rows are glued with no whitespace', () => {
+            const result = parseMarkdownToTipTap('| Month | Boost ||-------|-------|| Jul 2025 | 54 || Aug 2025 | 59 |')
+
+            expect(result[0].type).toBe('table')
+            expect(result[0].content).toHaveLength(3)
+            const headerRow = result[0].content?.[0]
+            expect(headerRow?.content?.[0].type).toBe('tableHeader')
+            expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('Month')
+            const lastRow = result[0].content?.[2]
+            expect(lastRow?.content?.[0].content?.[0].content?.[0].text).toBe('Aug 2025')
+            expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('59')
+        })
     })
 })
