@@ -155,7 +155,7 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         }
         django_request._stream = io.BytesIO(body)
         django_request._read_started = False  # type: ignore[attr-defined]
-        return Request(django_request, parsers=[JSONParser()])
+        return cast(Request, Request(django_request, parsers=[JSONParser()]))
 
     def test_succeeds_with_multiple_signatures_during_rotation(self):
         # Stripe dual-signs while a signing-secret rotation is in flight, so the header
