@@ -1407,9 +1407,6 @@ describe('Hog Executor', () => {
         })
 
         it('replaces access token placeholders in body, headers, and url', async () => {
-            // Self-contained fetch stub — don't rely on a leaked impl from a prior test.
-            // The parent beforeEach restores fetch to the real impl before every test, so
-            // this needs to set its own stub to avoid hitting the network.
             jest.mocked(fetch).mockImplementation(() => {
                 return Promise.resolve({
                     status: 200,
@@ -1466,12 +1463,6 @@ describe('Hog Executor', () => {
         })
 
         describe('with non_failure_status_codes', () => {
-            // Earlier tests in this file (e.g. 'adds secret headers for certain endpoints',
-            // 'replaces access token placeholders ...') swap the module-level `fetch` mock
-            // to a fixed stub. The outer afterEach's `jest.restoreAllMocks()` only resets
-            // spyOn mocks, not the manual `jest.fn()` from the top-of-file `jest.mock`.
-            // Without this restore, every test below would see the polluted fetch and the
-            // mock server's `res.writeHead/end` would never reach `executeFetch`.
             beforeEach(() => {
                 const actualRequest = jest.requireActual('~/utils/request') as { fetch: typeof fetch }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
