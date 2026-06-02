@@ -864,7 +864,9 @@ class WebflowSourceConfig(config.Config):
 
 @config.config
 class WooCommerceSourceConfig(config.Config):
-    pass
+    store_url: str
+    consumer_key: str
+    consumer_secret: str
 
 
 @config.config
