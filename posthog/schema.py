@@ -9595,6 +9595,13 @@ class TrendsFilter(BaseModel):
     showTrendLines: bool | None = None
     showValuesOnSeries: bool | None = False
     smoothingIntervals: int | None = 1
+    stackBreakdownValues: bool | None = Field(
+        default=False,
+        description=(
+            "On the horizontal bar-value chart, stack a series' breakdown values into a"
+            " single bar instead of rendering one bar per breakdown value."
+        ),
+    )
     xAxisLabel: str | None = Field(default=None, description="Custom label rendered under the X axis.")
     yAxisLabel: str | None = Field(default=None, description="Custom label rendered alongside the Y axis.")
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR

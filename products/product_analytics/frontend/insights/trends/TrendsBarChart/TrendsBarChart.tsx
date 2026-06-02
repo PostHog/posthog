@@ -16,12 +16,15 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
@@ -98,6 +101,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const isAggregated = display === ChartDisplayType.ActionsBarValue
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -113,12 +118,38 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
               )
             : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
 
+    const stackBreakdowns = !!trendsFilter?.stackBreakdownValues
+
+    const getAggregatedDisplayLabel = useCallback(
+        (r: IndexedTrendResult): string => {
+            if (stackBreakdowns) {
+                // Stacked mode labels the whole band by the series/formula name; individual
+                // breakdown values are distinguished by color and the tooltip.
+                return getDisplayNameFromEntityFilter(r.action) ?? r.label ?? ''
+            }
+            if (r.breakdown_value != null) {
+                return formatBreakdownLabel(
+                    r.breakdown_value,
+                    breakdownFilter,
+                    allCohorts?.results,
+                    formatPropertyValueForDisplay,
+                    undefined,
+                    r.label
+                )
+            }
+            return r.label ?? ''
+        },
+        [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
                 getHidden: getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
+                stackBreakdowns,
+                getDisplayLabel: getAggregatedDisplayLabel,
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -131,7 +162,15 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
             displayLabels: undefined,
         }
-    }, [isAggregated, indexedResults, getTrendsColor, getTrendsHidden, currentPeriodResult?.labels])
+    }, [
+        isAggregated,
+        indexedResults,
+        getTrendsColor,
+        getTrendsHidden,
+        currentPeriodResult?.labels,
+        stackBreakdowns,
+        getAggregatedDisplayLabel,
+    ])
 
     const valueLabelFormatter = useCallback(
         (value: number) => {

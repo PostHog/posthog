@@ -31,6 +31,17 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     buildMeta?: (r: R, index: number) => M
 }
 
+export interface BuildTrendsBarAggregatedSeriesOpts<
+    R extends TrendsBarResultLike,
+    M = unknown,
+> extends BuildTrendsBarSeriesOpts<R, M> {
+    // When true, breakdown rows of a series/formula share a band and stack into a single bar.
+    // When false (default), each result gets its own band — one bar per breakdown value.
+    stackBreakdowns?: boolean
+    // Human-readable category label for a result. Defaults to the raw result label.
+    getDisplayLabel?: (r: R, index: number) => string
+}
+
 function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     r: R,
     index: number,
@@ -106,20 +117,25 @@ const BAND_KEY_SEP = '\u001f'
 // Trade-off: only the last series gets rounded-corner caps.
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],
-    opts: BuildTrendsBarSeriesOpts<R, M>
+    opts: BuildTrendsBarAggregatedSeriesOpts<R, M>
 ): { series: Series<M>[]; labels: string[]; displayLabels: string[] } {
     // Hidden results are dropped entirely — keeping them as `excluded` series would leave
     // a phantom band on the category axis with no bar.
     const visible = opts.getHidden ? results.filter((r, i) => !opts.getHidden!(r, i)) : results
-    const displayLabels = visible.map((r) => {
-        const base = r.label ?? ''
+    const displayLabels = visible.map((r, i) => {
+        const base = opts.getDisplayLabel ? opts.getDisplayLabel(r, i) : (r.label ?? '')
         return r.compare_label ? `${base} - ${r.compare_label}` : base
     })
-    // Suffix the band key with the series identity so duplicate display labels from
-    // different series get distinct bands (breakdowns of one series still share a band).
+    // Band key strategy:
+    // - separate (default): unique per result, so every breakdown value gets its own band.
+    // - stacked: one band per series/formula (keyed by order + compare_label) so a series'
+    //   breakdown values collapse onto one band and stack into a single bar.
     const labels = visible.map((r, i) => {
+        if (!opts.stackBreakdowns) {
+            return String(i)
+        }
         const seriesId = r.action?.order ?? r.order ?? 0
-        return `${displayLabels[i]}${BAND_KEY_SEP}${seriesId}`
+        return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })
     const n = visible.length
     const series = visible.map((r, index) => {

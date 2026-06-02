@@ -1449,6 +1449,10 @@ export type TrendsFilter = {
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     /** @default false */
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar
+     *  instead of rendering one bar per breakdown value.
+     * @default false */
+    stackBreakdownValues?: boolean
     yAxisScaleType?: TrendsFilterLegacy['y_axis_scale_type']
     /** @default false */
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
@@ -1501,6 +1505,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showValuesOnSeries',
     'showLabelsOnSeries',
     'showPercentStackView',
+    'stackBreakdownValues',
     'yAxisScaleType',
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',

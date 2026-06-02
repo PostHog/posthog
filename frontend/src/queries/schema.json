@@ -41121,6 +41121,11 @@
                     "$ref": "#/definitions/integer",
                     "default": 1
                 },
+                "stackBreakdownValues": {
+                    "default": false,
+                    "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
+                    "type": "boolean"
+                },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",
                     "type": "string"

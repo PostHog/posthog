@@ -94,23 +94,51 @@ describe('buildTrendsBarAggregatedSeries', () => {
         expect(new Set(labels).size).toBe(4)
     })
 
-    it('groups same-label breakdown rows of one series onto one band (overlap layout preserved)', () => {
-        // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of
-        // the same formula share it, so they share a band and the overlap-on-top visual holds.
-        const spec: [string, number][] = [
-            ['Binary Size', 0],
-            ['Binary Size', 0],
-            ['Binary Size', 0],
-            ['Embedded Assets', 1],
-            ['Embedded Assets', 1],
-            ['Runtime & Code', 2],
-            ['Runtime & Code', 2],
-        ]
-        const results = spec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+    // Formula+breakdown shape: each formula carries a top-level `order`; breakdown rows of the
+    // same formula share both the formula label and the order. They must NOT collapse by default.
+    const formulaBreakdownSpec: [string, number][] = [
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Binary Size', 0],
+        ['Embedded Assets', 1],
+        ['Embedded Assets', 1],
+        ['Runtime & Code', 2],
+        ['Runtime & Code', 2],
+    ]
+
+    it('gives each breakdown row of a formula its own band by default (separate bars)', () => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
         const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
-        expect(displayLabels).toEqual(spec.map(([label]) => label))
-        // 7 results, but only 3 distinct band slots — one per formula.
+        expect(displayLabels).toEqual(formulaBreakdownSpec.map(([label]) => label))
+        // 7 results → 7 distinct bands: one bar per breakdown value.
+        expect(new Set(labels).size).toBe(7)
+    })
+
+    it("collapses a formula's breakdown rows onto one band per formula when stackBreakdowns is set", () => {
+        const results = formulaBreakdownSpec.map(([label, order], i) => mkResult({ id: `r${i}`, label, order }))
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        // 7 results, but only 3 band slots — one per formula.
         expect(new Set(labels).size).toBe(3)
+    })
+
+    it('keeps current and previous on separate bands in stacked mode even at the same order', () => {
+        const results = [
+            mkResult({ id: 'a', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Chrome' }),
+            mkResult({ id: 'b', label: 'F', order: 0, compare_label: 'current', breakdown_value: 'Safari' }),
+            mkResult({ id: 'c', label: 'F', order: 0, compare_label: 'previous', breakdown_value: 'Chrome' }),
+        ]
+        const { labels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED, stackBreakdowns: true })
+        // The two current rows share a band; previous gets its own → 2 bands.
+        expect(new Set(labels).size).toBe(2)
+    })
+
+    it('uses getDisplayLabel for the category label when provided', () => {
+        const results = [mkResult({ id: 'a', label: 'Formula (A + B)', breakdown_value: 'Chrome' })]
+        const { displayLabels } = buildTrendsBarAggregatedSeries(results, {
+            getColor: () => RED,
+            getDisplayLabel: (r) => String(r.breakdown_value),
+        })
+        expect(displayLabels).toEqual(['Chrome'])
     })
 
     it('places each aggregated_value at the index matching its own band — zero everywhere else', () => {
