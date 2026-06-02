@@ -21,10 +21,19 @@ pub struct RemoteResolutionConfig {
     pub retry_backoff: Duration,
     /// Ceiling for the exponential retry backoff window.
     pub retry_max_backoff: Duration,
+    /// Initial process-local endpoint ejection window after a per-item overload outcome.
+    pub overload_ejection_initial: Duration,
+    /// Maximum process-local endpoint ejection window after repeated overload outcomes.
+    pub overload_ejection_max: Duration,
+    /// Quiet window after which endpoint ejection backs off to the initial duration.
+    pub overload_ejection_decay: Duration,
     /// Event-level deterministic sample rate for sending eligible events to
     /// cymbal-resolution. Defaults to 0.0 in [`Config`] so enabling remote mode
     /// alone does not start sending traffic until rollout is ramped explicitly.
     pub sample_rate: f64,
+    /// Probability of selecting a random endpoint instead of the sticky
+    /// rendezvous endpoint for a routing key.
+    pub routing_jitter: f64,
     /// Cadence hint sent on `SubscribeRequest.tick_hint_ms`. The server may
     /// clamp this; the caller relies on whatever cadence the server settles on.
     /// Doubles as the freshness window: snapshots older than `2 *
@@ -66,7 +75,19 @@ impl RemoteResolutionConfig {
                     .remote_resolution_retry_max_backoff_ms
                     .max(config.remote_resolution_retry_backoff_ms.max(1)),
             ),
+            overload_ejection_initial: Duration::from_millis(
+                config.remote_resolution_overload_ejection_ms,
+            ),
+            overload_ejection_max: Duration::from_millis(
+                config
+                    .remote_resolution_overload_ejection_max_ms
+                    .max(config.remote_resolution_overload_ejection_ms),
+            ),
+            overload_ejection_decay: Duration::from_millis(
+                config.remote_resolution_overload_ejection_decay_ms,
+            ),
             sample_rate: normalized_sample_rate(config.remote_resolution_sample_rate),
+            routing_jitter: normalized_probability(config.remote_resolution_routing_jitter),
             subscribe_tick_hint: Duration::from_millis(
                 config.remote_resolution_subscribe_tick_hint_ms.max(1),
             ),
@@ -80,10 +101,14 @@ impl RemoteResolutionConfig {
 }
 
 fn normalized_sample_rate(sample_rate: f64) -> f64 {
-    if !sample_rate.is_finite() {
+    normalized_probability(sample_rate)
+}
+
+fn normalized_probability(value: f64) -> f64 {
+    if !value.is_finite() {
         return 1.0;
     }
-    sample_rate.clamp(0.0, 1.0)
+    value.clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
