@@ -27,6 +27,7 @@ TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
 TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
 TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS = 2.0
 TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS = 120.0  # sandbox provisioning can be slow
+PERMISSION_REQUEST_EVENT_TYPE = "permission_request"
 
 DATA_KEY = b"data"
 TaskRunStreamEntry = tuple[str, dict]
@@ -101,6 +102,17 @@ def get_task_run_stream_agent_active_key(stream_key: str) -> str:
 
 def get_task_run_stream_heartbeat_key(stream_key: str) -> str:
     return f"{stream_key}:ingest-heartbeat"
+
+
+def get_task_run_stream_pending_permissions_key(stream_key: str) -> str:
+    return f"{stream_key}:pending-permissions"
+
+
+def permission_request_id(event: dict) -> str | None:
+    if event.get("type") != PERMISSION_REQUEST_EVENT_TYPE:
+        return None
+    request_id = event.get("requestId")
+    return request_id if isinstance(request_id, str) and request_id else None
 
 
 class TaskRunRedisStream:
@@ -317,6 +329,33 @@ class TaskRunRedisStream:
         )
         return bool(claimed)
 
+    async def record_pending_permission(self, event: dict) -> None:
+        request_id = permission_request_id(event)
+        if request_id is None:
+            return
+        key = get_task_run_stream_pending_permissions_key(self._stream_key)
+        await self._redis_client.hset(key, request_id, json.dumps(event))
+        await self._redis_client.expire(key, self._timeout)
+
+    async def clear_pending_permission(self, request_id: str) -> None:
+        key = get_task_run_stream_pending_permissions_key(self._stream_key)
+        await self._redis_client.hdel(key, request_id)
+
+    async def clear_all_pending_permissions(self) -> None:
+        key = get_task_run_stream_pending_permissions_key(self._stream_key)
+        await self._redis_client.delete(key)
+
+    async def get_pending_permissions(self) -> list[dict]:
+        key = get_task_run_stream_pending_permissions_key(self._stream_key)
+        raw = await self._redis_client.hgetall(key)
+        events: list[dict] = []
+        for value in raw.values():
+            try:
+                events.append(json.loads(value))
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("task_run_stream_pending_permission_decode_failed", stream_key=self._stream_key)
+        return events
+
     async def write_event_with_sequence(self, event: dict, sequence: int) -> str | None:
         """Write an event if it is the next unseen sequence number.
 
@@ -498,8 +537,14 @@ class TaskRunRedisStream:
             completed_key = get_task_run_stream_completed_key(self._stream_key)
             agent_active_key = get_task_run_stream_agent_active_key(self._stream_key)
             heartbeat_key = get_task_run_stream_heartbeat_key(self._stream_key)
+            pending_permissions_key = get_task_run_stream_pending_permissions_key(self._stream_key)
             deleted = await self._redis_client.delete(
-                self._stream_key, sequence_key, completed_key, agent_active_key, heartbeat_key
+                self._stream_key,
+                sequence_key,
+                completed_key,
+                agent_active_key,
+                heartbeat_key,
+                pending_permissions_key,
             )
             return _normalize_redis_int(deleted) > 0
         except Exception:
@@ -523,6 +568,28 @@ def publish_task_run_stream_event(run_id: str, event: dict) -> str | None:
     except Exception:
         logger.exception("task_run_stream_publish_failed", run_id=run_id)
         return None
+
+
+def clear_pending_permission_event(run_id: str, request_id: str) -> None:
+    async def _clear() -> None:
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        await redis_stream.clear_pending_permission(request_id)
+
+    try:
+        async_to_sync(_clear)()
+    except Exception:
+        logger.exception("task_run_stream_clear_pending_permission_failed", run_id=run_id)
+
+
+def clear_all_pending_permission_events(run_id: str) -> None:
+    async def _clear() -> None:
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(run_id))
+        await redis_stream.clear_all_pending_permissions()
+
+    try:
+        async_to_sync(_clear)()
+    except Exception:
+        logger.exception("task_run_stream_clear_all_pending_permissions_failed", run_id=run_id)
 
 
 def publish_task_run_stream_complete(run_id: str) -> None:

@@ -287,6 +287,7 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            await redis_stream.record_pending_permission(event_data)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 

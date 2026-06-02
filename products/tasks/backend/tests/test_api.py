@@ -80,6 +80,21 @@ def _grant_user_github_access(user: User, *, refresh_ttl_seconds: int = 15897600
     )
 
 
+def _record_pending_permission(run: TaskRun, request_id: str) -> None:
+    async def _record() -> None:
+        redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+        await redis_stream.record_pending_permission(
+            {
+                "type": "permission_request",
+                "requestId": request_id,
+                "toolCall": {"toolCallId": f"tool-{request_id}", "title": "Approve?", "kind": "other"},
+                "options": [],
+            }
+        )
+
+    asyncio.run(_record())
+
+
 # Test RSA private key for JWT tests (RS256)
 TEST_RSA_PRIVATE_KEY = """-----BEGIN PRIVATE KEY-----
 MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDqh94SYMFsvG4C
@@ -5098,6 +5113,22 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["data"]["notification"]["method"], "_posthog/sandbox_output")
 
+    def test_stream_replays_pending_permission_on_connect_even_with_start_latest(self):
+        task = self.create_task()
+        run = task.create_run()
+        run.emit_console_event("info", "hello")
+        _record_pending_permission(run, "perm-1")
+        self._mark_stream_complete(run)
+
+        response = self.client.get(self._stream_url(task, run) + "?start=latest")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        events = self._collect_sse_events(response)
+        permission_events = [e for e in events if e["data"].get("type") == "permission_request"]
+        self.assertEqual(len(permission_events), 1)
+        self.assertEqual(permission_events[0]["data"]["requestId"], "perm-1")
+        self.assertIsNone(permission_events[0]["id"])
+
     def test_stream_start_latest_only_yields_new_events(self):
         task = self.create_task()
         run = task.create_run()
@@ -5568,6 +5599,13 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         mock_resp.text = json.dumps(body) if isinstance(body, dict) else str(body)
         mock_post.return_value = mock_resp
 
+    def _pending_permission_ids(self, run) -> list[str]:
+        async def _read() -> list[str]:
+            redis_stream = TaskRunRedisStream(get_task_run_stream_key(str(run.id)))
+            return [event["requestId"] for event in await redis_stream.get_pending_permissions()]
+
+        return asyncio.run(_read())
+
     @patch("products.tasks.backend.api.signal_task_followup_message")
     def test_command_signals_user_message(self, mock_signal_followup):
         task = self.create_task()
@@ -5754,6 +5792,51 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "permission_response")
         self.assertEqual(call_kwargs["json"]["params"]["requestId"], "perm-1")
         self.assertEqual(call_kwargs["json"]["params"]["optionId"], "allow")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_permission_response_clears_matching_pending_permission(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        _record_pending_permission(run, "perm-1")
+        _record_pending_permission(run, "perm-2")
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {
+                "jsonrpc": "2.0",
+                "method": "permission_response",
+                "params": {"requestId": "perm-1", "optionId": "allow"},
+                "id": "req-4",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._pending_permission_ids(run), ["perm-2"])
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @patch("products.tasks.backend.api.http_requests.post")
+    def test_command_cancel_clears_all_pending_permissions(self, mock_post):
+        reset_sandbox_jwt_key_cache()
+        self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-2", "result": {"cancelled": True}})
+
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        _record_pending_permission(run, "perm-1")
+        _record_pending_permission(run, "perm-2")
+
+        response = self.client.post(
+            self._command_url(task, run),
+            {"jsonrpc": "2.0", "method": "cancel", "id": "req-2"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._pending_permission_ids(run), [])
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")

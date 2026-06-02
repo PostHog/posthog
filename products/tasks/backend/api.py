@@ -138,6 +138,8 @@ from .stream.redis_stream import (
     TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS,
     TaskRunRedisStream,
     TaskRunStreamError,
+    clear_all_pending_permission_events,
+    clear_pending_permission_event,
     get_task_run_stream_key,
 )
 from .temporal.client import (
@@ -2354,6 +2356,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
             if agent_response.ok:
+                if method == "permission_response":
+                    clear_pending_permission_event(str(task_run.id), params["requestId"])
+                elif method == "cancel":
+                    clear_all_pending_permission_events(str(task_run.id))
                 return Response(agent_response.json())
 
             try:
@@ -2750,6 +2756,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 start_id = last_event_id or "0"
                 if not last_event_id and start_latest:
                     start_id = await redis_stream.get_latest_stream_id() or "0"
+
+                # No event id: a replay must not move the client's Last-Event-ID cursor.
+                for pending_permission in await redis_stream.get_pending_permissions():
+                    yield format_sse_event(pending_permission)
+
                 try:
                     async for stream_item in redis_stream.read_stream_entries(
                         start_id=start_id,

@@ -166,3 +166,65 @@ async def test_resume_point_trimmed_false_when_stream_empty() -> None:
         assert await redis_stream.resume_point_trimmed("123-0") is False
     finally:
         await redis_stream.delete_stream()
+
+
+def _permission_event(request_id: str, tool_call_id: str = "tool-1") -> dict:
+    return {
+        "type": "permission_request",
+        "requestId": request_id,
+        "toolCall": {"toolCallId": tool_call_id, "title": "Approve?", "kind": "other"},
+        "options": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_record_pending_permission_tracks_only_permission_requests() -> None:
+    redis_stream = _new_stream()
+    try:
+        await redis_stream.record_pending_permission({"type": "notification", "notification": {}})
+        await redis_stream.record_pending_permission({"type": "permission_request"})
+        await redis_stream.record_pending_permission(_permission_event("req-1"))
+
+        pending = await redis_stream.get_pending_permissions()
+
+        assert pending == [_permission_event("req-1")]
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_clear_pending_permission_removes_only_the_answered_request() -> None:
+    redis_stream = _new_stream()
+    try:
+        await redis_stream.record_pending_permission(_permission_event("req-1", "tool-1"))
+        await redis_stream.record_pending_permission(_permission_event("req-2", "tool-2"))
+
+        await redis_stream.clear_pending_permission("req-1")
+
+        assert await redis_stream.get_pending_permissions() == [_permission_event("req-2", "tool-2")]
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_clear_all_pending_permissions_empties_the_set() -> None:
+    redis_stream = _new_stream()
+    try:
+        await redis_stream.record_pending_permission(_permission_event("req-1", "tool-1"))
+        await redis_stream.record_pending_permission(_permission_event("req-2", "tool-2"))
+
+        await redis_stream.clear_all_pending_permissions()
+
+        assert await redis_stream.get_pending_permissions() == []
+    finally:
+        await redis_stream.delete_stream()
+
+
+@pytest.mark.asyncio
+async def test_delete_stream_clears_pending_permissions() -> None:
+    redis_stream = _new_stream()
+    await redis_stream.record_pending_permission(_permission_event("req-1"))
+
+    await redis_stream.delete_stream()
+
+    assert await redis_stream.get_pending_permissions() == []

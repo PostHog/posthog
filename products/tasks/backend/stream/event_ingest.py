@@ -184,6 +184,7 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
+            await redis_stream.record_pending_permission(event)
             await _heartbeat_workflow_if_needed(redis_stream, run_id, event)
     except EventIngestPayloadTooLarge as error:
         if result.last_accepted_seq and error.last_accepted_seq == 0:
