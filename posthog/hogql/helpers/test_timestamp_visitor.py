@@ -89,7 +89,51 @@ class TestTimestampVisitorSelectSetQuery(unittest.TestCase):
         self.assertFalse(helper_fn(node))
 
 
+class TestTimestampVisitorTypeCast(unittest.TestCase):
+    """Regression tests for visit_type_cast / visit_try_cast methods.
+
+    Postgres-style `::` casts (and CAST(...)) produce ast.TypeCast nodes that can reach these
+    visitors via the sessions where-clause extractor. Before these methods existed the visitors
+    raised NotImplementedError, crashing query execution.
+    """
+
+    @parameterized.expand(
+        [
+            (
+                "IsSimpleTimestampFieldExpressionVisitor",
+                lambda: IsSimpleTimestampFieldExpressionVisitor(_make_hogql_context(), None),
+            ),
+            ("IsTimeOrIntervalConstantVisitor", lambda: IsTimeOrIntervalConstantVisitor(None)),
+            ("IsStartOfDayConstantVisitor", lambda: IsStartOfDayConstantVisitor(None)),
+            ("IsStartOfHourConstantVisitor", lambda: IsStartOfHourConstantVisitor(None)),
+            ("IsEndOfDayConstantVisitor", lambda: IsEndOfDayConstantVisitor(None)),
+            ("IsEndOfHourConstantVisitor", lambda: IsEndOfHourConstantVisitor(None)),
+        ]
+    )
+    def test_type_cast_does_not_raise_not_implemented(self, _name: str, make_visitor) -> None:
+        type_cast = ast.TypeCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime")
+        try_cast = ast.TryCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime")
+        # Should not raise NotImplementedError
+        make_visitor().visit(type_cast)
+        make_visitor().visit(try_cast)
+
+
 class TestIsTimeOrIntervalConstant(unittest.TestCase):
+    def test_type_cast_of_constant_returns_true(self) -> None:
+        self.assertTrue(
+            is_time_or_interval_constant(ast.TypeCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"))
+        )
+
+    def test_type_cast_of_field_returns_false(self) -> None:
+        self.assertFalse(
+            is_time_or_interval_constant(ast.TypeCast(expr=ast.Field(chain=["timestamp"]), type_name="DateTime"))
+        )
+
+    def test_try_cast_of_constant_returns_true(self) -> None:
+        self.assertTrue(
+            is_time_or_interval_constant(ast.TryCast(expr=ast.Constant(value="2024-01-01"), type_name="DateTime"))
+        )
+
     def test_constant_returns_true(self) -> None:
         self.assertTrue(is_time_or_interval_constant(ast.Constant(value="2024-01-01")))
 
