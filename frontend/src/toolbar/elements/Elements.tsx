@@ -44,7 +44,7 @@ export function Elements(): JSX.Element {
         relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
-    const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const { highestClickCount, clickCount: totalClickCount } = useValues(heatmapToolbarMenuLogic)
     const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
     const {
         isSelecting: productToursSelecting,
@@ -120,6 +120,7 @@ export function Elements(): JSX.Element {
                     inspectEnabled={inspectEnabled}
                     heatmapPointerEvents={heatmapPointerEvents}
                     highestClickCount={highestClickCount}
+                    totalClickCount={totalClickCount}
                     selectElement={selectElement}
                     setHoverElement={setHoverElement}
                 />
@@ -164,6 +165,7 @@ interface HeatmapOverlayElementsProps {
     inspectEnabled: boolean
     heatmapPointerEvents: 'none' | 'all'
     highestClickCount: number
+    totalClickCount: number
     selectElement: (element: HTMLElement) => void
     setHoverElement: (element: HTMLElement | null) => void
 }
@@ -171,6 +173,7 @@ interface HeatmapOverlayElementsProps {
 const HeatmapOverlayElements = memo(function HeatmapOverlayElements({
     heatmapElements,
     hoverElement,
+    totalClickCount,
     selectedElement,
     inspectEnabled,
     heatmapPointerEvents,
@@ -225,6 +228,11 @@ const HeatmapOverlayElements = memo(function HeatmapOverlayElements({
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {compactNumber(clickCount || 0)}
+                                {totalClickCount > 0 && clickCount ? (
+                                    <span className="ml-0.5 text-xs opacity-75">
+                                        {((clickCount / totalClickCount) * 100).toFixed(1)}%
+                                    </span>
+                                ) : null}
                             </AutocaptureElementLabel>
                         )}
                         {!!rageclickCount && (

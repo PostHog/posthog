@@ -307,12 +307,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
         clickCount: [
             (s) => [s.countedElements],
-            (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
+            (countedElements) =>
+                countedElements ? countedElements.map((e) => e.clickCount).reduce((a, b) => a + b, 0) : 0,
         ],
         highestClickCount: [
             (s) => [s.countedElements],
             (countedElements) =>
-                countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
+                countedElements ? countedElements.map((e) => e.clickCount).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
 
         scrollDepthPosthogJsError: [

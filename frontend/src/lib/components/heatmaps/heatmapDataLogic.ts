@@ -342,6 +342,21 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
+        heatmapTotalCount: [
+            (s) => [s.heatmapElements, s.heatmapFixedPositionMode],
+            (heatmapElements: HeatmapElement[], heatmapFixedPositionMode): number => {
+                if (!heatmapElements || heatmapElements.length === 0) {
+                    return 0
+                }
+                return heatmapElements.reduce((sum, el) => {
+                    if (heatmapFixedPositionMode === 'hidden' && el.targetFixed) {
+                        return sum
+                    }
+                    return sum + el.count
+                }, 0)
+            },
+        ],
+
         heatmapEmpty: [
             (s) => [s.rawHeatmap, s.rawHeatmapLoading],
             (rawHeatmap, rawHeatmapLoading) => {
