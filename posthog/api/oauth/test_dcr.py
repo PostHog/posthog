@@ -387,24 +387,46 @@ class TestDynamicClientRegistration(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("single_scope", "experiment:read", ["experiment:read"]),
-            ("multiple_scopes", "experiment:read dashboard:write", ["experiment:read", "dashboard:write"]),
-            ("strips_privileged", "experiment:read llm_gateway:read llm_gateway:write", ["experiment:read"]),
-            ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"]),
-            ("strips_hidden", "experiment:read metrics:read wizard_session:write", ["experiment:read"]),
-            ("strips_unknown_junk", "experiment:read not_a_real:scope", ["experiment:read"]),
-            ("only_privileged_yields_empty", "llm_gateway:read llm_gateway:write", []),
-            ("only_disallowed_yields_empty", "signal_scout_internal:write metrics:read not_a_real:scope", []),
+            # (name, requested scope, expected app.scopes ceiling, expected echoed `scope` in 201 — None means omitted)
+            ("single_scope", "experiment:read", ["experiment:read"], "experiment:read"),
+            (
+                "multiple_scopes",
+                "experiment:read dashboard:write",
+                ["experiment:read", "dashboard:write"],
+                "experiment:read dashboard:write",
+            ),
+            (
+                "strips_privileged",
+                "experiment:read llm_gateway:read llm_gateway:write",
+                ["experiment:read"],
+                "experiment:read",
+            ),
+            ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
+            (
+                "strips_hidden",
+                "experiment:read metrics:read wizard_session:write",
+                ["experiment:read"],
+                "experiment:read",
+            ),
+            ("strips_unknown_junk", "experiment:read not_a_real:scope", ["experiment:read"], "experiment:read"),
+            ("only_privileged_yields_empty", "llm_gateway:read llm_gateway:write", [], None),
+            ("only_disallowed_yields_empty", "signal_scout_internal:write metrics:read not_a_real:scope", [], None),
             (
                 "dedupes_preserving_order",
                 "experiment:read dashboard:read experiment:read",
                 ["experiment:read", "dashboard:read"],
+                "experiment:read dashboard:read",
             ),
-            ("blank_string_yields_empty", "", []),
-            ("extra_whitespace_ignored", "  experiment:read   dashboard:read ", ["experiment:read", "dashboard:read"]),
+            ("blank_string_yields_empty", "", [], None),
+            (
+                "extra_whitespace_ignored",
+                "  experiment:read   dashboard:read ",
+                ["experiment:read", "dashboard:read"],
+                "experiment:read dashboard:read",
+            ),
         ]
     )
-    def test_scope_registration_writes_filtered_ceiling(self, _name, scope, expected_scopes):
+    def test_scope_registration_writes_filtered_ceiling(self, _name, scope, expected_scopes, expected_response_scope):
         response = self.client.post(
             "/oauth/register/",
             {"redirect_uris": ["https://example.com/callback"], "scope": scope},
@@ -413,8 +435,14 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
         self.assertEqual(app.scopes, expected_scopes)
+        if expected_response_scope is None:
+            self.assertNotIn("scope", response.json())
+        else:
+            self.assertEqual(response.json()["scope"], expected_response_scope)
 
     def test_register_without_scope_leaves_ceiling_empty(self):
+        # Distinct from blank_string above: the `scope` key is absent entirely, exercising
+        # the `data.get("scope")` None branch rather than the empty-string branch.
         response = self.client.post(
             "/oauth/register/",
             {"redirect_uris": ["https://example.com/callback"]},
@@ -423,24 +451,6 @@ class TestDynamicClientRegistration(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         app = OAuthApplication.objects.get(client_id=response.json()["client_id"])
         self.assertEqual(app.scopes, [])
-        self.assertNotIn("scope", response.json())
-
-    def test_scope_echoed_in_response_after_privileged_strip(self):
-        response = self.client.post(
-            "/oauth/register/",
-            {"redirect_uris": ["https://example.com/callback"], "scope": "experiment:read llm_gateway:write"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["scope"], "experiment:read")
-
-    def test_scope_not_echoed_when_all_privileged_stripped(self):
-        response = self.client.post(
-            "/oauth/register/",
-            {"redirect_uris": ["https://example.com/callback"], "scope": "llm_gateway:read llm_gateway:write"},
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertNotIn("scope", response.json())
 
     CODE_VERIFIER = "dcr_scope_test_verifier"
