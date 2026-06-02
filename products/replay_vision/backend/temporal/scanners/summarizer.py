@@ -56,7 +56,7 @@ class SummarizerLlmResponse(BaseScannerOutput, frozen=True):
 
 
 class SummarizerOutput(SummarizerLlmResponse, frozen=True):
-    """Persisted output: defaults keep older flag-off rows round-tripping cleanly."""
+    """Persisted output."""
 
     scanner_type: Literal[ScannerType.SUMMARIZER] = ScannerType.SUMMARIZER
     summary_segments: list[Segment] = Field(default_factory=list)

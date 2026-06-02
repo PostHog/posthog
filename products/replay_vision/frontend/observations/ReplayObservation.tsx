@@ -40,7 +40,6 @@ export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
     productKey: ProductKey.REPLAY_VISION,
 }
 
-/** Subscribes to the player's data and fires `seekToTime` once per `trigger` increment after metadata is available. */
 function AutoSeekToTime({
     playerKey,
     sessionRecordingId,
@@ -52,11 +51,11 @@ function AutoSeekToTime({
     ms: number
     trigger: number
 }): null {
-    // `sessionPlayerData.start`/`.end` are fresh Dayjs objects on every snapshot batch — compare epochs so deps stay stable.
     const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
+    // `start`/`end` are fresh Dayjs objects on every snapshot batch; compare epochs so deps stay stable.
     const startMs = sessionPlayerData?.start?.valueOf() ?? null
     const endMs = sessionPlayerData?.end?.valueOf() ?? null
-    // Latch per-trigger so a repeat click re-fires but snapshot-batch arrivals don't re-seek and fight playback.
+    // Latch per-trigger so snapshot-batch arrivals don't re-seek and fight playback.
     const seekedForTrigger = useRef<number | null>(null)
     useEffect(() => {
         if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {

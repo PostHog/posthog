@@ -1,8 +1,6 @@
 from django.db import migrations
 
-# Idempotent backfill: rewrites monitor observations' `verdict` from boolean to the literal
-# strings 'yes' / 'no' so the persisted output JSON matches the new MonitorOutput schema.
-# Replay vision is in closed beta with very low row counts, so a single UPDATE is fine.
+# Idempotent — the `jsonb_typeof = 'boolean'` guard makes a re-run a no-op.
 _BACKFILL_SQL = """
 UPDATE replay_vision_replayobservation
 SET scanner_result = jsonb_set(
