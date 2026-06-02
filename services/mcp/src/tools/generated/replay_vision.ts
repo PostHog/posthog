@@ -37,6 +37,7 @@ const visionObservationsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                order_by: params.order_by,
                 session_id: params.session_id,
             },
         })

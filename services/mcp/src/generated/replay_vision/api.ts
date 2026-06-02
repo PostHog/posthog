@@ -22,6 +22,12 @@ export const VisionObservationsListParams = /* @__PURE__ */ zod.object({
 export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .optional()
+        .describe(
+            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
+        ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
 
