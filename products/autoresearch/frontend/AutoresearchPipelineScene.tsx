@@ -187,7 +187,7 @@ function ArtifactViewerModal(): JSX.Element {
                     ? `${humanizeBytes(viewedArtifact.sizeBytes)} · run ${viewedArtifact.runId.slice(0, 8)}`
                     : undefined
             }
-            width={720}
+            width={960}
         >
             {viewedArtifactLoading ? (
                 <Spinner />
